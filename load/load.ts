@@ -204,6 +204,18 @@ export interface Memory {
   commit?: boolean;
 }
 
+/**
+ * How much of a conversation a turn is shown: the last `messages` (10 when
+ * unsaid, a question and its answer being two), and none older than `days`
+ * (no limit when unsaid). A conversation is one chat, or one topic in a forum,
+ * so this belongs to the channel it happens on: a job is never shown one.
+ * Nothing is deleted; what is left out is only not shown to the model.
+ */
+export interface ChatHistory {
+  messages?: number;
+  days?: number;
+}
+
 /** A way in to an agent, listed in its definition: `channels: [telegramChannel({ ... })]`. */
 export interface Channel {
   /**
@@ -212,6 +224,8 @@ export interface Channel {
    * that lets a token reach the agent.
    */
   name: string;
+  /** How much of a conversation on this channel a turn is shown. */
+  chatHistory?: ChatHistory;
   /** Starts listening. `agent` is read again for every message, so an edit is live. */
   start(agent: () => Agent | undefined): Running;
 }

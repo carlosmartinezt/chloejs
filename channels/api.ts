@@ -33,8 +33,9 @@
 //
 // It does not carry a job's question out to anybody, because HTTP cannot push.
 // A job that stops to ask waits in GET /api/parked like it always did.
-import type { Channel } from "#chloe/load/load.ts";
+import type { Channel, ChatHistory } from "#chloe/load/load.ts";
 
-export function apiChannel(): Channel {
-  return { name: "api", start: () => ({ stop: () => {} }) };
+/** `chatHistory` is how much of a caller's thread a turn is shown. */
+export function apiChannel(options: { chatHistory?: ChatHistory } = {}): Channel {
+  return { name: "api", chatHistory: options.chatHistory, start: () => ({ stop: () => {} }) };
 }

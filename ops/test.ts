@@ -35,16 +35,23 @@ import { about, failed, is } from "#chloe/ops/check.ts";
 type Said = string | { content?: string; tool_calls?: unknown[] };
 const answers: Said[] = [];
 let asked = 0;
-const gateway = createServer((_request, response) => {
-  asked++;
-  const next = answers.shift() ?? "{}";
-  response.writeHead(200, { "content-type": "application/json" });
-  response.end(
-    JSON.stringify({
-      choices: [{ message: typeof next === "string" ? { content: next } : next }],
-      usage: { cost: 0.0002, prompt_tokens: 10, completion_tokens: 10 },
-    }),
-  );
+/** The messages the last call was sent, for a case that checks what a model was shown. */
+let lastAsked: { role: string; content: string }[] = [];
+const gateway = createServer((request, response) => {
+  let raw = "";
+  request.on("data", (chunk) => (raw += chunk));
+  request.on("end", () => {
+    asked++;
+    lastAsked = (JSON.parse(raw || "{}") as { messages?: typeof lastAsked }).messages ?? [];
+    const next = answers.shift() ?? "{}";
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(
+      JSON.stringify({
+        choices: [{ message: typeof next === "string" ? { content: next } : next }],
+        usage: { cost: 0.0002, prompt_tokens: 10, completion_tokens: 10 },
+      }),
+    );
+  });
 });
 await new Promise<void>((done) => gateway.listen(0, "127.0.0.1", done));
 process.env.AI_GATEWAY_URL = `http://127.0.0.1:${(gateway.address() as { port: number }).port}/v1/chat/completions`;
@@ -1075,6 +1082,8 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
   await pause(100);
   is("a message a job answers goes to that job, whole", handed, ["\u201cA line from a book.\u201d \u2014 A Book"]);
   is("and its summary is the reply", said(), ["-100: Filed."]);
+  const { recall: recalled } = await import("#chloe/model/memory.ts");
+  is("and the exchange is kept in that chat's conversation", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["\u201cA line from a book.\u201d \u2014 A Book", "Filed."]);
   is("the / menu is the agent's jobs", calls.find((c) => c.method === "setMyCommands")?.body.commands, [{ command: "highlights", description: "highlights" }]);
   telegram.close();
 
@@ -1182,7 +1191,7 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
     { tool: "write_notes", args: { path: "chess.html", content: "x".repeat(1000) } },
   ]);
   remember("test/tools", "assistant", "Anything else?");
-  const told = recall("test/tools", 10, { tools: true });
+  const told = recall("test/tools", { limit: 10, tools: true });
   is("the next turn sees the calls, then the reply", told.map((one) => one.role), ["user", "assistant", "tool", "tool", "assistant", "assistant"]);
   is("in the shape a turn's own calls take", told[1].tool_calls?.[0].function, { name: "read_page", arguments: '{"url":"https://example.com/pairings"}' });
   is("a whole file written is cut short", JSON.parse(told[1].tool_calls![1].function.arguments).content.length, 303);
@@ -1190,6 +1199,23 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
   is("the reply itself is left as it was", told[4].content, "Board 210.");
   is("a reply that called nothing is too", told[5].content, "Anything else?");
   is("the page shows only the words", recall("test/tools").map((one) => one.content), ["What board am I on?", "Board 210.", "Anything else?"]);
+
+  // How much of a conversation is shown: a count, and an age.
+  const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
+  db.prepare("insert into messages (thread, role, content, at) values ('test/old', 'user', 'long ago', ?)").run(old);
+  remember("test/old", "user", "yesterday-ish");
+  remember("test/old", "assistant", "just now");
+  is("the last few, oldest first", recall("test/old", { limit: 2 }).map((m) => m.content), ["yesterday-ish", "just now"]);
+  is("and none older than the days given", recall("test/old", { days: 30 }).map((m) => m.content), ["yesterday-ish", "just now"]);
+  is("which are still there when nothing limits the age", recall("test/old").length, 3);
+
+  // What a turn is shown is its channel's chatHistory.
+  answers.push("Noted.");
+  const { receive } = await import("#chloe/channels/shared.ts");
+  const brief = agentFor(codeJob("unused", async () => ({})));
+  await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "and today?", private: true }, { chatHistory: { messages: 1 } });
+  const shownTo = lastAsked.filter((m) => m.role !== "system").map((m) => m.content);
+  is("a channel's chatHistory is what a turn on it is shown", shownTo, ["just now", "and today?"]);
 }
 
 {

@@ -36,7 +36,7 @@ import { type Caller, caller, createAccount, from, hasAccount, overHttps, setCoo
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "./alerts.ts";
 import { docsPage, type RouteDoc, sitePage } from "./site.ts";
-import { turn } from "#chloe/core/turn.ts";
+import { receive } from "#chloe/channels/shared.ts";
 import { answer, checkInput, parkedRuns } from "#chloe/core/steps.ts";
 
 /**
@@ -288,7 +288,7 @@ export const routes: Route[] = [
     path: "/api/threads/:thread",
     does: "What was said in one conversation.",
     token: true,
-    handle: ({ response, params }) => json(response, recall(decodeURIComponent(params.thread), 100)),
+    handle: ({ response, params }) => json(response, recall(decodeURIComponent(params.thread), { limit: 100 })),
   },
   {
     method: "GET",
@@ -330,8 +330,24 @@ export const routes: Route[] = [
       );
       // A token's threads are kept apart from the ones a person started, so two
       // callers cannot land in each other's conversation.
-      const under = who?.kind === "token" && thread ? `${agent.name}/api-${thread}` : thread;
-      json(response, await turn({ agent, prompt, thread: under, model, source: under ? "chat" : channelOf(request) }));
+      const token = who?.kind === "token";
+      const under = token && thread ? `${agent.name}/api-${thread}` : (thread ?? "");
+      // The same path as every channel's message, so a /command or a message a
+      // job answers goes to that job here too. Who may call this is already
+      // settled by the login or the token, so there is no allowFrom.
+      // Somebody signed in with a thread is the page's own chat, which the api
+      // channel's settings are not for.
+      const channel = !token && thread ? "chat" : channelOf(request);
+      const handled = await receive(agent, {
+        channel,
+        chat: under,
+        thread: under,
+        from: token ? { id: who.token.id, name: who.token.name } : { id: "account", name: "the account" },
+        text: prompt,
+        private: true,
+        model,
+      }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory });
+      json(response, handled);
     },
   },
   {

@@ -505,8 +505,17 @@ channel fills for its own agent, so an agent's question goes out through its
 own bot. The runtime still reaches somebody without knowing how, and an agent is
 put on a channel by adding one entry to `channels` in its `agent.ts`.
 
+**What happens to a message is `channels/shared.ts`, and no channel decides it
+for itself.** allowFrom, an answer to a job waiting on the chat, whether a group
+message is for the agent, `/commands`, a job that `answers` a plain message, and
+the turn with the chat's recent conversation are all `receive()`. A channel
+turns its platform's message into an `Incoming`, calls `receive()`, and sends
+back the text. If a new channel needs a rule the others would want too, the rule
+goes in `shared.ts`. The API's chat route goes through it as well.
+
 A channel chloe does not ship is written in the agent's own `channels/` folder,
-exporting a `Channel` with its own `name`, without editing anything in the runtime.
+exporting a `Channel` with its own `name` and importing `receive` from
+`chloejs/channels/shared`, without editing anything in the runtime.
 
 ## House style
 

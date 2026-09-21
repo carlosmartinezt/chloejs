@@ -24,24 +24,19 @@
 //              TELEGRAM_WEBHOOK_SECRET_TOKEN (or credentials.webhookSecretToken)
 //              on every call. chloe registers the address itself on start.
 //
-// A plain message that one of the agent's jobs `answers` goes to that job, the
-// same as its command would, and not to the chat.
-//
-// In a group, the agent answers a command (/ask), a message that mentions the
-// bot, or a reply to one of the bot's own messages, and nothing else. With
-// `inGroups: "always"` it answers every message in a group from someone in
-// allowFrom, the way it does in a private chat. Either way nobody outside
-// allowFrom is answered. Telegram only hands a bot every group message when
-// its privacy mode is off (BotFather, /setprivacy) or it is a group admin.
+// What happens to a message once it is read (allowFrom, a job waiting on an
+// answer, /commands, jobs that answer plain messages, groups, the chat) is
+// channels/shared.ts, the same for every channel. This file reads Telegram,
+// sends to it, and nothing else. With `inGroups: "always"`, remember that
+// Telegram only hands a bot every group message when its privacy mode is off
+// (BotFather, /setprivacy) or it is a group admin.
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { type Agent, type Channel, type Job, type Running } from "#chloe/load/load.ts";
+import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe/load/load.ts";
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask.ts";
 import type { Attachment } from "#chloe/model/model.ts";
-import { answer as answerRun, waitingOn, WrongInput } from "#chloe/core/steps.ts";
-import { clock } from "#chloe/core/clock.ts";
-import { turn } from "#chloe/core/turn.ts";
+import { commands, receive, type Incoming, type Rules } from "./shared.ts";
 
 const MAX_MESSAGE = 4000; // Telegram rejects anything over 4096.
 const WAIT = 50; // Seconds Telegram holds a poll open when there is nothing new.
@@ -68,6 +63,8 @@ export interface TelegramOptions {
    * someone in allowFrom.
    */
   inGroups?: "when-addressed" | "always";
+  /** How much of a chat's conversation a turn is shown: `{ messages, days }`. */
+  chatHistory?: ChatHistory;
   mode?: "polling" | "webhook";
   /** Where this server is reachable from outside, for mode "webhook", like "https://agents.example.com". */
   publicUrl?: string;
@@ -116,6 +113,7 @@ interface Update {
 export function telegramChannel(options: TelegramOptions = {}): Channel {
   return {
     name: options.name ?? "telegram",
+    chatHistory: options.chatHistory,
     start(agent) {
       const name = agent()?.name ?? "";
       const token = options.credentials?.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
@@ -158,7 +156,7 @@ export function listen(
   const { name, token } = options;
   const channel = options.channel ?? "telegram";
   const api = options.api ?? "https://api.telegram.org";
-  const allowFrom = new Set(options.allowFrom ?? []);
+  const rules: Rules = { allowFrom: options.allowFrom ?? [], inGroups: options.inGroups, chatHistory: options.chatHistory };
   const mode = options.mode ?? "polling";
   const path = `/chloe/v1/${name}/${channel}`;
   const secret = options.credentials?.webhookSecretToken || process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN || randomBytes(24).toString("hex");
@@ -204,37 +202,6 @@ export function listen(
   // A private chat's id is the person's user id, so the first allowed person is reachable at it.
   if (options.allowFrom?.[0]) ownedBy(name, `${channel}:${options.allowFrom[0]}`);
 
-  function allowed(from: User | undefined, chatId: number, isPrivate: boolean): boolean {
-    if (!from) return false;
-    if (allowFrom.size === 0) {
-      console.log(`telegram: user ${from.id} wrote to ${name}. Add ${from.id} to allowFrom in ${name}'s telegram channel.`);
-      if (isPrivate) {
-        void send(chatId, `Your Telegram user id is ${from.id}. Add it to allowFrom in ${name}'s telegram channel.`).catch(() => {});
-      }
-      return false;
-    }
-    if (!allowFrom.has(from.id)) {
-      // In a group the bot sees everybody's messages, and most are not for it.
-      if (!isPrivate) return false;
-      console.warn(`telegram: ${name} is ignoring user ${from.id}${from.username ? ` (@${from.username})` : ""}, not in allowFrom`);
-      return false;
-    }
-    return true;
-  }
-
-  /** In a group, a message is for the bot when it is a command, mentions it, or replies to it, or always with inGroups "always". */
-  function addressed(message: TgMessage, text: string): { yes: boolean; mentioned: boolean } {
-    if (message.chat.type === "private") return { yes: true, mentioned: false };
-    const username = options.botUsername ?? me?.username ?? "";
-    const entities = message.entities ?? message.caption_entities ?? [];
-    const mentioned =
-      !!username &&
-      entities.some((e) => e.type === "mention" && text.slice(e.offset, e.offset + e.length).toLowerCase() === `@${username.toLowerCase()}`);
-    const command = text.startsWith("/");
-    const replyToBot = !!me && message.reply_to_message?.from?.id === me.id;
-    return { yes: options.inGroups === "always" || mentioned || command || replyToBot, mentioned };
-  }
-
   function wanted(mediaType: string): boolean {
     return allowedTypes.some((one) => (one.endsWith("/*") ? mediaType.startsWith(one.slice(0, -1)) : one === mediaType));
   }
@@ -268,177 +235,70 @@ export function listen(
     return () => clearInterval(timer);
   }
 
-  /** An answer to a job that is waiting on this chat. Understood by the job, never by a model. */
-  async function answerParked(chatId: number, text: string, extra: object): Promise<boolean> {
-    const waiting = waitingOn(`${channel}:${chatId}`, name);
-    if (!waiting) return false;
-    try {
-      const found = options.agent();
-      const result = await answerRun(waiting.id, text, new Map(found ? [[name, found]] : []));
-      // Still parked means the answer did not fit, and the job has already asked again.
-      if (!result.parked) await send(chatId, result.summary || result.text || "Done.", extra);
-    } catch (error) {
-      console.error("telegram: answering a parked run failed", error);
-      await send(chatId, "I could not carry that job on. It is in the logs on the box.", extra).catch(() => {});
-    }
-    return true;
-  }
-
-  /**
-   * A message beginning with `/<job id>` runs that job, and nothing asks a
-   * model what was meant. "If the message starts with /x, run x" is a rule
-   * somebody can write down, so it is code.
-   *
-   * What the job is started with is the same envelope from every channel, so a
-   * job written against it works from all of them: `text` is the message with
-   * the command taken off, and `from`, `chat`, `chatTitle`, `user`, `thread`
-   * and `replyTo` say where it came from. The job's own `input` shape decides
-   * which of those it wants and what is required.
-   *
-   * Telegram's own command list allows no hyphens, so `/reading_companion`
-   * reaches `reading-companion` too and can be registered with BotFather.
-   * `/cmd@thebot` is how a group addresses one bot of several.
-   */
-  async function commanded(message: TgMessage, text: string, extra: object, topic?: number): Promise<boolean> {
-    if (!text.startsWith("/")) return false;
-    const agent = options.agent();
-    if (!agent) return false;
-
-    const [word, ...rest] = text.trim().split(/\s+/);
-    const asked = word.slice(1).split("@")[0].toLowerCase();
-    const job = agent.jobs.find((one) => one.id === asked || one.id === asked.replace(/_/g, "-"));
-    // Not one of this agent's jobs, so it is just a message that starts with a
-    // slash, and the model can make of it what it likes.
-    if (!job) return false;
-    return runJob(agent, job, message, text.slice(word.length).trim() || rest.join(" "), extra, topic);
-  }
-
-  /**
-   * A plain message one of the agent's jobs says it answers, like a Kindle
-   * highlight, goes to that job with the whole message as its text, and never
-   * reaches the chat. A job's check that throws is treated as a no.
-   */
-  async function answeredByJob(message: TgMessage, text: string, extra: object, topic?: number): Promise<boolean> {
-    const agent = options.agent();
-    if (!agent) return false;
-    const job = agent.jobs.find((one) => {
-      try {
-        return one.answers?.(text) === true;
-      } catch (error) {
-        console.error(`telegram: ${agent.name}/${one.id}'s answers check failed:`, (error as Error).message);
-        return false;
-      }
-    });
-    if (!job) return false;
-    return runJob(agent, job, message, text, extra, topic);
-  }
-
-  /** Starts a job from a message in this chat and sends back its summary. */
-  async function runJob(agent: Agent, job: Job, message: TgMessage, text: string, extra: object, topic?: number): Promise<boolean> {
-    const started = clock();
-    if (!started) return false;
-
+  /** A Telegram message in the words every channel shares. The rest is receive()'s. */
+  function incoming(message: TgMessage, from: User, text: string): Incoming {
     const chatId = message.chat.id;
-    const from = message.from!;
+    const username = options.botUsername ?? me?.username ?? "";
+    const entities = message.entities ?? message.caption_entities ?? [];
+    const mentioned =
+      !!username &&
+      entities.some((e) => e.type === "mention" && text.slice(e.offset, e.offset + e.length).toLowerCase() === `@${username.toLowerCase()}`);
+    const replyToBot = !!me && message.reply_to_message?.from?.id === me.id;
+    // A forum topic is its own conversation.
+    const topic = message.is_topic_message ? message.message_thread_id : undefined;
     const quoted = message.reply_to_message;
-    const input = {
-      text,
-      from: channel,
+    return {
+      channel,
       chat: String(chatId),
+      thread: `${name}/${channel}-${chatId}${topic ? `-${topic}` : ""}`,
+      from: { id: String(from.id), name: from.username ? `@${from.username}` : (from.first_name ?? String(from.id)) },
+      text,
+      private: message.chat.type === "private",
+      addressed: mentioned || replyToBot,
       chatTitle: message.chat.title ?? "",
-      user: from.username ? `@${from.username}` : (from.first_name ?? String(from.id)),
-      thread: `${name}/telegram-${chatId}${topic ? `-${topic}` : ""}`,
       replyTo: quoted?.text ?? quoted?.caption ?? "",
+      context: {
+        chat_type: message.chat.type,
+        ...(message.chat.title ? { chat_title: message.chat.title } : {}),
+        bot_username: username,
+        is_mentioned: String(mentioned),
+      },
+      files: async () => {
+        const file = await fileOn(message);
+        return { attachments: file.attachment ? [file.attachment] : [], text: file.text, notes: file.note ? [file.note] : [] };
+      },
     };
-
-    const stopTyping = typing(chatId, topic);
-    try {
-      const result = await started.fire(agent, job, input, channel);
-      stopTyping();
-      if (!result) {
-        await send(chatId, `${job.id} is already running. I will not start a second one.`, extra);
-        return true;
-      }
-      // Parked means it has already asked its question in this chat.
-      if (!result.parked) await send(chatId, result.summary || result.text || `${job.id}: done.`, extra);
-    } catch (error) {
-      stopTyping();
-      // What the caller sent did not fit the job, which is worth saying in the
-      // chat: it is their message that has to change.
-      const why = error instanceof WrongInput ? (error as Error).message : "It is in the logs on the box.";
-      await send(chatId, `I could not run ${job.id}. ${why}`, extra).catch(() => {});
-    } finally {
-      stopTyping();
-    }
-    return true;
   }
-
 
   async function onMessage(message: TgMessage): Promise<void> {
-    const chatId = message.chat.id;
+    const agent = options.agent();
     const text = message.text ?? message.caption ?? "";
-    if (!text && !message.photo && !message.document) return;
-    if (!allowed(message.from, chatId, message.chat.type === "private")) return;
-    const { yes, mentioned } = addressed(message, text);
-    if (!yes) return;
-
-    // A forum topic is its own conversation.
+    if (!agent || !message.from || (!text && !message.photo && !message.document)) return;
+    const chatId = message.chat.id;
     const topic = message.is_topic_message ? message.message_thread_id : undefined;
     const extra = {
       ...(topic ? { message_thread_id: topic } : {}),
       ...(message.chat.type === "private" ? {} : { reply_parameters: { message_id: message.message_id } }),
     };
-
-    if (text && (await answerParked(chatId, text, extra))) return;
-    if (text && (await commanded(message, text, extra, topic))) return;
-    if (text && (await answeredByJob(message, text, extra, topic))) return;
-
-    const agent = options.agent();
-    if (!agent) return;
-    const stopTyping = typing(chatId, topic);
-    try {
-      const file = await fileOn(message);
-      const from = message.from!;
-      const context = [
-        "<telegram_context>",
-        `chat_type: ${message.chat.type}`,
-        ...(message.chat.title ? [`chat_title: ${message.chat.title}`] : []),
-        `from: ${from.first_name ?? ""}${from.username ? ` (@${from.username})` : ""}`,
-        `bot_username: ${options.botUsername ?? me?.username ?? ""}`,
-        `is_mentioned: ${mentioned}`,
-        "</telegram_context>",
-      ].join("\n");
-      const result = await turn({
-        agent,
-        prompt: [context, text, file.text, file.note].filter(Boolean).join("\n\n"),
-        attachments: file.attachment ? [file.attachment] : undefined,
-        // One thread per chat, and per topic in a forum.
-        thread: `${name}/telegram-${chatId}${topic ? `-${topic}` : ""}`,
-        source: channel,
-        owner: `${channel}:${from.id}`,
-      });
-      stopTyping();
-      await send(chatId, result.text || "(no reply)", extra);
-    } catch (error) {
-      console.error("telegram: turn failed", error);
-      stopTyping();
-      await send(chatId, "Something went wrong on my end. It is in the logs on the box.", extra).catch(() => {});
-    } finally {
-      stopTyping();
-    }
+    const handled = await receive(agent, incoming(message, message.from, text), rules, () => typing(chatId, topic));
+    if (handled?.text) await send(chatId, handled.text, extra).catch((error) => console.error("telegram:", error.message));
   }
 
-  /** A button under a job's question. Its label is the answer, read back off the message it was on. */
+  /** A pressed button is its text, sent by whoever pressed it, which is how it answers a waiting job. */
   async function onButton(query: NonNullable<Update["callback_query"]>): Promise<void> {
     await call("answerCallbackQuery", { callback_query_id: query.id }).catch(() => {});
     const message = query.message;
-    if (!message || !allowed(query.from, message.chat.id, message.chat.type === "private")) return;
+    const agent = options.agent();
+    if (!message || !agent) return;
     const index = Number(query.data?.replace(/^a:/, ""));
     const choice = message.reply_markup?.inline_keyboard?.flat()[index]?.text;
     if (!choice) return;
+    const topic = message.message_thread_id;
+    const handled = await receive(agent, { ...incoming(message, query.from, choice), addressed: true }, rules);
+    if (!handled) return;
     // Take the buttons away so the question cannot be answered twice, and say what was chosen.
     await call("editMessageText", { chat_id: message.chat.id, message_id: message.message_id, text: `${message.text ?? ""}\n\n→ ${choice}` }).catch(() => {});
-    await answerParked(message.chat.id, choice, message.message_thread_id ? { message_thread_id: message.message_thread_id } : {});
+    if (handled.text) await send(message.chat.id, handled.text, topic ? { message_thread_id: topic } : {}).catch(() => {});
   }
 
   /**
@@ -452,12 +312,10 @@ export function listen(
   async function syncMenu(): Promise<void> {
     const agent = options.agent();
     if (!agent) return;
-    const commands = agent.jobs
-      .map((job) => ({ command: job.id.replace(/-/g, "_").toLowerCase(), description: (job.description || job.id).slice(0, 256) }))
-      .filter((one) => /^[a-z0-9_]{1,32}$/.test(one.command));
-    const now = JSON.stringify(commands);
+    const listed = commands(agent);
+    const now = JSON.stringify(listed);
     if (now === menu) return;
-    await call("setMyCommands", { commands });
+    await call("setMyCommands", { commands: listed });
     menu = now;
   }
 

@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import { db } from "#chloe/core/db.ts";
 import { oneLineSummary } from "#chloe/core/markdown.ts";
-import type { Agent, Skill } from "#chloe/load/load.ts";
+import type { Agent, ChatHistory, Skill } from "#chloe/load/load.ts";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model.ts";
 import { recall, remember } from "#chloe/model/memory.ts";
 import { describe, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool.ts";
@@ -28,6 +28,8 @@ export interface Ask {
   source: string;
   /** The job this turn is, when it is one. */
   job?: string;
+  /** How much of `thread` to show: the channel's `chatHistory`. The last 10 messages when unsaid. */
+  history?: ChatHistory;
   /** Who this run is for, as an address. One column, and the team version reads it. */
   owner?: string;
   /** Answer tools from here instead of running them. For evals. */
@@ -44,6 +46,10 @@ export interface Result {
   calls: Call[];
 }
 
+function shown(history: ChatHistory = {}): { limit?: number; days?: number } {
+  return { limit: history.messages, days: history.days };
+}
+
 /** Dollars, at the size these numbers actually are: $0.0004 and $0.10, not $0.00 and $0.1. */
 export function money(amount: number): string {
   return `$${amount.toFixed(4).replace(/(\.\d\d)0+$/, "$1")}`;
@@ -55,7 +61,7 @@ const MAX_STEPS = 40;
  * Runs a prompt: ask a model, run the tools it asked for, put the answers
  * back, ask again, until it stops asking.
  */
-export async function turn({ agent, prompt, attachments, model, thread, source, job, owner, instead, signal }: Ask): Promise<Result> {
+export async function turn({ agent, prompt, attachments, model, thread, source, job, history, owner, instead, signal }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? agent.model;
   const tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
@@ -67,7 +73,7 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
 
   const messages: Message[] = [
     { role: "system", content: systemPrompt(agent) },
-    ...(thread ? recall(thread, undefined, { tools: true }) : []),
+    ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
   if (thread) remember(thread, "user", prompt);

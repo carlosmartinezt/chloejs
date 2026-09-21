@@ -4,7 +4,8 @@
 import { db } from "#chloe/core/db.ts";
 import type { Message } from "./model.ts";
 
-const RECALL = 10;
+/** How many messages of a conversation a turn is shown, when the agent does not say. */
+export const RECALL = 10;
 
 export interface Used {
   tool: string;
@@ -32,15 +33,20 @@ export function remember(thread: string, role: "user" | "assistant", content: st
 }
 
 /**
- * The last few messages of a thread, oldest first. With `tools`, a reply that
- * called tools is preceded by those calls, in the same shape a turn's own
- * calls take, with results that were not kept. Without them a model reading
- * its own earlier answer cannot tell a fact it looked up from one it made up.
+ * The last `limit` messages of a thread, oldest first, leaving out any older
+ * than `days` when it is given. Nothing is deleted: a message too old to be
+ * recalled is still in the database and still on the page.
+ *
+ * With `tools`, a reply that called tools is preceded by those calls, in the
+ * same shape a turn's own calls take, with results that were not kept.
+ * Without them a model reading its own earlier answer cannot tell a fact it
+ * looked up from one it made up.
  */
-export function recall(thread: string, limit = RECALL, { tools = false } = {}): Message[] {
+export function recall(thread: string, { limit = RECALL, days, tools = false }: { limit?: number; days?: number; tools?: boolean } = {}): Message[] {
+  const since = days ? new Date(Date.now() - days * 86_400_000).toISOString() : "";
   const rows = db
-    .prepare("select id, role, content, used from messages where thread = ? order by id desc limit ?")
-    .all(thread, limit) as { id: number; role: string; content: string; used: string | null }[];
+    .prepare("select id, role, content, used from messages where thread = ? and at >= ? order by id desc limit ?")
+    .all(thread, since, limit) as { id: number; role: string; content: string; used: string | null }[];
   return rows.reverse().flatMap((r): Message[] => {
     const said: Message = { role: r.role as Message["role"], content: r.content };
     if (!tools || !r.used) return [said];
