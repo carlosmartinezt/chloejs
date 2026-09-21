@@ -1,0 +1,62 @@
+{
+  "name": "chloejs",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "A job runner where asking a model is one kind of step.",
+  "exports": {
+    ".": "./index.ts",
+    "./channels/*": "./channels/*.ts",
+    "./scorers": "./scorers/index.ts",
+    "./timer": "./timer/index.ts",
+    "./tools": "./model/tools/index.ts",
+    "./test": "./ops/check.ts"
+  },
+  "bin": {
+    "chloe": "./server.ts"
+  },
+  "imports": {
+    "#chloe/*": "./*"
+  },
+  "files": [
+    "channels",
+    "core",
+    "do",
+    "index.ts",
+    "load",
+    "model",
+    "ops",
+    "scorers",
+    "serve",
+    "server.ts",
+    "timer"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "license": "MIT",
+  "author": "Carlos Martinez",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/carlosmartinezt/chloejs.git"
+  },
+  "homepage": "https://chloejs.org",
+  "keywords": [
+    "agents",
+    "jobs",
+    "cron",
+    "llm",
+    "typescript"
+  ],
+  "scripts": {
+    "test": "node ops/test.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "check": "tsc --noEmit -p . && node ops/test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "typescript": "^6.0.3"
+  }
+}

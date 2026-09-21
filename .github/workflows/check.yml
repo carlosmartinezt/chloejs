@@ -1,0 +1,30 @@
+name: check
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run check
+
+
+  # chloejs.org reads this source on every build, so a push to main rebuilds it.
+  # The hook is a Vercel deploy hook on the chloejs-site project.
+  site:
+    needs: check
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          HOOK: ${{ secrets.SITE_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "No SITE_DEPLOY_HOOK secret, so chloejs.org is not rebuilt."; exit 0; fi
+          curl -fsS -X POST "$HOOK"

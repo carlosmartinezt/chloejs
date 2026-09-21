@@ -1,0 +1,6 @@
+# Everything the agents write lives in data/, which is never committed.
+/data/
+node_modules
+.env
+*.tsbuildinfo
+settings.local.json

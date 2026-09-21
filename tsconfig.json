@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    // Node runs this TypeScript directly, stripping the types as it reads it,
+    // so every import names the real .ts file and tsc is only ever asked a
+    // question.
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+
+    // Node strips types, it does not compile them, so anything it cannot strip
+    // (an enum, a namespace, a constructor that declares a field) has to be a
+    // type error here rather than a crash on the box that installs chloe.
+    "erasableSyntaxOnly": true,
+
+    "lib": ["ES2023"],
+
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "exclude": ["node_modules", "data"]
+}
