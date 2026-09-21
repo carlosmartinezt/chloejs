@@ -207,6 +207,7 @@ interface Ctx {
 export async function work(options: {
   agent: Agent;
   job: Job;
+  /** The channel it came in on, like "telegram" or "api". Left out, it is "unknown". */
   source?: string;
   /** What to start it with. Checked against the job's `input` shape first. */
   input?: unknown;
@@ -223,13 +224,14 @@ export async function work(options: {
   const owner = whoOwns(agent.name);
   const state = starting(job);
   db.prepare(
-    `insert into runs (id, agent, started, source, model, prompt, kind, owner, state, input)
-     values (?, ?, ?, ?, 'code', '', 'job', ?, ?, ?)`,
+    `insert into runs (id, agent, started, source, job, model, prompt, kind, owner, state, input)
+     values (?, ?, ?, ?, ?, 'code', '', 'job', ?, ?, ?)`,
   ).run(
     runId,
     agent.name,
     new Date().toISOString(),
-    options.source ?? job.id,
+    options.source ?? "unknown",
+    job.id,
     owner || null,
     JSON.stringify(state),
     JSON.stringify(input),
@@ -290,8 +292,8 @@ export async function resume(runId: string, agents: Map<string, Agent>, signal?:
 
   const agent = agents.get(row.agent);
   if (!agent) throw new Error(`${row.agent} is not an agent here any more, so run ${runId} cannot carry on.`);
-  const job = agent.jobs.find((s) => s.id === row.source);
-  if (!job?.run) throw new Error(`${row.agent}/${row.source} is not code any more, so run ${runId} cannot carry on.`);
+  const job = agent.jobs.find((s) => s.id === row.job);
+  if (!job?.run) throw new Error(`${row.agent}/${row.job} is not code any more, so run ${runId} cannot carry on.`);
 
   return drive({
     runId,
@@ -766,10 +768,10 @@ export interface ParkedRun {
 
 /** Every run waiting on a person right now. */
 export function parkedRuns(): ParkedRun[] {
-  const rows = db.prepare("select id, agent, source, parked from runs where parked is not null").all() as {
+  const rows = db.prepare("select id, agent, job, parked from runs where parked is not null").all() as {
     id: string;
     agent: string;
-    source: string;
+    job: string;
     parked: string;
   }[];
   return rows.map((row) => {
@@ -777,7 +779,7 @@ export function parkedRuns(): ParkedRun[] {
     return {
       id: row.id,
       agent: row.agent,
-      job: row.source,
+      job: row.job,
       who: parked.who,
       question: parked.question,
       asked: parked.asked,
@@ -796,7 +798,7 @@ export function waitingOn(who: string, agent = ""): ParkedRun | undefined {
 /** Is this job already waiting on somebody? Then it does not start again. */
 export function waitingFor(agent: string, job: string): boolean {
   const row = db
-    .prepare("select 1 from runs where agent = ? and source = ? and parked is not null limit 1")
+    .prepare("select 1 from runs where agent = ? and job = ? and parked is not null limit 1")
     .get(agent, job);
   return row !== undefined;
 }
@@ -832,7 +834,7 @@ export async function sweep(agents: Map<string, Agent>): Promise<void> {
 
 interface Row {
   agent: string;
-  source: string;
+  job: string;
   model: string;
   cost: number;
   trace: string;

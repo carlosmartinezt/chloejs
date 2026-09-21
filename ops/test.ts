@@ -137,23 +137,23 @@ about("what a run did, in one line");
   const agent = { ...agentFor(counted), name: "recent" };
   const at = (minutes: number) => new Date(Date.UTC(2026, 0, 1, 0, minutes)).toISOString();
   const insert = db.prepare(
-    "insert into runs (id, agent, started, finished, source, model, prompt, summary, error, cost) values (?, 'recent', ?, ?, ?, 'code', '', ?, ?, ?)",
+    "insert into runs (id, agent, started, finished, source, job, model, prompt, summary, error, cost) values (?, 'recent', ?, ?, ?, ?, 'code', '', ?, ?, ?)",
   );
-  insert.run("l1", at(0), at(0), "backup", "copied", null, 0);
-  insert.run("l2", at(1), at(1), "counted", "15 sites", null, 0);
-  insert.run("l3", at(2), at(2), "counted", null, "no answer", 0.5);
-  insert.run("l4", at(3), at(3), "counted", "15 sites, all up", null, 0.25);
-  insert.run("l5", at(4), at(4), "telegram", "Hello.", null, 0.1);
+  insert.run("l1", at(0), at(0), "schedule", "backup", "copied", null, 0);
+  insert.run("l2", at(1), at(1), "schedule", "counted", "15 sites", null, 0);
+  insert.run("l3", at(2), at(2), "schedule", "counted", null, "no answer", 0.5);
+  insert.run("l4", at(3), at(3), "schedule", "counted", "15 sites, all up", null, 0.25);
+  insert.run("l5", at(4), at(4), "telegram", null, "Hello.", null, 0.1);
   const recent = recentWork(agent);
   is("the newest first, a job in a row folded into one line", recent.map((one) => [one.id, one.times]), [
     ["l5", 1],
     ["l4", 3],
     ["l1", 1],
   ]);
-  is("a line is called by its job's id, or by what woke it", recent.map((one) => one.source), [
-    "telegram",
-    "counted",
-    "backup",
+  is("a line says the channel and the job", recent.map((one) => [one.source, one.job]), [
+    ["telegram", null],
+    ["schedule", "counted"],
+    ["schedule", "backup"],
   ]);
   is("a folded line keeps count of what failed and what it cost", [recent[1].failed, recent[1].cost], [1, 0.75]);
   is("and stops at the count it is given", recentWork(agent, 2).length, 2);
@@ -246,7 +246,7 @@ about("an agent step kept inside its budget");
   );
   const result = await work({ agent: agentFor(job), job }).then(() => "finished", (error: Error) => error.message);
   is("it stops on the money, not only on the steps", result.includes("spent $0.0004 of its $0.0003 budget"), true);
-  const dear = db.prepare("select cost, trace from runs where source = 'dear'").get() as { cost: number; trace: string };
+  const dear = db.prepare("select cost, trace from runs where job = 'dear'").get() as { cost: number; trace: string };
   is("and the run is charged for what it did spend", dear.cost, 0.0004);
   // A step that failed is still a step that happened, or a budget blowout
   // would say what it cost and not what it spent the money on.
@@ -347,7 +347,7 @@ about("an approve that cannot answer, and a question from inside a step");
   );
   const why = await work({ agent: agentFor(gate), job: gate }).then(() => "", (error: Error) => error.message);
   is("a broken gate stops the step and names the call", why, "Deciding whether look could run failed: the rule itself is broken");
-  is("and the turn it had already paid for is on the run", db.prepare("select cost from runs where source = 'gate'").get(), { cost: 0.0002 });
+  is("and the turn it had already paid for is on the run", db.prepare("select cost from runs where job = 'gate'").get(), { cost: 0.0002 });
 
   // Refusing without a reason still stops the call, and the model is told
   // something it can act on rather than nothing.
@@ -533,7 +533,7 @@ about("a model step that never fits");
   is("after two goes", asked, 2);
   // The money left whether or not the answer was usable, so the run says so
   // rather than reading as free.
-  const run = db.prepare("select cost, trace from runs where source = 'hopeless'").get() as { cost: number; trace: string };
+  const run = db.prepare("select cost, trace from runs where job = 'hopeless'").get() as { cost: number; trace: string };
   const line = (JSON.parse(run.trace) as { kind: string; cost: number; failed?: string }[])[1];
   is("and the run was charged for both", [run.cost, line.cost], [0.0004, 0.0004]);
   is("with the step it stopped on named", [line.kind, line.failed?.slice(0, 14)], ["model", "The model step"]);
@@ -764,8 +764,9 @@ about("a model step that never fits");
   const clock = startClock(() => new Map([["test", { ...agentFor(onTheClock), jobs: [onTheClock, offTheClock] }]]));
   await new Promise((done) => setTimeout(done, 200));
   clock.stop();
-  const ran = (source: string) => db.prepare("select count(*) as n from runs where source = ?").get(source) as { n: number };
+  const ran = (job: string) => db.prepare("select count(*) as n from runs where job = ?").get(job) as { n: number };
   is("the clock runs the one with a cron line", ran("every-minute").n, 1);
+  is("and says so in the log", db.prepare("select source from runs where job = 'every-minute'").get(), { source: "schedule" });
   is("and leaves the one without", ran("when-started").n, 0);
 
   await writeFile(join(folder, "jobs/bad.md"), "---\ncron: 61 * * * *\n---\n\nSay hello.\n");
@@ -1442,14 +1443,14 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
   } as Job);
   agent.channels = { api: apiChannel() };
 
-  const fired: { job: string; input: unknown }[] = [];
+  const fired: { job: string; input: unknown; channel?: string }[] = [];
   const server = serve({
     host: "127.0.0.1",
     port: 0,
     agents: () => new Map([["test", agent]]),
     clock: {
-      fire(_a: Agent, j: Job, input?: unknown) {
-        fired.push({ job: j.id, input });
+      fire(_a: Agent, j: Job, input?: unknown, channel?: string) {
+        fired.push({ job: j.id, input, channel });
         return Promise.resolve(undefined);
       },
       running: () => [],
@@ -1470,10 +1471,17 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
 
   is("a query string starts it", (await start("?text=a+highlight&source=myapp")).status, 200);
   is("and is what the job is handed", fired.at(-1)?.input, { text: "a highlight", source: "myapp" });
+  is("on the api channel", fired.at(-1)?.channel, "api");
 
   is("a JSON body does too", (await start("", '{"text":"from a body"}')).status, 200);
   is("and wins where they overlap", (await start("?text=query", '{"text":"body"}')).status, 200);
   is("the body being the one that counts", (fired.at(-1)?.input as { text: string }).text, "body");
+  const byHand = await fetch(`${at}/api/agents/test/job/reading?text=x`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${secret}`, "x-chloe-channel": "terminal" },
+  });
+  is("npm run agent says it is the terminal", [byHand.status, fired.at(-1)?.channel], [200, "terminal"]);
+  fired.pop();
 
   // Started and not awaited, so a caller that sent the wrong thing has to be
   // told now or it never finds out.

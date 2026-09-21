@@ -7,8 +7,10 @@ import type { Agent } from "#chloe/load/load.ts";
 export interface RecentWork {
   /** The newest run of the group, which is the one a click opens. */
   id: string;
-  /** The job's id, or what woke it: "telegram", "chat". */
+  /** The channel it came in on, like "schedule" or "telegram". */
   source: string;
+  /** The job it was, or null for a turn somebody started by talking to it. */
+  job: string | null;
   started: string;
   finished: string | null;
   summary: string | null;
@@ -25,6 +27,7 @@ const LOOK_BACK = 200;
 interface Row {
   id: string;
   source: string;
+  job: string | null;
   started: string;
   finished: string | null;
   summary: string | null;
@@ -35,14 +38,14 @@ interface Row {
 export function recentWork(agent: Agent, count = 3): RecentWork[] {
   const rows = db
     .prepare(
-      "select id, source, started, finished, summary, error, cost from runs where agent = ? order by started desc limit ?",
+      "select id, source, job, started, finished, summary, error, cost from runs where agent = ? order by started desc limit ?",
     )
     .all(agent.name, LOOK_BACK) as unknown as Row[];
 
   const out: RecentWork[] = [];
   for (const run of rows) {
     const last = out[out.length - 1];
-    if (last?.source === run.source) {
+    if (last && last.source === run.source && last.job === run.job) {
       last.times++;
       last.failed += run.error ? 1 : 0;
       last.cost += Number(run.cost ?? 0);
@@ -52,6 +55,7 @@ export function recentWork(agent: Agent, count = 3): RecentWork[] {
     out.push({
       id: run.id,
       source: run.source,
+      job: run.job,
       started: run.started,
       finished: run.finished,
       summary: run.summary,

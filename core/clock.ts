@@ -24,9 +24,10 @@ export interface Clock {
    * Run one now, whatever its cron line says, or when it has none. `input` is
    * what a job that declares an `input` shape is started with, and is checked
    * against it before the run exists: a caller that sent the wrong thing gets
-   * the error rather than a failed run.
+   * the error rather than a failed run. `channel` is what the log shows it
+   * came in on, and is "unknown" when left out.
    */
-  fire(agent: Agent, job: Job, input?: unknown): Promise<Fired | undefined>;
+  fire(agent: Agent, job: Job, input?: unknown, channel?: string): Promise<Fired | undefined>;
   running(): string[];
 }
 
@@ -59,7 +60,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
    * inside the run is that run's own record, and is logged rather than thrown:
    * the clock has nobody to tell.
    */
-  async function fire(agent: Agent, job: Job, input?: unknown): Promise<Fired | undefined> {
+  async function fire(agent: Agent, job: Job, input?: unknown, channel = "unknown"): Promise<Fired | undefined> {
     const key = `${agent.name}/${job.id}`;
     if (busy.has(key)) {
       console.warn(`${key}: still running from last time, skipping this one`);
@@ -76,8 +77,8 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
     const began = Date.now();
     try {
       const result = job.run
-        ? await work({ agent, job, source: job.id, input })
-        : await turn({ agent, prompt: job.prompt, model: job.model, source: job.id });
+        ? await work({ agent, job, source: channel, input })
+        : await turn({ agent, prompt: job.prompt, model: job.model, source: channel, job: job.id });
       const seconds = Math.round((Date.now() - began) / 1000);
       const how = "parked" in result && result.parked ? "waiting on an answer" : "done";
       console.log(`${key}: ${how} in ${seconds}s, ${result.steps} steps, $${result.cost.toFixed(4)}`);
@@ -104,7 +105,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
       for (const job of agent.jobs) {
         // No cron line: it runs only when somebody starts it. A bad one never
         // gets here, because the loader refuses the file.
-        if (job.cron && due(parse(job.cron), now, job.timezone)) void fire(agent, job);
+        if (job.cron && due(parse(job.cron), now, job.timezone)) void fire(agent, job, undefined, "schedule");
       }
     }
   }

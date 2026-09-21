@@ -21,8 +21,13 @@ export interface Ask {
   model?: string;
   /** Without one, the turn starts fresh. */
   thread?: string;
-  /** What woke it: a job id, a channel name, "studio", "eval". */
+  /**
+   * The channel it came in on: "telegram", "chat", "api", "terminal",
+   * "schedule", "eval", or the name of a channel an agent brings.
+   */
   source: string;
+  /** The job this turn is, when it is one. */
+  job?: string;
   /** Who this run is for, as an address. One column, and the team version reads it. */
   owner?: string;
   /** Answer tools from here instead of running them. For evals. */
@@ -50,15 +55,15 @@ const MAX_STEPS = 40;
  * Runs a prompt: ask a model, run the tools it asked for, put the answers
  * back, ask again, until it stops asking.
  */
-export async function turn({ agent, prompt, attachments, model, thread, source, owner, instead, signal }: Ask): Promise<Result> {
+export async function turn({ agent, prompt, attachments, model, thread, source, job, owner, instead, signal }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? agent.model;
   const tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
 
   const started = new Date().toISOString();
   db.prepare(
-    "insert into runs (id, agent, started, source, model, prompt, kind, owner) values (?, ?, ?, ?, ?, ?, 'turn', ?)",
-  ).run(runId, agent.name, started, source, using, prompt, owner ?? null);
+    "insert into runs (id, agent, started, source, job, model, prompt, kind, owner) values (?, ?, ?, ?, ?, ?, ?, 'turn', ?)",
+  ).run(runId, agent.name, started, source, job ?? null, using, prompt, owner ?? null);
 
   const messages: Message[] = [
     { role: "system", content: systemPrompt(agent) },

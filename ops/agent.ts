@@ -71,6 +71,7 @@ interface Run {
   started: string;
   finished?: string | null;
   source?: string;
+  job?: string | null;
   steps?: number;
   cost?: number;
   error?: string | null;
@@ -82,7 +83,8 @@ interface Run {
 async function api<T>(path: string, body?: unknown): Promise<T> {
   // The API is behind the same login as the page. This signs itself in by
   // reading the account file, which is the same permission as running this.
-  const headers: Record<string, string> = { cookie: ownCookie() };
+  // The channel header is what makes the log say "terminal" rather than "api".
+  const headers: Record<string, string> = { cookie: ownCookie(), "x-chloe-channel": "terminal" };
   const response = await fetch(
     `${BASE}${path}`,
     body === undefined
@@ -195,7 +197,7 @@ if (job) {
   for (let i = 0; i < 50 && !runId; i++) {
     const runs = await api<Run[]>(`/api/runs?agent=${encodeURIComponent(name)}&limit=20`);
     runId = runs.find(
-      (one) => one.source === job.id && Date.parse(one.started) >= firedAt - 2000,
+      (one) => one.job === job.id && Date.parse(one.started) >= firedAt - 2000,
     )?.id;
     if (!runId) await wait(200);
   }

@@ -298,7 +298,7 @@ export function listen(options: TelegramOptions & { name: string; token: string;
 
     const stopTyping = typing(chatId, topic);
     try {
-      const result = await started.fire(agent, job, input);
+      const result = await started.fire(agent, job, input, "telegram");
       stopTyping();
       if (!result) {
         await send(chatId, `${job.id} is already running. I will not start a second one.`, extra);

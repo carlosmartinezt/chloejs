@@ -115,7 +115,15 @@ function summary(agent: Agent) {
   };
 }
 
-const RUN_COLUMNS = "id, agent, started, finished, source, model, steps, cost, error, reply, summary";
+/**
+ * `npm run agent` comes in over the API too, and says so in a header, so the
+ * log can tell a person at a terminal from another system. Anything else is "api".
+ */
+function channelOf(request: IncomingMessage): string {
+  return request.headers["x-chloe-channel"] === "terminal" ? "terminal" : "api";
+}
+
+const RUN_COLUMNS = "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary";
 
 export const routes: Route[] = [
   {
@@ -323,7 +331,7 @@ export const routes: Route[] = [
       // A token's threads are kept apart from the ones a person started, so two
       // callers cannot land in each other's conversation.
       const under = who?.kind === "token" && thread ? `${agent.name}/api-${thread}` : thread;
-      json(response, await turn({ agent, prompt, thread: under, model, source: under ? "chat" : "api" }));
+      json(response, await turn({ agent, prompt, thread: under, model, source: under ? "chat" : channelOf(request) }));
     },
   },
   {
@@ -356,7 +364,7 @@ export const routes: Route[] = [
         return json(response, { error: (error as Error).message }, 400);
       }
 
-      void context.clock.fire(agent, job, sent);
+      void context.clock.fire(agent, job, sent, channelOf(request));
       json(response, { started: `${agent.name}/${job.id}`, log: `/api/agents/${agent.name}/log` });
     },
   },

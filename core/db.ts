@@ -58,13 +58,33 @@ added("runs", "summary", "text");
 // What the run was started with, when it was started by hand. Kept whole so a
 // run that parks for a person comes back to the same input it began with.
 added("runs", "input", "text");
+// The job this run was, or null for a turn somebody started by talking to it.
+// `source` is then only the channel it came in on.
+if (added("runs", "job", "text")) {
+  // Before this column a job's run kept its id in `source`, and where it came
+  // from is only known from what it was started with.
+  db.exec(`
+    update runs set job = source,
+      source = case
+        when json_valid(input) and json_extract(input, '$.from') = 'telegram' then 'telegram'
+        when json_valid(input) and json_extract(input, '$.from') = 'terminal' then 'terminal'
+        when json_valid(input) and coalesce(json_extract(input, '$.from'), '') != '' then 'api'
+        else 'schedule'
+      end
+    where kind = 'job' and source != 'eval'
+  `);
+  db.exec("update runs set job = source, source = 'schedule' where kind = 'turn' and source not in ('telegram', 'chat', 'api', 'eval', 'studio')");
+}
+db.exec("update runs set source = 'terminal' where source = 'npm run'");
 // The tools a reply called, as JSON, so the next turn knows how it was reached.
 added("messages", "used", "text");
 db.exec("create index if not exists runs_parked on runs (parked) where parked is not null");
 
-function added(table: string, column: string, declaration: string): void {
+/** Adds the column when it is missing, and says whether it did. */
+function added(table: string, column: string, declaration: string): boolean {
   const there = db.prepare("select 1 from pragma_table_info(?) where name = ?").get(table, column);
   if (!there) db.exec(`alter table ${table} add column ${column} ${declaration}`);
+  return !there;
 }
 
 /**
