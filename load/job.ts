@@ -47,6 +47,14 @@ export interface Definition<
    */
   input?: Input;
   /**
+   * Plain messages, with no command, that this job answers instead of the
+   * agent's chat: `answers: (text) => text.includes("https://a.co/")`. A
+   * channel that sees one starts the job with the whole message as `text`.
+   * Code, not a model: it is asked of every message, so it has to be quick and
+   * certain. The first job that says yes gets the message.
+   */
+  answers?: (text: string) => boolean;
+  /**
    * What a finished run did, in one line, from what `run` returned: "15 sites,
    * all up". It is what the overview shows. A job without one shows nothing
    * there, unless it returned a string.

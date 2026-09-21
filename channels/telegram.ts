@@ -24,6 +24,9 @@
 //              TELEGRAM_WEBHOOK_SECRET_TOKEN (or credentials.webhookSecretToken)
 //              on every call. chloe registers the address itself on start.
 //
+// A plain message that one of the agent's jobs `answers` goes to that job, the
+// same as its command would, and not to the chat.
+//
 // In a group, the agent answers a command (/ask), a message that mentions the
 // bot, or a reply to one of the bot's own messages, and nothing else. With
 // `inGroups: "always"` it answers every message in a group from someone in
@@ -33,7 +36,7 @@
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { type Agent, type Channel, type Running } from "#chloe/load/load.ts";
+import { type Agent, type Channel, type Job, type Running } from "#chloe/load/load.ts";
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask.ts";
 import type { Attachment } from "#chloe/model/model.ts";
 import { answer as answerRun, waitingOn, WrongInput } from "#chloe/core/steps.ts";
@@ -307,7 +310,31 @@ export function listen(
     // Not one of this agent's jobs, so it is just a message that starts with a
     // slash, and the model can make of it what it likes.
     if (!job) return false;
+    return runJob(agent, job, message, text.slice(word.length).trim() || rest.join(" "), extra, topic);
+  }
 
+  /**
+   * A plain message one of the agent's jobs says it answers, like a Kindle
+   * highlight, goes to that job with the whole message as its text, and never
+   * reaches the chat. A job's check that throws is treated as a no.
+   */
+  async function answeredByJob(message: TgMessage, text: string, extra: object, topic?: number): Promise<boolean> {
+    const agent = options.agent();
+    if (!agent) return false;
+    const job = agent.jobs.find((one) => {
+      try {
+        return one.answers?.(text) === true;
+      } catch (error) {
+        console.error(`telegram: ${agent.name}/${one.id}'s answers check failed:`, (error as Error).message);
+        return false;
+      }
+    });
+    if (!job) return false;
+    return runJob(agent, job, message, text, extra, topic);
+  }
+
+  /** Starts a job from a message in this chat and sends back its summary. */
+  async function runJob(agent: Agent, job: Job, message: TgMessage, text: string, extra: object, topic?: number): Promise<boolean> {
     const started = clock();
     if (!started) return false;
 
@@ -315,7 +342,7 @@ export function listen(
     const from = message.from!;
     const quoted = message.reply_to_message;
     const input = {
-      text: text.slice(word.length).trim() || rest.join(" "),
+      text,
       from: channel,
       chat: String(chatId),
       chatTitle: message.chat.title ?? "",
@@ -346,6 +373,7 @@ export function listen(
     return true;
   }
 
+
   async function onMessage(message: TgMessage): Promise<void> {
     const chatId = message.chat.id;
     const text = message.text ?? message.caption ?? "";
@@ -363,6 +391,7 @@ export function listen(
 
     if (text && (await answerParked(chatId, text, extra))) return;
     if (text && (await commanded(message, text, extra, topic))) return;
+    if (text && (await answeredByJob(message, text, extra, topic))) return;
 
     const agent = options.agent();
     if (!agent) return;

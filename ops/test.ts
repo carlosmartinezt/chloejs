@@ -1053,6 +1053,29 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
   fourth.stop();
   is("and answered the same way", said(), ["7: sent to me"]);
   is("it never polls in webhook mode", calls.some((c) => c.token === "w" && c.method === "getUpdates"), false);
+
+  // A plain message a job answers goes to that job, not to the chat, and with
+  // inGroups "always" a group message needs no mention.
+  calls.length = 0;
+  const { startClock } = await import("#chloe/core/clock.ts");
+  const handed: string[] = [];
+  const highlights = {
+    ...codeJob("highlights", async ({ input }) => (handed.push(String(input.text)), { ok: true }), undefined, () => "Filed."),
+    input: z.object({ text: z.string() }),
+    answers: (text: string) => text.startsWith("\u201c"),
+  } as Job;
+  delete highlights.cron;
+  const reader = agentFor(highlights);
+  const ticking = startClock(() => new Map([["test", reader]]));
+  const fifth = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => reader });
+  inbox.push(inGroup(40, me, "\u201cA line from a book.\u201d \u2014 A Book"));
+  await settle(1);
+  fifth.stop();
+  ticking.stop();
+  await pause(100);
+  is("a message a job answers goes to that job, whole", handed, ["\u201cA line from a book.\u201d \u2014 A Book"]);
+  is("and its summary is the reply", said(), ["-100: Filed."]);
+  is("the / menu is the agent's jobs", calls.find((c) => c.method === "setMyCommands")?.body.commands, [{ command: "highlights", description: "highlights" }]);
   telegram.close();
 
 }

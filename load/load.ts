@@ -165,6 +165,8 @@ export interface Job {
   run?: (work: Work<Record<string, unknown>>) => Promise<unknown>;
   /** One line from what `run` returned. See defineJob. */
   summary?: (result: unknown) => string;
+  /** Plain messages this job answers instead of the agent's chat. See defineJob. */
+  answers?: (text: string) => boolean;
   /**
    * The files it is written in, inside the agent's folder, words first. A
    * job imported from code is found by its id: jobs/<id>.ts and jobs/<id>.md.
@@ -451,6 +453,7 @@ async function fromCode(agent: string, dir: string, definition: JobFile<any, any
       state: definition.state,
       input: definition.input,
       summary: definition.summary,
+      answers: definition.answers,
     };
   }
 
