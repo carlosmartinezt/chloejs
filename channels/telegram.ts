@@ -245,7 +245,7 @@ export function listen(options: TelegramOptions & { name: string; token: string;
       const found = options.agent();
       const result = await answerRun(waiting.id, text, new Map(found ? [[name, found]] : []));
       // Still parked means the answer did not fit, and the job has already asked again.
-      if (!result.parked) await send(chatId, result.text || "Done.", extra);
+      if (!result.parked) await send(chatId, result.summary || result.text || "Done.", extra);
     } catch (error) {
       console.error("telegram: answering a parked run failed", error);
       await send(chatId, "I could not carry that job on. It is in the logs on the box.", extra).catch(() => {});
@@ -304,7 +304,8 @@ export function listen(options: TelegramOptions & { name: string; token: string;
         await send(chatId, `${job.id} is already running. I will not start a second one.`, extra);
         return true;
       }
-      await send(chatId, result.text || `${job.id}: done.`, extra);
+      // Parked means it has already asked its question in this chat.
+      if (!result.parked) await send(chatId, result.summary || result.text || `${job.id}: done.`, extra);
     } catch (error) {
       stopTyping();
       // What the caller sent did not fit the job, which is worth saying in the
@@ -383,6 +384,26 @@ export function listen(options: TelegramOptions & { name: string; token: string;
     await answerParked(message.chat.id, choice, message.message_thread_id ? { message_thread_id: message.message_thread_id } : {});
   }
 
+  /**
+   * The menu Telegram shows when somebody types "/" is this agent's jobs, each
+   * as its id with "_" for "-" (Telegram allows no hyphens) and its description.
+   * It replaces whatever the menu held before, including anything set in
+   * BotFather. Only sent when the list has changed, so an edited or new job is
+   * in the menu within one poll and no call is spent on a list that has not.
+   */
+  let menu = "";
+  async function syncMenu(): Promise<void> {
+    const agent = options.agent();
+    if (!agent) return;
+    const commands = agent.jobs
+      .map((job) => ({ command: job.id.replace(/-/g, "_").toLowerCase(), description: (job.description || job.id).slice(0, 256) }))
+      .filter((one) => /^[a-z0-9_]{1,32}$/.test(one.command));
+    const now = JSON.stringify(commands);
+    if (now === menu) return;
+    await call("setMyCommands", { commands });
+    menu = now;
+  }
+
   function handle(update: Update): void {
     if (update.message) void onMessage(update.message).catch((error) => console.error("telegram:", error));
     if (update.callback_query) void onButton(update.callback_query).catch((error) => console.error("telegram:", error));
@@ -400,11 +421,13 @@ export function listen(options: TelegramOptions & { name: string; token: string;
         secret_token: secret,
         allowed_updates: ["message", "callback_query"],
       }).catch((error) => console.error("telegram:", error.message));
+      await syncMenu().catch((error) => console.error("telegram: setting the / menu failed:", error.message));
       return;
     }
     // Telegram will not hand out messages while a webhook is registered.
     await call("deleteWebhook", {}).catch((error) => console.error("telegram:", error.message));
     while (!stopping.signal.aborted) {
+      await syncMenu().catch((error) => console.error("telegram: setting the / menu failed:", error.message));
       try {
         const offset = read.get(token) ?? 0;
         const updates = await call<Update[]>(

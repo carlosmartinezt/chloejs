@@ -168,6 +168,8 @@ export interface Work<State = Record<string, unknown>, Input = Record<string, un
 export interface Result {
   runId: string;
   text: string;
+  /** The job's one line about what it did, which is what a chat is sent. */
+  summary?: string | null;
   steps: number;
   cost: number;
   parked: boolean;
@@ -336,8 +338,9 @@ async function drive(ctx: Ctx): Promise<Result> {
     const value = await ctx.job.run!(api);
     ctx.parked = undefined;
     const reply = typeof value === "string" ? value : JSON.stringify(value ?? { ok: true }, null, 2);
-    finish(ctx, reply, summarise(ctx.job, value));
-    return { runId: ctx.runId, text: reply, steps: ctx.lines.length, cost: ctx.cost, parked: false };
+    const summary = summarise(ctx.job, value);
+    finish(ctx, reply, summary);
+    return { runId: ctx.runId, text: reply, summary, steps: ctx.lines.length, cost: ctx.cost, parked: false };
   } catch (error) {
     if (error instanceof Waiting) {
       save(ctx);

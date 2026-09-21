@@ -13,6 +13,7 @@ import { sweep, waitingFor, work, WrongInput } from "#chloe/core/steps.ts";
 export interface Fired {
   runId: string;
   text: string;
+  summary?: string | null;
   steps: number;
   cost: number;
   parked?: boolean;

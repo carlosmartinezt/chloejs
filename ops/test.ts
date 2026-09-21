@@ -613,6 +613,13 @@ about("a model step that never fits");
   const { readReply } = await import("#chloe/model/claude.ts");
 
   is("plain words are an answer", readReply("The site is up.").call, undefined);
+  const tagged = readReply(
+    'Let me look.\n<invoke name="read_notes">\n<parameter name="path">2026</parameter>\n<parameter name="limit">5</parameter>\n</invoke>\n</invoke>\n<invoke name="read_notes">',
+    [{ name: "read_notes", description: "", parameters: { type: "object", properties: { path: { type: "string" }, limit: { type: "number" } } } }],
+  );
+  is("the tag form Claude is trained on is a request too", tagged.call?.function.name, "read_notes");
+  is("its values follow the tool's schema", tagged.call?.function.arguments, '{"path":"2026","limit":5}');
+  is("and what came before it is what it said", tagged.said, "Let me look.");
   is(
     "an object on its own is a request",
     readReply('{"tool": "check_site", "arguments": {"url": "x"}}').call?.function.name,

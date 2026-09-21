@@ -78,8 +78,10 @@ function render(message: Message): string {
  * Requiring its own line at the end is what keeps a reply that merely writes
  * about JSON from being read as a request.
  */
-export function readReply(text: string): { said: string; call?: ToolCall } {
+export function readReply(text: string, tools: ToolSpec[] = []): { said: string; call?: ToolCall } {
   const whole = text.trim();
+  const tagged = readTagged(whole, tools);
+  if (tagged) return tagged;
   const fenced = whole.match(/^([\s\S]*?)```(?:json)?\s*\n([\s\S]*?)\n?```\s*$/);
   const before = fenced ? fenced[1] : whole;
   const tail = fenced ? fenced[2].trim() : "";
@@ -115,6 +117,40 @@ export function readReply(text: string): { said: string; call?: ToolCall } {
     };
   }
   return { said: whole };
+}
+
+/**
+ * The same request in the tag form Claude is trained on, which it sometimes
+ * writes despite being told the JSON one:
+ * `<invoke name="x"><parameter name="path">a.html</parameter></invoke>`.
+ * The first one is the request, the way one JSON object is, and anything after
+ * it is dropped: it is often the same call written again. Every value is text in
+ * this form, so one the tool's schema says is not a string is read as JSON,
+ * which is how a number or a list arrives as one.
+ */
+function readTagged(whole: string, tools: ToolSpec[]): { said: string; call: ToolCall } | undefined {
+  const start = whole.search(/<(?:[\w-]+:)?invoke\s+name="/);
+  if (start < 0) return undefined;
+  const opened = whole.slice(start).match(/^<(?:[\w-]+:)?invoke\s+name="([^"]+)"\s*>([\s\S]*?)(?:<\/(?:[\w-]+:)?invoke>|$)/);
+  if (!opened) return undefined;
+  const wants = (tools.find((t) => t.name === opened[1])?.parameters as { properties?: Record<string, { type?: unknown }> })
+    ?.properties;
+  const args: Record<string, unknown> = {};
+  for (const [, key, raw] of opened[2].matchAll(/<(?:[\w-]+:)?parameter\s+name="([^"]+)"\s*>([\s\S]*?)<\/(?:[\w-]+:)?parameter>/g)) {
+    if (wants?.[key]?.type === "string") {
+      args[key] = raw;
+      continue;
+    }
+    try {
+      args[key] = JSON.parse(raw);
+    } catch {
+      args[key] = raw;
+    }
+  }
+  return {
+    said: whole.slice(0, start).replace(/<(?:[\w-]+:)?function_calls>\s*$/, "").trim(),
+    call: { id: randomUUID(), type: "function", function: { name: opened[1], arguments: JSON.stringify(args) } },
+  };
 }
 
 interface CliAnswer {
@@ -212,7 +248,7 @@ export async function viaClaude({ model, messages, tools, signal }: Ask): Promis
     throw new Error(`Model call refused: ${answer.subtype ?? "no result"}: ${String(answer.result ?? "").slice(0, 500)}`);
   }
 
-  const { said, call } = tools?.length ? readReply(answer.result) : { said: answer.result, call: undefined };
+  const { said, call } = tools?.length ? readReply(answer.result, tools) : { said: answer.result, call: undefined };
   return {
     text: said,
     toolCalls: call ? [call] : [],
