@@ -109,6 +109,8 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
 /** What one turn of the loop did: what the model said, or one tool it ran. */
 export interface LoopStep {
   step: number;
+  /** When it happened: when the model answered, or when the tool was called. */
+  at: string;
   say?: string;
   wants?: string[];
   tool?: string;
@@ -153,7 +155,7 @@ export async function loop(options: {
   for (; steps < options.maxSteps; steps++) {
     const answer = await ask({ model: options.model, messages: options.messages, tools: specs, signal: options.signal });
     cost += answer.cost;
-    options.onStep?.({ step: steps, say: answer.text, wants: answer.toolCalls.map((c) => c.function.name), cost: answer.cost });
+    options.onStep?.({ step: steps, at: new Date().toISOString(), say: answer.text, wants: answer.toolCalls.map((c) => c.function.name), cost: answer.cost });
 
     if (answer.toolCalls.length === 0) {
       return { text: answer.text, steps: steps + 1, cost, calls, stopped: false };
@@ -170,9 +172,10 @@ export async function loop(options: {
     options.messages.push({ role: "assistant", content: answer.text, tool_calls: answer.toolCalls });
 
     for (const call of answer.toolCalls) {
+      const at = new Date().toISOString();
       const { output, args, failed, refused } = await runTool(options.tools, call, options.instead, options.approve);
       calls.push({ tool: call.function.name, args, result: output, ...(refused && { refused }) });
-      options.onStep?.({ step: steps, tool: call.function.name, args, result: clip(output), ...(failed && { failed }), ...(refused && { refused }) });
+      options.onStep?.({ step: steps, at, tool: call.function.name, args, result: clip(output), ...(failed && { failed }), ...(refused && { refused }) });
       options.messages.push({
         role: "tool",
         tool_call_id: call.id,
