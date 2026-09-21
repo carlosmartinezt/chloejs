@@ -1069,6 +1069,7 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
   const highlights = {
     ...codeJob("highlights", async ({ input }) => (handed.push(String(input.text)), { ok: true }), undefined, () => "Filed."),
     input: z.object({ text: z.string() }),
+    reply: () => "Filed. " + "A reply that is longer than one line. ".repeat(8).trim(),
     answers: (text: string) => text.startsWith("\u201c"),
   } as Job;
   delete highlights.cron;
@@ -1081,9 +1082,10 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
   ticking.stop();
   await pause(100);
   is("a message a job answers goes to that job, whole", handed, ["\u201cA line from a book.\u201d \u2014 A Book"]);
-  is("and its summary is the reply", said(), ["-100: Filed."]);
+  const whole = "Filed. " + "A reply that is longer than one line. ".repeat(8).trim();
+  is("and its own reply is what the chat is sent, whole", said(), [`-100: ${whole}`]);
   const { recall: recalled } = await import("#chloe/model/memory.ts");
-  is("and the exchange is kept in that chat's conversation", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["\u201cA line from a book.\u201d \u2014 A Book", "Filed."]);
+  is("and the exchange is kept in that chat's conversation", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["\u201cA line from a book.\u201d \u2014 A Book", whole]);
   is("the / menu is the agent's jobs", calls.find((c) => c.method === "setMyCommands")?.body.commands, [{ command: "highlights", description: "highlights" }]);
   telegram.close();
 
@@ -1216,6 +1218,21 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
   await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "and today?", private: true }, { chatHistory: { messages: 1 } });
   const shownTo = lastAsked.filter((m) => m.role !== "system").map((m) => m.content);
   is("a channel's chatHistory is what a turn on it is shown", shownTo, ["just now", "and today?"]);
+
+  // What the model writes on its way to an answer is sent as it goes only when
+  // the channel asks for it, and always before the answer.
+  const look = { id: "1", type: "function", function: { name: "look_around", arguments: "{}" } };
+  const onTheWay: string[] = [];
+  const talk = (sendWhileWorking: boolean) =>
+    receive(brief, { channel: "test", chat: "w", thread: "test/while", from: { id: "1", name: "Me" }, text: "how is it?", private: true },
+      { sendWhileWorking }, { send: async (text) => void onTheWay.push(text) });
+  answers.push({ content: "Let me check.", tool_calls: [look] }, "All fine.");
+  const quiet = await talk(false);
+  is("off, only the answer comes back", [onTheWay, quiet?.text], [[], "All fine."]);
+  answers.push({ content: "Let me check.", tool_calls: [look] }, "All fine.");
+  const chatty = await talk(true);
+  is("on, what it said on the way is sent first", [onTheWay, chatty?.text], [["Let me check."], "All fine."]);
+  is("and kept in the conversation", recall("test/while").map((m) => m.content).slice(-3), ["how is it?", "Let me check.", "All fine."]);
 }
 
 {

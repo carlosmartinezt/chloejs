@@ -65,6 +65,21 @@ export interface Rules {
   inGroups?: "when-addressed" | "always";
   /** How much of a conversation on this channel a turn is shown. */
   chatHistory?: ChatHistory;
+  /**
+   * Send what the model writes on its way to an answer (a "let me check" line,
+   * or a draft it goes on to improve) as it writes it, rather than only the
+   * answer it ends on. Off unless true. Needs a channel that can send more
+   * than one reply, so it does nothing on the API.
+   */
+  sendWhileWorking?: boolean;
+}
+
+/** What a channel can do while a message is being dealt with. */
+export interface While {
+  /** Called once there is work to do, for "typing..."; what it returns is called when the work is over. */
+  working?: () => () => void;
+  /** Sends one message to the chat. What sendWhileWorking uses. */
+  send?: (text: string) => Promise<void>;
 }
 
 /** What came of a message. Nothing at all means it was not for the agent. */
@@ -79,16 +94,11 @@ export interface Handled {
 }
 
 /**
- * Decides what a message is, does it, and says what to send back. `working`
- * is called once it is clear there is work to do, for a channel that shows
- * "typing...", and what it returns is called when the work is over.
+ * Decides what a message is, does it, and says what to send back. See While
+ * for what a channel can hand over to be used on the way.
  */
-export async function receive(
-  agent: Agent,
-  message: Incoming,
-  rules: Rules = {},
-  working: () => () => void = () => () => {},
-): Promise<Handled | undefined> {
+export async function receive(agent: Agent, message: Incoming, rules: Rules = {}, whileWorking: While = {}): Promise<Handled | undefined> {
+  const working = whileWorking.working ?? (() => () => {});
   const { channel, from, text } = message;
   const said = (words: string): Handled => ({ text: words, steps: 0, cost: 0 });
 
@@ -114,7 +124,7 @@ export async function receive(
   const job = text ? jobFor(agent, text) : undefined;
   if (job && clock()) return during(working, () => started(agent, message, job.job, job.text));
 
-  return during(working, () => chatted(agent, message, rules));
+  return during(working, () => chatted(agent, message, rules, whileWorking.send));
 }
 
 /** The commands a channel can offer in its own menu: each job, with "_" for "-". */
@@ -154,10 +164,10 @@ function jobFor(agent: Agent, text: string): { job: Job; text: string } | undefi
   return job && { job, text };
 }
 
-/** What a job said, as a reply: its summary line, or what it returned. */
+/** What a job said, as a reply: its own reply, its summary line, or what it returned. */
 function replyOf(result: Fired, job: Job): string {
   if ("parked" in result && result.parked) return "";
-  return result.summary || result.text || `${job.id}: done.`;
+  return result.reply || result.summary || result.text || `${job.id}: done.`;
 }
 
 /** A job's exchange, kept in the chat's conversation the way a turn keeps its own. */
@@ -196,7 +206,7 @@ async function answered(agent: Agent, message: Incoming, runId: string, job: str
   try {
     const result = await answer(runId, message.text, new Map([[agent.name, agent]]));
     // Still parked means the answer did not fit, and the job has already asked again.
-    const reply = result.parked ? "" : result.summary || result.text || "Done.";
+    const reply = result.parked ? "" : result.reply || result.summary || result.text || "Done.";
     kept(message, reply);
     return { text: reply, runId: result.runId, steps: result.steps, cost: result.cost, job };
   } catch (error) {
@@ -205,7 +215,17 @@ async function answered(agent: Agent, message: Incoming, runId: string, job: str
   }
 }
 
-async function chatted(agent: Agent, message: Incoming, rules: Rules): Promise<Handled> {
+async function chatted(agent: Agent, message: Incoming, rules: Rules, send?: (text: string) => Promise<void>): Promise<Handled> {
+  // One after another, and all of them out before the answer is.
+  let sending = Promise.resolve();
+  const said =
+    rules.sendWhileWorking && send
+      ? (text: string) => {
+          sending = sending.then(() => send(text)).catch((error) => console.error(`${message.channel}: sending on the way failed`, error));
+          // Sent, so kept: the next turn should know it was said.
+          if (message.thread) remember(message.thread, "assistant", text);
+        }
+      : undefined;
   try {
     const files = (await message.files?.()) ?? {};
     const facts = message.context && { from: message.from.name, ...message.context };
@@ -216,10 +236,12 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules): Promise<H
       attachments: files.attachments?.length ? files.attachments : undefined,
       thread: message.thread || undefined,
       history: rules.chatHistory,
+      said,
       model: message.model,
       source: message.channel,
       owner: `${message.channel}:${message.from.id}`,
     });
+    await sending;
     return { text: result.text || "(no reply)", runId: result.runId, steps: result.steps, cost: result.cost };
   } catch (error) {
     console.error(`${message.channel}: turn failed`, error);

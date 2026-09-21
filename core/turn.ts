@@ -30,6 +30,11 @@ export interface Ask {
   job?: string;
   /** How much of `thread` to show: the channel's `chatHistory`. The last 10 messages when unsaid. */
   history?: ChatHistory;
+  /**
+   * Handed what the model writes before it asks for a tool, as soon as it is
+   * written. Never the final answer, which is what turn() returns.
+   */
+  said?: (text: string) => void;
   /** Who this run is for, as an address. One column, and the team version reads it. */
   owner?: string;
   /** Answer tools from here instead of running them. For evals. */
@@ -61,7 +66,7 @@ const MAX_STEPS = 40;
  * Runs a prompt: ask a model, run the tools it asked for, put the answers
  * back, ask again, until it stops asking.
  */
-export async function turn({ agent, prompt, attachments, model, thread, source, job, history, owner, instead, signal }: Ask): Promise<Result> {
+export async function turn({ agent, prompt, attachments, model, thread, source, job, history, said, owner, instead, signal }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? agent.model;
   const tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
@@ -93,6 +98,7 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
       instead,
       onStep: (line) => {
         trace.push(line);
+        if (said && line.say?.trim() && line.wants?.length) said(line.say);
         if (line.tool) calls.push({ tool: line.tool, args: line.args, result: line.result });
         save(runId, trace.filter((one) => (one as { say?: string }).say !== undefined).length, costOf(trace), trace);
       },

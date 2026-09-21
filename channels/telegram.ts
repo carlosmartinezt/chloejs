@@ -65,6 +65,8 @@ export interface TelegramOptions {
   inGroups?: "when-addressed" | "always";
   /** How much of a chat's conversation a turn is shown: `{ messages, days }`. */
   chatHistory?: ChatHistory;
+  /** Send what the model writes on its way to an answer as it writes it, not only the answer. Off unless true. */
+  sendWhileWorking?: boolean;
   mode?: "polling" | "webhook";
   /** Where this server is reachable from outside, for mode "webhook", like "https://agents.example.com". */
   publicUrl?: string;
@@ -156,7 +158,7 @@ export function listen(
   const { name, token } = options;
   const channel = options.channel ?? "telegram";
   const api = options.api ?? "https://api.telegram.org";
-  const rules: Rules = { allowFrom: options.allowFrom ?? [], inGroups: options.inGroups, chatHistory: options.chatHistory };
+  const rules: Rules = { allowFrom: options.allowFrom ?? [], inGroups: options.inGroups, chatHistory: options.chatHistory, sendWhileWorking: options.sendWhileWorking };
   const mode = options.mode ?? "polling";
   const path = `/chloe/v1/${name}/${channel}`;
   const secret = options.credentials?.webhookSecretToken || process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN || randomBytes(24).toString("hex");
@@ -280,7 +282,10 @@ export function listen(
       ...(topic ? { message_thread_id: topic } : {}),
       ...(message.chat.type === "private" ? {} : { reply_parameters: { message_id: message.message_id } }),
     };
-    const handled = await receive(agent, incoming(message, message.from, text), rules, () => typing(chatId, topic));
+    const handled = await receive(agent, incoming(message, message.from, text), rules, {
+      working: () => typing(chatId, topic),
+      send: (words) => send(chatId, words, extra),
+    });
     if (handled?.text) await send(chatId, handled.text, extra).catch((error) => console.error("telegram:", error.message));
   }
 

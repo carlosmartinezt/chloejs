@@ -168,8 +168,10 @@ export interface Work<State = Record<string, unknown>, Input = Record<string, un
 export interface Result {
   runId: string;
   text: string;
-  /** The job's one line about what it did, which is what a chat is sent. */
+  /** The job's one line about what it did, for the overview. */
   summary?: string | null;
+  /** What a chat is sent: the job's `reply`, or its summary. */
+  reply?: string;
   steps: number;
   cost: number;
   parked: boolean;
@@ -340,7 +342,7 @@ async function drive(ctx: Ctx): Promise<Result> {
     const reply = typeof value === "string" ? value : JSON.stringify(value ?? { ok: true }, null, 2);
     const summary = summarise(ctx.job, value);
     finish(ctx, reply, summary);
-    return { runId: ctx.runId, text: reply, summary, steps: ctx.lines.length, cost: ctx.cost, parked: false };
+    return { runId: ctx.runId, text: reply, summary, reply: chatReply(ctx.job, value) ?? summary ?? undefined, steps: ctx.lines.length, cost: ctx.cost, parked: false };
   } catch (error) {
     if (error instanceof Waiting) {
       save(ctx);
@@ -869,6 +871,16 @@ function finish(ctx: Ctx, reply: string, summary: string | null): void {
  * The job's own line, or the start of the string it returned. A summary that
  * throws costs the run its line and nothing else: the work is already done.
  */
+/** The job's own reply for a chat, or nothing when it has none or it throws. */
+function chatReply(job: Job, value: unknown): string | undefined {
+  try {
+    return job.reply?.(value) || undefined;
+  } catch (error) {
+    console.error(`${job.agent}/${job.id}: its reply failed`, error);
+    return undefined;
+  }
+}
+
 function summarise(job: Job, value: unknown): string | null {
   try {
     if (job.summary) return oneLineSummary(job.summary(value));

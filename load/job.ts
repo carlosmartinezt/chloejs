@@ -60,6 +60,11 @@ export interface Definition<
    * there, unless it returned a string.
    */
   summary?: (result: Result) => string;
+  /**
+   * What a chat is sent when this job was started from one, from what `run`
+   * returned. Whole, not cut to one line. The summary when unsaid.
+   */
+  reply?: (result: Result) => string;
   /** The shared store every step can read and write. It survives a pause. */
   state?: State;
   timezone?: string;

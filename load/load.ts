@@ -165,6 +165,8 @@ export interface Job {
   run?: (work: Work<Record<string, unknown>>) => Promise<unknown>;
   /** One line from what `run` returned. See defineJob. */
   summary?: (result: unknown) => string;
+  /** What a chat is sent, from what `run` returned. See defineJob. */
+  reply?: (result: unknown) => string;
   /** Plain messages this job answers instead of the agent's chat. See defineJob. */
   answers?: (text: string) => boolean;
   /**
@@ -467,6 +469,7 @@ async function fromCode(agent: string, dir: string, definition: JobFile<any, any
       state: definition.state,
       input: definition.input,
       summary: definition.summary,
+      reply: definition.reply,
       answers: definition.answers,
     };
   }

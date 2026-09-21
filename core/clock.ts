@@ -14,6 +14,7 @@ export interface Fired {
   runId: string;
   text: string;
   summary?: string | null;
+  reply?: string;
   steps: number;
   cost: number;
   parked?: boolean;
