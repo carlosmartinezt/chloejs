@@ -13,7 +13,7 @@
 // The server itself is `server.ts`, and it is run rather than imported.
 
 // An agent, and the jobs it runs.
-export { defineAgent, defineConfig, markdownJob, load, loadAll, names, type Agent, type Channel, type ChannelRoute, type Running, type Job, type Skill, type Binding, type Home } from "./load/load.ts";
+export { defineAgent, defineConfig, markdownJob, load, loadAll, names, type Agent, type Channel, type ChannelRoute, type Running, type Job, type Skill, type Binding, type Home, type Features } from "./load/load.ts";
 export { defineJob } from "./load/job.ts";
 export { prompt, isPrompt, oneLineSummary, type Prompt } from "./core/markdown.ts";
 

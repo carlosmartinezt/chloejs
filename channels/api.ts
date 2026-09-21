@@ -1,8 +1,8 @@
 // Opting one agent in to being reached by another system.
 //
-//   // agents/<name>/channels/api.ts
+//   // agents/<name>/agent.ts
 //   import { apiChannel } from "chloejs/channels/api";
-//   export default apiChannel();
+//   channels: [apiChannel()],
 //
 // Binding it makes two routes answer for that agent when the caller holds a
 // token, made at /tokens on the runtime site:
@@ -36,5 +36,5 @@
 import type { Channel } from "#chloe/load/load.ts";
 
 export function apiChannel(): Channel {
-  return { start: () => ({ stop: () => {} }) };
+  return { name: "api", start: () => ({ stop: () => {} }) };
 }

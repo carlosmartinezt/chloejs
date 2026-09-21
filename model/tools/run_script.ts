@@ -38,7 +38,7 @@ export function runScripts(): (agent: { name: string }) => Tools {
   return ({ name }) => {
     const dir = `${agentDir(name)}/scripts`;
     const any = existsSync(dir) && readdirSync(dir, { withFileTypes: true }).some((e) => e.isFile() && !e.name.startsWith("."));
-    if (!any) throw new Error(`${name} is given runScripts(), and ${dir} has no scripts in it.`);
+    if (!any) throw new Error(`${name} has features.runScripts on, and ${dir} has no scripts in it.`);
     return { run_script: runScript(name) };
   };
 }

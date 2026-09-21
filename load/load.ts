@@ -16,6 +16,9 @@ import { readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown.t
 import { parse } from "#chloe/timer/cron.ts";
 import type { Definition as JobFile } from "./job.ts";
 import type { Tool, Tools } from "#chloe/model/tool.ts";
+import { memoryTools } from "#chloe/model/tools/memory.ts";
+import { runScripts } from "#chloe/model/tools/run_script.ts";
+import { selfImprovement } from "#chloe/model/tools/write_skill.ts";
 import type { Work } from "#chloe/core/steps.ts";
 
 export const CONFIG = `${ROOT}/chloe.config.ts`;
@@ -40,11 +43,11 @@ registerHooks({
 export interface Home {
   name: string;
   folder: string;
-  /** Where this agent's memory is, already worked out. See Memory. */
-  memory: string;
+  /** This agent's memory as its definition says it, with the folder worked out. See Memory. */
+  memory: Memory & { folder: string };
 }
 
-/** A set of tools made for one agent as it loads, like memory(). */
+/** A set of tools made for one agent as it loads, like readMail({ ... }). */
 export type Binding = (agent: Home) => Tools;
 
 /** What defineAgent is given. */
@@ -66,21 +69,27 @@ export interface Definition {
    * Where this agent remembers things: the folder it reads and writes between
    * runs, browsable and editable from the site.
    *
-   * Every agent has one. Left unsaid it is that agent's own folder under the
-   * state directory, which is where the memory tool already puts things, so
-   * this is only worth writing down when the agent shares a folder with a
-   * person. Every file served out of it is written to that agent's own audit
-   * log first. See serve/memory.ts for why that log is not optional.
+   * Every agent has one, and always has list_notes, read_notes, search_notes
+   * and write_notes on it. Left unsaid it is that agent's own folder under the
+   * state directory, so this is only worth writing down when the agent shares
+   * a folder with a person. Every file served out of it is written to that
+   * agent's own audit log first. See serve/memory.ts for why that log is not
+   * optional.
    */
   memory?: Memory;
+  /** The tools the runtime can give any agent, each switched on or off here. */
+  features?: Features;
   /** `prompt("instructions.md")`, a path inside the agent's folder, or the words themselves. */
   instructions: string | Prompt;
-  /** Each tool, or a set of them like memory(). A model calls one by its id. */
+  /**
+   * Each tool, or a set of them like readMail({ ... }). A model calls one by
+   * its id. What `features` turns on is added to these and not listed here.
+   */
   tools?: (Tool | Tools | Binding)[];
   /** Each job, imported, or markdownJob("jobs/name.md") for one that is only words. */
   jobs?: (JobFile<any, any> | MarkdownJob)[];
-  /** Keyed by the channel's name: `{ telegram: telegramChannel({ ... }) }`. */
-  channels?: Record<string, Channel>;
+  /** Each way in: `[telegramChannel({ ... }), apiChannel()]`. Each one carries its own name. */
+  channels?: Channel[];
   /** Times round the tool loop before a turn is stopped. */
   maxSteps?: number;
 }
@@ -167,21 +176,40 @@ export interface Job {
   input?: z.ZodType;
 }
 
+/** Tools the runtime brings, switched on per agent: `features: { selfImprovement: true }`. */
+export interface Features {
+  /** list_notes, read_notes, search_notes and write_notes on its memory. On unless this says false. */
+  memory?: boolean;
+  /** write_skill, to rewrite its own skills. Every write is a commit. Off unless this says true. */
+  selfImprovement?: boolean;
+  /**
+   * run_script, to run a file in its own scripts/ folder. Off unless this says
+   * true, and refused as it loads when that folder has no scripts.
+   */
+  runScripts?: boolean;
+}
+
 /** Where an agent remembers things, shown on the site beside its own pages. */
 export interface Memory {
   /**
    * An absolute path. Unset, it is this agent's own folder under the state
-   * directory, which is where the memory tool writes by default.
+   * directory.
    */
   folder?: string;
   /** What the site calls it. "Memory" when nothing is said. */
   label?: string;
-  /** Make every write from the site a git commit. For a folder that is a repo. */
+  /** Make every write a git commit, from the site and from write_notes. For a folder that is a repo. */
   commit?: boolean;
 }
 
-/** A way in to an agent, named in its definition: `channels: { telegram }`. */
+/** A way in to an agent, listed in its definition: `channels: [telegramChannel({ ... })]`. */
 export interface Channel {
+  /**
+   * What the log, the pages and the permissions call it, like "telegram" or
+   * "api". Two channels of one agent cannot share a name. "api" is the one
+   * that lets a token reach the agent.
+   */
+  name: string;
   /** Starts listening. `agent` is read again for every message, so an edit is live. */
   start(agent: () => Agent | undefined): Running;
 }
@@ -212,7 +240,7 @@ export interface Agent extends Omit<Definition, "instructions" | "tools" | "jobs
   tools?: Tools;
   skills: Skill[];
   jobs: Job[];
-  channels: Record<string, Channel>;
+  channels: Channel[];
 }
 
 /**
@@ -278,23 +306,45 @@ async function resolveAgent(definition: Defined): Promise<Agent> {
   const { tools, jobs, channels, ...rest } = definition;
   // Worked out once, here, so the site, the memory tool and a job's
   // work.memory all mean the same folder without any of them saying it again.
-  const memory = memoryFolder(name, definition.memory);
+  const memory = { ...definition.memory, folder: memoryFolder(name, definition.memory) };
   return {
     ...rest,
-    memory: { ...definition.memory, folder: memory },
+    memory,
     instructions: await readPrompt(definition.instructions, { dir: folder, where }),
-    tools: toolsOf(tools ?? [], { name, folder, memory }, where),
+    tools: toolsOf([...featureTools(definition.features, memory), ...(tools ?? [])], { name, folder, memory }, where),
     skills: await skillsIn(`${folder}/skills`),
     jobs: await jobsOf(name, folder, jobs ?? []),
-    channels: channelsOf(channels ?? {}, where),
+    channels: channelsOf(channels ?? [], where),
   };
 }
 
-function channelsOf(channels: Record<string, Channel>, where: string): Record<string, Channel> {
-  for (const [name, one] of Object.entries(channels)) {
-    if (typeof one?.start !== "function") throw new Error(`${where}: channels.${name} is not a channel.`);
+function channelsOf(channels: Channel[], where: string): Channel[] {
+  if (!Array.isArray(channels)) {
+    throw new Error(`${where}: channels is a list, like [telegramChannel({ ... }), apiChannel()].`);
   }
+  const seen = new Set<string>();
+  channels.forEach((one, i) => {
+    if (typeof one?.start !== "function" || typeof one.name !== "string" || !one.name) {
+      throw new Error(`${where}: channels[${i}] is not a channel.`);
+    }
+    if (seen.has(one.name)) throw new Error(`${where}: two channels are called ${one.name}.`);
+    seen.add(one.name);
+  });
   return channels;
+}
+
+/** Does this agent have a channel of this name? "api" is what lets a token reach it. */
+export function hasChannel(agent: Pick<Agent, "channels">, name: string): boolean {
+  return agent.channels.some((one) => one.name === name);
+}
+
+/** What an agent's `features` turn on, as tools. The memory tools unless it says memory: false. */
+function featureTools(features: Features = {}, memory: Memory & { folder: string }): (Tools | Binding)[] {
+  return [
+    ...(features.memory === false ? [] : [memoryTools(memory)]),
+    ...(features.selfImprovement ? [selfImprovement()] : []),
+    ...(features.runScripts ? [runScripts()] : []),
+  ];
 }
 
 function toolsOf(list: (Tool | Tools | Binding)[], home: Home, where: string): Tools {

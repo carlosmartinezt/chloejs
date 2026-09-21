@@ -75,7 +75,7 @@ function agentFor(job: Job): Agent {
     instructions: "",
     skills: [],
     jobs: [job],
-    channels: {},
+    channels: [],
   };
 }
 
@@ -1072,7 +1072,7 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
   marker.stop();
 
   const open = agentFor(codeJob("nightly", async () => ({})));
-  open.channels = { api: apiChannel() };
+  open.channels = [apiChannel()];
   const closed = { ...agentFor(codeJob("nightly", async () => ({}))), name: "closed" };
 
   const server = serve({
@@ -1448,7 +1448,7 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
     }),
     input: z.object({ text: z.string().min(1), source: z.string().default("") }),
   } as Job);
-  agent.channels = { api: apiChannel() };
+  agent.channels = [apiChannel()];
 
   const fired: { job: string; input: unknown; channel?: string }[] = [];
   const server = serve({

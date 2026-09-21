@@ -35,8 +35,8 @@ const running = new Map<string, Running>();
 function startChannels(changed: Set<string> = new Set()): void {
   const wanted = new Set<string>();
   for (const agent of agents.values()) {
-    for (const [channel, one] of Object.entries(agent.channels)) {
-      const key = `${agent.name}/${channel}`;
+    for (const one of agent.channels) {
+      const key = `${agent.name}/${one.name}`;
       wanted.add(key);
       if (running.has(key) && !changed.has(agent.name)) continue;
       running.get(key)?.stop();

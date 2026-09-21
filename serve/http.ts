@@ -10,7 +10,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { z } from "zod";
 
 import { db } from "#chloe/core/db.ts";
-import type { Agent, ChannelRoute, Job } from "#chloe/load/load.ts";
+import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load.ts";
 import type { Clock } from "#chloe/core/clock.ts";
 import { forget, recall } from "#chloe/model/memory.ts";
 import { editable, open, save, tree } from "./files.ts";
@@ -83,7 +83,7 @@ export interface Route extends RouteDoc {
 
 /** Whether an agent has opted in to being reached by another system. */
 function onTheApi(agent: Agent): boolean {
-  return Object.keys(agent.channels).includes("api");
+  return hasChannel(agent, "api");
 }
 
 /** One agent's configuration, the same shape from the list and from its own route. */
@@ -93,7 +93,7 @@ function summary(agent: Agent) {
     label: agent.label,
     description: agent.description,
     model: agent.model,
-    channels: Object.keys(agent.channels).sort(),
+    channels: agent.channels.map((one) => one.name).sort(),
     /** Whether a token may chat to it or run its jobs. */
     api: onTheApi(agent),
     /** What the site calls its memory. Every agent has one. */

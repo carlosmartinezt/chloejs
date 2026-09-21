@@ -5,7 +5,10 @@
 // its own folder, its own mailbox, its own From line, so nothing here names an
 // agent or a person.
 //
-//   import { memory, selfImprovement, runScripts, readMail } from "chloejs/tools";
+//   import { readMail, readWeb } from "chloejs/tools";
+//
+// The notes tools, write_skill and run_script are not here: an agent turns
+// them on with `features` in its definition.
 //
 // The work itself is in do/, published from "chloejs", and a job calls it
 // from a step rather than coming through here. If a job imports this file,
@@ -13,10 +16,6 @@
 //
 // Same rule as `index.ts`: adding a name here is publishing it.
 
-// What most agents are given: notes it keeps, skills it rewrites, scripts it runs.
-export { memory } from "./memory.ts";
-export { selfImprovement, writeSkill } from "./write_skill.ts";
-export { runScripts, runScript } from "./run_script.ts";
 
 // One folder, as tools, for an agent that needs a different set.
 export { listIn, readIn, searchIn, writeIn } from "./files.ts";

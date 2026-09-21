@@ -10,7 +10,7 @@
 // needs. Everything it shows, it was given.
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import type { Agent } from "#chloe/load/load.ts";
+import { hasChannel, type Agent } from "#chloe/load/load.ts";
 import { caller, from, hasAccount } from "./login.ts";
 import { installedPage, servePageFile } from "./page.ts";
 import { memoryLabel, memoryTree } from "./memory.ts";
@@ -192,7 +192,7 @@ ${agents
   .map(
     (agent) => `<div class="card">
   <h3><a href="/agents/${esc(agent.name)}">${esc(agent.label || agent.name)}</a>
-    ${Object.keys(agent.channels).includes("api") ? '<span class="tag">on the api</span>' : ""}</h3>
+    ${hasChannel(agent, "api") ? '<span class="tag">on the api</span>' : ""}</h3>
   <p class="quiet">${esc(agent.description || "No description.")}</p>
   <p class="quiet"><code>${esc(agent.model)}</code> &middot; ${agent.jobs.length} job${
       agent.jobs.length === 1 ? "" : "s"
@@ -219,8 +219,8 @@ function agentPage(agent: Agent, context: Context): string {
   <tr><th>Name</th><td><code>${esc(agent.name)}</code></td></tr>
   <tr><th>Model</th><td><code>${esc(agent.model)}</code></td></tr>
   <tr><th>Channels</th><td>${
-    Object.keys(agent.channels).length
-      ? Object.keys(agent.channels).sort().map((one) => `<code>${esc(one)}</code>`).join(", ")
+    agent.channels.length
+      ? agent.channels.map((one) => one.name).sort().map((one) => `<code>${esc(one)}</code>`).join(", ")
       : '<span class="quiet">none</span>'
   }</td></tr>
   <tr><th>Tools</th><td>${
@@ -256,14 +256,14 @@ ${agent.jobs
 
 <h2>Reaching it</h2>
 ${
-  Object.keys(agent.channels).includes("api")
+  hasChannel(agent, "api")
     ? `<p>It binds an api channel, so a token may talk to it and run its jobs.</p>
 <pre>curl -X POST http://127.0.0.1:3067/api/agents/${esc(agent.name)}/chat \\
   -H "authorization: Bearer $CHLOE_TOKEN" \\
   -H "content-type: application/json" \\
   -d '{"prompt":"what is late?"}'</pre>`
     : `<p class="quiet">It has no api channel, so only a signed-in account can talk to it.
-Add <code>channels: { api }</code> to its definition to open it to a token.</p>`
+Add <code>apiChannel()</code> to the channels in its definition to open it to a token.</p>`
 }`;
   return shell(agent.label || agent.name, body);
 }

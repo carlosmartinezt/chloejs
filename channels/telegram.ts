@@ -1,8 +1,8 @@
-// Talking to an agent from Telegram. An agent's channel file is one call:
+// Talking to an agent from Telegram. It is one entry in the agent's channels:
 //
-//   // agents/<name>/channels/telegram.ts
+//   // agents/<name>/agent.ts
 //   import { telegramChannel } from "chloejs/channels/telegram";
-//   export default telegramChannel({ allowFrom: [111111111] });
+//   channels: [telegramChannel({ allowFrom: [111111111] })],
 //
 // The bot's token is TELEGRAM_BOT_TOKEN, or `credentials: { botToken }`. To
 // make a bot, message @BotFather in Telegram, send /newbot, and pick a name
@@ -25,7 +25,11 @@
 //              on every call. chloe registers the address itself on start.
 //
 // In a group, the agent answers a command (/ask), a message that mentions the
-// bot, or a reply to one of the bot's own messages, and nothing else.
+// bot, or a reply to one of the bot's own messages, and nothing else. With
+// `inGroups: "always"` it answers every message in a group from someone in
+// allowFrom, the way it does in a private chat. Either way nobody outside
+// allowFrom is answered. Telegram only hands a bot every group message when
+// its privacy mode is off (BotFather, /setprivacy) or it is a group admin.
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -44,12 +48,23 @@ const WAIT = 50; // Seconds Telegram holds a poll open when there is nothing new
  * fetched or posted.
  */
 export interface TelegramOptions {
+  /**
+   * "telegram" unless the agent has two bots. It is what the log shows a run
+   * came in on, and the start of every address on this bot, like "telegram:123".
+   */
+  name?: string;
   /** For spotting a mention in a group. Asked of Telegram when left out. */
   botUsername?: string;
   /** Instead of TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET_TOKEN. */
   credentials?: { botToken?: string; webhookSecretToken?: string };
   /** Telegram user ids that may reach the agent. */
   allowFrom?: number[];
+  /**
+   * In a group, "when-addressed" (the default) answers only a command, a
+   * mention or a reply to the bot. "always" answers every message from
+   * someone in allowFrom.
+   */
+  inGroups?: "when-addressed" | "always";
   mode?: "polling" | "webhook";
   /** Where this server is reachable from outside, for mode "webhook", like "https://agents.example.com". */
   publicUrl?: string;
@@ -97,6 +112,7 @@ interface Update {
 /** An agent on Telegram, as a channel its own `agent.ts` names. */
 export function telegramChannel(options: TelegramOptions = {}): Channel {
   return {
+    name: options.name ?? "telegram",
     start(agent) {
       const name = agent()?.name ?? "";
       const token = options.credentials?.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
@@ -113,7 +129,7 @@ export function telegramChannel(options: TelegramOptions = {}): Channel {
         return { stop: () => {} };
       }
       taken.set(token, name);
-      const running = listen({ ...options, name, token, agent });
+      const running = listen({ ...options, name, channel: options.name, token, agent });
       return {
         routes: running.routes,
         stop() {
@@ -126,12 +142,22 @@ export function telegramChannel(options: TelegramOptions = {}): Channel {
 }
 
 /** Reads messages until stopped. Separate from the channel so the tests can point it somewhere else. */
-export function listen(options: TelegramOptions & { name: string; token: string; agent: () => Agent | undefined }): Running {
+export function listen(
+  options: Omit<TelegramOptions, "name"> & {
+    /** The agent's name. */
+    name: string;
+    /** The channel's name, "telegram" when left out. */
+    channel?: string;
+    token: string;
+    agent: () => Agent | undefined;
+  },
+): Running {
   const { name, token } = options;
+  const channel = options.channel ?? "telegram";
   const api = options.api ?? "https://api.telegram.org";
   const allowFrom = new Set(options.allowFrom ?? []);
   const mode = options.mode ?? "polling";
-  const path = `/chloe/v1/${name}/telegram`;
+  const path = `/chloe/v1/${name}/${channel}`;
   const secret = options.credentials?.webhookSecretToken || process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN || randomBytes(24).toString("hex");
   const allowedTypes = options.uploadPolicy?.allowedMediaTypes ?? ["image/*", "application/pdf", "text/*"];
   const maxBytes = options.uploadPolicy?.maxBytes ?? 10 * 1024 * 1024;
@@ -163,7 +189,7 @@ export function listen(options: TelegramOptions & { name: string; token: string;
   // bot. Answers that can be listed become buttons, and anything
   // else asks for a reply.
   reachBy(
-    "telegram",
+    channel,
     (to, text, choices) =>
       send(Number(to), text, {
         reply_markup: choices?.length
@@ -173,7 +199,7 @@ export function listen(options: TelegramOptions & { name: string; token: string;
     name,
   );
   // A private chat's id is the person's user id, so the first allowed person is reachable at it.
-  if (options.allowFrom?.[0]) ownedBy(name, `telegram:${options.allowFrom[0]}`);
+  if (options.allowFrom?.[0]) ownedBy(name, `${channel}:${options.allowFrom[0]}`);
 
   function allowed(from: User | undefined, chatId: number, isPrivate: boolean): boolean {
     if (!from) return false;
@@ -185,13 +211,15 @@ export function listen(options: TelegramOptions & { name: string; token: string;
       return false;
     }
     if (!allowFrom.has(from.id)) {
+      // In a group the bot sees everybody's messages, and most are not for it.
+      if (!isPrivate) return false;
       console.warn(`telegram: ${name} is ignoring user ${from.id}${from.username ? ` (@${from.username})` : ""}, not in allowFrom`);
       return false;
     }
     return true;
   }
 
-  /** In a group, a message is for the bot when it is a command, mentions it, or replies to it. */
+  /** In a group, a message is for the bot when it is a command, mentions it, or replies to it, or always with inGroups "always". */
   function addressed(message: TgMessage, text: string): { yes: boolean; mentioned: boolean } {
     if (message.chat.type === "private") return { yes: true, mentioned: false };
     const username = options.botUsername ?? me?.username ?? "";
@@ -201,7 +229,7 @@ export function listen(options: TelegramOptions & { name: string; token: string;
       entities.some((e) => e.type === "mention" && text.slice(e.offset, e.offset + e.length).toLowerCase() === `@${username.toLowerCase()}`);
     const command = text.startsWith("/");
     const replyToBot = !!me && message.reply_to_message?.from?.id === me.id;
-    return { yes: mentioned || command || replyToBot, mentioned };
+    return { yes: options.inGroups === "always" || mentioned || command || replyToBot, mentioned };
   }
 
   function wanted(mediaType: string): boolean {
@@ -239,7 +267,7 @@ export function listen(options: TelegramOptions & { name: string; token: string;
 
   /** An answer to a job that is waiting on this chat. Understood by the job, never by a model. */
   async function answerParked(chatId: number, text: string, extra: object): Promise<boolean> {
-    const waiting = waitingOn(`telegram:${chatId}`, name);
+    const waiting = waitingOn(`${channel}:${chatId}`, name);
     if (!waiting) return false;
     try {
       const found = options.agent();
@@ -288,7 +316,7 @@ export function listen(options: TelegramOptions & { name: string; token: string;
     const quoted = message.reply_to_message;
     const input = {
       text: text.slice(word.length).trim() || rest.join(" "),
-      from: "telegram",
+      from: channel,
       chat: String(chatId),
       chatTitle: message.chat.title ?? "",
       user: from.username ? `@${from.username}` : (from.first_name ?? String(from.id)),
@@ -298,7 +326,7 @@ export function listen(options: TelegramOptions & { name: string; token: string;
 
     const stopTyping = typing(chatId, topic);
     try {
-      const result = await started.fire(agent, job, input, "telegram");
+      const result = await started.fire(agent, job, input, channel);
       stopTyping();
       if (!result) {
         await send(chatId, `${job.id} is already running. I will not start a second one.`, extra);
@@ -357,8 +385,8 @@ export function listen(options: TelegramOptions & { name: string; token: string;
         attachments: file.attachment ? [file.attachment] : undefined,
         // One thread per chat, and per topic in a forum.
         thread: `${name}/telegram-${chatId}${topic ? `-${topic}` : ""}`,
-        source: "telegram",
-        owner: `telegram:${from.id}`,
+        source: channel,
+        owner: `${channel}:${from.id}`,
       });
       stopTyping();
       await send(chatId, result.text || "(no reply)", extra);
@@ -470,7 +498,7 @@ export function listen(options: TelegramOptions & { name: string; token: string;
     routes: mode === "webhook" ? [{ path, handle: webhook }] : [],
     stop() {
       stopping.abort();
-      unreach("telegram", name);
+      unreach(channel, name);
     },
   };
 }

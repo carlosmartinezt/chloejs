@@ -356,19 +356,18 @@ filter, not a boundary: it widens the moment a turn goes wrong, and by then it
 has already read the thing. If you add a tool that reaches private material,
 give it this shape.
 
-**An agent is on Telegram because its `agent.ts` says `channels: { telegram }`**,
-imported from its own `channels/telegram.ts`, which is
-`export default telegramChannel({ allowFrom: [...] })` from
-`channels/telegram`. `allowFrom` is Telegram
+**An agent is on Telegram because its `agent.ts` lists
+`telegramChannel({ allowFrom: [...] })` in `channels`**, imported from
+`chloejs/channels/telegram`. `allowFrom` is Telegram
 user ids, so an allowed person is answered in any chat, including a group made
-later. One bot per agent. `mode` is `"polling"` (the default: chloe fetches
+later. One bot per agent, unless each has its own `name`. `mode` is `"polling"` (the default: chloe fetches
 messages, nothing is exposed) or `"webhook"` (Telegram posts to
-`/chloe/v1/<agent>/telegram`, which is answered before the login and checks its
+`/chloe/v1/<agent>/<channel name>`, which is answered before the login and checks its
 secret on every call). Do not add another path past the login without a secret
 and an allowlist of its own.
 
-**An agent is reachable by another system because its `agent.ts` says
-`channels: { api }`**, `export default apiChannel()` from `channels/api`.
+**An agent is reachable by another system because its `agent.ts` lists
+`apiChannel()` in `channels`**, imported from `chloejs/channels/api`.
 It listens to nothing. `POST /api/agents/<name>/chat` and
 `POST /api/agents/<name>/job/<job>` are answered by `serve/http.ts`
 either way, and what binding the channel does is let a **token** reach that
@@ -493,20 +492,21 @@ agent. If no skill or instruction mentions it, it does not belong there.
 stands on. Agent specific code lives in that agent's folder.
 
 **Do not add a per-agent file for something every agent has.** Write it once
-in `model/tools/`, like `memory()`, and let each agent name it in its
-`agent.ts`.
+in `model/tools/` and let each agent name it in its `agent.ts`. What any
+agent may want switched on (its notes tools, write_skill, run_script) is a
+`features` flag in its definition instead, and the loader adds the tools.
 
-**A channel may say its own name, and nothing else may say it for it.**
-`channels/telegram.ts` is allowed to know it is Telegram. Nothing outside
+**A channel says its own name, and nothing else may say it for it.** Every
+`Channel` has a `name`, `channels` in a definition is a list, and the loader
+refuses two with one name. `channels/telegram.ts` is allowed to know it is Telegram. Nothing outside
 that file is: a job's question goes out to an address, `channel:who`, and
 `model/ask.ts` looks the channel half up in a registry each running
 channel fills for its own agent, so an agent's question goes out through its
 own bot. The runtime still reaches somebody without knowing how, and an agent is
-put on a channel by writing one file in its `channels/` folder and naming it
-in its `agent.ts`.
+put on a channel by adding one entry to `channels` in its `agent.ts`.
 
 A channel chloe does not ship is written in the agent's own `channels/` folder,
-exporting a `Channel` as its default, without editing anything in the runtime.
+exporting a `Channel` with its own `name`, without editing anything in the runtime.
 
 ## House style
 
@@ -536,7 +536,7 @@ A comment on a function is for someone calling it: what it does, what it
 takes, and anything that would surprise them. It is not the story of the
 change that produced it. "Whose they are is filled in when the agent loads, so
 the name is not written twice" describes a refactor, and says nothing to
-someone reading `memory()` for the first time; "list_notes, read_notes,
+someone reading `memoryTools()` for the first time; "list_notes, read_notes,
 search_notes and write_notes, all inside one folder" does. Words like
 "now", "no longer", "used to" and "instead of" in a function's comment are the
 sign. The history is in git.
