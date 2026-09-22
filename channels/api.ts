@@ -1,7 +1,7 @@
 // Opting one agent in to being reached by another system.
 //
 //   // agents/<name>/agent.ts
-//   import { apiChannel } from "@chloejs/core/channels/api";
+//   import { apiChannel } from "@chloejs/core/channels";
 //   channels: [apiChannel()],
 //
 // Binding it makes two routes answer for that agent when the caller holds a

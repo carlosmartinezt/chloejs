@@ -47,7 +47,7 @@ export interface Home {
   memory: Memory & { folder: string };
 }
 
-/** A set of tools made for one agent as it loads, like readMail({ ... }). */
+/** A set of tools made for one agent as it loads, like read_mail({ ... }). */
 export type Binding = (agent: Home) => Tools;
 
 /** What defineAgent is given. */
@@ -82,7 +82,7 @@ export interface Definition {
   /** `prompt("instructions.md")`, a path inside the agent's folder, or the words themselves. */
   instructions: string | Prompt;
   /**
-   * Each tool, or a set of them like readMail({ ... }). A model calls one by
+   * Each tool, or a set of them like read_mail({ ... }). A model calls one by
    * its id. What `features` turns on is added to these and not listed here.
    */
   tools?: (Tool | Tools | Binding)[];

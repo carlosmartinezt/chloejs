@@ -5,9 +5,9 @@ import { readPage } from "#chloe/services/webService.ts";
 import { tool } from "#chloe/model/tool.ts";
 
 /** A tool that reads one public web page as plain text. */
-export function readWeb() {
+export function read_web() {
   return tool({
-    id: "read_page",
+    id: "read_web",
     description:
       "Read a public web page as plain text. Links come back as `[text](url)`: to follow one, pass that url " +
       "exactly as it came back, never one you rebuilt by hand, because one changed character can make a site " +

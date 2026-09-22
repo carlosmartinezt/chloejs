@@ -5,12 +5,12 @@
 // its own folder, its own mailbox, its own From line, so nothing here names an
 // agent or a person.
 //
-//   import { readMail, readWeb } from "@chloejs/core/tools";
+//   import { read_mail, read_web } from "@chloejs/core/tools";
 //
 // The notes tools, write_skill and run_script are not here: an agent turns
 // them on with `features` in its definition.
 //
-// The work itself is in services/, published from "@chloejs/core", and a job calls it
+// The work itself is in services/, published as "@chloejs/core/services", and a job calls it
 // from a step rather than coming through here. If a job imports this file,
 // something is in the wrong place.
 //
@@ -18,11 +18,11 @@
 
 
 // One folder, as tools, for an agent that needs a different set.
-export { listIn, readIn, searchIn, writeIn } from "./files.ts";
+export { list_in, read_in, search_in, write_in } from "./files.ts";
 
 // Mail in, mail out.
-export { readMail } from "./gmail.ts";
-export { sendEmail } from "./send_email.ts";
+export { read_mail } from "./gmail.ts";
+export { send_email } from "./send_email.ts";
 
 // Reading a public web page.
-export { readWeb } from "./web.ts";
+export { read_web } from "./web.ts";

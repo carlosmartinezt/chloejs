@@ -11,13 +11,13 @@
 // point at a script that a person already put there.
 //
 // Every write is a git commit, so self-improvement always leaves a diff.
-import { writeIn } from "./files.ts";
+import { write_in } from "./files.ts";
 import { agentDir } from "#chloe/core/paths.ts";
 import type { Tools } from "../tool.ts";
 
 /** A tool that rewrites one of the agent's own skills. Every write is a commit. */
 export function writeSkill(agent: string) {
-  return writeIn({
+  return write_in({
     root: `${agentDir(agent)}/skills`,
     what: "your own skills",
     id: "write_skill",

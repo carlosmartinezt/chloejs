@@ -1,7 +1,7 @@
 // Talking to an agent from Slack. It is one entry in the agent's channels:
 //
 //   // agents/<name>/agent.ts
-//   import { slackChannel } from "@chloejs/core/channels/slack";
+//   import { slackChannel } from "@chloejs/core/channels";
 //   channels: [slackChannel({ allowFrom: ["U0123ABCD"] })],
 //
 // It needs a Slack app with Socket Mode on, which is chloe opening a

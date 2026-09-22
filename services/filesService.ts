@@ -18,7 +18,7 @@ import { confine } from "#chloe/core/confine.ts";
 import { run } from "./runService.ts";
 
 /** List a folder. `path` is relative to `root`, and omitting it means the top. */
-export async function list(root: string, path?: string) {
+export async function listFiles(root: string, path?: string) {
   const resolved = path ? confine(root, path) : root;
   const entries = await readdir(resolved, { withFileTypes: true });
   return {
@@ -31,14 +31,14 @@ export async function list(root: string, path?: string) {
 }
 
 /** Read one file. `path` is relative to `root` and cannot leave it. */
-export async function read(root: string, path: string) {
+export async function readFiles(root: string, path: string) {
   const resolved = confine(root, path);
   const content = await readFile(resolved, "utf8");
   return { path: resolved, bytes: content.length, content };
 }
 
 /** Search a folder for text, case-insensitive. `folder` narrows it. */
-export async function search(root: string, query: string, folder?: string) {
+export async function searchFiles(root: string, query: string, folder?: string) {
   const target = folder ? confine(root, folder) : root;
   // ripgrep if the box has it, grep otherwise. An earlier version assumed
   // ripgrep, and when it was not installed every search quietly answered
@@ -68,7 +68,7 @@ export async function search(root: string, query: string, folder?: string) {
  * Write one file, replacing it. `commit` makes the write a git commit, for a
  * folder that is a repo, and then `message` is required.
  */
-export async function write(
+export async function writeFiles(
   root: string,
   path: string,
   content: string,

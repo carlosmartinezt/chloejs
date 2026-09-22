@@ -1,7 +1,7 @@
 // Talking to an agent from Telegram. It is one entry in the agent's channels:
 //
 //   // agents/<name>/agent.ts
-//   import { telegramChannel } from "@chloejs/core/channels/telegram";
+//   import { telegramChannel } from "@chloejs/core/channels";
 //   channels: [telegramChannel({ allowFrom: [111111111] })],
 //
 // The bot's token is TELEGRAM_BOT_TOKEN, or `credentials: { botToken }`. To

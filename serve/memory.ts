@@ -21,7 +21,7 @@ import { promisify } from "node:util";
 
 import { confine, unreachable } from "#chloe/core/confine.ts";
 import type { Agent } from "#chloe/load/load.ts";
-import { list, read, write } from "#chloe/services/filesService.ts";
+import { listFiles, readFiles, writeFiles } from "#chloe/services/filesService.ts";
 import { STATE } from "#chloe/core/paths.ts";
 import { BadRequest } from "./errors.ts";
 import { noteHead } from "./page.ts";
@@ -91,7 +91,7 @@ export async function memoryTree(agent: Agent, from = "unknown"): Promise<Entry[
 }
 
 async function walk(agent: Agent, path: string, depth = 0): Promise<Entry[]> {
-  const { entries } = await list(folder(agent), path || undefined);
+  const { entries } = await listFiles(folder(agent), path || undefined);
   const out: Entry[] = [];
   for (const entry of entries) {
     const dir = entry.endsWith("/");
@@ -139,7 +139,7 @@ export async function memoryOpen(agent: Agent, path: string, from: string) {
     await record(agent, "list", path, from);
     return { path, dir: true as const, entries: await walk(agent, path) };
   }
-  const file = await read(folder(agent), path);
+  const file = await readFiles(folder(agent), path);
   // After the read and before the reply, so nothing is handed over unrecorded.
   await record(agent, "read", path, from, { bytes: file.bytes });
   return { path, dir: false as const, content: file.content, bytes: file.bytes };
@@ -213,7 +213,7 @@ export function withHead(html: string, head: string): string {
 export async function memorySave(agent: Agent, path: string, content: string, from: string) {
   if (!inside(agent, path, from)) throw new BadRequest(`${path} is not somewhere in this memory.`);
   const commit = Boolean(agent.memory.commit) && (await isRepo(agent));
-  const written = await write(folder(agent), path, content, {
+  const written = await writeFiles(folder(agent), path, content, {
     commit,
     message: commit ? `memory: ${path} from the site` : undefined,
   });

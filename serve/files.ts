@@ -11,7 +11,7 @@ import { existsSync, statSync } from "node:fs";
 
 import { confine } from "#chloe/core/confine.ts";
 import { agentDir } from "#chloe/core/paths.ts";
-import { list, read, write } from "#chloe/services/filesService.ts";
+import { listFiles, readFiles, writeFiles } from "#chloe/services/filesService.ts";
 
 export interface Entry {
   name: string;
@@ -28,7 +28,7 @@ const JUNK = ["__pycache__", "node_modules"];
 
 /** Everything in one agent's folder, folders first, as a tree. */
 export async function tree(agent: string, path = "", depth = 0): Promise<Entry[]> {
-  const { entries } = await list(agentDir(agent), path || undefined);
+  const { entries } = await listFiles(agentDir(agent), path || undefined);
   const out: Entry[] = [];
   for (const entry of entries) {
     const dir = entry.endsWith("/");
@@ -59,12 +59,12 @@ export async function open(agent: string, path: string) {
   if (statSync(resolved).isDirectory()) {
     return { path, dir: true as const, entries: await tree(agent, path) };
   }
-  const file = await read(agentDir(agent), path);
+  const file = await readFiles(agentDir(agent), path);
   return { path, dir: false as const, content: file.content, editable: editable(path) };
 }
 
 export async function save(agent: string, path: string, content: string) {
   if (!editable(path)) throw new Error(`${path} is not markdown.`);
-  const written = await write(agentDir(agent), path, content);
+  const written = await writeFiles(agentDir(agent), path, content);
   return { path, bytes: written.bytes };
 }

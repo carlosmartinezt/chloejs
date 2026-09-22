@@ -25,7 +25,7 @@ interface Options {
  * A tool that reads the mail the agent is bound to. The search is the
  * binding's, and the model chooses only how far back and how many.
  */
-export function readMail({
+export function read_mail({
   search = "in:inbox",
   what = "mail in the inbox",
   days = 7,

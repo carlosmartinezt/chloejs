@@ -1344,13 +1344,13 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const { recall, remember } = await import("#chloe/model/memory.ts");
   remember("test/tools", "user", "What board am I on?");
   remember("test/tools", "assistant", "Board 210.", [
-    { tool: "read_page", args: { url: "https://example.com/pairings" } },
+    { tool: "read_web", args: { url: "https://example.com/pairings" } },
     { tool: "write_notes", args: { path: "chess.html", content: "x".repeat(1000) } },
   ]);
   remember("test/tools", "assistant", "Anything else?");
   const told = recall("test/tools", { limit: 10, tools: true });
   is("the next turn sees the calls, then the reply", told.map((one) => one.role), ["user", "assistant", "tool", "tool", "assistant", "assistant"]);
-  is("in the shape a turn's own calls take", told[1].tool_calls?.[0].function, { name: "read_page", arguments: '{"url":"https://example.com/pairings"}' });
+  is("in the shape a turn's own calls take", told[1].tool_calls?.[0].function, { name: "read_web", arguments: '{"url":"https://example.com/pairings"}' });
   is("a whole file written is cut short", JSON.parse(told[1].tool_calls![1].function.arguments).content.length, 303);
   is("each call is answered, or a provider refuses the history", told[2].tool_call_id, told[1].tool_calls?.[0].id);
   is("the reply itself is left as it was", told[4].content, "Board 210.");
@@ -1393,7 +1393,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("reading a web page");
 
-  const { htmlToText, isPrivate, readPage } = await import("@chloejs/core");
+  const { htmlToText, isPrivate, readPage } = await import("@chloejs/core/services");
   const html =
     "<!doctype html><html><head><title>Wall &amp; chart</title><style>td{}</style></head><body>\n" +
     "<table>\n<tr><td><a href=\"report.php?section=Novice - under 900\">Novice</a></td>\n<td>239</td></tr>\n" +

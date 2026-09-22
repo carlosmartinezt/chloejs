@@ -202,16 +202,17 @@ serve/       the one port: every route, the login, tokens, the plain page
 core/        the floor. steps.ts runs a job, turn.ts runs a prompt, clock.ts
              starts each job when its cron line is due
 scorers/     how a run is marked
-services/    the work itself, called straight from a job
+services/    the work itself, called straight from a job, published as
+             "@chloejs/core/services"
 channels/    the ways in, for an agent to bind
 ops/         the tests, the evals, talking to an agent, making the account,
              and install.sh, which installs the service
 test-agent/  the agent the tests load. Not published
 ```
 
-Six entrances and no others: `@chloejs/core`, `@chloejs/core/tools`,
-`@chloejs/core/channels/<name>`, `@chloejs/core/scorers`, `@chloejs/core/timer` and
-`@chloejs/core/test`.
+Seven entrances and no others: `@chloejs/core`, `@chloejs/core/services`,
+`@chloejs/core/tools`, `@chloejs/core/channels`, `@chloejs/core/scorers`,
+`@chloejs/core/timer` and `@chloejs/core/test`.
 
 ## Use code when you know what to do. Use AI when you do not.
 

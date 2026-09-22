@@ -2,10 +2,12 @@
 //
 // Everything an agent, a job, a tool or a channel is written with is named
 // here, and nothing else in this folder is anybody's business. Import it as
-// "@chloejs/core": the three lines below say the rest.
+// "@chloejs/core": the lines below say the rest.
 //
 //   import { defineJob, tool, note } from "@chloejs/core";
-//   import { telegramChannel } from "@chloejs/core/channels/telegram";  // reaching an agent
+//   import { run, sendEmail } from "@chloejs/core/services";  // the work, for a job
+//   import { read_mail } from "@chloejs/core/tools";  // the work, for a model
+//   import { telegramChannel } from "@chloejs/core/channels";  // reaching an agent
 //   import { calls, expectations } from "@chloejs/core/scorers";  // marking a run
 //
 // Adding a name here is publishing it, and taking one away is a break, so this
@@ -38,15 +40,3 @@ export { readSettings, setting, settings, type Settings } from "./core/settings.
 export { confine } from "./core/confine.ts";
 export { note, type Note } from "./core/notes.ts";
 export { copyDatabase, DATABASE, db, trim } from "./core/db.ts";
-
-// What a job can do without asking anybody: running a command, sending mail,
-// reading mail, reading and writing files in one folder, running one of an
-// agent's own scripts, reading a web page. The same work offered
-// to a model instead is "@chloejs/core/tools", and each of those is a wrapper over one
-// of these.
-export { run, type Result } from "./services/runService.ts";
-export { sendEmail, type EmailSender } from "./services/emailService.ts";
-export { messages, oneMessage, type Message as Mail } from "./services/gmailService.ts";
-export { list, read, search, write } from "./services/filesService.ts";
-export { script, scripts } from "./services/scriptsService.ts";
-export { readPage, htmlToText, isPrivate, type Page } from "./services/webService.ts";

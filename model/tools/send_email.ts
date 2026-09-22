@@ -4,7 +4,7 @@
 // writes is the subject and the body.
 import { z } from "zod";
 
-import { type EmailSender, sendEmail as send } from "#chloe/services/emailService.ts";
+import { type EmailSender, sendEmail } from "#chloe/services/emailService.ts";
 import { tool } from "#chloe/model/tool.ts";
 
 interface Options extends EmailSender {
@@ -16,7 +16,7 @@ interface Options extends EmailSender {
  * A tool that sends mail from the address the agent was given, to the address
  * it was given.
  */
-export function sendEmail({ when, ...sender }: Options) {
+export function send_email({ when, ...sender }: Options) {
   return tool({
     id: "send_email",
     description: `Send an email. ${when}`,
@@ -24,6 +24,6 @@ export function sendEmail({ when, ...sender }: Options) {
       subject: z.string().min(5).max(120),
       body: z.string().min(20).describe("Plain text. Lead with what happened and what you did."),
     }),
-    execute: ({ subject, body }) => send(sender, subject, body),
+    execute: ({ subject, body }) => sendEmail(sender, subject, body),
   });
 }

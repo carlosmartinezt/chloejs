@@ -172,9 +172,12 @@ or a person, and nothing in `model/tools/` or `channels/` exports a
 default: each exports a function that an agent binds.
 
 **A tool is for a model and nothing else.** The work is a plain function in
-`services/`, published from `"@chloejs/core"`, and a job calls it from a step.
+`services/`, published as `"@chloejs/core/services"`, and a job calls it from a step.
 `model/tools/` holds the wrappers over those functions, and a wrapper is
-a description, a schema and one call. Nothing in it does work. A file in
+a description, a schema and one call. Nothing in it does work. A tool's
+function is named like the tool it makes, lower case with underscores:
+`send_email()` makes `send_email`. A service's function is camel case,
+`sendEmail()`, so the two never share a name. A file in
 `services/` is named for what it reaches, `<thing>Service.ts`. Where more than
 one provider could do the same work, the file holds the interface and the
 providers, and a setting picks one: `email.provider` in `emailService.ts`.
@@ -315,11 +318,13 @@ happened. Teach `load/load.ts` to read a key before you write one.
 
 **The runtime is a package: import it as `"@chloejs/core"`, never by path.**
 Inside this repo, `test-agent/` imports it by name too, which works because a
-package can import itself. Six entrances and no others: `@chloejs/core`,
-`@chloejs/core/tools` for a tool to bind, `@chloejs/core/channels/<name>` for a channel to
-bind, `@chloejs/core/scorers` for marking a run, `@chloejs/core/timer` for when a job runs
-(`every`, and cron lines on their own), and `@chloejs/core/test` for testing a job. Adding a name to
-`index.ts` or `model/tools/index.ts` is publishing it, and taking one
+package can import itself. Seven entrances and no others: `@chloejs/core`,
+`@chloejs/core/services` for the work a job does, `@chloejs/core/tools` for a tool to
+bind, `@chloejs/core/channels` for a channel to bind, `@chloejs/core/scorers` for
+marking a run, `@chloejs/core/timer` for when a job runs (`every`, and cron lines on
+their own), and `@chloejs/core/test` for testing a job. Adding a name to an entrance's
+index file (`index.ts`, `services/index.ts`, `model/tools/index.ts`,
+`channels/index.ts`) is publishing it, and taking one
 away is a break, so anything not on those lists is free to move. Inside
 the runtime the files reach each other by `#chloe/`, which `package.json`
 maps, and `../` is the thing not to do.
@@ -361,7 +366,7 @@ give it this shape.
 
 **An agent is on Telegram because its `agent.ts` lists
 `telegramChannel({ allowFrom: [...] })` in `channels`**, imported from
-`@chloejs/core/channels/telegram`. `allowFrom` is Telegram
+`@chloejs/core/channels`. `allowFrom` is Telegram
 user ids, so an allowed person is answered in any chat, including a group made
 later. One bot per agent, unless each has its own `name`. `mode` is `"polling"` (the default: chloe fetches
 messages, nothing is exposed) or `"webhook"` (Telegram posts to
@@ -370,11 +375,11 @@ secret on every call). Do not add another path past the login without a secret
 and an allowlist of its own.
 
 **Slack is the same shape**: `slackChannel({ allowFrom: [...] })` from
-`@chloejs/core/channels/slack`, with Slack member ids. It uses Socket Mode only,
+`@chloejs/core/channels`, with Slack member ids. It uses Socket Mode only,
 chloe connecting out to Slack, so it adds no path past the login at all.
 
 **An agent is reachable by another system because its `agent.ts` lists
-`apiChannel()` in `channels`**, imported from `@chloejs/core/channels/api`.
+`apiChannel()` in `channels`**, imported from `@chloejs/core/channels`.
 It listens to nothing. `POST /api/agents/<name>/chat` and
 `POST /api/agents/<name>/job/<job>` are answered by `serve/http.ts`
 either way, and what binding the channel does is let a **token** reach that
@@ -522,7 +527,7 @@ goes in `shared.ts`. The API's chat route goes through it as well.
 
 A channel chloe does not ship is written in the agent's own `channels/` folder,
 exporting a `Channel` with its own `name` and importing `receive` from
-`@chloejs/core/channels/shared`, without editing anything in the runtime.
+`@chloejs/core/channels`, without editing anything in the runtime.
 
 ## House style
 

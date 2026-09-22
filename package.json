@@ -1,11 +1,12 @@
 {
   "name": "@chloejs/core",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "description": "A job runner where asking a model is one kind of step.",
   "exports": {
     ".": "./index.ts",
-    "./channels/*": "./channels/*.ts",
+    "./channels": "./channels/index.ts",
+    "./services": "./services/index.ts",
     "./scorers": "./scorers/index.ts",
     "./timer": "./timer/index.ts",
     "./tools": "./model/tools/index.ts",
