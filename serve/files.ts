@@ -11,7 +11,7 @@ import { existsSync, statSync } from "node:fs";
 
 import { confine } from "#chloe/core/confine.ts";
 import { agentDir } from "#chloe/core/paths.ts";
-import { list, read, write } from "#chloe/do/files.ts";
+import { list, read, write } from "#chloe/services/filesService.ts";
 
 export interface Entry {
   name: string;

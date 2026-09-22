@@ -20,13 +20,13 @@
   "files": [
     "channels",
     "core",
-    "do",
     "index.ts",
     "load",
     "model",
     "ops",
     "scorers",
     "serve",
+    "services",
     "server.ts",
     "timer"
   ],

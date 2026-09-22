@@ -25,7 +25,7 @@ written docs, the examples, and a reference read out of this source on every
 build, so a doc comment here is what the site says and a renamed export that a
 doc quotes fails that site's next build. A push to `main` here rebuilds it.
 The example agent, a small shop's back office that the docs quote, lives there
-too, under `example/`, and its `do/` folder stands in for the order, customer
+too, under `example/`, and its `services/` folder stands in for the order, customer
 and stock systems, which is why it runs with nothing installed. `automations`
 (`~/automations`) is one person's agents, running on this.
 
@@ -141,7 +141,7 @@ folder is the one its `agent.ts` is in, and could be anywhere. Its `name` is
 what its run history and `data/<name>` are filed under, so it does not change;
 `label` is what the page shows and can. Anything every
 agent might want lives in the runtime instead, because there is one floor and not
-two: `do/` is the work itself and `channels/` is how an agent is
+two: `services/` is the work itself and `channels/` is how an agent is
 reached. The rest is the runtime plus what a job commonly
 needs, in folders by what they do: `model/` is asking a model, and
 `model/tools/` inside it is the only thing a model can be handed,
@@ -172,11 +172,14 @@ or a person, and nothing in `model/tools/` or `channels/` exports a
 default: each exports a function that an agent binds.
 
 **A tool is for a model and nothing else.** The work is a plain function in
-`do/`, published from `"chloe"`, and a job calls it from a step.
+`services/`, published from `"@chloejs/core"`, and a job calls it from a step.
 `model/tools/` holds the wrappers over those functions, and a wrapper is
-a description, a schema and one call. Nothing in it does work.
+a description, a schema and one call. Nothing in it does work. A file in
+`services/` is named for what it reaches, `<thing>Service.ts`. Where more than
+one provider could do the same work, the file holds the interface and the
+providers, and a setting picks one: `email.provider` in `emailService.ts`.
 
-An agent's own folder is the same shape one level down: `agents/<name>/do/` is
+An agent's own folder is the same shape one level down: `agents/<name>/services/` is
 what that agent does without asking, the address it sends from and the mail
 search it is bound to, and `agents/<name>/tools/` is the wrappers. Nothing in
 an agent's folder is found by looking, except `skills/`: a job, a tool or a
@@ -185,7 +188,7 @@ agent does not name fails `npm run test`, because it would look like a job and
 never run.
 
 A job that imports a tool, chloe's or its own agent's, fails `npm run test`:
-it either wanted a `do/` folder or it is paying a model to read a path it
+it either wanted a `services/` folder or it is paying a model to read a path it
 already knew. The other direction is allowed: a tool may call a job's exported
 function, because that is the work, and the tool is only the way a model
 reaches it.

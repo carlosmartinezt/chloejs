@@ -11,7 +11,7 @@
 // The tool a model reaches is model/tools/gmail.ts, which calls this
 // with the same binding, so a job does not get a wider search for skipping
 // the model.
-import { run } from "./run.ts";
+import { run } from "./runService.ts";
 import { setting, settings } from "#chloe/core/settings.ts";
 
 const GOG = "gog";

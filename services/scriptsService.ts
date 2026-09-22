@@ -11,7 +11,7 @@ import { readdir } from "node:fs/promises";
 
 import { agentDir } from "#chloe/core/paths.ts";
 import { settings } from "#chloe/core/settings.ts";
-import { run, type Result } from "./run.ts";
+import { run, type Result } from "./runService.ts";
 
 /** What this agent has in scripts/, sorted. Nothing hidden. */
 export async function scripts(agent: string): Promise<string[]> {

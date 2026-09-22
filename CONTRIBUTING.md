@@ -17,7 +17,7 @@ back:
 - **Nothing in the runtime names an agent, a person or a machine.** It is the floor
   everyone stands on.
 - **A tool is for a model and nothing else.** The work is a plain function in
-  `do/`, published from `@chloejs/core`, and a job calls it from a step. A tool
+  `services/`, published from `@chloejs/core`, and a job calls it from a step. A tool
   is a description, a schema and one call over it.
 - **Adding a name to `index.ts` or `model/tools/index.ts` is
   publishing it**, and taking one away is a break. Anything not on those lists

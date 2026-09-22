@@ -574,7 +574,7 @@ about("a model step that never fits");
 
 {
   about("what mail says when a person has to sign in");
-  const { explain } = await import("#chloe/do/mail.ts");
+  const { explain } = await import("#chloe/services/gmailService.ts");
 
   // The account is read from settings, which on a real box has a real one in it.
   const { settings } = await import("@chloejs/core");
@@ -833,7 +833,7 @@ about("a model step that never fits");
 
   // A tool is for a model only, whether it is one of chloe's or the agent's
   // own. A job that imports one is either doing work through a wrapper built
-  // for a model, or it wanted a `do/` folder and took the first import that
+  // for a model, or it wanted a `services/` folder and took the first import that
   // compiled. The other direction is fine: a tool may call a job's function.
   const { loadAll } = await import("@chloejs/core");
   const found = [];

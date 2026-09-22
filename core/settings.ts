@@ -32,13 +32,13 @@ const schema = z.object({
       judge: z.string().default("anthropic/claude-sonnet-5"),
     })
     .prefault({}),
-  app: z
+  email: z
     .object({
-      /** Where an agent's mail goes. Comma separated for more than one. */
-      send_email_to: z.string().default(""),
+      /** Who carries an agent's mail. Its key is in that provider's own section. */
+      provider: z.enum(["resend"]).default("resend"),
     })
     .prefault({}),
-  /** Sending mail. */
+  /** Sending mail through Resend. */
   resend: z
     .object({
       /** The key an agent's mail is sent with. Without one, nothing is sent. */

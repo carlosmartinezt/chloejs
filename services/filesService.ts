@@ -15,7 +15,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { confine } from "#chloe/core/confine.ts";
-import { run } from "./run.ts";
+import { run } from "./runService.ts";
 
 /** List a folder. `path` is relative to `root`, and omitting it means the top. */
 export async function list(root: string, path?: string) {

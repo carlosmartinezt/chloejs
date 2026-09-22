@@ -1,10 +1,10 @@
-// The tools over do/files.ts: one folder, offered to a model.
+// The tools over services/filesService.ts: one folder, offered to a model.
 //
 // An agent binds each one to a root it is allowed to see, and names that
 // folder in plain words for the description.
 import { z } from "zod";
 
-import { list, read, search, write } from "#chloe/do/files.ts";
+import { list, read, search, write } from "#chloe/services/filesService.ts";
 import { tool } from "#chloe/model/tool.ts";
 
 /**

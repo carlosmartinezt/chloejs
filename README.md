@@ -198,7 +198,7 @@ serve/       the one port: every route, the login, tokens, the plain page
 core/        the floor. steps.ts runs a job, turn.ts runs a prompt, clock.ts
              starts each job when its cron line is due
 scorers/     how a run is marked
-do/          the work itself, called straight from a job
+services/    the work itself, called straight from a job
 channels/    the ways in, for an agent to bind
 ops/         the tests, the evals, talking to an agent, making the account,
              and install.sh, which installs the service

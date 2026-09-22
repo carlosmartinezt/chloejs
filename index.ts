@@ -44,9 +44,9 @@ export { copyDatabase, DATABASE, db, trim } from "./core/db.ts";
 // agent's own scripts, reading a web page. The same work offered
 // to a model instead is "@chloejs/core/tools", and each of those is a wrapper over one
 // of these.
-export { run, type Result } from "./do/run.ts";
-export { send, type Address } from "./do/email.ts";
-export { messages, oneMessage, type Message as Mail } from "./do/mail.ts";
-export { list, read, search, write } from "./do/files.ts";
-export { script, scripts } from "./do/scripts.ts";
-export { readPage, htmlToText, isPrivate, type Page } from "./do/web.ts";
+export { run, type Result } from "./services/runService.ts";
+export { sendEmail, type EmailSender } from "./services/emailService.ts";
+export { messages, oneMessage, type Message as Mail } from "./services/gmailService.ts";
+export { list, read, search, write } from "./services/filesService.ts";
+export { script, scripts } from "./services/scriptsService.ts";
+export { readPage, htmlToText, isPrivate, type Page } from "./services/webService.ts";

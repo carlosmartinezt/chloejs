@@ -1,10 +1,10 @@
-// The tool over do/mail.ts: reading mail, bound to a fixed search.
+// The tool over services/gmailService.ts: reading mail, bound to a fixed search.
 //
 // The binding lives in the agent's config, not in anything the model can
 // write. All the model chooses is how far back and how many.
 import { z } from "zod";
 
-import { messages, oneMessage } from "#chloe/do/mail.ts";
+import { messages, oneMessage } from "#chloe/services/gmailService.ts";
 import { tool } from "#chloe/model/tool.ts";
 
 interface Options {

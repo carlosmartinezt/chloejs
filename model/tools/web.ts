@@ -1,7 +1,7 @@
-// The tool over do/web.ts: reading one public web page.
+// The tool over services/webService.ts: reading one public web page.
 import { z } from "zod";
 
-import { readPage } from "#chloe/do/web.ts";
+import { readPage } from "#chloe/services/webService.ts";
 import { tool } from "#chloe/model/tool.ts";
 
 /** A tool that reads one public web page as plain text. */

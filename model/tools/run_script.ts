@@ -1,4 +1,4 @@
-// The tool over do/scripts.ts: an agent running one of its own scripts.
+// The tool over services/scriptsService.ts: an agent running one of its own scripts.
 //
 // This is the plug-and-play half of the system. A capability is a script in
 // the agent's `scripts/` folder plus a short file in its `skills/` folder
@@ -8,7 +8,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { z } from "zod";
 
 import { agentDir } from "#chloe/core/paths.ts";
-import { script, scripts } from "#chloe/do/scripts.ts";
+import { script, scripts } from "#chloe/services/scriptsService.ts";
 import { tool, type Tools } from "#chloe/model/tool.ts";
 
 /** A tool that runs one file from that agent's own `scripts/` folder. */

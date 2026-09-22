@@ -1,13 +1,13 @@
-// The tool over do/email.ts: sending one email.
+// The tool over services/emailService.ts: sending one email.
 //
 // The agent binds its own From line and its own recipients. All the model
 // writes is the subject and the body.
 import { z } from "zod";
 
-import { type Address, send } from "#chloe/do/email.ts";
+import { type EmailSender, sendEmail as send } from "#chloe/services/emailService.ts";
 import { tool } from "#chloe/model/tool.ts";
 
-interface Sender extends Address {
+interface Options extends EmailSender {
   /** Who it reaches and when to use it, in the agent's own words. Shown to the model. */
   when: string;
 }
@@ -16,7 +16,7 @@ interface Sender extends Address {
  * A tool that sends mail from the address the agent was given, to the address
  * it was given.
  */
-export function sendEmail({ when, ...address }: Sender) {
+export function sendEmail({ when, ...sender }: Options) {
   return tool({
     id: "send_email",
     description: `Send an email. ${when}`,
@@ -24,6 +24,6 @@ export function sendEmail({ when, ...address }: Sender) {
       subject: z.string().min(5).max(120),
       body: z.string().min(20).describe("Plain text. Lead with what happened and what you did."),
     }),
-    execute: ({ subject, body }) => send(address, subject, body),
+    execute: ({ subject, body }) => send(sender, subject, body),
   });
 }

@@ -21,7 +21,7 @@ import { promisify } from "node:util";
 
 import { confine, unreachable } from "#chloe/core/confine.ts";
 import type { Agent } from "#chloe/load/load.ts";
-import { list, read, write } from "#chloe/do/files.ts";
+import { list, read, write } from "#chloe/services/filesService.ts";
 import { STATE } from "#chloe/core/paths.ts";
 import { BadRequest } from "./errors.ts";
 import { noteHead } from "./page.ts";
