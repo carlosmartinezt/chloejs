@@ -19,7 +19,7 @@ top is what is published, less `test-agent/` and `chloe.config.ts`, which are
 here so the runtime's own tests have an agent to load.
 
 Three other repos sit beside this one, and none of them is in it:
-`chloejs-ui` (`~/chloejs-ui`) is the dashboard, a package the runtime works
+`@chloejs/ui` (`~/chloejs-ui`) is the dashboard, a package the runtime works
 without and never names. `chloejs-site` (`~/chloejs-site`) is chloejs.org: the
 written docs, the examples, and a reference read out of this source on every
 build, so a doc comment here is what the site says and a renamed export that a
@@ -310,12 +310,12 @@ old system accepted a key it did not recognise by silently refusing to rebuild,
 so the file looked saved, the service looked healthy, and the change never
 happened. Teach `load/load.ts` to read a key before you write one.
 
-**The runtime is a package: import it as `"chloejs"`, never by path.**
+**The runtime is a package: import it as `"@chloejs/core"`, never by path.**
 Inside this repo, `test-agent/` imports it by name too, which works because a
-package can import itself. Six entrances and no others: `chloejs`,
-`chloejs/tools` for a tool to bind, `chloejs/channels/<name>` for a channel to
-bind, `chloejs/scorers` for marking a run, `chloejs/timer` for when a job runs
-(`every`, and cron lines on their own), and `chloejs/test` for testing a job. Adding a name to
+package can import itself. Six entrances and no others: `@chloejs/core`,
+`@chloejs/core/tools` for a tool to bind, `@chloejs/core/channels/<name>` for a channel to
+bind, `@chloejs/core/scorers` for marking a run, `@chloejs/core/timer` for when a job runs
+(`every`, and cron lines on their own), and `@chloejs/core/test` for testing a job. Adding a name to
 `index.ts` or `model/tools/index.ts` is publishing it, and taking one
 away is a break, so anything not on those lists is free to move. Inside
 the runtime the files reach each other by `#chloe/`, which `package.json`
@@ -358,7 +358,7 @@ give it this shape.
 
 **An agent is on Telegram because its `agent.ts` lists
 `telegramChannel({ allowFrom: [...] })` in `channels`**, imported from
-`chloejs/channels/telegram`. `allowFrom` is Telegram
+`@chloejs/core/channels/telegram`. `allowFrom` is Telegram
 user ids, so an allowed person is answered in any chat, including a group made
 later. One bot per agent, unless each has its own `name`. `mode` is `"polling"` (the default: chloe fetches
 messages, nothing is exposed) or `"webhook"` (Telegram posts to
@@ -367,11 +367,11 @@ secret on every call). Do not add another path past the login without a secret
 and an allowlist of its own.
 
 **Slack is the same shape**: `slackChannel({ allowFrom: [...] })` from
-`chloejs/channels/slack`, with Slack member ids. It uses Socket Mode only,
+`@chloejs/core/channels/slack`, with Slack member ids. It uses Socket Mode only,
 chloe connecting out to Slack, so it adds no path past the login at all.
 
 **An agent is reachable by another system because its `agent.ts` lists
-`apiChannel()` in `channels`**, imported from `chloejs/channels/api`.
+`apiChannel()` in `channels`**, imported from `@chloejs/core/channels/api`.
 It listens to nothing. `POST /api/agents/<name>/chat` and
 `POST /api/agents/<name>/job/<job>` are answered by `serve/http.ts`
 either way, and what binding the channel does is let a **token** reach that
@@ -406,7 +406,7 @@ the notes, or touch the tokens.
 **The runtime serves its own site**, plain HTML from `serve/site.ts`, with
 no build step and no dependencies. A build step here is the thing that site
 exists to avoid. It is replaced wholesale by any installed package whose
-`package.json` declares a `chloePage` folder, which is how `chloejs-ui` becomes
+`package.json` declares a `chloePage` folder, which is how `@chloejs/ui` becomes
 the dashboard. Nothing in the runtime names that package: `serve/page.ts`
 looks for the declaration. If that folder has a `note-head.html`, its contents
 go first in the head of every HTML file served from a memory, which is how the
@@ -519,7 +519,7 @@ goes in `shared.ts`. The API's chat route goes through it as well.
 
 A channel chloe does not ship is written in the agent's own `channels/` folder,
 exporting a `Channel` with its own `name` and importing `receive` from
-`chloejs/channels/shared`, without editing anything in the runtime.
+`@chloejs/core/channels/shared`, without editing anything in the runtime.
 
 ## House style
 

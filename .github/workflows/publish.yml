@@ -1,4 +1,4 @@
-# On a tag, publish chloejs. The token is npm's OIDC,
+# On a tag, publish @chloejs/core. The token is npm's OIDC,
 # so nothing here is a stored secret: it needs a trusted publisher on npm.
 name: publish
 on:

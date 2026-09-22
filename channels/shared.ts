@@ -4,7 +4,7 @@
 // here, once, so Telegram, the API and any channel written later behave the
 // same way. A channel written in an agent's own folder imports it too:
 //
-//   import { receive, type Incoming } from "chloejs/channels/shared";
+//   import { receive, type Incoming } from "@chloejs/core/channels/shared";
 //
 // In order, and the first that applies decides:
 //

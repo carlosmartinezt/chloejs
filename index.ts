@@ -2,11 +2,11 @@
 //
 // Everything an agent, a job, a tool or a channel is written with is named
 // here, and nothing else in this folder is anybody's business. Import it as
-// "chloejs": the three lines below say the rest.
+// "@chloejs/core": the three lines below say the rest.
 //
-//   import { defineJob, tool, note } from "chloejs";
-//   import { telegramChannel } from "chloejs/channels/telegram";  // reaching an agent
-//   import { calls, expectations } from "chloejs/scorers";  // marking a run
+//   import { defineJob, tool, note } from "@chloejs/core";
+//   import { telegramChannel } from "@chloejs/core/channels/telegram";  // reaching an agent
+//   import { calls, expectations } from "@chloejs/core/scorers";  // marking a run
 //
 // Adding a name here is publishing it, and taking one away is a break, so this
 // file is the one place to look when you want to know what may move freely.
@@ -42,7 +42,7 @@ export { copyDatabase, DATABASE, db, trim } from "./core/db.ts";
 // What a job can do without asking anybody: running a command, sending mail,
 // reading mail, reading and writing files in one folder, running one of an
 // agent's own scripts, reading a web page. The same work offered
-// to a model instead is "chloejs/tools", and each of those is a wrapper over one
+// to a model instead is "@chloejs/core/tools", and each of those is a wrapper over one
 // of these.
 export { run, type Result } from "./do/run.ts";
 export { send, type Address } from "./do/email.ts";

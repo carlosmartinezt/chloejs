@@ -6,7 +6,7 @@ You write the workflow in code, **and ask AI where a step needs judgement**. You
 decide where deterministic work ends and where non-deterministic work begins.
 
 ```sh
-npm install chloejs chloejs-ui
+npm install @chloejs/core @chloejs/ui
 ```
 
 - **No build step**, and an edit to a job is live in under a second
@@ -180,7 +180,7 @@ npm run agent <name>             # talk to one agent
 npm run agent <name> <job>       # run one job now, without waiting for its cron line
 ```
 
-Without `chloejs-ui` the runtime serves a plain page of its own. With it, that
+Without `@chloejs/ui` the runtime serves a plain page of its own. With it, that
 page is the dashboard. The runtime never names that package: it serves whatever
 installed package declares a page.
 
@@ -189,11 +189,11 @@ installed package declares a page.
 The package is this repo: what is at the top is what is published.
 
 ```
-index.ts     what "chloejs" is when you import it
+index.ts     what "@chloejs/core" is when you import it
 server.ts    the server, and the only thing that is run
 model/       asking a model, and tools/, the only thing a model can be handed
 load/        what an agent and a job are, and reading them off disk
-timer/       cron lines and every(), published as "chloejs/timer"
+timer/       cron lines and every(), published as "@chloejs/core/timer"
 serve/       the one port: every route, the login, tokens, the plain page
 core/        the floor. steps.ts runs a job, turn.ts runs a prompt, clock.ts
              starts each job when its cron line is due
@@ -205,9 +205,9 @@ ops/         the tests, the evals, talking to an agent, making the account,
 test-agent/  the agent the tests load. Not published
 ```
 
-Six entrances and no others: `chloejs`, `chloejs/tools`,
-`chloejs/channels/<name>`, `chloejs/scorers`, `chloejs/timer` and
-`chloejs/test`.
+Six entrances and no others: `@chloejs/core`, `@chloejs/core/tools`,
+`@chloejs/core/channels/<name>`, `@chloejs/core/scorers`, `@chloejs/core/timer` and
+`@chloejs/core/test`.
 
 ## Use code when you know what to do. Use AI when you do not.
 

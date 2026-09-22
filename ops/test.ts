@@ -60,10 +60,10 @@ process.env.AI_GATEWAY_URL = `http://127.0.0.1:${(gateway.address() as { port: n
 // import, because those are hoisted above the lines above: core/db.ts would
 // read AGENTS_DB before it was set and every case would write into the real
 // run history. That is not hypothetical, it happened while this was written.
-const { reachBy } = await import("chloejs");
-const { answer, db, sweep, waitingFor, waitingOn, work } = await import("chloejs");
-type Agent = import("chloejs").Agent;
-type Job = import("chloejs").Job;
+const { reachBy } = await import("@chloejs/core");
+const { answer, db, sweep, waitingFor, waitingOn, work } = await import("@chloejs/core");
+type Agent = import("@chloejs/core").Agent;
+type Job = import("@chloejs/core").Job;
 
 const sent: string[] = [];
 reachBy("test", async (to, text) => void sent.push(`${to}: ${text}`));
@@ -170,7 +170,7 @@ about("an agent step: the goal is yours, the order is the model's");
 {
   asked = 0;
   answers.length = 0;
-  const { tool } = await import("chloejs");
+  const { tool } = await import("@chloejs/core");
   const looked: string[] = [];
   const look = tool({
     id: "look",
@@ -208,7 +208,7 @@ about("an agent step that runs out of steps, and one with nothing to call");
 {
   asked = 0;
   answers.length = 0;
-  const { tool } = await import("chloejs");
+  const { tool } = await import("@chloejs/core");
   const wander = tool({
     id: "wander",
     description: "Go round again.",
@@ -237,7 +237,7 @@ about("an agent step kept inside its budget");
 {
   asked = 0;
   answers.length = 0;
-  const { tool } = await import("chloejs");
+  const { tool } = await import("@chloejs/core");
   const wander = tool({
     id: "wander",
     description: "Go round again.",
@@ -284,7 +284,7 @@ about("an agent step whose calls the job has to allow");
 {
   asked = 0;
   answers.length = 0;
-  const { tool } = await import("chloejs");
+  const { tool } = await import("@chloejs/core");
   const looked: string[] = [];
   const look = tool({
     id: "look",
@@ -329,7 +329,7 @@ about("an approve that cannot answer, and a question from inside a step");
 {
   asked = 0;
   answers.length = 0;
-  const { tool } = await import("chloejs");
+  const { tool } = await import("@chloejs/core");
   const look = tool({
     id: "look",
     description: "Look in one place.",
@@ -548,7 +548,7 @@ about("a model step that never fits");
 
 {
   about("settings, and what wins");
-  const { readSettings, setting } = await import("chloejs");
+  const { readSettings, setting } = await import("@chloejs/core");
 
   const base = { model: { via: "gateway", judge: "a" } };
   is("a default fills in what no file mentions", readSettings(base, {}).model.gateway, "https://ai-gateway.vercel.sh/v1/chat/completions");
@@ -577,7 +577,7 @@ about("a model step that never fits");
   const { explain } = await import("#chloe/do/mail.ts");
 
   // The account is read from settings, which on a real box has a real one in it.
-  const { settings } = await import("chloejs");
+  const { settings } = await import("@chloejs/core");
   const was = settings.google.account;
   delete process.env.GOG_ACCOUNT;
   settings.google.account = "somebody@example.com";
@@ -614,7 +614,7 @@ about("a model step that never fits");
 
 {
   about("reading a reply from the claude cli");
-  // Reaching into the package by path rather than through "chloejs": reading the
+  // Reaching into the package by path rather than through "@chloejs/core": reading the
   // CLI's replies is the runtime's own business, and this case should move in
   // with it the day chloe becomes its own repo.
   const { readReply } = await import("#chloe/model/claude.ts");
@@ -662,14 +662,14 @@ about("a model step that never fits");
 
 {
   about("every agent in this repo still loads");
-  const { loadAll } = await import("chloejs");
+  const { loadAll } = await import("@chloejs/core");
 
   // One bad file in a jobs folder takes down every job that agent
   // has, silently: the cron lines simply stop existing. That is how a
   // nightly-backup.test.ts sitting beside the job it tests stopped the backup
   // for as long as nobody looked. Loading them all is the cheapest way to
   // notice.
-  const { defineAgent } = await import("chloejs");
+  const { defineAgent } = await import("@chloejs/core");
   const here = defineAgent({ name: "here", model: "m", description: "", instructions: "Hello." });
   is("an agent's folder is the one it is written in, unless it says", here.folder, import.meta.dirname);
   is("and it can say", defineAgent({ ...here, folder: "/elsewhere" }).folder, "/elsewhere");
@@ -692,7 +692,7 @@ about("a model step that never fits");
 {
   about("when a job runs, written in words");
 
-  const { every, describe, parse } = await import("chloejs/timer");
+  const { every, describe, parse } = await import("@chloejs/core/timer");
 
   // It is a library of its own, so nothing in it may reach into the rest. Found
   // from this file rather than from the repo root, because the runtime is a
@@ -705,7 +705,7 @@ about("a model step that never fits");
       if (!from.startsWith("./") && !from.startsWith("node:")) reaching.push(`${file}: ${from}`);
     }
   }
-  is("chloejs/timer imports nothing outside itself", reaching, []);
+  is("@chloejs/core/timer imports nothing outside itself", reaching, []);
   const said: [string, string, string][] = [
     [every(15).minutes, "*/15 * * * *", "every 15 minutes"],
     [every(4).hours, "0 */4 * * *", "every 4 hours"],
@@ -726,7 +726,7 @@ about("a model step that never fits");
   }
   // New York moves its clocks and the line does not: 07:00 there is 11:00 UTC
   // in summer and 12:00 UTC in winter, including on the days it changes.
-  const { due } = await import("chloejs/timer");
+  const { due } = await import("@chloejs/core/timer");
   const seven = parse(every.day.at("07:00"));
   const at = (utc: string) => due(seven, new Date(utc), "America/New_York");
   is("07:00 New York in summer is 11:00 UTC", [at("2026-07-01T11:00:00Z"), at("2026-07-01T12:00:00Z")], [true, false]);
@@ -800,7 +800,7 @@ about("a model step that never fits");
 {
   about("a note two jobs want at the same moment");
 
-  const { STATE, note } = await import("chloejs");
+  const { STATE, note } = await import("@chloejs/core");
   const shape = z.object({ sites: z.record(z.string(), z.string()) }).catch({ sites: {} });
   const kept = note("test-note", "sites", shape);
 
@@ -835,7 +835,7 @@ about("a model step that never fits");
   // own. A job that imports one is either doing work through a wrapper built
   // for a model, or it wanted a `do/` folder and took the first import that
   // compiled. The other direction is fine: a tool may call a job's function.
-  const { loadAll } = await import("chloejs");
+  const { loadAll } = await import("@chloejs/core");
   const found = [];
   for (const agent of (await loadAll()).values()) {
     found.push(...(await readdir(agent.folder, { recursive: true, withFileTypes: true })));
@@ -845,7 +845,7 @@ about("a model step that never fits");
     if (!file.isFile() || !file.name.endsWith(".ts")) continue;
     if (!file.parentPath.endsWith("/jobs")) continue;
     const source = await readFile(join(file.parentPath, file.name), "utf8");
-    if (source.includes('"chloejs/tools"') || source.includes('"../tools/')) reaching.push(file.name);
+    if (source.includes('"@chloejs/core/tools"') || source.includes('"../tools/')) reaching.push(file.name);
   }
   is("every job calls the work itself", reaching, []);
 }
@@ -853,7 +853,7 @@ about("a model step that never fits");
 // Then whatever the repo that installed chloe tests about its own jobs. A
 // file named `<job>.test.ts` anywhere in an agent's folder runs its cases as
 // it loads, so there is no list of them to keep and nothing to register.
-for (const agent of (await (await import("chloejs")).loadAll()).values()) {
+for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) {
   for (const found of await readdir(agent.folder, { recursive: true, withFileTypes: true })) {
     if (!found.isFile() || !found.name.endsWith(".test.ts")) continue;
     await import(pathToFileURL(join(found.parentPath, found.name)).href);
@@ -864,7 +864,7 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
   about("the folder the page reads and writes");
 
   const { editable, open, save, tree } = await import("#chloe/serve/files.ts");
-  const { names } = await import("chloejs");
+  const { names } = await import("@chloejs/core");
   const agent = (await names())[0];
 
   const top = await tree(agent);
@@ -1393,7 +1393,7 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
 {
   about("reading a web page");
 
-  const { htmlToText, isPrivate, readPage } = await import("chloejs");
+  const { htmlToText, isPrivate, readPage } = await import("@chloejs/core");
   const html =
     "<!doctype html><html><head><title>Wall &amp; chart</title><style>td{}</style></head><body>\n" +
     "<table>\n<tr><td><a href=\"report.php?section=Novice - under 900\">Novice</a></td>\n<td>239</td></tr>\n" +
@@ -1424,7 +1424,7 @@ for (const agent of (await (await import("chloejs")).loadAll()).values()) {
 {
   about("a copy of the agents' database");
 
-  const { copyDatabase } = await import("chloejs");
+  const { copyDatabase } = await import("@chloejs/core");
   const { DatabaseSync } = await import("node:sqlite");
   const { tmpdir } = await import("node:os");
   const to = join(tmpdir(), `copy-${process.pid}`, "agents.db");

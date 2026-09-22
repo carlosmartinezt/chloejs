@@ -2,7 +2,7 @@
 # Install the service that runs the agents, and start it. Run it from the top
 # of your own project, the folder with chloe.config.ts in it:
 #
-#   sh node_modules/chloejs/ops/install.sh
+#   sh node_modules/@chloejs/core/ops/install.sh
 #
 # The unit is called chloe.service. One box runs one of these, so this replaces
 # an existing one and points it at the folder it was run from.
@@ -34,7 +34,7 @@ node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)
 # about a default. An empty setting comes back as "-" so that read gets two
 # fields either way.
 SETTINGS=$(node --input-type=module -e '
-  const { settings } = await import(process.argv[1] + "/node_modules/chloejs/core/settings.ts");
+  const { settings } = await import(process.argv[1] + "/node_modules/@chloejs/core/core/settings.ts");
   console.log(settings.node || "-", settings.model.via || "-");
 ' "$ROOT") || {
   echo "settings.json could not be read. The error is above." >&2
@@ -78,7 +78,7 @@ Environment=PATH=$NODEBIN$CLAUDEBIN:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=$ROOT
 # server.ts is what is run. The package's index.ts is only its exports and
 # starts nothing. The port and the loopback bind are in serve/http.ts.
-ExecStart=$NODEBIN/node $ROOT/node_modules/chloejs/server.ts
+ExecStart=$NODEBIN/node $ROOT/node_modules/@chloejs/core/server.ts
 Restart=on-failure
 RestartSec=15
 Nice=5

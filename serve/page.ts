@@ -1,10 +1,10 @@
 // Finding a better page than the built-in one, if the repo installed a package
 // that offers it.
 //
-// The runtime does not know chloejs-ui exists. It knows a convention: any
+// The runtime does not know @chloejs/ui exists. It knows a convention: any
 // installed package whose package.json has a "chloePage" naming a folder with
 // an index.html in it is offering a page, and the first one found is served
-// instead of site.ts's. That is what makes `npm install chloejs-ui` upgrade the
+// instead of site.ts's. That is what makes `npm install @chloejs/ui` upgrade the
 // site with nothing configured, and what lets somebody else's dashboard take
 // its place the same way.
 //

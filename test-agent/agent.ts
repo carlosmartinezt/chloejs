@@ -1,6 +1,6 @@
 // The agent the runtime's own tests load, so they have one to load in this
 // repo. Not published. A real agent to copy from is the example on chloejs.org.
-import { defineAgent } from "chloejs";
+import { defineAgent } from "@chloejs/core";
 
 import hello from "./jobs/hello.ts";
 

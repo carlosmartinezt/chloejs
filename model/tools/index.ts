@@ -5,12 +5,12 @@
 // its own folder, its own mailbox, its own From line, so nothing here names an
 // agent or a person.
 //
-//   import { readMail, readWeb } from "chloejs/tools";
+//   import { readMail, readWeb } from "@chloejs/core/tools";
 //
 // The notes tools, write_skill and run_script are not here: an agent turns
 // them on with `features` in its definition.
 //
-// The work itself is in do/, published from "chloejs", and a job calls it
+// The work itself is in do/, published from "@chloejs/core", and a job calls it
 // from a step rather than coming through here. If a job imports this file,
 // something is in the wrong place.
 //

@@ -1,6 +1,6 @@
 // Saying whether one thing came out right, and counting what did not.
 //
-// This is what `chloejs/test` means. It is its own file rather than part of
+// This is what `@chloejs/core/test` means. It is its own file rather than part of
 // test.ts because test.ts runs its cases as it loads, and a test file that
 // imported it to get these two would run the whole suite again.
 //
@@ -8,7 +8,7 @@
 // the job it is about, is named `<job>.test.ts`, and runs its cases as it
 // loads:
 //
-//   import { about, is } from "chloejs/test";
+//   import { about, is } from "@chloejs/core/test";
 //
 //   about("what the nightly backup calls wrong");
 //   is("a night like the last one says nothing", whatLooksWrong(tonight, good, 10), []);

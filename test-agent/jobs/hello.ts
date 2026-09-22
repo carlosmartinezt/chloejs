@@ -1,4 +1,4 @@
-import { defineJob } from "chloejs";
+import { defineJob } from "@chloejs/core";
 
 export default defineJob({
   id: "hello",
