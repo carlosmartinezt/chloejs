@@ -366,6 +366,10 @@ messages, nothing is exposed) or `"webhook"` (Telegram posts to
 secret on every call). Do not add another path past the login without a secret
 and an allowlist of its own.
 
+**Slack is the same shape**: `slackChannel({ allowFrom: [...] })` from
+`chloejs/channels/slack`, with Slack member ids. It uses Socket Mode only,
+chloe connecting out to Slack, so it adds no path past the login at all.
+
 **An agent is reachable by another system because its `agent.ts` lists
 `apiChannel()` in `channels`**, imported from `chloejs/channels/api`.
 It listens to nothing. `POST /api/agents/<name>/chat` and

@@ -1,111 +1,169 @@
 # Chloe
 
-A TypeScript job runner where AI is a step, not the runtime.
+Chloe is a TypeScript agent orchestrator that uses AI only when you need it.
 
-Use deterministic code wherever you can, and give autonomy to a model only where
-the task genuinely needs judgement, or a sequence nobody can write down in
-advance. Most agent frameworks put the model in charge and let it call your
-code. Here the job is in charge, and a model is something the job calls.
+You write the workflow in code, **and ask AI where a step needs judgement**. You
+decide where deterministic work ends and where non-deterministic work begins.
 
-Three primitives say how much autonomy a piece of work is getting:
+```sh
+npm install chloejs chloejs-ui
+```
+
+- **No build step**, and an edit to a job is live in under a second
+- **One dependency**, zod, and one SQLite file
+- **Node 22.18** or newer
+
+[Get started](https://chloejs.org/docs/start) ·
+[Examples](https://chloejs.org/examples) ·
+[Primitives](https://chloejs.org/docs/primitives)
+
+## The least autonomy that does the job
+
+Three ways to do a piece of work. Start at the top, and move down only when you
+have to.
 
 | | | |
 | --- | --- | --- |
-| `work.step()` | I know what to do. | You control the workflow and the action. |
-| `work.model()` | I know what to ask. | You control the workflow. The model answers one question. |
-| `work.agent()` | I know what I want. | You control the boundaries. The model picks the order inside them. |
+| `work.step()` | I know what to do. | Deterministic work. You control the workflow and the action. |
+| `work.model()` | I know what to ask. | Judgement, in a shape. You control the workflow, the model controls the answer. |
+| `work.agent()` | I know what I want. | Bounded autonomy. You control the goal and the boundaries, the model controls the order. |
 
-Most of a job is the first one. A job that needs no judgement never reaches a
-model and spends nothing:
+There is a fourth. `work.ask()` stops the job and waits for a person.
+
+## Ordinary code, one model decision, optional autonomy
+
+A whole job, from the example on chloejs.org. Code loads the inbox, a model says
+what each message is about, and the ones that need looking into get an agent.
 
 ```ts
-// jobs/stuck-orders.ts
 export default defineJob({
-  id: "stuck-orders",
-  cron: every(2).hours,
-  description: "Finds orders that are paid for and late, and tells the warehouse.",
+  id: "order-issues",
+  cron: every(15).minutes,
+  description: "Reads what customers wrote in and looks into the ones that need looking into.",
   run: async (work) => {
-    const all = await work.step("read the orders", () => orders());
-    const late = all.filter((one) => stuck(one));
-    if (late.length === 0) return { checked: all.length, late: [] };
-    await work.step("tell the warehouse", () => tellTheWarehouse(late));
-    return { checked: all.length, late: late.map((one) => one.id) };
+    const messages = await work.step("load messages", () => unread());
+
+    const looked: string[] = [];
+    for (const message of messages) {
+      const issue = await work.model("classify issue", {
+        prompt: message.text,
+        output: Issue,
+      });
+      if (!issue.needsInvestigation) continue;
+
+      const found = await work.agent("investigate issue", {
+        goal: `Find out what went wrong for customer ${message.customer}, and recommend what to do.`,
+        tools: [getOrders, pastMessages],
+        maxSteps: 6,
+        budget: 0.05,
+      });
+
+      looked.push(`${message.id}: ${found}`);
+    }
+
+    return { looked };
   },
 });
 ```
 
-When a step needs judgement, it is a step of its own with a shape for the
-answer, and the run record prices it:
+## Keep the application in charge
+
+Your rules, loops, conditions and queries stay in TypeScript. The model is asked
+one thing, and the `if` above it decides whether to ask at all.
 
 ```ts
-const read = await work.model("work out what each one is about", {
-  model: "anthropic/claude-haiku-4.5",
-  output: Sorted,
-  prompt: waiting.map((one) => `${one.id} (${one.at}): ${one.text}`).join("\n\n"),
+const late = orders.filter((order) => order.daysLate > 2);
+if (late.length === 0) return;
+
+const summary = await work.model("summarise the delays", {
+  prompt: late.map(describe).join("\n"),
+  output: Summary,
 });
 ```
 
-And when the order of the work cannot be known in advance, and only then, you
-hand that over too, bounded by the tools you give it and the limits you set:
+A morning with nothing late costs nothing.
+
+## You can point at the line that asks a model
+
+The run record has one line per step, with what it was, how long it took and
+what it cost. A job that quietly grew a second model call shows up as a second
+line and a bigger number.
+
+## Sometimes you know the goal, not the steps
+
+The model chooses the order. You choose what it can reach and how far it can
+go: `tools` is all it can reach, `approve` is which of those calls may run,
+`maxSteps` and `budget` are how far it can go and what it may spend, and
+`output` is the shape of the answer. Everything it did is on the run.
+
+## Some decisions should not belong to a model
+
+The run stops, the question goes to whoever should answer it, and the job
+carries on when they do. It can wait days, and it survives a restart while it
+waits.
 
 ```ts
-const reason = await work.agent(`work out why ${one.name} stopped ordering`, {
-  goal: `${one.name}, customer ${one.id}, last ordered on ${one.lastOrder}. Work out why, and what to do about it.`,
-  tools: [ordersTheyPlaced, whatTheyWroteIn, whatWasFoundBefore],
-  approve: (call) => call.args.customer === one.id || `${one.id} is the customer being looked into`,
-  output: Reason,
-  maxSteps: 8,
-  budget: 0.05,
+const approved = await work.ask("refund $2,400?", {
+  question: "A-4417 arrived broken. Refund it?",
+  answer: z.boolean(),
+  within: "2d",
+  otherwise: false,
 });
+
+if (approved) await work.step("issue refund", () => refund(order));
 ```
 
-The autonomy is over the order and nothing else. Four limits stay in the file:
-`tools` is what it may do at all, `approve` is which of those calls may run
-(asked before each one, with the arguments the model wrote), `maxSteps` and
-`budget` are how far it may go in turns and in dollars, and `output` is the
-shape of the answer.
+The answer is checked against the shape the ask named. No model is involved.
 
-Three things follow, and they are the whole design:
+## Jobs survive the real world
 
-1. **The autonomy is named in the file.** Not a default, not something a helper
-   does on your behalf. If you cannot point at the line, it does not happen.
-2. **A model answers in a shape.** Validated against a zod schema, so free text
-   never reaches the next step's control flow.
-3. **The run record says what each step was and what it cost.** A job that
-   quietly grew a second model call shows up as a second line and a bigger
-   number.
+Steps, model calls, agent loops and human pauses are all part of one durable
+run, and you can open any of them.
 
-## Which one to reach for
+- A finished step replays from the record.
+- A job resumes after a restart.
+- An approval can wait for days.
+- Every tool call an agent made is recorded.
+- Cost is tracked per step and per run.
+- Two runs of the same job never overlap.
 
-Ask which sentence is true, and write that one.
+One rule makes the replay safe: **work happens inside a step, and code outside a
+step only decides.** A step is written down, so it never runs twice. A line
+outside one runs again on every resume, so it must not send, write or spend.
 
-1. I know the operations and the order. That is `step`.
-2. I know the question and the shape of the answer. That is `model`.
-3. I know the outcome and the tools, and nothing about the order. That is `agent`.
+## What comes with it
 
-If you can write the rules down, it is code. "Restart it if it is down" is code.
-"Say what today looked like" is a model. "Work out why this failed" is an agent.
+| | |
+| --- | --- |
+| Durable jobs | Steps are written down as they finish, and replayed on a resume. |
+| Schedules | Cron lines in TypeScript, with real time zones. |
+| Models | Any model the gateway reaches, and a job can pick its own. |
+| Agents | Tools, approvals and a budget, set where the step is written. |
+| Tools | A description, a schema and one call. Typed at both ends. |
+| Human approvals | A run parks for days and carries on when somebody answers. |
+| Channels | Telegram and Slack, one file each. A question goes out where the person is. |
+| Memory | Notes an agent keeps, and skills it can rewrite. |
+| Run history | Every step of every run, with its arguments and its answer. |
+| Cost tracking | Per step, per run, per job. |
+| Structured output | Zod on every model and agent answer, retried once. |
+| Testing and evals | Jobs run for real against a stand-in gateway. Prompts are scored. |
 
-An agent step keeps what matters yours: it can call nothing it was not handed,
-only the calls you allow run, it stops at the turn or the dollar you set, its
-answer is validated against your schema, and every call it made is on the run
-with its arguments and whether it was allowed. The step is priced as a whole,
-and a step that hit a limit is written down too.
+## Code is tested. Words are scored.
 
-The example on [chloejs.org](https://chloejs.org/examples) is a small shop's
-back office with a job at each level: late orders, a support inbox, buying stock, a customer who
-went quiet, a refund somebody has to decide, and one job that is a prompt from
-end to end. Its `do/` folder stands in for the systems a shop already has, so it
-runs with nothing installed.
-
-## Start
-
-Node 22.18 or newer, because Node runs the TypeScript directly and none of this
-is built.
+Your deterministic logic gets ordinary tests. Your prompts get evals. Neither
+spends real money: a test runs against a stand-in gateway, and an eval answers
+every tool from the case.
 
 ```sh
-npm install chloejs
+npm run test          # the jobs: does it do the thing
+npm run evals <name>  # the prompts: did the model decide well
 ```
+
+## Run it wherever Node runs
+
+Your code, your models, your machine. One process serves the page, keeps every
+cron line and answers the channels. The runtime's only dependency is zod and its
+state is one SQLite file, so moving machine is copying a folder.
 
 Three files, and you have an agent:
 
@@ -115,110 +173,49 @@ settings.json          which model, and how to reach it
 your-agent/agent.ts    what the agent is: its jobs, tools and channels
 ```
 
-Then `npm run account` makes the one account, and `npm start` runs the one
-process: it answers the API, keeps every cron line, answers the channels, and
-serves a small site of its own on `127.0.0.1:3067` showing what is loaded.
-`npm install` [`chloejs-ui`](https://www.npmjs.com/package/chloejs-ui) and that
-site becomes a dashboard. The runtime has never heard of that package: it serves
-whatever installed package declares a page, which is a convention anyone can
-meet.
+```sh
+npm run account                  # make the one account
+npm start                        # the one process, on 127.0.0.1:3067
+npm run agent <name>             # talk to one agent
+npm run agent <name> <job>       # run one job now, without waiting for its cron line
+```
 
-`npm run agent <name>` talks to one agent from the
-terminal, and `npm run agent <name> <job>` runs one job without waiting for its
-cron line.
-
-There is no build and no deploy. The process watches each agent's folder, so an
-edit to a job is live in under a second, including a new agent folder. A change
-to the runtime itself needs a restart.
+Without `chloejs-ui` the runtime serves a plain page of its own. With it, that
+page is the dashboard. The runtime never names that package: it serves whatever
+installed package declares a page.
 
 ## What is in here
 
-The package is this repo: what is at the top is what is published. One
-dependency, zod.
-
-The dashboard is [`chloejs-ui`](https://www.npmjs.com/package/chloejs-ui), a
-package of its own so that a box which only runs jobs installs zod and nothing
-else. Without it the runtime still has a site, plain HTML it writes itself, and
-everything carries on.
+The package is this repo: what is at the top is what is published.
 
 ```
-index.ts     what "chloejs" is when you import it: every name an agent is
-             written with, and nothing else
-server.ts    the server, and the only thing that is run. Names no agent
-model/       asking a model: the two ways of reaching one, the last few
-             messages, how a question reaches a person, and tools/, which
-             is the only thing a model can be handed
+index.ts     what "chloejs" is when you import it
+server.ts    the server, and the only thing that is run
+model/       asking a model, and tools/, the only thing a model can be handed
 load/        what an agent and a job are, and reading them off disk
-timer/       cron lines and every(), on their own: imports nothing else
-             here, and is published as "chloejs/timer"
-serve/       the one port. http.ts is every route as one list, each carrying
-             the line that documents it, so GET /api is generated rather than
-             written twice. login.ts and tokens.ts are who may call what,
-             site.ts is the runtime's own plain site, page.ts finds a better
-             one if a package offers it, files.ts and memory.ts are the two
-             folders it reads and writes, and pass.ts lets a sandboxed frame
-             read one
-core/        the floor. steps.ts runs a job, turn.ts runs a prompt, and
-             clock.ts starts each job when its cron line is due. Those three
-             reach into load/, model/ and timer/; the rest imports nothing
-             else here: paths, staying inside a folder, a small file an agent
-             keeps, the database, frontmatter, words in a markdown file
-scorers/     how a run is marked: what it did, and what it said
-do/          the work itself, called straight from a job: running a command,
-             sending mail, reading mail, one folder's files. Published from
-             "chloejs"
-channels/    the ways in, for an agent to bind in its own channels/
-ops/         the tests, the evals, talking to an agent from the terminal,
-             making the account, and install.sh, which installs the service.
-             Run by a person, not by the service
-test-agent/  the agent the tests load in this repo, with chloe.config.ts.
-             Not published
+timer/       cron lines and every(), published as "chloejs/timer"
+serve/       the one port: every route, the login, tokens, the plain page
+core/        the floor. steps.ts runs a job, turn.ts runs a prompt, clock.ts
+             starts each job when its cron line is due
+scorers/     how a run is marked
+do/          the work itself, called straight from a job
+channels/    the ways in, for an agent to bind
+ops/         the tests, the evals, talking to an agent, making the account,
+             and install.sh, which installs the service
+test-agent/  the agent the tests load. Not published
 ```
 
-Six entrances and no others: `chloejs`, `chloejs/tools` for a tool to hand a
-model, `chloejs/channels/<name>` for a way in, `chloejs/scorers` for marking a
-run, `chloejs/timer` for when a job runs, and `chloejs/test` for testing a job.
+Six entrances and no others: `chloejs`, `chloejs/tools`,
+`chloejs/channels/<name>`, `chloejs/scorers`, `chloejs/timer` and
+`chloejs/test`.
 
-## A job is a workflow
+## Use code when you know what to do. Use AI when you do not.
 
-A job is an async function, so branching and looping are `if` and `for`. Waiting
-for a person is `ask`, and the process may restart while it waits: carrying on
-means running the function again from the top, with every finished step handing
-back what it returned last time.
+Start with a job that asks nobody anything. Add the step that needs judgement
+when you find it, and read what it cost.
 
-One rule makes that safe: **work happens inside a step, and code outside a step
-only decides.** A step is written down, so it never runs twice. A line outside
-one runs again on every resume, so it must not send, write or spend.
-
-```ts
-const go = await work.ask("restart?", {
-  question: `Restart ${down.join(", ")}?`,
-  answer: z.boolean(),
-  within: "2h",
-  otherwise: false,
-});
-```
-
-An answer from a person is matched against the schema, not read by a model. The
-whole point of stopping to ask was to take the judgement out of the machine.
-
-## Two halves, checked differently
-
-```sh
-npm run test          # the runtime and the jobs: does it do the thing
-npm run evals <name>  # the prompts: did the model decide well
-```
-
-Jobs are code, so they are tested: a file named `<job>.test.ts` beside the job
-runs its cases, and the runner finds it. Prompts can only be scored, so an eval
-file says what every tool answers and what the agent should have done about it.
-Nothing in a case runs for real, so an eval cannot restart a site or send an
-email.
-
-## Docs
-
-[chloejs.org](https://chloejs.org). The reference pages there are read out of
-this source on every push to `main`, so they cannot describe a version of the
-code that does not exist.
+The docs are at [chloejs.org](https://chloejs.org). Its reference pages are read
+out of this source on every push to `main`, so they cannot describe a version of
+the code that does not exist.
 
 MIT.
