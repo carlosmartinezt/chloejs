@@ -8,10 +8,14 @@ import { messages, oneMessage } from "#chloe/do/mail.ts";
 import { tool } from "#chloe/model/tool.ts";
 
 interface Options {
-  /** Gmail query this agent may see, and nothing else. Set in its config. */
-  search: string;
+  /**
+   * Gmail query this agent may see, and nothing else. Set in its config.
+   * Unsaid it is `in:inbox`, which is the whole inbox: a binding of its own
+   * is what keeps the agent to one slice of the mailbox.
+   */
+  search?: string;
   /** How to describe that mail in the tool's description, in plain words. */
-  what: string;
+  what?: string;
   /** Days back when the agent does not say. */
   days?: number;
   id?: string;
@@ -21,7 +25,12 @@ interface Options {
  * A tool that reads the mail the agent is bound to. The search is the
  * binding's, and the model chooses only how far back and how many.
  */
-export function readMail({ search, what, days = 7, id = "read_mail" }: Options) {
+export function readMail({
+  search = "in:inbox",
+  what = "mail in the inbox",
+  days = 7,
+  id = "read_mail",
+}: Options = {}) {
   return tool({
     id,
     description:
