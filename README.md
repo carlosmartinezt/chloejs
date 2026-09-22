@@ -1,6 +1,6 @@
 # Chloe
 
-Chloe is a TypeScript agent orchestrator that uses AI only when you need it.
+Chloe is a TypeScript agent framework that uses AI only when you need it.
 
 You write the workflow in code, **and ask AI where a step needs judgement**. You
 decide where deterministic work ends and where non-deterministic work begins.
