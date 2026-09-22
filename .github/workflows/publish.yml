@@ -1,12 +1,13 @@
-# On a tag, publish @chloejs/core. The token is npm's OIDC,
-# so nothing here is a stored secret: it needs a trusted publisher on npm.
+# On a tag, publish @chloejs/core and make a GitHub release for it. The npm
+# token is npm's OIDC, so nothing here is a stored secret: it needs a trusted
+# publisher on npm. The release notes are the commits since the last tag.
 name: publish
 on:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -22,3 +23,6 @@ jobs:
       - run: npm install
       - run: npm run check
       - run: npm publish --provenance --access public
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
