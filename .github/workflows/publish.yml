@@ -1,10 +1,13 @@
-# On a tag, publish @chloejs/core and make a GitHub release for it. The npm
-# token is npm's OIDC, so nothing here is a stored secret: it needs a trusted
-# publisher on npm. The release notes are the commits since the last tag.
+# On a push to main whose package.json version is not on npm yet, publish
+# @chloejs/core, then tag the commit v<version> and make a GitHub release for
+# it. Releasing is bumping the version and pushing; nothing is tagged by hand.
+# The npm token is npm's OIDC, so nothing here is a stored secret: it needs a
+# trusted publisher on npm for this file. The release notes are the commits
+# since the last tag.
 name: publish
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: write
@@ -19,10 +22,25 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-      - run: npm install -g npm@latest  # trusted publishing needs npm 11.5.1 or newer
-      - run: npm install
-      - run: npm run check
-      - run: npm publish --provenance --access public
-      - env:
+      - id: version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if npm view "@chloejs/core@$version" version >/dev/null 2>&1; then
+            echo "$version is already on npm, so there is nothing to publish."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.version.outputs.new == 'true'
+        run: npm install -g npm@latest  # trusted publishing needs npm 11.5.1 or newer
+      - if: steps.version.outputs.new == 'true'
+        run: npm install
+      - if: steps.version.outputs.new == 'true'
+        run: npm run check
+      - if: steps.version.outputs.new == 'true'
+        run: npm publish --provenance --access public
+      - if: steps.version.outputs.new == 'true'
+        env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        run: gh release create "v${{ steps.version.outputs.version }}" --target "$GITHUB_SHA" --generate-notes
