@@ -14,8 +14,9 @@
 // Under Event Subscriptions subscribe the bot to message.im, message.channels,
 // message.groups and message.mpim, and under App Home allow messages from the
 // Messages tab. Install it to the workspace, which makes the bot token
-// ("xoxb-..."). The two tokens are SLACK_BOT_TOKEN and SLACK_APP_TOKEN in
-// .env, or `credentials: { botToken, appToken }`. In a channel, invite the bot
+// ("xoxb-..."). The two tokens are in settings.local.json under the agent's
+// name, as `"agents": { "<name>": { "slack": { "bot_token", "app_token" } } }`,
+// or `credentials: { botToken, appToken }` here. In a channel, invite the bot
 // (/invite @name) before it can read anything there.
 //
 // allowFrom is who may talk to the agent, by Slack member id ("U0123ABCD", in
@@ -38,6 +39,7 @@
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask.ts";
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load.ts";
 import type { Attachment } from "#chloe/model/model.ts";
+import { settings } from "#chloe/core/settings.ts";
 import { receive, type Incoming, type Rules } from "./shared.ts";
 
 const MAX_MESSAGE = 4000; // Slack cuts a message's text at 40000, and advises under 4000.
@@ -50,7 +52,7 @@ export interface SlackOptions {
    * run came in on, and the start of every address on this app, like "slack:U0123ABCD".
    */
   name?: string;
-  /** Instead of SLACK_BOT_TOKEN and SLACK_APP_TOKEN. */
+  /** Instead of the tokens in settings. */
   credentials?: { botToken?: string; appToken?: string };
   /** Slack member ids that may reach the agent. */
   allowFrom?: string[];
@@ -107,12 +109,12 @@ export function slackChannel(options: SlackOptions = {}): Channel {
     chatHistory: options.chatHistory,
     start(agent) {
       const name = agent()?.name ?? "";
-      const token = options.credentials?.botToken || process.env.SLACK_BOT_TOKEN || "";
-      const appToken = options.credentials?.appToken || process.env.SLACK_APP_TOKEN || "";
+      const token = options.credentials?.botToken || settings.agents[name]?.slack.bot_token || "";
+      const appToken = options.credentials?.appToken || settings.agents[name]?.slack.app_token || "";
       if (!token || !appToken) {
         console.error(
           `slack: ${name} has a Slack channel but no ${token ? "app token" : "bot token"}. Make an app at api.slack.com/apps ` +
-            "with Socket Mode on, and put its tokens in .env as SLACK_BOT_TOKEN (xoxb-...) and SLACK_APP_TOKEN (xapp-...). Then restart.",
+            `with Socket Mode on, and put its tokens in settings.local.json as "agents": { "${name}": { "slack": { "bot_token": "xoxb-...", "app_token": "xapp-..." } } }.`,
         );
         return { stop: () => {} };
       }

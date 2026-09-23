@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path";
 
 /**
  * The repo root: the folder that holds chloe.config.ts, walking up from the
- * running process. data/, .env and the settings files are found beside it.
+ * running process. data/ and the settings files are found beside it.
  */
 function findRoot(): string {
   let dir = process.cwd();

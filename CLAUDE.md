@@ -50,10 +50,13 @@ Setting chloe up is filling in one file. Settings are JSON in
 only, mode 600), with every default and its one-line explanation in the schema in
 `core/settings.ts`. A credential, a chat id or anything else naming a
 person goes in `settings.local.json`, in a section named for the service it
-belongs to (`resend`, `google`). The one exception is a channel: its token is an environment variable like `TELEGRAM_BOT_TOKEN`, kept in
-`.env` beside the repo (which `server.ts` loads), or `credentials` in
-the channel file. An environment variable still beats both settings files,
-which is for a one-off run and for the tests, not for keeping a setting in.
+belongs to (`resend`, `google`). What belongs to one agent, its channels'
+tokens, goes under `agents` and that agent's name:
+`"agents": { "tempo": { "telegram": "..." } }`, read by the name the agent has
+when the channel starts. There is no `.env`. An environment variable still
+beats both settings files, which is for a one-off run and for the tests, not
+for keeping a setting in. The server re-reads both files when either changes,
+so a setting is read when it is needed, never copied at import.
 
 **Plug and play.** Adding a capability should be writing a file and naming it
 in the agent's `agent.ts`, not editing four. `agent.ts` imports every part of

@@ -69,6 +69,25 @@ const schema = z.object({
       email_from: z.string().default(""),
     })
     .prefault({}),
+  /**
+   * Each agent's own settings, under the name in its `agent.ts`: its channels'
+   * tokens. Read by that name when the channel starts, so renaming an agent
+   * means renaming its entry here, and the server says so when an entry names
+   * no agent.
+   */
+  agents: z
+    .record(
+      z.string(),
+      z
+        .object({
+          /** Its Telegram bot's token, from @BotFather. */
+          telegram: z.string().default(""),
+          /** Its Slack app's two tokens: the bot token (xoxb-...) and the app token (xapp-...). */
+          slack: z.object({ bot_token: z.string().default(""), app_token: z.string().default("") }).strict().prefault({}),
+        })
+        .strict(),
+    )
+    .default({}),
   /** Everything the agents keep: their folders and the run history. Empty means data/ inside the repo. */
   state: z.string().default(""),
   /** Which node the unit runs. Empty means whichever is on the path at install. */
@@ -114,11 +133,26 @@ export function readSettings(tracked: unknown, local: unknown): Settings {
 }
 
 /**
- * The settings this process started with: the schema's defaults, then
- * `settings.json`, then `settings.local.json`. One value can still be beaten
- * by an environment variable, through `setting()`.
+ * The settings in force: the schema's defaults, then `settings.json`, then
+ * `settings.local.json`. One value can still be beaten by an environment
+ * variable, through `setting()`. The server calls `reloadSettings` when either
+ * file changes, so read a value when it is needed rather than keeping a copy.
+ * `state` is the exception: where the agents keep things needs a restart.
  */
 export const settings: Settings = readSettings(read("settings.json"), read("settings.local.json"));
+
+/**
+ * Read both files again, into the same `settings` everything already holds.
+ * Throws, and changes nothing, when the files are not valid.
+ */
+export function reloadSettings(): void {
+  Object.assign(settings, readSettings(read("settings.json"), read("settings.local.json")));
+}
+
+/** The entries in `agents` that name none of these agents: usually one that was renamed. */
+export function unclaimed(names: string[]): string[] {
+  return Object.keys(settings.agents).filter((name) => !names.includes(name));
+}
 
 /**
  * A setting, with an environment variable winning if there is one. Reading it

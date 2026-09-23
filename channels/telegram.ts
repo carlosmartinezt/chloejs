@@ -4,9 +4,10 @@
 //   import { telegramChannel } from "@chloejs/core/channels";
 //   channels: [telegramChannel({ allowFrom: [111111111] })],
 //
-// The bot's token is TELEGRAM_BOT_TOKEN, or `credentials: { botToken }`. To
-// make a bot, message @BotFather in Telegram, send /newbot, and pick a name
-// and a username. It replies with the token.
+// The bot's token is in settings.local.json under the agent's name, as
+// `"agents": { "<name>": { "telegram": "..." } }`, or `credentials: { botToken }`
+// here. To make a bot, message @BotFather in Telegram, send /newbot, and pick
+// a name and a username. It replies with the token.
 //
 // allowFrom is who may talk to the agent, by Telegram user id, in any chat,
 // including a group made later. Anyone can find a bot and message it, so
@@ -21,8 +22,8 @@
 //              default.
 //   "webhook"  Telegram sends each one to publicUrl + /chloe/v1/<agent>/telegram,
 //              which has to be reachable past the login, and checks
-//              TELEGRAM_WEBHOOK_SECRET_TOKEN (or credentials.webhookSecretToken)
-//              on every call. chloe registers the address itself on start.
+//              credentials.webhookSecretToken, or one made on start, on every
+//              call. chloe registers the address itself on start.
 //
 // What happens to a message once it is read (allowFrom, a job waiting on an
 // answer, /commands, jobs that answer plain messages, groups, the chat) is
@@ -36,6 +37,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe/load/load.ts";
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask.ts";
 import type { Attachment } from "#chloe/model/model.ts";
+import { settings } from "#chloe/core/settings.ts";
 import { commands, receive, type Incoming, type Rules } from "./shared.ts";
 
 const MAX_MESSAGE = 4000; // Telegram rejects anything over 4096.
@@ -53,11 +55,7 @@ export interface TelegramOptions {
   name?: string;
   /** For spotting a mention in a group. Asked of Telegram when left out. */
   botUsername?: string;
-  /**
-   * Instead of TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET_TOKEN. A
-   * `botToken` key that is here but empty is no bot, never TELEGRAM_BOT_TOKEN,
-   * which is another agent's bot when there are two.
-   */
+  /** Instead of the token in settings. Without a secret, webhook mode makes a new one each start. */
   credentials?: { botToken?: string; webhookSecretToken?: string };
   /** Telegram user ids that may reach the agent. */
   allowFrom?: number[];
@@ -130,12 +128,11 @@ export function telegramChannel(options: TelegramOptions = {}): Channel {
     chatHistory: options.chatHistory,
     start(agent) {
       const name = agent()?.name ?? "";
-      const own = options.credentials && "botToken" in options.credentials;
-      const token = (own ? options.credentials?.botToken : process.env.TELEGRAM_BOT_TOKEN) || "";
+      const token = options.credentials?.botToken || settings.agents[name]?.telegram || "";
       if (!token) {
         console.error(
           `telegram: ${name} has a Telegram channel but no bot. Message @BotFather in Telegram, send /newbot, ` +
-            `and put the token it gives you ${own ? "where its credentials.botToken reads it" : "in .env as TELEGRAM_BOT_TOKEN"}. Then restart.`,
+            `and put the token it gives you in settings.local.json as "agents": { "${name}": { "telegram": "..." } }.`,
         );
         return { stop: () => {} };
       }
@@ -174,7 +171,7 @@ export function listen(
   const rules: Rules = { allowFrom: options.allowFrom ?? [], inGroups: options.inGroups, chatHistory: options.chatHistory, sendWhileWorking: options.sendWhileWorking };
   const mode = options.mode ?? "polling";
   const path = `/chloe/v1/${name}/${channel}`;
-  const secret = options.credentials?.webhookSecretToken || process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN || randomBytes(24).toString("hex");
+  const secret = options.credentials?.webhookSecretToken || randomBytes(24).toString("hex");
   const allowedTypes = options.uploadPolicy?.allowedMediaTypes ?? ["image/*", "application/pdf", "text/*"];
   const maxBytes = options.uploadPolicy?.maxBytes ?? 10 * 1024 * 1024;
   const stopping = new AbortController();

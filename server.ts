@@ -6,20 +6,25 @@
 // lists them, so adding one is adding it to that list.
 //
 // If this process is not running, nothing fires.
-import { existsSync, readdirSync, watch, type FSWatcher } from "node:fs";
+import { readdirSync, watch, type FSWatcher } from "node:fs";
 
 import { ROOT } from "#chloe/core/paths.ts";
+import { reloadSettings, unclaimed } from "#chloe/core/settings.ts";
 import { closeCutOff, trim } from "#chloe/core/db.ts";
 import { loadAll, type Agent, type Running } from "#chloe/load/load.ts";
 import { via } from "#chloe/model/model.ts";
 import { HOST, PORT, serve } from "#chloe/serve/http.ts";
 import { startClock } from "#chloe/core/clock.ts";
 
-// Credentials a channel reads from the environment can be kept in .env beside
-// the repo, which is not in source control.
-if (existsSync(`${ROOT}/.env`)) process.loadEnvFile(`${ROOT}/.env`);
-
 let agents: Map<string, Agent> = await loadAll();
+
+/** An entry under `agents` in settings that no agent claims is usually one that was renamed. */
+function sayUnclaimed(): void {
+  for (const name of unclaimed([...agents.keys()])) {
+    console.error(`settings: "agents" has an entry for ${name}, and no agent is called that. If it was renamed, rename the entry too.`);
+  }
+}
+sayUnclaimed();
 trim();
 const cutOff = closeCutOff();
 if (cutOff) console.log(`closed ${cutOff} run${cutOff === 1 ? "" : "s"} the last stop cut off`);
@@ -73,8 +78,11 @@ for (const agent of agents.values()) {
 
 let pending: NodeJS.Timeout | undefined;
 const changedChannels = new Set<string>();
+const SETTINGS = ["settings.json", "settings.local.json"];
+let settingsChanged = false;
 
 function changed(path: string): void {
+  if (SETTINGS.some((file) => path === `${ROOT}/${file}`)) settingsChanged = true;
   for (const agent of agents.values()) {
     if (path.startsWith(`${agent.folder}/channels/`)) changedChannels.add(agent.name);
   }
@@ -96,7 +104,14 @@ async function reload(): Promise<void> {
     do {
       again = false;
       try {
+        // A channel reads its token as it starts, so new settings restart them all.
+        if (settingsChanged) {
+          settingsChanged = false;
+          reloadSettings();
+          for (const name of agents.keys()) changedChannels.add(name);
+        }
         agents = await loadAll();
+        sayUnclaimed();
         watchFolders();
         startChannels(changedChannels);
         changedChannels.clear();
@@ -114,7 +129,8 @@ async function reload(): Promise<void> {
 }
 
 /**
- * Reload when chloe.config.ts or anything in an agent's folder changes.
+ * Reload when chloe.config.ts, either settings file, or anything in an
+ * agent's folder changes.
  *
  * Every folder is watched on its own, not recursively. Node's recursive watch
  * on Linux keeps a watch per file, and a file replaced rather than edited in
@@ -149,7 +165,7 @@ function watchFolders(): void {
     if (watching.has(folder)) continue;
     const top = folder === ROOT;
     const watcher = watch(folder, (_event, file) => {
-      if (file && (!top || file === "chloe.config.ts")) changed(`${folder}/${file}`);
+      if (file && (!top || file === "chloe.config.ts" || SETTINGS.includes(file))) changed(`${folder}/${file}`);
     });
     // A folder that is deleted ends its watch with an error, which would otherwise stop the service.
     watcher.on("error", () => {

@@ -564,6 +564,23 @@ about("a model step that never fits");
     "a",
   );
   is("a setting nobody set is empty rather than missing", readSettings({}, {}).node, "");
+  is("each agent's own settings are under its name", readSettings({}, { agents: { tempo: { telegram: "t" } } }).agents.tempo.telegram, "t");
+  is("and what it does not say is empty", readSettings({}, { agents: { tempo: { telegram: "t" } } }).agents.tempo.slack.app_token, "");
+  let misspelt = "";
+  try {
+    readSettings({}, { agents: { tempo: { telegarm: "t" } } });
+  } catch (error) {
+    misspelt = error instanceof Error ? error.message : "";
+  }
+  is("a misspelt key under an agent is refused rather than ignored", misspelt.includes("telegarm"), true);
+  {
+    const { settings, unclaimed } = await import("@chloejs/core");
+    const before = settings.agents;
+    settings.agents = { tempo: { telegram: "t", slack: { bot_token: "", app_token: "" } } };
+    is("an entry for an agent that exists is claimed", unclaimed(["tempo"]), []);
+    is("one left behind by a rename is not", unclaimed(["growth"]), ["tempo"]);
+    settings.agents = before;
+  }
   is("an environment variable beats the files", setting("fromfile", "TEST_SETTING_WINS"), "fromfile");
   process.env.TEST_SETTING_WINS = "fromenv";
   is("once there is one", setting("fromfile", "TEST_SETTING_WINS"), "fromenv");
@@ -928,17 +945,21 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const { listen, telegramChannel } = await import("#chloe/channels/telegram.ts");
 
   {
-    // Two agents, two bots: the second one's token is read from somewhere
-    // that is still empty. It must not fall back to the first one's.
+    // Two agents, one with a bot in settings and one without. Each reads its
+    // own entry, by the name it has when the channel starts.
+    const { settings } = await import("@chloejs/core");
+    const before = settings.agents;
+    settings.agents = { first: { telegram: "first-bot", slack: { bot_token: "", app_token: "" } } };
     const said: string[] = [];
     const log = console.error;
     console.error = (line: string) => void said.push(line);
-    process.env.TELEGRAM_BOT_TOKEN = "the-other-agents-bot";
-    const none = telegramChannel({ credentials: { botToken: undefined }, api: "http://127.0.0.1:9" }).start(() => ({ name: "second" }) as any);
-    none.stop();
-    delete process.env.TELEGRAM_BOT_TOKEN;
+    const channel = telegramChannel({ api: "http://127.0.0.1:9" });
+    channel.start(() => ({ name: "second" }) as any).stop();
+    channel.start(() => ({ name: "first" }) as any).stop();
     console.error = log;
-    is("an empty token of its own is no bot, not the shared one", said.some((l) => l.includes("second has a Telegram channel but no bot")), true);
+    settings.agents = before;
+    is("an agent with no entry has no bot, and is not handed another's", said.some((l) => l.includes("second has a Telegram channel but no bot")), true);
+    is("an agent with one uses its own", said.some((l) => l.includes("first has a Telegram channel but no bot")), false);
   }
 
   // A stand-in Telegram: each update is handed out once, a file is always the
