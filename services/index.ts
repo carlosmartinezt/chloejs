@@ -9,7 +9,7 @@
 // name here is publishing it.
 
 export { run, type Result } from "./runService.ts";
-export { sendEmail, type EmailSender } from "./emailService.ts";
+export { markdownToHtml, markdownToText, sendEmail, type EmailSender } from "./emailService.ts";
 export { readEmailMessages, readOneEmailMessage, type Message as Mail } from "./gmailService.ts";
 export { listFiles, readFiles, searchFiles, writeFiles } from "./filesService.ts";
 export { listScripts, runScripts } from "./scriptsService.ts";

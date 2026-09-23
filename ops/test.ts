@@ -1391,6 +1391,24 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 }
 
 {
+  about("an email written in Markdown");
+
+  const { markdownToHtml, markdownToText } = await import("@chloejs/core/services");
+  const body = "## Today\n\nOne line\nwrapped here.\n\n- a **bold** item\n- [a link](https://example.com)\n\n| day | visits |\n|---|---|\n| Mon | 3 |";
+  const html = markdownToHtml(body);
+  is("lines next to each other are one paragraph", html.includes("<p style='margin:0 0 14px'>One line wrapped here.</p>"), true);
+  is("a heading is a heading", html.includes(">Today</div>"), true);
+  is("a list is a list", (html.match(/<li /g) ?? []).length, 2);
+  is("a table keeps its rows and drops the rule", (html.match(/<tr>/g) ?? []).length, 2);
+  is("what a person typed is escaped", markdownToHtml("<b>hi</b>").includes("&lt;b&gt;"), true);
+  is(
+    "the plain copy has no symbols in it",
+    markdownToText(body),
+    "Today\n\nOne line\nwrapped here.\n\n- a bold item\n- a link (https://example.com)\n\n  day: visits\n  Mon: 3",
+  );
+}
+
+{
   about("reading a web page");
 
   const { htmlToText, isPrivate, readPage } = await import("@chloejs/core/services");
