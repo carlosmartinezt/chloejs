@@ -67,6 +67,14 @@ export interface TelegramOptions {
   chatHistory?: ChatHistory;
   /** Send what the model writes on its way to an answer as it writes it, not only the answer. Off unless true. */
   sendWhileWorking?: boolean;
+  /**
+   * Seconds to wait before handling a text message, so that anything else sent
+   * in the same chat inside that time is handled as one message, joined by a
+   * blank line in the order it arrived. Zero, the default, handles each one on
+   * its own. A share that arrives as two messages (a quote and a comment) is
+   * what this is for. A message carrying a file is never held.
+   */
+  stackWithin?: number;
   mode?: "polling" | "webhook";
   /** Where this server is reachable from outside, for mode "webhook", like "https://agents.example.com". */
   publicUrl?: string;
@@ -272,10 +280,39 @@ export function listen(
     };
   }
 
+  /** Text waiting for the stacking window to close, by chat: what was said, and the first message it was said in. */
+  const stacking = new Map<string, { parts: string[]; first: TgMessage; timer: ReturnType<typeof setTimeout> }>();
+
   async function onMessage(message: TgMessage): Promise<void> {
     const agent = options.agent();
     const text = message.text ?? message.caption ?? "";
     if (!agent || !message.from || (!text && !message.photo && !message.document)) return;
+    const wait = options.stackWithin ?? 0;
+    if (wait > 0 && text && !message.photo && !message.document) {
+      const key = `${message.chat.id}${message.is_topic_message ? `-${message.message_thread_id}` : ""}`;
+      const held = stacking.get(key);
+      if (held) clearTimeout(held.timer);
+      const parts = held ? [...held.parts, text] : [text];
+      // The first message is the one answered, so the reply sits under the
+      // start of what was sent rather than under its last line.
+      const first = held?.first ?? message;
+      stacking.set(key, {
+        parts,
+        first,
+        timer: setTimeout(() => {
+          stacking.delete(key);
+          void handled(first, parts.join("\n\n")).catch((error) => console.error("telegram:", error));
+        }, wait * 1000),
+      });
+      return;
+    }
+    await handled(message, text);
+  }
+
+  /** One message, or everything stacked into it, from the point the text is settled. */
+  async function handled(message: TgMessage, text: string): Promise<void> {
+    const agent = options.agent();
+    if (!agent || !message.from) return;
     const chatId = message.chat.id;
     const topic = message.is_topic_message ? message.message_thread_id : undefined;
     const extra = {

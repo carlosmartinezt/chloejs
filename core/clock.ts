@@ -20,6 +20,20 @@ export interface Fired {
   parked?: boolean;
 }
 
+/**
+ * A run that did not happen, and which of the two it was. `skipped` is the
+ * same job already going or already waiting on an answer; `failed` is a run
+ * that started and ended in an error, which is written into its own record.
+ */
+export interface NotRun {
+  skipped?: "busy" | "waiting";
+  failed?: string;
+}
+
+export function ran(result: Fired | NotRun): result is Fired {
+  return "runId" in result;
+}
+
 export interface Clock {
   stop(): void;
   /**
@@ -27,9 +41,10 @@ export interface Clock {
    * what a job that declares an `input` shape is started with, and is checked
    * against it before the run exists: a caller that sent the wrong thing gets
    * the error rather than a failed run. `channel` is what the log shows it
-   * came in on, and is "unknown" when left out.
+   * came in on, and is "unknown" when left out. A run that did not happen
+   * hands back why, so a caller can say which of the two it was.
    */
-  fire(agent: Agent, job: Job, input?: unknown, channel?: string): Promise<Fired | undefined>;
+  fire(agent: Agent, job: Job, input?: unknown, channel?: string): Promise<Fired | NotRun>;
   running(): string[];
 }
 
@@ -54,26 +69,27 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
   let lastMinute = "";
 
   /**
-   * Hands back what the run came to, so whoever started it can answer with it.
-   * Nothing when it was skipped, because the same job was already going.
+   * Hands back what the run came to, so whoever started it can answer with it,
+   * or why there is nothing: the same job was already going, or the run
+   * failed.
    *
    * It throws only for input that does not fit the job's shape, which is the
    * caller's mistake and worth telling them about. Anything that goes wrong
    * inside the run is that run's own record, and is logged rather than thrown:
    * the clock has nobody to tell.
    */
-  async function fire(agent: Agent, job: Job, input?: unknown, channel = "unknown"): Promise<Fired | undefined> {
+  async function fire(agent: Agent, job: Job, input?: unknown, channel = "unknown"): Promise<Fired | NotRun> {
     const key = `${agent.name}/${job.id}`;
     if (busy.has(key)) {
       console.warn(`${key}: still running from last time, skipping this one`);
-      return;
+      return { skipped: "busy" };
     }
     // A job waiting on a person is still that job's turn. Starting a second
     // one would ask the same question twice and act on whichever came back
     // first.
     if (job.run && waitingFor(agent.name, job.id)) {
       console.warn(`${key}: still waiting on an answer, skipping this one`);
-      return;
+      return { skipped: "waiting" };
     }
     busy.add(key);
     const began = Date.now();
@@ -88,6 +104,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
     } catch (error) {
       if (error instanceof WrongInput) throw error;
       console.error(`${key}: failed`, error);
+      return { failed: (error as Error).message };
     } finally {
       busy.delete(key);
     }

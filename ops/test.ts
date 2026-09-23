@@ -1087,6 +1087,42 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const { recall: recalled } = await import("#chloe/model/memory.ts");
   is("and the exchange is kept in that chat's conversation", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["\u201cA line from a book.\u201d \u2014 A Book", whole]);
   is("the / menu is the agent's jobs", calls.find((c) => c.method === "setMyCommands")?.body.commands, [{ command: "highlights", description: "highlights" }]);
+
+  // Two messages a second apart are one message, and the answer goes under the
+  // first of them. A share that arrives as a quote and then a comment is why.
+  calls.length = 0;
+  handed.length = 0;
+  const sixth = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", stackWithin: 1, agent: () => reader });
+  inbox.push(inGroup(41, me, "\u201cA line.\u201d \u2014 A Book"));
+  await pause(200);
+  inbox.push(inGroup(42, me, "and what I thought of it"));
+  await settle(1);
+  sixth.stop();
+  await pause(100);
+  is("messages sent close together are handled as one", handed, ["\u201cA line.\u201d \u2014 A Book\n\nand what I thought of it"]);
+  is("and the answer replies to the first of them", calls.find((c) => c.method === "sendMessage")?.body.reply_parameters, { message_id: 41 });
+
+  // A run that failed says so. Saying it is already running would send
+  // somebody looking for a run that is not there.
+  calls.length = 0;
+  const breaks = {
+    ...codeJob("highlights", async () => {
+      throw new Error("the page would not write");
+    }),
+    input: z.object({ text: z.string() }),
+    answers: (text: string) => text.startsWith("\u201c"),
+  } as Job;
+  delete breaks.cron;
+  const broken = agentFor(breaks);
+  const failing = startClock(() => new Map([["test", broken]]));
+  const seventh = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => broken });
+  inbox.push(inGroup(43, me, "\u201cAnother line.\u201d \u2014 A Book"));
+  await settle(1);
+  seventh.stop();
+  failing.stop();
+  await pause(100);
+  is("a failed job says what failed, not that it is already running", said(), ["-100: highlights failed. the page would not write"]);
+
   telegram.close();
 
 }

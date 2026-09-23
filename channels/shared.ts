@@ -24,7 +24,7 @@
 import type { Agent, ChatHistory, Job } from "#chloe/load/load.ts";
 import type { Attachment } from "#chloe/model/model.ts";
 import { remember } from "#chloe/model/memory.ts";
-import { clock, type Fired } from "#chloe/core/clock.ts";
+import { clock, type Fired, ran } from "#chloe/core/clock.ts";
 import { answer, waitingOn, WrongInput } from "#chloe/core/steps.ts";
 import { turn } from "#chloe/core/turn.ts";
 
@@ -177,6 +177,18 @@ function kept(message: Incoming, reply: string): void {
   remember(message.thread, "assistant", reply);
 }
 
+/**
+ * A message that is for a job: start that job and hand back what to say.
+ *
+ * The message becomes the job's input (the text, and who said it and where, so
+ * the job can write back to the same chat), the clock runs it, and the reply is
+ * the job's own words. Three things can come back and each is said plainly: the
+ * job ran, the job was already running, or the job failed.
+ *
+ * It goes through the clock rather than calling the job itself, because the
+ * clock is the one place that knows what is running and will not start a second
+ * run of the same job.
+ */
 async function started(agent: Agent, message: Incoming, job: Job, text: string): Promise<Handled> {
   const input = {
     text,
@@ -189,7 +201,12 @@ async function started(agent: Agent, message: Incoming, job: Job, text: string):
   };
   try {
     const result = await clock()!.fire(agent, job, input, message.channel);
-    if (!result) return { text: `${job.id} is already running. I will not start a second one.`, steps: 0, cost: 0, job: job.id };
+    if (!ran(result)) {
+      const text = result.skipped
+        ? `${job.id} is already running. I will not start a second one.`
+        : `${job.id} failed. ${result.failed ?? "It is in the logs on the box."}`;
+      return { text, steps: 0, cost: 0, job: job.id };
+    }
     const reply = replyOf(result, job);
     kept(message, reply);
     return { text: reply, runId: result.runId, steps: result.steps, cost: result.cost, job: job.id };
