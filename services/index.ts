@@ -10,7 +10,7 @@
 
 export { run, type Result } from "./runService.ts";
 export { sendEmail, type EmailSender } from "./emailService.ts";
-export { messages, oneMessage, type Message as Mail } from "./gmailService.ts";
+export { readEmailMessages, readOneEmailMessage, type Message as Mail } from "./gmailService.ts";
 export { listFiles, readFiles, searchFiles, writeFiles } from "./filesService.ts";
-export { script, scripts } from "./scriptsService.ts";
+export { listScripts, runScripts } from "./scriptsService.ts";
 export { readPage, htmlToText, isPrivate, type Page } from "./webService.ts";

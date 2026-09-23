@@ -8,7 +8,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { z } from "zod";
 
 import { agentDir } from "#chloe/core/paths.ts";
-import { script, scripts } from "#chloe/services/scriptsService.ts";
+import { listScripts, runScripts as runOne } from "#chloe/services/scriptsService.ts";
 import { tool, type Tools } from "#chloe/model/tool.ts";
 
 /** A tool that runs one file from that agent's own `scripts/` folder. */
@@ -25,8 +25,8 @@ export function runScript(agent: string) {
     }),
     execute: async ({ script: name, args = [], timeoutSeconds }) =>
       name === "list"
-        ? { scripts: await scripts(agent) }
-        : script(agent, name, args, { timeoutMs: (timeoutSeconds ?? 300) * 1000 }),
+        ? { scripts: await listScripts(agent) }
+        : runOne(agent, name, args, { timeoutMs: (timeoutSeconds ?? 300) * 1000 }),
   });
 }
 

@@ -14,7 +14,7 @@ import { settings } from "#chloe/core/settings.ts";
 import { run, type Result } from "./runService.ts";
 
 /** What this agent has in scripts/, sorted. Nothing hidden. */
-export async function scripts(agent: string): Promise<string[]> {
+export async function listScripts(agent: string): Promise<string[]> {
   const dir = `${agentDir(agent)}/scripts`;
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
   return entries
@@ -30,13 +30,13 @@ export async function scripts(agent: string): Promise<string[]> {
  * `cwd` defaults to the scripts folder, so a script may use relative paths.
  * An agent whose scripts work on a tree somewhere else passes that instead.
  */
-export async function script(
+export async function runScripts(
   agent: string,
   name: string,
   args: string[] = [],
   { timeoutMs = 300_000, cwd }: { timeoutMs?: number; cwd?: string } = {},
 ): Promise<Result & { script: string; args: string[] }> {
-  const available = await scripts(agent);
+  const available = await listScripts(agent);
   if (!available.includes(name)) {
     throw new Error(`No script called ${JSON.stringify(name)}. You have: ${available.join(", ")}`);
   }

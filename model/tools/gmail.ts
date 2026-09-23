@@ -4,7 +4,7 @@
 // write. All the model chooses is how far back and how many.
 import { z } from "zod";
 
-import { messages, oneMessage } from "#chloe/services/gmailService.ts";
+import { readEmailMessages, readOneEmailMessage } from "#chloe/services/gmailService.ts";
 import { tool } from "#chloe/model/tool.ts";
 
 interface Options {
@@ -46,7 +46,7 @@ export function read_mail({
     }),
     execute: ({ days: back, limit, messageId }) =>
       messageId
-        ? oneMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
-        : messages({ search, days: back ?? days, limit: limit ?? 10 }),
+        ? readOneEmailMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
+        : readEmailMessages({ search, days: back ?? days, limit: limit ?? 10 }),
   });
 }

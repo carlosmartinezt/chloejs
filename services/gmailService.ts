@@ -35,7 +35,7 @@ export interface Message {
 }
 
 /** What the bound search matches. Nothing here widens it. */
-export async function messages({
+export async function readEmailMessages({
   search,
   days = 7,
   limit = 10,
@@ -55,7 +55,7 @@ export async function messages({
  * filter. Same check as the tool, because a job is not more trusted than a
  * model here: it is only more predictable.
  */
-export async function oneMessage({
+export async function readOneEmailMessage({
   search,
   what,
   days = 7,
@@ -68,7 +68,7 @@ export async function oneMessage({
   limit?: number;
   messageId: string;
 }): Promise<{ query: string; message: unknown }> {
-  const { query, messages: found } = await messages({ search, days, limit });
+  const { query, messages: found } = await readEmailMessages({ search, days, limit });
   if (!found.some((m) => m.id === messageId || m.threadId === messageId)) {
     throw new Error(
       `That message is not in ${what}. You can only read what this search listed. ` +
