@@ -925,7 +925,21 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
 {
   about("telegram");
-  const { listen } = await import("#chloe/channels/telegram.ts");
+  const { listen, telegramChannel } = await import("#chloe/channels/telegram.ts");
+
+  {
+    // Two agents, two bots: the second one's token is read from somewhere
+    // that is still empty. It must not fall back to the first one's.
+    const said: string[] = [];
+    const log = console.error;
+    console.error = (line: string) => void said.push(line);
+    process.env.TELEGRAM_BOT_TOKEN = "the-other-agents-bot";
+    const none = telegramChannel({ credentials: { botToken: undefined }, api: "http://127.0.0.1:9" }).start(() => ({ name: "second" }) as any);
+    none.stop();
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    console.error = log;
+    is("an empty token of its own is no bot, not the shared one", said.some((l) => l.includes("second has a Telegram channel but no bot")), true);
+  }
 
   // A stand-in Telegram: each update is handed out once, a file is always the
   // same four bytes, and everything the bot sends is written down.

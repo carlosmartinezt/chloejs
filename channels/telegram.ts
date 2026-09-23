@@ -53,7 +53,11 @@ export interface TelegramOptions {
   name?: string;
   /** For spotting a mention in a group. Asked of Telegram when left out. */
   botUsername?: string;
-  /** Instead of TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET_TOKEN. */
+  /**
+   * Instead of TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET_TOKEN. A
+   * `botToken` key that is here but empty is no bot, never TELEGRAM_BOT_TOKEN,
+   * which is another agent's bot when there are two.
+   */
   credentials?: { botToken?: string; webhookSecretToken?: string };
   /** Telegram user ids that may reach the agent. */
   allowFrom?: number[];
@@ -126,11 +130,12 @@ export function telegramChannel(options: TelegramOptions = {}): Channel {
     chatHistory: options.chatHistory,
     start(agent) {
       const name = agent()?.name ?? "";
-      const token = options.credentials?.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
+      const own = options.credentials && "botToken" in options.credentials;
+      const token = (own ? options.credentials?.botToken : process.env.TELEGRAM_BOT_TOKEN) || "";
       if (!token) {
         console.error(
           `telegram: ${name} has a Telegram channel but no bot. Message @BotFather in Telegram, send /newbot, ` +
-            "and put the token it gives you in .env as TELEGRAM_BOT_TOKEN. Then restart.",
+            `and put the token it gives you ${own ? "where its credentials.botToken reads it" : "in .env as TELEGRAM_BOT_TOKEN"}. Then restart.`,
         );
         return { stop: () => {} };
       }
