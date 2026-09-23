@@ -1391,6 +1391,18 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 }
 
 {
+  about("an agent writing its own skills");
+
+  const { writeSkill } = await import("#chloe/model/tools/write_skill.ts");
+  const skill = writeSkill("test");
+  const wrong = (path: string) => !skill.inputSchema.safeParse({ path, content: "x", message: "a change" }).success;
+  is("a skill is a file directly in skills/", wrong("deploys.md"), false);
+  is("a file in a folder is refused, because it would never be read", wrong("deploys/SKILL.md"), true);
+  is("so is one that is not markdown", wrong("deploys.txt"), true);
+  is("and one that climbs out", wrong("../instructions.md"), true);
+}
+
+{
   about("an email written in Markdown");
 
   const { markdownToHtml, markdownToText } = await import("@chloejs/core/services");
