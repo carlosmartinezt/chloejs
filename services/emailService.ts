@@ -63,8 +63,20 @@ const resend: EmailProvider = {
   },
 };
 
+/**
+ * Carries nothing: the subject and who it was for go to the log and the
+ * message is dropped. What a test run and a box with no mail account use, so
+ * that code which mails can be exercised without anything leaving the box.
+ */
+const none: EmailProvider = {
+  async send({ to, subject }) {
+    console.log(`email (not sent, provider is none): "${subject}" to ${to.join(", ")}`);
+    return {};
+  },
+};
+
 /** Every provider email.provider can name. Adding one is an entry here and in the settings schema. */
-const providers: Record<typeof settings.email.provider, EmailProvider> = { resend };
+const providers: Record<typeof settings.email.provider, EmailProvider> = { resend, none };
 
 /** Sends one email through the configured provider and returns its id. The tag is put in front of the subject. */
 export async function sendEmail(
@@ -75,7 +87,10 @@ export async function sendEmail(
   // Refuse rather than send nowhere.
   if (to.length === 0) throw new Error("Nobody to send to. Give the sender at least one address in to.");
   const tagged = tag && !subject.startsWith(`[${tag}]`) ? `[${tag}] ${subject}` : subject;
-  const { id } = await providers[settings.email.provider].send({
+  const chosen = setting(settings.email.provider, "EMAIL_PROVIDER") as typeof settings.email.provider;
+  const provider = providers[chosen];
+  if (!provider) throw new Error(`No email provider called "${chosen}". It is one of: ${Object.keys(providers).join(", ")}.`);
+  const { id } = await provider.send({
     from,
     to,
     replyTo,

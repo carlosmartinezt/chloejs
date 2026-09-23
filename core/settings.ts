@@ -34,8 +34,13 @@ const schema = z.object({
     .prefault({}),
   email: z
     .object({
-      /** Who carries an agent's mail. Its key is in that provider's own section. */
-      provider: z.enum(["resend"]).default("resend"),
+      /**
+       * Who carries an agent's mail. Its key is in that provider's own
+       * section. "none" writes the message to the log and sends nothing, which
+       * is what a test run and a box with no mail account use. EMAIL_PROVIDER
+       * overrides it for one run.
+       */
+      provider: z.enum(["resend", "none"]).default("resend"),
     })
     .prefault({}),
   /** Sending mail through Resend. */

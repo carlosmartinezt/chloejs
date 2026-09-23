@@ -2,9 +2,10 @@
 //
 // A job is code, so it is tested rather than scored: `npm run evals` is for
 // the prompts, and this is for the machinery underneath them. Nothing here
-// touches the real database or the real gateway. The database is in memory and
-// the gateway is a server on a loopback port that answers whatever the case
-// says, so a model step is exercised without spending anything.
+// touches the real database, the real gateway or a real mail account. The
+// database is in memory, the gateway is a server on a loopback port that
+// answers whatever the case says, so a model step is exercised without
+// spending anything, and mail goes to the log.
 //
 // These are set rather than left to settings.json, because a setting in a file
 // applies here too: a box with model.via "claude" would otherwise run every
@@ -17,6 +18,10 @@ process.env.AGENTS_STATE = (await import("node:fs")).mkdtempSync(`${(await impor
 process.env.OWNER = "test:somebody";
 process.env.AI_GATEWAY_API_KEY = "test";
 process.env.MODEL_VIA = "gateway";
+// Signing in and getting locked out both mail, and the addresses used here are
+// made up. Without this the suite sends two real emails on a box that has a
+// mail key, because the alert settings are read from the same file.
+process.env.EMAIL_PROVIDER = "none";
 
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -1456,6 +1461,18 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     markdownToText(body),
     "Today\n\nOne line\nwrapped here.\n\n- a bold item\n- a link (https://example.com)\n\n  day: visits\n  Mon: 3",
   );
+}
+
+{
+  about("a provider that carries nothing");
+
+  const { sendEmail } = await import("@chloejs/core/services");
+  const sent = await sendEmail({ from: "a@example.com", to: ["b@example.com"], tag: "test" }, "Hello", "A body.");
+  is("it says it was sent, with the tag in front", [sent.sent, sent.subject], [true, "[test] Hello"]);
+  is("and it has no id, because nothing carried it", sent.id, undefined);
+
+  const nobody = await sendEmail({ from: "a@example.com", to: [] }, "Hello", "A body.").catch((error: Error) => error.message);
+  is("nobody to send to is refused rather than dropped", nobody, "Nobody to send to. Give the sender at least one address in to.");
 }
 
 {
