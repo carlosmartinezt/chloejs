@@ -95,7 +95,8 @@ function inline(s: string): string {
   return escape(s)
     .replace(/`([^`]+)`/g, "<code style='background:#f1f1f1;padding:1px 4px;border-radius:3px'>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(LINK, "<a href='$2'>$1</a>")
+    // Only a web or mail address becomes a link, never javascript: or data:.
+    .replace(LINK, (_, words, to) => (/^(https?:|mailto:)/i.test(to) ? `<a href='${to}'>${words}</a>` : words))
     .replace(/(?<!["'>=])(https?:\/\/[^\s<)]+)/g, "<a href='$1'>$1</a>");
 }
 

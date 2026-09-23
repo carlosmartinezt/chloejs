@@ -1413,6 +1413,8 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("a list is a list", (html.match(/<li /g) ?? []).length, 2);
   is("a table keeps its rows and drops the rule", (html.match(/<tr>/g) ?? []).length, 2);
   is("what a person typed is escaped", markdownToHtml("<b>hi</b>").includes("&lt;b&gt;"), true);
+  is("a link that is not a web or mail address is only words", markdownToHtml("[go](javascript:alert(1))").includes("<a"), false);
+  is("a quote cannot end the address early", markdownToHtml("[go](https://x.com/'onmouseover='y)").includes("href='https://x.com/&#39;onmouseover=&#39;y'"), true);
   is(
     "the plain copy has no symbols in it",
     markdownToText(body),
