@@ -942,7 +942,23 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
 {
   about("telegram");
-  const { listen, telegramChannel } = await import("#chloe/channels/telegram.ts");
+  const { listen, telegramChannel, telegramHtml, inPieces } = await import("#chloe/channels/telegram.ts");
+
+  is(
+    "markdown arrives as telegram's own formatting",
+    telegramHtml("**Blocked on you:**\n1. `main` needs a fast-forward, see [the log](https://example.com/a?b=1&c=2).\n- *one* item"),
+    "<b>Blocked on you:</b>\n1. <code>main</code> needs a fast-forward, see <a href=\"https://example.com/a?b=1&amp;c=2\">the log</a>.\n• <i>one</i> item",
+  );
+  is("a heading is a bold line", telegramHtml("## Numbers"), "<b>Numbers</b>");
+  is("what telegram would read as a tag is escaped", telegramHtml("1 < 2 & 3 > 2"), "1 &lt; 2 &amp; 3 &gt; 2");
+  is("nothing inside code is read as formatting", telegramHtml("`**not bold** <b>`"), "<code>**not bold** &lt;b&gt;</code>");
+  is("a code block keeps its lines", telegramHtml("```\na < b\n  c\n```"), "<pre>a &lt; b\n  c</pre>");
+  is("a quote is a quote", telegramHtml("> said\n> twice"), "<blockquote>said\ntwice</blockquote>");
+  is("a link that is not a web or mail address stays as written", telegramHtml("[go](javascript:alert(1))"), "[go](javascript:alert(1))");
+  is("underscores in a name are left alone", telegramHtml("run_script and ship_code_change"), "run_script and ship_code_change");
+  is("a sum is not italics", telegramHtml("2 * 3 * 4"), "2 * 3 * 4");
+  is("a long reply is cut at a line break", inPieces("aaaa\nbbbb\ncc", 10), ["aaaa\nbbbb", "cc"]);
+  is("and one with none is cut where it has to be", inPieces("abcdefghij", 4), ["abcd", "efgh", "ij"]);
 
   {
     // Two agents, one with a bot in settings and one without. Each reads its
@@ -972,7 +988,14 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     request.on("end", () => {
       if (request.url!.startsWith("/file/")) return void response.end("PNG!");
       const method = request.url!.split("/").pop()!;
-      calls.push({ method, body: JSON.parse(raw || "{}"), token: request.url!.split("/")[1].slice(3) });
+      const body = JSON.parse(raw || "{}");
+      const token = request.url!.split("/")[1].slice(3);
+      // The bot called "picky" refuses every formatted message, as Telegram
+      // does one whose tags it cannot read.
+      if (token === "picky" && body.parse_mode) {
+        return void response.end(JSON.stringify({ ok: false, description: "Bad Request: can't parse entities" }));
+      }
+      calls.push({ method, body, token });
       const result =
         method === "getUpdates" ? inbox.splice(0)
         : method === "getMe" ? { id: 999, is_bot: true, username: "testbot" }
@@ -1012,6 +1035,15 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // messages out once and for all, unlike Telegram. Let it land first.
   await pause(100);
   is("it clears a webhook first, or Telegram refuses to hand out messages", calls.some((c) => c.method === "deleteWebhook"), true);
+  is("a reply goes as telegram's formatting", calls.find((c) => c.method === "sendMessage")?.body.parse_mode, "HTML");
+
+  const picky = listen({ name: "test", token: "picky", api, agent: () => agent });
+  inbox.push(privately(2, stranger, "hi"));
+  for (let i = 0; i < 100 && !calls.some((c) => c.token === "picky" && c.method === "sendMessage"); i++) await pause(20);
+  picky.stop();
+  await pause(100);
+  const plain = calls.find((c) => c.token === "picky" && c.method === "sendMessage");
+  is("a reply telegram refuses to format is sent again as plain words", [plain?.body.parse_mode, typeof plain?.body.text], [undefined, "string"]);
   is("with nobody allowed yet, a private message is told its user id", said()[0]?.startsWith("9: Your Telegram user id is 9."), true);
 
   calls.length = 0;
@@ -1464,6 +1496,19 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const chatty = await talk(true);
   is("on, what it said on the way is sent first", [onTheWay, chatty?.text], [["Let me check."], "All fine."]);
   is("and kept in the conversation", recall("test/while").map((m) => m.content).slice(-3), ["how is it?", "Let me check.", "All fine."]);
+}
+
+{
+  about("adding to the end of a note");
+
+  const { writeFiles } = await import("@chloejs/core/services");
+  const { mkdtemp, readFile } = await import("node:fs/promises");
+  const folder = await mkdtemp(`${(await import("node:os")).tmpdir()}/chloe-append-`);
+  await writeFiles(folder, "LESSONS.md", "# Lessons\n\n- one");
+  await writeFiles(folder, "LESSONS.md", "- two\n", { append: true });
+  is("what was there stays, and the new part starts on a line of its own", await readFile(`${folder}/LESSONS.md`, "utf8"), "# Lessons\n\n- one\n- two\n");
+  await writeFiles(folder, "new/list.md", "- first\n", { append: true });
+  is("adding to a file that is not there yet makes it", await readFile(`${folder}/new/list.md`, "utf8"), "- first\n");
 }
 
 {

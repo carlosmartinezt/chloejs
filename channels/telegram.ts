@@ -40,7 +40,7 @@ import type { Attachment } from "#chloe/model/model.ts";
 import { settings } from "#chloe/core/settings.ts";
 import { commands, receive, type Incoming, type Rules } from "./shared.ts";
 
-const MAX_MESSAGE = 4000; // Telegram rejects anything over 4096.
+const MAX_MESSAGE = 3500; // Telegram rejects anything over 4096, and the tags added below count.
 const WAIT = 50; // Seconds Telegram holds a poll open when there is nothing new.
 
 /**
@@ -190,11 +190,21 @@ export function listen(
     return reply.result as T;
   }
 
-  /** Sending is not stopped with the reading: a turn already under way still answers. */
+  /**
+   * Sending is not stopped with the reading: a turn already under way still
+   * answers. Each piece goes as Telegram's HTML, made from the Markdown the
+   * model wrote, and as the words themselves if Telegram refuses that, so a
+   * formatting slip never loses a reply.
+   */
   async function send(chatId: number, text: string, extra: object = {}): Promise<void> {
-    for (let i = 0; i < text.length; i += MAX_MESSAGE) {
-      const last = i + MAX_MESSAGE >= text.length;
-      await call("sendMessage", { chat_id: chatId, text: text.slice(i, i + MAX_MESSAGE), ...(last ? extra : {}) }, 30, null);
+    const pieces = inPieces(text, MAX_MESSAGE);
+    for (const [i, piece] of pieces.entries()) {
+      const rest = i === pieces.length - 1 ? extra : {};
+      try {
+        await call("sendMessage", { chat_id: chatId, text: telegramHtml(piece), parse_mode: "HTML", ...rest }, 30, null);
+      } catch {
+        await call("sendMessage", { chat_id: chatId, text: piece, ...rest }, 30, null);
+      }
     }
   }
 
@@ -432,4 +442,69 @@ export function listen(
       unreach(channel, name);
     },
   };
+}
+
+/**
+ * A long reply cut into pieces Telegram will take, at a line break where there
+ * is one, so a tag is never cut in half.
+ */
+export function inPieces(text: string, max: number): string[] {
+  const pieces: string[] = [];
+  let rest = text;
+  while (rest.length > max) {
+    const cut = rest.lastIndexOf("\n", max);
+    const at = cut > max / 2 ? cut : max;
+    pieces.push(rest.slice(0, at));
+    rest = rest.slice(at).replace(/^\n/, "");
+  }
+  return [...pieces, rest];
+}
+
+const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** **bold**, *italic*, ~~struck~~, `code` and [links](https://...) in one line, everything else escaped. */
+function inline(line: string): string {
+  // Code first, and put aside, so nothing inside it is read as bold or a link.
+  const kept: string[] = [];
+  const keep = (html: string) => `\u0000${kept.push(html) - 1}\u0000`;
+  const marked = line
+    .replace(/`([^`]+)`/g, (_, code: string) => keep(`<code>${escape(code)}</code>`))
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (all, words: string, to: string) =>
+      // Only a web or mail address becomes a link, never javascript: or data:.
+      /^(https?:|mailto:)/i.test(to) ? keep(`<a href="${escape(to).replace(/"/g, "&quot;")}">${escape(words)}</a>`) : all,
+    );
+  return escape(marked)
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*\w])\*(?!\s)([^*]+?)\*(?![*\w])/g, "$1<i>$2</i>")
+    .replace(/~~(.+?)~~/g, "<s>$1</s>")
+    .replace(/\u0000(\d+)\u0000/g, (_, i: string) => kept[Number(i)]);
+}
+
+/**
+ * Markdown as the HTML Telegram takes, which is only bold, italics, struck,
+ * code, code blocks, links and quotes. A heading becomes a bold line and a
+ * list item starts with a bullet. Anything else is escaped and shown as
+ * written, so no reply can be refused for a tag Telegram does not know.
+ */
+export function telegramHtml(markdown: string): string {
+  const out: string[] = [];
+  const lines = markdown.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim().startsWith("```")) {
+      const code: string[] = [];
+      for (i++; i < lines.length && !lines[i].trim().startsWith("```"); i++) code.push(lines[i]);
+      out.push(`<pre>${escape(code.join("\n"))}</pre>`);
+    } else if (line.startsWith(">")) {
+      const quote: string[] = [];
+      for (; i < lines.length && lines[i].startsWith(">"); i++) quote.push(inline(lines[i].replace(/^>\s?/, "")));
+      i--;
+      out.push(`<blockquote>${quote.join("\n")}</blockquote>`);
+    } else if (/^#{1,6}\s/.test(line)) {
+      out.push(`<b>${inline(line.replace(/^#+\s*/, "").replace(/\*\*/g, ""))}</b>`);
+    } else {
+      out.push(inline(line.replace(/^(\s*)[-*]\s/, "$1• ")));
+    }
+  }
+  return out.join("\n");
 }
