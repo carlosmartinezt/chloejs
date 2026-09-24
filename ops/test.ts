@@ -977,6 +977,14 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     is("an agent with no entry has no bot, and is not handed another's", said.some((l) => l.includes("second has a Telegram channel but no bot")), true);
     is("an agent with one uses its own", said.some((l) => l.includes("first has a Telegram channel but no bot")), false);
   }
+  is(
+    "a channel says what it was made with, so a reload can tell an edit from none",
+    [
+      telegramChannel({ allowFrom: [1] }).madeWith === telegramChannel({ allowFrom: [1] }).madeWith,
+      telegramChannel({ allowFrom: [1] }).madeWith === telegramChannel({ allowFrom: [1], sendWhileWorking: true }).madeWith,
+    ],
+    [true, false],
+  );
 
   // A stand-in Telegram: each update is handed out once, a file is always the
   // same four bytes, and everything the bot sends is written down.
@@ -1481,6 +1489,9 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "and today?", private: true }, { chatHistory: { messages: 1 } });
   const shownTo = lastAsked.filter((m) => m.role !== "system").map((m) => m.content);
   is("a channel's chatHistory is what a turn on it is shown", shownTo, ["just now", "and today?"]);
+  const system = lastAsked.find((m) => m.role === "system")?.content ?? "";
+  is("a turn on a channel is told who it is talking to, and to say you", system.includes('You are talking with Me on test, directly. Write to them as "you"'), true);
+  is("and not that its lines on the way are sent, when they are not", system.includes("sent to them straight away"), false);
 
   // What the model writes on its way to an answer is sent as it goes only when
   // the channel asks for it, and always before the answer.
@@ -1489,6 +1500,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const talk = (sendWhileWorking: boolean) =>
     receive(brief, { channel: "test", chat: "w", thread: "test/while", from: { id: "1", name: "Me" }, text: "how is it?", private: true },
       { sendWhileWorking }, { send: async (text) => void onTheWay.push(text) });
+  answers.push({ content: "Let me check.", tool_calls: [look] }, "All fine.");
+  await talk(true);
+  is("with sendWhileWorking on, it is told its lines on the way reach them", lastAsked.find((m) => m.role === "system")?.content.includes("sent to them straight away"), true);
+  onTheWay.length = 0;
   answers.push({ content: "Let me check.", tool_calls: [look] }, "All fine.");
   const quiet = await talk(false);
   is("off, only the answer comes back", [onTheWay, quiet?.text], [[], "All fine."]);

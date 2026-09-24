@@ -254,6 +254,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, send?: (te
       thread: message.thread || undefined,
       history: rules.chatHistory,
       said,
+      talkingTo: message.from.name,
       model: message.model,
       source: message.channel,
       owner: `${message.channel}:${message.from.id}`,

@@ -35,6 +35,11 @@ export interface Ask {
    * written. Never the final answer, which is what turn() returns.
    */
   said?: (text: string) => void;
+  /**
+   * The person on the other end of a channel, by name. The model is told it is
+   * talking to them, so it writes to them as "you" rather than about them.
+   */
+  talkingTo?: string;
   /** Who this run is for, as an address. One column, and the team version reads it. */
   owner?: string;
   /** Answer tools from here instead of running them. For evals. */
@@ -66,7 +71,7 @@ const MAX_STEPS = 40;
  * Runs a prompt: ask a model, run the tools it asked for, put the answers
  * back, ask again, until it stops asking.
  */
-export async function turn({ agent, prompt, attachments, model, thread, source, job, history, said, owner, instead, signal }: Ask): Promise<Result> {
+export async function turn({ agent, prompt, attachments, model, thread, source, job, history, said, talkingTo, owner, instead, signal }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? agent.model;
   const tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
@@ -77,7 +82,7 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
   ).run(runId, agent.name, started, source, job ?? null, using, prompt, owner ?? null);
 
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -276,8 +281,22 @@ function skillTool(skills: Skill[]): Tool {
   };
 }
 
-function systemPrompt(agent: Agent): string {
+/**
+ * The agent's own instructions talk about people in the third person, because
+ * they describe them. This is what stops that carrying over into a
+ * conversation with one of them.
+ */
+function talkingWith({ name, source, asYouGo }: { name: string; source: string; asYouGo: boolean }): string {
+  return (
+    `## Who you are talking to\n\n` +
+    `You are talking with ${name} on ${source}, directly. Write to them as "you", never by name or in the third person.` +
+    (asYouGo ? " What you write before calling a tool is sent to them straight away, so write that to them too." : "")
+  );
+}
+
+function systemPrompt(agent: Agent, person?: { name: string; source: string; asYouGo: boolean } | "" | undefined): string {
   const parts = [agent.instructions];
+  if (person) parts.push(talkingWith(person));
   if (agent.skills.length > 0) {
     parts.push(
       "## Your skills\n\n" +
