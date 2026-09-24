@@ -59,13 +59,15 @@ export function write_in({ root, what, id = "write_notes", commit = false }: Fol
     id,
     description:
       `Write one file in ${what}. This replaces the file, so include everything you want kept: ` +
-      `read it first unless it is new.` +
+      `read it first unless it is new. To add to the end of a file, such as a log or a list that only ` +
+      `grows, set append instead of writing it out again.` +
       (commit ? " Committed as it is written, so `message` is required." : ""),
     inputSchema: z.object({
       path: z.string(),
       content: z.string().min(1),
+      append: z.boolean().optional().describe("Add content to the end of the file instead of replacing it."),
       message: z.string().optional().describe("Commit message saying what changed. Required here."),
     }),
-    execute: ({ path, content, message }) => writeFiles(root, path, content, { commit, message }),
+    execute: ({ path, content, append, message }) => writeFiles(root, path, content, { commit, message, append }),
   });
 }

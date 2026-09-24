@@ -11,7 +11,7 @@
 //
 // What they do enforce is the edge of the folder, through confine().
 import { execFile } from "node:child_process";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { confine } from "#chloe/core/confine.ts";
@@ -65,21 +65,28 @@ export async function searchFiles(root: string, query: string, folder?: string) 
 }
 
 /**
- * Write one file, replacing it. `commit` makes the write a git commit, for a
- * folder that is a repo, and then `message` is required.
+ * Write one file, replacing it, or with `append` adding to the end of it on a
+ * line of its own, so a long file that only grows is never written out whole.
+ * `commit` makes the write a git commit, for a folder that is a repo, and then
+ * `message` is required.
  */
 export async function writeFiles(
   root: string,
   path: string,
   content: string,
-  { commit = false, message }: { commit?: boolean; message?: string } = {},
+  { commit = false, message, append = false }: { commit?: boolean; message?: string; append?: boolean } = {},
 ) {
   if (commit && (message ?? "").length < 10) {
     throw new Error("This folder is a repo, so every write needs a commit message.");
   }
   const resolved = confine(root, path);
   await mkdir(dirname(resolved), { recursive: true });
-  await writeFile(resolved, content, "utf8");
+  if (append) {
+    const before = await readFile(resolved, "utf8").catch(() => "");
+    await appendFile(resolved, before && !before.endsWith("\n") ? `\n${content}` : content, "utf8");
+  } else {
+    await writeFile(resolved, content, "utf8");
+  }
   if (!commit) return { path: resolved, bytes: content.length };
   const committed = await new Promise<string>((done) => {
     execFile("git", ["-C", root, "add", "--", resolved], { timeout: 30_000 }, () =>
