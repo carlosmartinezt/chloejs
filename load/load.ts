@@ -228,6 +228,12 @@ export interface Channel {
   name: string;
   /** How much of a conversation on this channel a turn is shown. */
   chatHistory?: ChatHistory;
+  /**
+   * The options it was made with, written out. A reload restarts a running
+   * channel when this changes, since what `start` was given is fixed for as
+   * long as it runs.
+   */
+  madeWith?: string;
   /** Starts listening. `agent` is read again for every message, so an edit is live. */
   start(agent: () => Agent | undefined): Running;
 }

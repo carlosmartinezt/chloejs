@@ -126,6 +126,7 @@ export function telegramChannel(options: TelegramOptions = {}): Channel {
   return {
     name: options.name ?? "telegram",
     chatHistory: options.chatHistory,
+    madeWith: JSON.stringify(options),
     start(agent) {
       const name = agent()?.name ?? "";
       const token = options.credentials?.botToken || settings.agents[name]?.telegram || "";

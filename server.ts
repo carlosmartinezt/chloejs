@@ -32,10 +32,10 @@ if (cutOff) console.log(`closed ${cutOff} run${cutOff === 1 ? "" : "s"} the last
 const clock = startClock(() => agents);
 
 // Every way in that is not the API: the channels each agent names. A channel
-// keeps running across a reload unless a file in that agent's channels/
-// folder changed, because restarting one drops whatever it was halfway
-// through reading.
-const running = new Map<string, Running>();
+// keeps running across a reload unless the options it was made with changed,
+// wherever they are written, or the settings did, because restarting one drops
+// whatever it was halfway through reading.
+const running = new Map<string, Running & { madeWith?: string }>();
 
 function startChannels(changed: Set<string> = new Set()): void {
   const wanted = new Set<string>();
@@ -43,9 +43,11 @@ function startChannels(changed: Set<string> = new Set()): void {
     for (const one of agent.channels) {
       const key = `${agent.name}/${one.name}`;
       wanted.add(key);
-      if (running.has(key) && !changed.has(agent.name)) continue;
-      running.get(key)?.stop();
-      running.set(key, one.start(() => agents.get(agent.name)));
+      const now = running.get(key);
+      if (now && !changed.has(agent.name) && now.madeWith === one.madeWith) continue;
+      if (now) console.log(`${key}: restarted, ${changed.has(agent.name) ? "the settings" : "its options"} changed`);
+      now?.stop();
+      running.set(key, { ...one.start(() => agents.get(agent.name)), madeWith: one.madeWith });
     }
   }
   for (const [key, one] of running) {
@@ -83,9 +85,6 @@ let settingsChanged = false;
 
 function changed(path: string): void {
   if (SETTINGS.some((file) => path === `${ROOT}/${file}`)) settingsChanged = true;
-  for (const agent of agents.values()) {
-    if (path.startsWith(`${agent.folder}/channels/`)) changedChannels.add(agent.name);
-  }
   clearTimeout(pending);
   pending = setTimeout(reload, 500);
 }

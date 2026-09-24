@@ -107,6 +107,7 @@ export function slackChannel(options: SlackOptions = {}): Channel {
   return {
     name: options.name ?? "slack",
     chatHistory: options.chatHistory,
+    madeWith: JSON.stringify(options),
     start(agent) {
       const name = agent()?.name ?? "";
       const token = options.credentials?.botToken || settings.agents[name]?.slack.bot_token || "";
