@@ -145,10 +145,42 @@ function holds(value: string, held: Account): boolean {
   }
 }
 
-/** The Set-Cookie for a session, or for ending one when the value is empty. */
-export function setCookie(value: string, secure: boolean): string {
+/** The name the login covers along with every site under it, from chloe.config.ts. */
+let domain: string | undefined;
+
+export function shareLogin(name: string | undefined): void {
+  const clean = name?.trim().replace(/^\./, "").toLowerCase();
+  if (clean && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(clean)) throw new Error(`login.domain "${name}" is not a name like example.com.`);
+  domain = clean || undefined;
+}
+
+/**
+ * Whether an address is one this login covers, so it is safe to send somebody
+ * back there after they sign in. Anything else would let a link send them off
+ * to a stranger's page straight from this one.
+ */
+export function covers(address: string): boolean {
+  if (!domain) return false;
+  try {
+    const url = new URL(address);
+    return url.protocol === "https:" && (url.hostname === domain || url.hostname.endsWith(`.${domain}`));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The Set-Cookie headers for a session, or for ending one when the value is
+ * empty. With a domain set, ending one also ends the cookie made before there
+ * was one, which only this site's own name carried.
+ */
+export function setCookie(value: string, secure: boolean): string[] {
   const rest = `Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
-  return value ? `${COOKIE}=${value}; Max-Age=${LASTS}; ${rest}` : `${COOKIE}=; Max-Age=0; ${rest}`;
+  const shared = domain ? `; Domain=${domain}` : "";
+  if (value) return [`${COOKIE}=${value}; Max-Age=${LASTS}; ${rest}${shared}`];
+  const ended = [`${COOKIE}=; Max-Age=0; ${rest}${shared}`];
+  if (domain) ended.push(`${COOKIE}=; Max-Age=0; ${rest}`);
+  return ended;
 }
 
 /**
@@ -160,6 +192,17 @@ export function ownCookie(): string {
   const held = read();
   if (!held) throw new Error(`There is no account yet. Open the page and make one.`);
   return `${COOKIE}=${sign(held)}`;
+}
+
+/**
+ * A fresh session for somebody already signed in. Sending them back to another
+ * site gives them one, because a session made before login.domain was set only
+ * reached this site, and the other one would send them straight back here.
+ */
+export function renew(): string {
+  const held = read();
+  if (!held) throw new Error("There is no account yet.");
+  return sign(held);
 }
 
 /**

@@ -19,7 +19,9 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { deliver, owner as whoOwns } from "#chloe/model/ask.ts";
+import { duringRun } from "#chloe/core/current.ts";
 import { db } from "#chloe/core/db.ts";
+import { afterRun, beforeRun } from "#chloe/services/historyService.ts";
 import { oneLineSummary } from "#chloe/core/markdown.ts";
 import type { Agent, Job } from "#chloe/load/load.ts";
 import { ask as askModel, type Message } from "#chloe/model/model.ts";
@@ -336,26 +338,39 @@ async function drive(ctx: Ctx): Promise<Result> {
     signal: ctx.signal,
   };
 
+  // Whatever the memory holds when the run stops, finished or waiting, is what it did.
+  const committed = (end: { summary?: string | null; error?: string }) =>
+    afterRun(ctx.agent, ctx.runId, { job: ctx.job.id, source: sourceOf(ctx.runId), ...end });
+  await beforeRun(ctx.agent, ctx.runId);
+
   try {
-    const value = await ctx.job.run!(api);
+    const value = await duringRun(ctx.runId, () => ctx.job.run!(api));
     ctx.parked = undefined;
     const reply = typeof value === "string" ? value : JSON.stringify(value ?? { ok: true }, null, 2);
     const summary = summarise(ctx.job, value);
     finish(ctx, reply, summary);
+    await committed({ summary });
     return { runId: ctx.runId, text: reply, summary, reply: chatReply(ctx.job, value) ?? summary ?? undefined, steps: ctx.lines.length, cost: ctx.cost, parked: false };
   } catch (error) {
     if (error instanceof Waiting) {
       save(ctx);
+      await committed({ summary: `waiting on ${ctx.parked?.who ?? "an answer"}` });
       return { runId: ctx.runId, text: error.message, steps: ctx.lines.length, cost: ctx.cost, parked: true };
     }
     ctx.parked = undefined;
     const why = error instanceof Error ? error.message : String(error);
     fail(ctx, why);
+    await committed({ error: why });
     if (error instanceof Unanswered || error instanceof Changed) {
       return { runId: ctx.runId, text: why, steps: ctx.lines.length, cost: ctx.cost, parked: false };
     }
     throw error;
   }
+}
+
+/** The channel a run came in on, as its row says. */
+function sourceOf(runId: string): string {
+  return (db.prepare("select source from runs where id = ?").get(runId) as { source?: string } | undefined)?.source ?? "unknown";
 }
 
 /**

@@ -9,7 +9,7 @@
 // these from a step.
 import { readdir } from "node:fs/promises";
 
-import { agentDir } from "#chloe/core/paths.ts";
+import { agentDir, memoryDir } from "#chloe/core/paths.ts";
 import { settings } from "#chloe/core/settings.ts";
 import { run, type Result } from "./runService.ts";
 
@@ -41,9 +41,14 @@ export async function runScripts(
     throw new Error(`No script called ${JSON.stringify(name)}. You have: ${available.join(", ")}`);
   }
   const dir = `${agentDir(agent)}/scripts`;
-  // A script is someone else's program, so what it needs from settings reaches
-  // it the way a program expects, as an environment variable.
-  const env: Record<string, string> = settings.google.GA_KEY_FILE ? { GA_KEY_FILE: settings.google.GA_KEY_FILE } : {};
+  // A script is someone else's program, so what it needs reaches it the way a
+  // program expects, as an environment variable: its agent's memory folder as
+  // MEMORY_FOLDER, and what it needs from settings.
+  const memory = memoryDir(agent);
+  const env: Record<string, string> = {
+    ...(memory && { MEMORY_FOLDER: memory }),
+    ...(settings.google.GA_KEY_FILE && { GA_KEY_FILE: settings.google.GA_KEY_FILE }),
+  };
   const result = await run(`${dir}/${name}`, args, { timeoutMs, cwd: cwd ?? dir, env });
   return { script: name, args, ...result };
 }

@@ -5,12 +5,17 @@
 // a browser would be live just as fast with nothing type checking it, so code
 // is edited where `npm run check` runs.
 //
+// The agent's memory is never reached from here, even when it is a folder
+// inside this one: a token may read these routes, and every read of a memory
+// is recorded first, by serve/memory.ts and nothing else.
+//
 // The edge of the folder is confine()'s job, inside the calls below: a path
 // from the page is as untrusted as a path from a model.
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { join, sep } from "node:path";
 
 import { confine } from "#chloe/core/confine.ts";
-import { agentDir } from "#chloe/core/paths.ts";
+import { agentDir, memoryDir } from "#chloe/core/paths.ts";
 import { listFiles, readFiles, writeFiles } from "#chloe/services/filesService.ts";
 
 export interface Entry {
@@ -26,6 +31,20 @@ const DEPTH = 6;
 /** Made by a program, not by anybody, so it is not part of what an agent is. */
 const JUNK = ["__pycache__", "node_modules"];
 
+/** Whether a path is the agent's memory or inside it, however either is reached. */
+function inMemory(agent: string, path: string): boolean {
+  const memory = memoryDir(agent);
+  if (!memory || !existsSync(memory)) return false;
+  const real = realpathSync(memory);
+  let resolved = path;
+  try {
+    resolved = realpathSync(path);
+  } catch {
+    // Not there yet, or a broken link: compared as written.
+  }
+  return resolved === real || resolved.startsWith(real + sep);
+}
+
 /** Everything in one agent's folder, folders first, as a tree. */
 export async function tree(agent: string, path = "", depth = 0): Promise<Entry[]> {
   const { entries } = await listFiles(agentDir(agent), path || undefined);
@@ -35,6 +54,7 @@ export async function tree(agent: string, path = "", depth = 0): Promise<Entry[]
     const name = dir ? entry.slice(0, -1) : entry;
     if (JUNK.includes(name)) continue;
     const at = path ? `${path}/${name}` : name;
+    if (inMemory(agent, join(agentDir(agent), at))) continue;
     out.push({
       name,
       path: at,
@@ -51,11 +71,12 @@ export const editable = (path: string): boolean => path.endsWith(".md");
 /**
  * One thing in the folder, whichever kind it is. Every path in the tree is an
  * address, so a folder answers with what is in it rather than with an error.
- * Nothing there is `null`, which the route turns into a 404.
+ * Nothing there is `null`, which the route turns into a 404, and so is the
+ * agent's memory.
  */
 export async function open(agent: string, path: string) {
   const resolved = confine(agentDir(agent), path);
-  if (!existsSync(resolved)) return null;
+  if (!existsSync(resolved) || inMemory(agent, resolved)) return null;
   if (statSync(resolved).isDirectory()) {
     return { path, dir: true as const, entries: await tree(agent, path) };
   }
@@ -65,6 +86,7 @@ export async function open(agent: string, path: string) {
 
 export async function save(agent: string, path: string, content: string) {
   if (!editable(path)) throw new Error(`${path} is not markdown.`);
+  if (inMemory(agent, confine(agentDir(agent), path))) throw new Error(`${path} is in the agent's memory.`);
   const written = await writeFiles(agentDir(agent), path, content);
   return { path, bytes: written.bytes };
 }

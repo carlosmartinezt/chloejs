@@ -1,6 +1,6 @@
 // The agent the runtime's own tests load, so they have one to load in this
 // repo. Not published. A real agent to copy from is the example on chloejs.org.
-import { defineAgent } from "@chloejs/core";
+import { defineAgent, STATE } from "@chloejs/core";
 
 import hello from "./jobs/hello.ts";
 
@@ -9,5 +9,7 @@ export default defineAgent({
   model: "anthropic/claude-haiku-4.5",
   description: "Loaded by the runtime's tests and nothing else.",
   instructions: "Answer in one line.",
+  // In the tests' own folder, which they make and throw away, never in this repo.
+  memory: { folder: `${STATE}/test` },
   jobs: [hello],
 });

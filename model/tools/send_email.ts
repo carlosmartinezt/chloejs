@@ -24,7 +24,7 @@ interface Options extends EmailSender {
  * it was given.
  */
 export function send_email({ when, keep, ...sender }: Options) {
-  return (agent: { memory: { folder: string; commit?: boolean } }): Tools => ({
+  return (agent: { name: string; memory: { folder: string; commit?: boolean | "each run" } }): Tools => ({
     send_email: tool({
       id: "send_email",
       description: `Send an email. ${when}`,
@@ -42,9 +42,12 @@ export function send_email({ when, keep, ...sender }: Options) {
         const slug = subject.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
         const copy = `---\nto: ${sender.to.join(", ")}\nsubject: ${sent.subject}\nsent: ${at}\n---\n\n${body}\n`;
         const { folder, commit } = agent.memory;
+        // With "each run", the end of the run commits the copy with everything else it wrote.
         const kept = await writeFiles(folder, `${keep}/${at.slice(0, 16).replace("T", "-").replace(":", "")}-${slug}.md`, copy, {
-          commit,
+          commit: commit === true,
           message: `Sent: ${sent.subject}`,
+          author: agent.name,
+          in: "memory",
         });
         return { ...sent, copy: kept.path };
       },

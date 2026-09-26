@@ -76,9 +76,29 @@ if (added("runs", "job", "text")) {
   db.exec("update runs set job = source, source = 'schedule' where kind = 'turn' and source not in ('telegram', 'chat', 'api', 'eval', 'studio')");
 }
 db.exec("update runs set source = 'terminal' where source = 'npm run'");
+// The commits the run made, as JSON: [{ "in": "memory" | "folder", "id", "subject" }].
+added("runs", "commits", "text");
 // The tools a reply called, as JSON, so the next turn knows how it was reached.
 added("messages", "used", "text");
 db.exec("create index if not exists runs_parked on runs (parked) where parked is not null");
+
+// When somebody last looked at an agent's changes. One row per agent.
+db.exec("create table if not exists seen (agent text primary key, at text not null)");
+
+/** One commit a run made: in the agent's memory, or in the repo its own folder is in. */
+export interface RunCommit {
+  in: "memory" | "folder";
+  id: string;
+  subject: string;
+}
+
+/** Adds a commit to the run that made it. */
+export function addCommit(runId: string, commit: RunCommit): void {
+  db.prepare("update runs set commits = json_insert(coalesce(commits, '[]'), '$[#]', json(?)) where id = ?").run(
+    JSON.stringify(commit),
+    runId,
+  );
+}
 
 /** Adds the column when it is missing, and says whether it did. */
 function added(table: string, column: string, declaration: string): boolean {

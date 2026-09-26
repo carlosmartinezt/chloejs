@@ -5,12 +5,14 @@ import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
+import { duringRun } from "#chloe/core/current.ts";
 import { db } from "#chloe/core/db.ts";
 import { oneLineSummary } from "#chloe/core/markdown.ts";
 import type { Agent, ChatHistory, Skill } from "#chloe/load/load.ts";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model.ts";
 import { recall, remember } from "#chloe/model/memory.ts";
 import { describe, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool.ts";
+import { afterRun, beforeRun } from "#chloe/services/historyService.ts";
 
 export interface Ask {
   agent: Agent;
@@ -92,33 +94,43 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
   const calls: Result["calls"] = [];
   let cost = 0;
   let steps = 0;
+  // An eval answers every tool itself, so nothing it does is written anywhere.
+  const committed = (end: { summary?: string; error?: string }) =>
+    instead ? Promise.resolve() : afterRun(agent, runId, { job, source, ...end });
+  if (!instead) await beforeRun(agent, runId);
 
   try {
-    const done = await loop({
-      model: using,
-      messages,
-      tools,
-      maxSteps: agent.maxSteps ?? MAX_STEPS,
-      signal,
-      instead,
-      onStep: (line) => {
-        trace.push(line);
-        if (said && line.say?.trim() && line.wants?.length) said(line.say);
-        if (line.tool) calls.push({ tool: line.tool, args: line.args, result: line.result });
-        save(runId, trace.filter((one) => (one as { say?: string }).say !== undefined).length, costOf(trace), trace);
-      },
-    });
+    const done = await duringRun(runId, () =>
+      loop({
+        model: using,
+        messages,
+        tools,
+        maxSteps: agent.maxSteps ?? MAX_STEPS,
+        signal,
+        instead,
+        onStep: (line) => {
+          trace.push(line);
+          if (said && line.say?.trim() && line.wants?.length) said(line.say);
+          if (line.tool) calls.push({ tool: line.tool, args: line.args, result: line.result });
+          save(runId, trace.filter((one) => (one as { say?: string }).say !== undefined).length, costOf(trace), trace);
+        },
+      }),
+    );
     cost = done.cost;
     steps = done.steps;
     if (done.stopped) {
       fail(runId, done.text, steps, cost, trace);
+      await committed({ error: done.text });
       return { runId, text: done.text, steps, cost, calls };
     }
     finish(runId, done.text, steps, cost, trace);
+    await committed({ summary: oneLineSummary(done.text) });
     if (thread) remember(thread, "assistant", done.text, calls);
     return { runId, text: done.text, steps, cost, calls };
   } catch (error) {
-    fail(runId, String(error instanceof Error ? error.message : error), steps, cost, trace);
+    const why = String(error instanceof Error ? error.message : error);
+    fail(runId, why, steps, cost, trace);
+    await committed({ error: why });
     throw error;
   }
 }

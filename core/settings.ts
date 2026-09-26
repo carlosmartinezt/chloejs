@@ -90,6 +90,8 @@ const schema = z.object({
     .default({}),
   /** Everything the agents keep: their folders and the run history. Empty means data/ inside the repo. */
   state: z.string().default(""),
+  /** Where the memories are, one folder per agent. Empty means memory/ inside the state folder. */
+  memory: z.string().default(""),
   /** Which node the unit runs. Empty means whichever is on the path at install. */
   node: z.string().default(""),
 });
@@ -137,7 +139,7 @@ export function readSettings(tracked: unknown, local: unknown): Settings {
  * `settings.local.json`. One value can still be beaten by an environment
  * variable, through `setting()`. The server calls `reloadSettings` when either
  * file changes, so read a value when it is needed rather than keeping a copy.
- * `state` is the exception: where the agents keep things needs a restart.
+ * `state` and `memory` are the exceptions: where things are kept needs a restart.
  */
 export const settings: Settings = readSettings(read("settings.json"), read("settings.local.json"));
 

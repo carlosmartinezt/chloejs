@@ -13,6 +13,7 @@ import { db } from "#chloe/core/db.ts";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load.ts";
 import type { Clock } from "#chloe/core/clock.ts";
 import { forget, recall } from "#chloe/model/memory.ts";
+import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
 import { editable, open, save, tree } from "./files.ts";
 import {
   memoryCommit,
@@ -32,7 +33,7 @@ import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound } from "./errors.ts";
 import { recentWork } from "./recentWork.ts";
 import { describe } from "#chloe/timer/every.ts";
-import { type Caller, caller, createAccount, from, hasAccount, overHttps, setCookie, signIn } from "./login.ts";
+import { type Caller, caller, covers, createAccount, from, hasAccount, overHttps, renew, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "./alerts.ts";
 import { docsPage, type RouteDoc, sitePage } from "./site.ts";
@@ -148,7 +149,7 @@ export const routes: Route[] = [
     },
   },
 
-  // The ways in. These four are the whole of what is answered without a
+  // The ways in. These five are the whole of what is answered without a
   // session, and each says as little as it can.
   {
     method: "GET",
@@ -181,6 +182,30 @@ export const routes: Route[] = [
     handle: ({ request, response }) => {
       response.setHeader("set-cookie", setCookie("", overHttps(request)));
       json(response, { ok: true });
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/check",
+    does: "204 when the account is signed in, 401 when not. For a proxy in front of another site under the same login.",
+    handle: ({ response }) => {
+      response.writeHead(204).end();
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/back",
+    does: "Sends a signed-in browser back to ?to=, an https address under login.domain in chloe.config.ts. Anybody else goes to the sign-in page first.",
+    takes: "?to=https://...",
+    open: true,
+    handle: ({ request, response, url }) => {
+      const to = url.searchParams.get("to") ?? "";
+      if (!covers(to)) return void response.writeHead(302, { location: "/" }).end();
+      if (caller(request)?.kind !== "account") {
+        return void response.writeHead(302, { location: `/login?back=${encodeURIComponent(to)}` }).end();
+      }
+      response.setHeader("set-cookie", setCookie(renew(), overHttps(request)));
+      response.writeHead(302, { location: to }).end();
     },
   },
 
@@ -275,12 +300,12 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/runs/:id",
-    does: "One run in full, with every step it took.",
+    does: "One run in full, with every step it took and the commits it made.",
     token: true,
     handle: ({ response, params }) => {
-      const row = db.prepare("select * from runs where id = ?").get(params.id) as { trace: string } | undefined;
+      const row = db.prepare("select * from runs where id = ?").get(params.id) as { trace: string; commits: string | null } | undefined;
       if (!row) throw new NotFound("No run with that id.");
-      json(response, { ...row, trace: JSON.parse(row.trace) });
+      json(response, { ...row, trace: JSON.parse(row.trace), commits: row.commits ? JSON.parse(row.commits) : [] });
     },
   },
   {
@@ -542,6 +567,53 @@ export const routes: Route[] = [
     does: "Pull, fast-forward only.",
     handle: async ({ request, response, context, params }) =>
       json(response, await memoryPull(context.agent(params.name), from(request))),
+  },
+
+  // What an agent changed: the commits in its memory and in its own folder.
+  // A memory's are recorded like any read of it, so none of these takes a token.
+  {
+    method: "GET",
+    path: "/api/agents/:name/changes",
+    does: "Commits to that agent's memory and own folder, newest first, the ones it made since somebody last looked marked new. Takes ?in=memory|folder, ?path= for one file's history, and ?limit=, at most 200.",
+    handle: async ({ request, response, context, params, url }) =>
+      json(
+        response,
+        await agentChanges(
+          context.agent(params.name),
+          {
+            place: placeOf(url.searchParams.get("in")),
+            path: url.searchParams.get("path") || undefined,
+            limit: Math.min(Number(url.searchParams.get("limit") ?? 50) || 50, 200),
+          },
+          from(request),
+        ),
+      ),
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:name/changes/:id",
+    does: "One commit and its diff, cut to that agent's part of the repository. Takes ?in=memory|folder.",
+    handle: async ({ request, response, context, params, url }) => {
+      const place = placeOf(url.searchParams.get("in"));
+      if (!place) return json(response, { error: "Say which: ?in=memory or ?in=folder." }, 400);
+      json(response, await agentChange(context.agent(params.name), place, params.id, from(request)));
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:name/changes/seen",
+    does: "Everything that agent has changed up to now has been looked at.",
+    handle: ({ response, context, params }) => json(response, agentSeen(context.agent(params.name))),
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:name/changes/:id/undo",
+    does: "Put every file one commit changed back how it was, and commit that. Refused when a file has changed since.",
+    takes: '{"in": "memory"}',
+    handle: async ({ request, response, context, params }) => {
+      const { in: place } = await body(request, z.object({ in: z.enum(["memory", "folder"]) }));
+      json(response, await agentUndo(context.agent(params.name), place, params.id, from(request)));
+    },
   },
 ];
 

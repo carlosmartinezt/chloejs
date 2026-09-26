@@ -140,20 +140,24 @@ async function reload(): Promise<void> {
  * reload halfway through someone writing a file would load a broken one. A
  * reload that throws keeps the agents that were already working, so a typo in
  * one agent does not take the others down.
+ *
+ * An agent's memory is left out even when it is inside the agent's folder:
+ * it changes on every run and is never loaded.
  */
 const watching = new Map<string, FSWatcher>();
 const SKIP = new Set(["node_modules", ".git", "__pycache__"]);
 
-function foldersIn(folder: string): string[] {
+function foldersIn(folder: string, memory: string): string[] {
+  if (folder === memory) return [];
   const found = [folder];
   for (const entry of readdirSync(folder, { withFileTypes: true })) {
-    if (entry.isDirectory() && !SKIP.has(entry.name)) found.push(...foldersIn(`${folder}/${entry.name}`));
+    if (entry.isDirectory() && !SKIP.has(entry.name)) found.push(...foldersIn(`${folder}/${entry.name}`, memory));
   }
   return found;
 }
 
 function watchFolders(): void {
-  const wanted = new Set([ROOT, ...[...agents.values()].flatMap((one) => foldersIn(one.folder))]);
+  const wanted = new Set([ROOT, ...[...agents.values()].flatMap((one) => foldersIn(one.folder, one.memory.folder))]);
   for (const [folder, watcher] of watching) {
     if (!wanted.has(folder)) {
       watcher.close();

@@ -10,11 +10,11 @@
 // skill, which is text you can edit, not code that needs a restart.
 //
 // What they do enforce is the edge of the folder, through confine().
-import { execFile } from "node:child_process";
 import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { confine } from "#chloe/core/confine.ts";
+import { commitPaths, noteCommit, type Place } from "./historyService.ts";
 import { run } from "./runService.ts";
 
 /** List a folder. `path` is relative to `root`, and omitting it means the top. */
@@ -67,14 +67,22 @@ export async function searchFiles(root: string, query: string, folder?: string) 
 /**
  * Write one file, replacing it, or with `append` adding to the end of it on a
  * line of its own, so a long file that only grows is never written out whole.
- * `commit` makes the write a git commit, for a folder that is a repo, and then
- * `message` is required.
+ * `commit` makes the write a git commit of that file alone, for a folder in a
+ * repo, and then `message` is required. `author` is the agent it is written
+ * under, and `in` which of its places this is, so the run writing it lists
+ * the commit. Without an author it is this box's own git name.
  */
 export async function writeFiles(
   root: string,
   path: string,
   content: string,
-  { commit = false, message, append = false }: { commit?: boolean; message?: string; append?: boolean } = {},
+  {
+    commit = false,
+    message,
+    append = false,
+    author,
+    in: place,
+  }: { commit?: boolean; message?: string; append?: boolean; author?: string; in?: Place } = {},
 ) {
   if (commit && (message ?? "").length < 10) {
     throw new Error("This folder is a repo, so every write needs a commit message.");
@@ -88,16 +96,12 @@ export async function writeFiles(
     await writeFile(resolved, content, "utf8");
   }
   if (!commit) return { path: resolved, bytes: content.length };
-  const committed = await new Promise<string>((done) => {
-    execFile("git", ["-C", root, "add", "--", resolved], { timeout: 30_000 }, () =>
-      execFile(
-        "git",
-        ["-C", root, "commit", "-m", message!, "--", resolved],
-        { timeout: 30_000, encoding: "utf8" },
-        (error: unknown, out: string, err: string) =>
-          done(error ? `not committed: ${err || out}` : out.trim()),
-      ),
-    );
-  });
+  const committed = await commitPaths(root, [resolved], { message: message!, author }).then(
+    (id) => {
+      if (place) noteCommit(place, id, message!);
+      return id ? id.slice(0, 12) : "nothing changed, so nothing was committed";
+    },
+    (error: unknown) => `not committed: ${error instanceof Error ? error.message : String(error)}`,
+  );
   return { path: resolved, bytes: content.length, commit: committed };
 }

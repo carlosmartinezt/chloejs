@@ -146,7 +146,8 @@ outside one runs again on every resume, so it must not send, write or spend.
 | Tools | A description, a schema and one call. Typed at both ends. |
 | Human approvals | A run parks for days and carries on when somebody answers. |
 | Channels | Telegram and Slack, one file each. A question goes out where the person is. |
-| Memory | Notes an agent keeps, and skills it can rewrite. |
+| Memory | A folder of notes per agent, in one git repository of their own: one commit per run, under the agent's name. |
+| Self-improvement | An agent can rewrite its skills, jobs and instructions if you let it, never its code. Every change can be undone. |
 | Run history | Every step of every run, with its arguments and its answer. |
 | Cost tracking | Per step, per run, per job. |
 | Structured output | Zod on every model and agent answer, retried once. |

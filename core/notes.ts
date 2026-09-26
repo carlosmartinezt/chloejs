@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 
 import type { z } from "zod";
 
-import { STATE } from "./paths.ts";
+import { memoryDir, memoryFolderOf } from "./paths.ts";
 
 /** One JSON file an agent keeps, read and written against a schema. */
 export interface Note<T> {
@@ -21,11 +21,11 @@ export interface Note<T> {
 }
 
 /**
- * A note by name, in that agent's own state folder. A shape with a `catch`
- * makes a note that is not there read as its default.
+ * A note by name, in that agent's memory. A shape with a `catch` makes a note
+ * that is not there read as its default.
  */
 export function note<T>(agent: string, name: string, shape: z.ZodType<T>): Note<T> {
-  const path = join(STATE, agent, `${name}.json`);
+  const path = join(memoryFolderOf(agent), `${name}.json`);
   return {
     path,
     async read() {

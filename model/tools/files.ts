@@ -53,8 +53,19 @@ export function search_in({ root, what, id = "search_notes" }: Folder) {
   });
 }
 
-/** `commit` makes every write a git commit, for a folder that is a repo. */
-export function write_in({ root, what, id = "write_notes", commit = false }: Folder & { commit?: boolean }) {
+/**
+ * `commit` makes every write a git commit, for a folder that is a repo, under
+ * `author` when there is one. `memory` says this folder is the agent's memory,
+ * so the run writing it lists the commit.
+ */
+export function write_in({
+  root,
+  what,
+  id = "write_notes",
+  commit = false,
+  author,
+  memory = false,
+}: Folder & { commit?: boolean; author?: string; memory?: boolean }) {
   return tool({
     id,
     description:
@@ -68,6 +79,7 @@ export function write_in({ root, what, id = "write_notes", commit = false }: Fol
       append: z.boolean().optional().describe("Add content to the end of the file instead of replacing it."),
       message: z.string().optional().describe("Commit message saying what changed. Required here."),
     }),
-    execute: ({ path, content, append, message }) => writeFiles(root, path, content, { commit, message, append }),
+    execute: ({ path, content, append, message }) =>
+      writeFiles(root, path, content, { commit, message, append, author, in: memory ? "memory" : undefined }),
   });
 }

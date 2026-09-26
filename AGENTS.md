@@ -62,18 +62,25 @@ so a setting is read when it is needed, never copied at import.
 in the agent's `agent.ts`, not editing four. `agent.ts` imports every part of
 the agent (instructions, jobs, tools, channels), so it is the one place that
 says what the agent is, and `chloe.config.ts` at the top of the repo lists the
-agents. Nothing is found by looking in a folder, except that every markdown
-file in an agent's `skills/` is read. There is no deploy, so an edit is live in under a second.
+agents. `skills/` is the one folder read by looking, because a skill is loaded
+only when the model asks for it. Everything else is named: a job, a tool and a
+channel exist because `agent.ts` says so. There is no deploy, so an edit is live
+in under a second.
 
 **Generic before specific.** Anything every agent needs is written once and
 bound, never copied per agent. If you find yourself writing the same small file
 into three folders, stop: that is the signal you are about to industrialise
 boilerplate rather than build a system.
 
-**Self-improving, within a boundary.** An agent can rewrite its own skills and
-keep its own notes, so a run can leave the next one better informed. It cannot
-write its own tools or scripts, because code an agent writes is code it then
-runs as itself.
+**Self-improving, within a boundary.** An agent keeps its own notes, so a run
+can leave the next one better informed. `selfImprovement: true` also lets it
+change the plain text in its own folder, `PLAIN_TEXT` in `load/load.ts`: its
+instructions, its skills, the words of its jobs. `files` narrows that and
+`except` keeps a path back. It cannot write code (its tools, services, channels
+and scripts, or anything ending in .ts, .js, .py or .sh), because code an agent
+writes is code it then runs as itself, and it cannot write its own evals or add
+a job. Every change is a commit under its name, so a person can read each one
+and undo it from the site.
 
 **Simple.** Fewer files, fewer references between them, fewer words. The most
 common cause of something being too complicated is a thing written down in two
@@ -141,8 +148,9 @@ Going straight to step 3 or 4 is the most common mistake made here.
 `agents/` holds agents and nothing else: one folder per agent, each with an
 `agent.ts`, and an agent runs only if `chloe.config.ts` lists it. An agent's
 folder is the one its `agent.ts` is in, and could be anywhere. Its `name` is
-what its run history and `data/<name>` are filed under, so it does not change;
-`label` is what the page shows and can. Anything every
+what its run history is filed under, so it does not change; `label` is what
+the page shows and can. Its memory is inside its folder unless it says
+otherwise, so the two move together. Anything every
 agent might want lives in the runtime instead, because there is one floor and not
 two: `services/` is the work itself and `channels/` is how an agent is
 reached. The rest is the runtime plus what a job commonly
@@ -188,10 +196,11 @@ providers, and a setting picks one: `email.provider` in `emailService.ts`.
 An agent's own folder is the same shape one level down: `agents/<name>/services/` is
 what that agent does without asking, the address it sends from and the mail
 search it is bound to, and `agents/<name>/tools/` is the wrappers. Nothing in
-an agent's folder is found by looking, except `skills/`: a job, a tool or a
-channel exists because `agent.ts` imports it. A job file in `jobs/` that its
-agent does not name fails `npm run test`, because it would look like a job and
-never run.
+an agent's folder is found by looking except `skills/`: a job, a tool or a
+channel exists because `agent.ts` names it, a markdown job as
+`markdownJob("jobs/<id>.md")`. A job file in `jobs/` that its agent does not
+name fails `npm run test`, because it would look like a job and never run, and
+`write_own_file` refuses to make a new one for the same reason.
 
 A job that imports a tool, chloe's or its own agent's, fails `npm run test`:
 it either wanted a `services/` folder or it is paying a model to read a path it
@@ -313,11 +322,14 @@ live though only `agent.ts` imports it. A change to the runtime itself, tools an
 
 **A markdown job takes four keys and no others**: `cron`, `description`, `timezone`,
 `model`, all optional. Without `cron` a job runs only when somebody starts it,
-and a `cron` that does not read stops the agent loading. It is named in
-`agent.ts` as `markdownJob("jobs/<id>.md")`, and its file name is its id. Nothing refuses a fifth one right now, which is worth knowing: the
-old system accepted a key it did not recognise by silently refusing to rebuild,
-so the file looked saved, the service looked healthy, and the change never
-happened. Teach `load/load.ts` to read a key before you write one.
+and a `cron` that does not read stops the agent loading. `markdownJob("jobs/<id>.md")`
+in `agent.ts` names one, and its file name is its id. The loader does not refuse a fifth key,
+which is worth knowing: the old system accepted a key it did not recognise by
+silently refusing to rebuild, so the file looked saved, the service looked
+healthy, and the change never happened. `write_own_file` does refuse one, with
+`markdownJobProblem()`, and it refuses a cron line that runs more than once an
+hour unless a person wrote that line. Teach `load/load.ts` to read a key
+before you write one.
 
 **The runtime is a package: import it as `"@chloejs/core"`, never by path.**
 Inside this repo, `test-agent/` imports it by name too, which works because a
@@ -424,11 +436,38 @@ go first in the head of every HTML file served from a memory, which is how the
 page gives notes its components and its document style.
 
 **Every agent has a memory**: the folder it reads and writes between runs.
-`memory` in its definition, and unsaid it is the agent's own folder under the
-state directory, which is where the memory tool has always written. It is worked
-out once, by `memoryFolder()` in `load/load.ts`, and everything else reads that:
-the memory tool, the site, and a job's `work.memory`. It was briefly a runtime
-setting called notes, and that was wrong: whose folder it is, is the point.
+`memory` in its definition, and unsaid it is its own folder inside `MEMORIES`,
+which is `memory/` inside the state folder and the `memory` setting when
+somebody wants it elsewhere. The agents' folders stay source, and nothing an
+agent writes is ever inside one. It is worked out once, by `memoryFolder()` in
+`load/load.ts`, and
+everything else reads that: the memory tool, the site, a job's `work.memory`,
+and a script's `MEMORY_FOLDER`. It was briefly a runtime setting called notes,
+and that was wrong: whose folder it is, is the point.
+
+**The memories are one git repository, committed once a run ends.**
+`commit: "each run"`, the default, makes `MEMORIES` a repository as the first
+agent loads, and tells the repository around it to leave it alone in that
+repository's own `.git/info/exclude`. One repository, a folder per agent, so
+one history covers every agent. That is why nothing here ever commits a whole
+repository: every commit, and everything listed and shown, is scoped to the
+agent's own folder, because the folder beside it is another agent's memory.
+`memoryRepo()` is the rule for which repository a memory's history is in, and a
+memory deeper inside a repository has none, on purpose. Whatever a run changed is
+committed when it finishes, fails or stops to wait, under the agent's name
+with an empty email, ending `Run: <id>`, and the run's row lists the commit.
+Whatever changed before a run started was somebody else, so it is committed
+first under this box's own git name. `commit: true` is the other shape: every
+write is its own commit, for a folder shared with a person. The git work is
+`services/historyService.ts`, and the site reads the history, one change and
+undo through `/api/agents/<name>/changes`.
+
+**An agent's memory is never reached through its own folder's routes.**
+`/api/agents/<name>/files` and `/file` take a token and record nothing, so
+`serve/files.ts` leaves the memory out of the tree and answers 404 for anything
+in it, which matters when somebody keeps a memory inside the agent's folder
+after all. The watcher leaves it out too: it changes on every run and is never
+loaded.
 
 **`serve/memory.ts` writes down every file it serves, before serving it.**
 A read that could not be recorded is refused. That log is the only way to answer
@@ -436,8 +475,9 @@ afterwards what was taken through the port, and reading the same file from a
 shell is deliberately not recorded: a shell is already the whole of the box.
 Do not make that log best effort, and do not let the memory routes take a token.
 Listing is recorded too: the names in a folder of personal writing say plenty
-on their own. The log lives in `data/memory-audit/<agent>.jsonl`, outside the
-memory it records, because for most agents the memory IS their state folder.
+on their own, and so is a memory's history, which shows what it held. The log
+lives in `data/memory-audit/<agent>.jsonl`, outside the memory it records, so it
+never shows up in that memory's own tree or goes where it is pushed.
 
 **A memory file is shown in a frame, sandboxed, and that is the whole of the
 viewer's safety.** It is somebody's own HTML and it runs its own script, and it
@@ -508,8 +548,8 @@ stands on. Agent specific code lives in that agent's folder.
 
 **Do not add a per-agent file for something every agent has.** Write it once
 in `model/tools/` and let each agent name it in its `agent.ts`. What any
-agent may want switched on (its notes tools, write_skill, run_script) is a
-`features` flag in its definition instead, and the loader adds the tools.
+agent may want switched on (its notes tools, the own-file tools, run_script) is
+a `features` flag in its definition instead, and the loader adds the tools.
 
 **A channel says its own name, and nothing else may say it for it.** Every
 `Channel` has a `name`, `channels` in a definition is a list, and the loader

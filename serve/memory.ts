@@ -3,8 +3,8 @@
 // Not to be confused with model/memory.ts, which is the last few messages of a
 // conversation. This is a folder: the one an agent reads and writes between
 // runs. Every agent has one, and unless its definition says otherwise it is
-// that agent's own folder under the state directory. An agent that shares a
-// folder with a person, like one that keeps somebody's notes, says where.
+// memory/ inside that agent's own folder. An agent that shares a folder with a
+// person, like one that keeps somebody's notes, says where.
 //
 // Every file served is written down first, and that is the point rather than a
 // detail. Reading these files from a shell is not recorded, because a shell on
@@ -15,13 +15,14 @@
 // refused instead.
 import { execFile } from "node:child_process";
 import { appendFile, mkdir, readFile, rename as move, rm, stat } from "node:fs/promises";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { dirname, extname } from "node:path";
 import { promisify } from "node:util";
 
 import { confine, unreachable } from "#chloe/core/confine.ts";
 import type { Agent } from "#chloe/load/load.ts";
 import { listFiles, readFiles, writeFiles } from "#chloe/services/filesService.ts";
+import { commitPaths, memoryRepo } from "#chloe/services/historyService.ts";
 import { STATE } from "#chloe/core/paths.ts";
 import { BadRequest } from "./errors.ts";
 import { noteHead } from "./page.ts";
@@ -50,9 +51,9 @@ export function memoryLabel(agent: Agent): string {
 }
 
 /**
- * Beside the state folder rather than inside the memory it records. For most
- * agents the memory IS their state folder, and a log inside the folder it logs
- * would show up in its own tree and change it every time it was read.
+ * In the state folder rather than inside the memory it records: a log inside
+ * the folder it logs would show up in its own tree, change it every time it
+ * was read, and go wherever the memory is pushed.
  */
 function logFor(agent: Agent): string {
   return `${STATE}/memory-audit/${agent.name}.jsonl`;
@@ -68,7 +69,7 @@ function folder(agent: Agent): string {
  */
 export async function record(
   agent: Agent,
-  what: "read" | "write" | "list" | "serve" | "rename" | "delete" | "commit" | "push" | "pull",
+  what: "read" | "write" | "list" | "serve" | "rename" | "delete" | "commit" | "push" | "pull" | "history" | "undo",
   path: string,
   from: string,
   extra: Record<string, unknown> = {},
@@ -221,6 +222,16 @@ export async function memorySave(agent: Agent, path: string, content: string, fr
   return { path, bytes: written.bytes };
 }
 
+/**
+ * A memory committed at the end of each run gets what is done to it from the
+ * site committed at once, under this box's own git name, so the next run's
+ * commit does not take it in under the agent's.
+ */
+async function committedNow(agent: Agent, paths: string[], message: string): Promise<void> {
+  if (agent.memory.commit !== "each run" || !(await isRepo(agent))) return;
+  await commitPaths(folder(agent), paths, { message });
+}
+
 /** Moves a file or a folder. Both ends have to be inside, and the new one must not exist. */
 export async function memoryRename(agent: Agent, from: string, to: string, who: string) {
   const here = inside(agent, from, who);
@@ -230,6 +241,7 @@ export async function memoryRename(agent: Agent, from: string, to: string, who: 
   await mkdir(dirname(there), { recursive: true });
   await move(here, there);
   await record(agent, "rename", from, who, { to });
+  await committedNow(agent, [here, there], `memory: ${from} moved to ${to} from the site`);
   return { from, to };
 }
 
@@ -244,6 +256,7 @@ export async function memoryDelete(agent: Agent, path: string, who: string) {
   }
   await rm(here, { recursive: true });
   await record(agent, "delete", path, who);
+  await committedNow(agent, [here], `memory: ${path} deleted from the site`);
   return { deleted: path };
 }
 
@@ -264,11 +277,17 @@ export async function memoryLog(agent: Agent, limit = 200): Promise<unknown[]> {
     });
 }
 
-// Source control, when the memory is a repo. Enough to mirror the panel an
-// editor puts beside its file tree: what changed, commit it, push, pull, and the
-// recent history. Every call is `git` with an argument array and never a shell
-// string, and nothing here takes a path from the browser: a commit is the whole
-// tree, which is the only shape of commit this offers.
+// Source control on the memory. Enough to mirror the panel an editor puts
+// beside its file tree: what changed, commit it, push, pull, and the recent
+// history. Every call is `git` with an argument array and never a shell string,
+// and nothing here takes a path from the browser: a commit is this memory's
+// whole folder, which is the only shape of commit this offers.
+//
+// One repository holds every agent's memory, a folder each, so what is listed
+// and what is committed is scoped to this memory's folder with `-- .` and cwd
+// set to it. Without that, cc's panel would show tempo's changes and one click
+// would commit them under a message written about something else. Push and pull
+// move the whole repository, because a branch is not per folder.
 
 async function inRepo(agent: Agent, ...args: string[]): Promise<string> {
   const { stdout } = await git("git", args, { cwd: folder(agent), maxBuffer: 8 << 20, timeout: 60_000 });
@@ -276,33 +295,23 @@ async function inRepo(agent: Agent, ...args: string[]): Promise<string> {
 }
 
 /**
- * Whether this memory is itself a git repository: its folder is the top of one.
- *
- * Being inside one is not enough, and that difference is the whole of this
- * function. An agent's memory defaults to its folder under the state
- * directory, and that is usually inside the repo the agents are written in.
- * Asked from there, git walks up and answers for that repo: its branch, its
- * changes, and a "commit all" that stages every file in it from wherever it is
- * run. So a memory panel would show somebody's unrelated work in progress as
- * the memory's own changes, one click would commit it under a message written
- * about something else, and push would send it off the box.
+ * Whether this memory has a history to show: its folder is in a repository that
+ * is not the one the agents themselves are written in. That last part is the
+ * whole of this function. Being inside any repository is not enough: a memory
+ * somebody put inside their source would answer for that repository, and the
+ * panel would show their work in progress as the memory's own changes, commit
+ * it under a message written about something else, and push it off the box.
  */
 async function isRepo(agent: Agent): Promise<boolean> {
-  if (!existsSync(folder(agent))) return false;
-  try {
-    const top = (await inRepo(agent, "rev-parse", "--show-toplevel")).trim();
-    return realpathSync(top) === realpathSync(folder(agent));
-  } catch {
-    return false;
-  }
+  return (await memoryRepo(agent)) !== undefined;
 }
 
 export async function memoryGit(agent: Agent) {
   if (!(await isRepo(agent))) return { repo: false as const };
   const [porcelain, branch, history] = await Promise.all([
-    inRepo(agent, "status", "--porcelain=v1"),
+    inRepo(agent, "status", "--porcelain=v1", "--", "."),
     inRepo(agent, "rev-parse", "--abbrev-ref", "HEAD").catch(() => "HEAD\n"),
-    inRepo(agent, "log", "-20", "--date=short", "--format=%h%x00%ad%x00%an%x00%s").catch(() => ""),
+    inRepo(agent, "log", "-20", "--date=short", "--format=%h%x00%ad%x00%an%x00%s", "--", ".").catch(() => ""),
   ]);
   const changes = porcelain
     .split("\n")
@@ -337,10 +346,10 @@ export async function memoryCommit(agent: Agent, message: string, who: string) {
   const text = message.trim();
   if (!text) throw new BadRequest("Write a commit message first.");
   if (!(await isRepo(agent))) throw new BadRequest("This memory is not a git repository.");
-  await inRepo(agent, "add", "-A");
-  const staged = (await inRepo(agent, "diff", "--cached", "--name-only")).trim();
+  await inRepo(agent, "add", "-A", "--", ".");
+  const staged = (await inRepo(agent, "diff", "--cached", "--name-only", "--", ".")).trim();
   if (!staged) throw new BadRequest("Nothing to commit.");
-  await inRepo(agent, "commit", "-m", text);
+  await inRepo(agent, "commit", "-m", text, "--", ".");
   const sha = (await inRepo(agent, "rev-parse", "--short", "HEAD")).trim();
   await record(agent, "commit", "/", who, { commit: sha, message: text });
   return { commit: sha, files: staged.split("\n").length };

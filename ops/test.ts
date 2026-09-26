@@ -12,9 +12,10 @@
 // case against a real subscription, slowly, and score differently from the
 // next box.
 process.env.AGENTS_DB = ":memory:";
-// A folder of its own, so a case that writes state (an account, a note) cannot
-// land in the real one. Set before any import, like the database above.
+// Folders of their own, so a case that writes state (an account) or a note
+// cannot land in the real ones. Set before any import, like the database above.
 process.env.AGENTS_STATE = (await import("node:fs")).mkdtempSync(`${(await import("node:os")).tmpdir()}/chloe-test-`);
+process.env.AGENTS_MEMORY = `${process.env.AGENTS_STATE}/memory`;
 process.env.OWNER = "test:somebody";
 process.env.AI_GATEWAY_API_KEY = "test";
 process.env.MODEL_VIA = "gateway";
@@ -822,7 +823,7 @@ about("a model step that never fits");
 {
   about("a note two jobs want at the same moment");
 
-  const { STATE, note } = await import("@chloejs/core");
+  const { MEMORIES, note } = await import("@chloejs/core");
   const shape = z.object({ sites: z.record(z.string(), z.string()) }).catch({ sites: {} });
   const kept = note("test-note", "sites", shape);
 
@@ -845,9 +846,9 @@ about("a model step that never fits");
   const counts = (await Promise.all(reads)).map((one) => Object.keys(one.sites).length);
   is("nobody reads a half written note", counts.filter((n) => n !== 1 && n !== 20_000), []);
   is("and the note itself is whole afterwards", Object.keys((await kept.read()).sites).length, 20_000);
-  const left = (await readdir(join(STATE, "test-note"))).filter((f) => f.endsWith(".part"));
+  const left = (await readdir(join(MEMORIES, "test-note"))).filter((f) => f.endsWith(".part"));
   is("the temporary file is renamed, not left behind", left, []);
-  await rm(join(STATE, "test-note"), { recursive: true, force: true });
+  await rm(join(MEMORIES, "test-note"), { recursive: true, force: true });
 }
 
 {
@@ -1527,15 +1528,251 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 }
 
 {
-  about("an agent writing its own skills");
+  about("an agent's history, in git");
 
-  const { writeSkill } = await import("#chloe/model/tools/write_skill.ts");
-  const skill = writeSkill("test");
-  const wrong = (path: string) => !skill.inputSchema.safeParse({ path, content: "x", message: "a change" }).success;
-  is("a skill is a file directly in skills/", wrong("deploys.md"), false);
-  is("a file in a folder is refused, because it would never be read", wrong("deploys/SKILL.md"), true);
-  is("so is one that is not markdown", wrong("deploys.txt"), true);
-  is("and one that climbs out", wrong("../instructions.md"), true);
+  const { execFileSync } = await import("node:child_process");
+  const { chmod, mkdtemp, mkdir: makeDir, readFile: get, writeFile: put } = await import("node:fs/promises");
+  const { realpathSync } = await import("node:fs");
+  const { jobsOf, loadAll, markdownJob } = await import("#chloe/load/load.ts");
+  const { setAgentDirs } = await import("#chloe/core/paths.ts");
+  const { change, makeRepo, markSeen, undo } = await import("#chloe/services/historyService.ts");
+  const { whyNot, writeOwn } = await import("#chloe/services/ownFilesService.ts");
+  const { runScripts } = await import("#chloe/services/scriptsService.ts");
+  const { agentChanges } = await import("#chloe/serve/changes.ts");
+  const { open, tree } = await import("#chloe/serve/files.ts");
+
+  // What this box's git calls a person, for the commits a person makes.
+  const identity = ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"];
+  const before = identity.map((key) => process.env[key]);
+  process.env.GIT_AUTHOR_NAME = process.env.GIT_COMMITTER_NAME = "a person";
+  process.env.GIT_AUTHOR_EMAIL = process.env.GIT_COMMITTER_EMAIL = "person@example.com";
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+  const failed = (error: Error) => error.message;
+
+  // The repo the agents are written in, with somebody's work in progress in it.
+  const repo = realpathSync(await mkdtemp(join(tmpdir(), "chloe-history-")));
+  const folder = join(repo, "agents", "keeper");
+  await makeDir(join(folder, "jobs"), { recursive: true });
+  await makeDir(join(folder, "skills"), { recursive: true });
+  await put(join(folder, "instructions.md"), "Be brief.");
+  await put(join(folder, "PERMISSIONS.md"), "| deploy | no |");
+  await put(join(folder, "skills", "deploys.md"), "---\nname: deploys\ndescription: how\n---\nDo it.");
+  await put(join(folder, "jobs", "build.ts"), "// a job made of code");
+  await put(join(folder, "jobs", "build.md"), "The words of that job.");
+  await put(join(folder, "jobs", "weekly.md"), "---\ncron: 0 8 * * 1\n---\nLook back.");
+  git(repo, "init", "-q", "-b", "main");
+  git(repo, "add", "-A");
+  git(repo, "commit", "-q", "-m", "the agent as a person wrote it");
+  await put(join(repo, "half-done.ts"), "work in progress");
+
+  // The memories start keeping history as the agents load: one repository,
+  // beside the agents rather than inside any of their folders, a folder each.
+  const memories = join(repo, "memory");
+  const memory = join(memories, "keeper");
+  const theirs = join(memories, "other");
+  await makeDir(memory, { recursive: true });
+  await makeDir(theirs, { recursive: true });
+  await put(join(memory, "STATUS.md"), "old news");
+  await makeRepo(memories, "keeper");
+  is("the memories are one repository of their own", git(memory, "rev-parse", "--show-toplevel"), memories);
+  is(
+    "holding what was already there, under the agent's name",
+    git(memories, "log", "--format=%an: %s"),
+    "keeper: What was here when this folder started keeping its history",
+  );
+  is("and the repository around them leaves them alone", git(repo, "status", "--porcelain"), "?? half-done.ts");
+
+  // Somebody changes it by hand, then a run changes it.
+  await put(join(memory, "notes.md"), "written by hand");
+  const status = codeJob(
+    "status",
+    async ({ step, memory: at }) => step("write", () => put(join(at, "STATUS.md"), "new news").then(() => "done")),
+    undefined,
+    () => "wrote the status",
+  );
+  const keeper: Agent = { ...agentFor(status), name: "keeper", folder, memory: { folder: memory, commit: "each run" } };
+  const ran = await work({ agent: keeper, job: status });
+  is(
+    "a change made outside a run is committed before it, under this box's git name",
+    git(memory, "log", "-1", "--skip=1", "--format=%an: %s"),
+    "a person: Changed outside a run",
+  );
+  is(
+    "and what the run changed is committed after it, under the agent's name",
+    git(memory, "log", "-1", "--format=%an <%ae>: %s"),
+    "keeper <>: status: wrote the status",
+  );
+  is("ending with the run it came from", git(memory, "log", "-1", "--format=%b"), `Run: ${ran.runId}`);
+  is(
+    "which lists it",
+    JSON.parse(row(ran.runId).commits).map((one: { in: string; subject: string }) => [one.in, one.subject]),
+    [["memory", "status: wrote the status"]],
+  );
+  const quiet = await work({ agent: keeper, job: codeJob("nothing", async () => "ok") });
+  is("a run that changed nothing makes no commit", row(quiet.runId).commits, null);
+
+  // The folder beside it is another agent's memory, in the same repository.
+  await put(join(theirs, "journal.md"), "nobody has committed this");
+  await work({ agent: keeper, job: status });
+  is(
+    "a run commits its own memory and leaves the one beside it alone",
+    git(memories, "status", "--porcelain", "-uall"),
+    "?? other/journal.md",
+  );
+
+  // What it may change of its own folder.
+  const home = { name: "keeper", folder, memory: { folder: memory } };
+  const rules = { files: ["md", "txt", "json"], except: ["PERMISSIONS.md"] };
+  const may = (path: string) => whyNot(home, rules, path) ?? "yes";
+  is("it may change its instructions", may("instructions.md"), "yes");
+  is("and a skill", may("skills/deploys.md"), "yes");
+  is("but not what is kept back for a person", may("PERMISSIONS.md"), "it is kept back for a person to change");
+  is("nor anything in a folder of code", may("tools/check.md"), "tools/ is code");
+  is("nor a file of code", may("jobs/build.ts"), "it is code");
+  is("nor an ending it was not given", may("notes.html"), "only files ending in .md, .txt, .json can be written");
+  is(
+    "nor its memory, which has tools of its own, when somebody keeps that inside its folder",
+    whyNot({ ...home, memory: { folder: join(folder, "memory") } }, rules, "memory/STATUS.md") ?? "yes",
+    "that is your memory, which you write with write_notes",
+  );
+  is("nor what marks its runs", may("evals/status.json"), "evals/ is how your runs are marked");
+  is("nor a file no loader would read", may("skills/deploys/SKILL.md"), "a file in a folder inside skills/ is never read");
+  is(
+    "nor a skill that is not markdown",
+    may("skills/deploys.txt"),
+    "a skill is one markdown file, and anything else in skills/ is never read",
+  );
+  is("nor anything outside its folder", await Promise.resolve().then(() => may("../other/x.md")).catch(failed), `Path is outside ${folder}: ../other/x.md`);
+
+  const wrote = (path: string, content: string, message = "a change worth making") =>
+    writeOwn(home, rules, path, content, message).then((done) => done.commit ?? "not committed", failed);
+  is(
+    "a job that would not load is refused",
+    await wrote("jobs/weekly.md", "---\ncron: every monday\n---\nLook back."),
+    'jobs/weekly.md would not load as a job: its cron line does not read: A cron line needs five fields, got 2: "every monday".',
+  );
+  is(
+    "so is a setting no job reads",
+    await wrote("jobs/weekly.md", "---\nretries: 3\n---\nLook back."),
+    "jobs/weekly.md would not load as a job: it has retries at the top, and a job only reads cron, description, timezone, model.",
+  );
+  is(
+    "and a job made to run more than once an hour",
+    await wrote("jobs/weekly.md", "---\ncron: */5 * * * *\n---\nLook back."),
+    'A job you write runs at most once an hour: give its cron line one minute, like "0 7 * * *".',
+  );
+  is("and JSON that does not parse", (await wrote("targets.json", "{ nope")).startsWith("targets.json is not valid JSON"), true);
+  is("and a file with nothing in it", await wrote("instructions.md", "  \n"), "instructions.md would be empty. Write what it should say.");
+  const made = await wrote("jobs/weekly.md", "---\ncron: 0 9 * * 1\ntimezone: America/New_York\n---\nLook back at the week.");
+  is("a job that loads is written and committed", /^[0-9a-f]{12}$/.test(made), true);
+  is("under the agent's name, with its message", git(repo, "log", "-1", "--format=%an: %s"), "keeper: a change worth making");
+  is("and nothing of anybody else's went with it", git(repo, "status", "--porcelain"), "?? half-done.ts");
+  is(
+    "writing it does not make it a job, because jobs are named in agent.ts",
+    (await jobsOf("keeper", folder, [])).map((one) => one.id),
+    [],
+  );
+  is(
+    "naming it makes it one, and the words of a job made of code are not a job",
+    (await jobsOf("keeper", folder, [markdownJob("jobs/weekly.md")])).map((one) => [one.id, one.cron]),
+    [["weekly", "0 9 * * 1"]],
+  );
+  is(
+    "and a job that is not there yet is refused, because only a person can name it",
+    await wrote("jobs/monthly.md", "---\ncron: 0 9 1 * *\n---\nLook back further."),
+    "jobs/monthly.md would be a new job, and a job only runs once it is named in agent.ts, which only a person can change. " +
+      "Ask for it, and change a job that is already there meanwhile.",
+  );
+  await put(join(folder, "instructions.md"), "Be brief, and say so.");
+  is(
+    "a file somebody is in the middle of changing is left alone",
+    await wrote("instructions.md", "Be long."),
+    "instructions.md has changes nobody has committed yet, and writing it would put them under your name. " +
+      "Leave it for now, and say that you could not change it and why.",
+  );
+  git(repo, "checkout", "-q", "--", "agents/keeper/instructions.md");
+
+  // A change made during a run belongs to that run.
+  const improve = codeJob("improve", async ({ step }) =>
+    step("rewrite the skill", () =>
+      writeOwn(home, rules, "skills/deploys.md", "---\nname: deploys\ndescription: how\n---\nShip it small.", "the skill says how to ship"),
+    ).then(() => "ok"),
+  );
+  const improved = await work({ agent: keeper, job: improve });
+  is(
+    "a change made during a run is listed on that run",
+    JSON.parse(row(improved.runId).commits).map((one: { in: string; subject: string }) => [one.in, one.subject]),
+    [["folder", "the skill says how to ship"]],
+  );
+  is("and says which run it came from", git(repo, "log", "-1", "--format=%b"), `Run: ${improved.runId}`);
+
+  // The site's view of it.
+  const all = await agentChanges(keeper, {}, "test");
+  is(
+    "both places are listed",
+    all.changes.map((one) => `${one.in} ${one.by}: ${one.subject}`).sort(),
+    [
+      "folder a person: the agent as a person wrote it",
+      "folder keeper: a change worth making",
+      "folder keeper: the skill says how to ship",
+      "memory a person: Changed outside a run",
+      "memory keeper: What was here when this folder started keeping its history",
+      "memory keeper: status: wrote the status",
+    ],
+  );
+  is("what the agent did is new until somebody looks", all.unseen, 4);
+  markSeen("keeper");
+  is("and then it is not", (await agentChanges(keeper, {}, "test")).unseen, 0);
+  const history = (await agentChanges(keeper, { place: "memory", path: "STATUS.md" }, "test")).changes;
+  is(
+    "one file's history is the commits that touched it, newest first",
+    history.map((one) => one.subject),
+    ["status: wrote the status", "What was here when this folder started keeping its history"],
+  );
+  const skill = all.changes.find((one) => one.subject === "the skill says how to ship")!;
+  const shown = await change(keeper, "folder", skill.id);
+  is(
+    "one change comes with its diff, and its paths as the agent's folder sees them",
+    [shown?.files, shown?.diff.includes("+Ship it small.")],
+    [[{ path: "skills/deploys.md", status: "M" }], true],
+  );
+  const undone = await undo(keeper, "folder", skill.id);
+  is("undoing it puts the file back", await get(join(folder, "skills", "deploys.md"), "utf8"), "---\nname: deploys\ndescription: how\n---\nDo it.");
+  is("and commits that under this box's git name", git(repo, "log", "-1", "--format=%an: %s"), 'a person: Undo "the skill says how to ship"');
+  is("saying which files", undone.files, ["skills/deploys.md"]);
+  await work({
+    agent: keeper,
+    job: codeJob("again", async ({ step, memory: at }) => step("write", () => put(join(at, "STATUS.md"), "newer news").then(() => "done"))),
+  });
+  is(
+    "a change to a file that has changed since cannot be undone",
+    await undo(keeper, "memory", history[0].id).then(() => "undone", failed),
+    "STATUS.md has changed since, so undoing this would lose that change. Undo the later change first.",
+  );
+  is(
+    "nor can the first commit",
+    await undo(keeper, "memory", history[1].id).then(() => "undone", failed),
+    "This is the first commit there is, so there is nothing before it to go back to.",
+  );
+
+  // Seen from the site and from its scripts.
+  await makeDir(join(folder, "scripts"), { recursive: true });
+  await put(join(folder, "scripts", "where.sh"), '#!/bin/sh\nprintf %s "$MEMORY_FOLDER"\n');
+  await chmod(join(folder, "scripts", "where.sh"), 0o755);
+  setAgentDirs(new Map([["keeper", folder]]), new Map([["keeper", memory]]));
+  is(
+    "the site's view of an agent's folder leaves its memory out",
+    (await tree("keeper")).map((one) => one.name),
+    ["jobs", "scripts", "skills", "instructions.md", "PERMISSIONS.md"],
+  );
+  is("and will not open a file in it", await open("keeper", "memory/STATUS.md"), null);
+  is("a script is told where its agent's memory is", (await runScripts("keeper", "where.sh")).stdout, memory);
+  await loadAll();
+
+  identity.forEach((key, i) => {
+    if (before[i] === undefined) delete process.env[key];
+    else process.env[key] = before[i];
+  });
 }
 
 {
@@ -1620,7 +1857,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("the login in front of the page");
 
-  const { createAccount, hasAccount, setCookie, signIn, signedIn } = await import("#chloe/serve/login.ts");
+  const { covers, createAccount, hasAccount, setCookie, shareLogin, signIn, signedIn } = await import("#chloe/serve/login.ts");
   const carrying = (cookie: string) => ({ headers: { cookie } }) as import("node:http").IncomingMessage;
 
   is("a fresh copy has no account", hasAccount(), false);
@@ -1641,7 +1878,22 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("the right password signs in", signedIn(carrying(`chloe_session=${session}`)), true);
   is("a cookie somebody edited does not", signedIn(carrying(`chloe_session=${session.slice(0, -1)}x`)), false);
   is("no cookie does not", signedIn(carrying("")), false);
-  is("signing out clears it", setCookie("", true).includes("Max-Age=0"), true);
+  is("signing out clears it", setCookie("", true)[0].includes("Max-Age=0"), true);
+  shareLogin(undefined);
+  is("with no domain the cookie is this site's alone", setCookie(session, true)[0].includes("Domain="), false);
+  is("and nowhere else is somewhere to send somebody back to", covers("https://example.com/"), false);
+
+  shareLogin("example.com");
+  is("with one, the cookie covers every site under it", setCookie(session, true)[0].includes("Domain=example.com"), true);
+  is("and signing out ends the old one too", setCookie("", true).length, 2);
+  is("a site under it is somewhere to go back to", covers("https://money.example.com/x?y=1"), true);
+  is("and so is the name itself", covers("https://example.com/"), true);
+  is("but not over plain http", covers("http://money.example.com/"), false);
+  is("nor a name that only ends the same way", covers("https://badexample.com/"), false);
+  is("nor one that only starts the same way", covers("https://example.com.evil.net/"), false);
+  is("nor something that is not an address", covers("/elsewhere"), false);
+  is("a name that is not one is refused", (() => { try { shareLogin("not a name"); return "taken"; } catch { return "refused"; } })(), "refused");
+  shareLogin(undefined);
 
   // The same value said the other way, for a caller that is not a browser.
   const bearing = (authorization: string) => ({ headers: { authorization } }) as import("node:http").IncomingMessage;
@@ -1933,6 +2185,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const { serve } = await import("#chloe/serve/http.ts");
   const { makeToken, forgetTokens } = await import("#chloe/serve/tokens.ts");
   const { memoryFolder } = await import("#chloe/load/load.ts");
+  const { MEMORIES } = await import("#chloe/core/paths.ts");
 
   const folder = `${process.env.AGENTS_STATE}/memory-under-test`;
   await makeDir(`${folder}/01_projects`, { recursive: true });
@@ -1949,9 +2202,8 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await put(`${folder}/secrets/key.txt`, "never shown");
   process.env.CHLOE_PAGE = "builtin";
 
-  // Every agent has a memory. Unsaid, it is the agent's own state folder,
-  // which is where the memory tool has always written.
-  is("unsaid, an agent's memory is its own state folder", memoryFolder("tempo"), `${process.env.AGENTS_STATE}/tempo`);
+  // Every agent has a memory. Unsaid, it is memory/ in the agent's own folder.
+  is("unsaid, an agent's memory is its own folder in memory/", memoryFolder("tempo"), `${MEMORIES}/tempo`);
   is("said, it is wherever the agent says", memoryFolder("chloe", { folder: "/somewhere" }), "/somewhere");
 
   const keeper: Agent = { ...agentFor(codeJob("unused", async () => ({}))), memory: { folder, label: "Private" } };
@@ -2002,6 +2254,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const { secret } = makeToken("for a test");
   is("a token cannot read a memory at all", (await fetch(`${at}/api/agents/test/memory`, { headers: { authorization: `Bearer ${secret}` } })).status, 403);
   is("nor get a pass to one", (await fetch(`${at}/api/agents/test/memory/pass`, { headers: { authorization: `Bearer ${secret}` } })).status, 403);
+  is("nor read what changed in it", (await fetch(`${at}/api/agents/test/changes`, { headers: { authorization: `Bearer ${secret}` } })).status, 403);
 
   // The frame. This is the part the whole viewer's safety rests on.
   const { at: under } = (await (await fetch(`${at}/api/agents/test/memory/pass`, { headers: as })).json()) as { at: string };
