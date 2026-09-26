@@ -1,4 +1,4 @@
-# CLAUDE.md — chloejs
+# AGENTS.md — chloejs
 
 This is a system for running agents, not a framework that runs them for you.
 Every change should leave it more like a system and less like a pile of
