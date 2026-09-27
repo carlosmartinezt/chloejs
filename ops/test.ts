@@ -2586,11 +2586,18 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await writeFile(`${folder}/note.md`, "# Kept\n");
   const keeper: Agent = { ...agentFor(codeJob("relayed", async () => "done")), memory: { folder } };
   process.env.CHLOE_PAGE = "builtin";
+  const cameIn: string[] = [];
   const server = serve({
     host: "127.0.0.1",
     port: 0,
     agents: () => new Map([["test", keeper]]),
-    clock: { fire() {}, running: () => [] } as unknown as import("#chloe/core/clock.ts").Clock,
+    clock: {
+      fire(_a: Agent, _j: Job, _input?: unknown, channel?: string) {
+        cameIn.push(channel ?? "");
+        return Promise.resolve(undefined);
+      },
+      running: () => [],
+    } as unknown as import("#chloe/core/clock.ts").Clock,
     channels: () => [],
   });
   await new Promise<void>((done) => server.once("listening", done));
@@ -2644,7 +2651,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and which switches are on", hello?.remote, { read: true, chat: true, run: true, memory: false, write: false });
   is("nothing else until the cloud answers", cloud.connected(), false);
 
-  last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", installation: { slug: "here", name: "Here" } }) });
+  last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", installation: { name: "here", label: "Here" } }) });
   await tick();
   is("welcome makes it connected", cloud.connected(), true);
   is("and the last runs go up in one message", said("runs").length, 1);
@@ -2695,7 +2702,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   // A change to the settings while connected is a new socket.
   last().socket.onopen?.({});
-  last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", installation: { slug: "here", name: "Here" } }) });
+  last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", installation: { name: "here", label: "Here" } }) });
   await tick();
   const again = opened.length;
   cloud.reload();
@@ -2706,6 +2713,13 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   cloud.reload();
   await tick();
   is("a new key is a new socket", opened.length, again + 1);
+
+  // A run started from a dashboard says so in the log, rather than looking like
+  // another system holding a token.
+  live.cloud.remote.run = true;
+  const started = await answer("13", "POST", "/api/agents/test/job/relayed", { "content-type": "application/json" }, "{}");
+  is("a job can be started through the cloud", started.status, 200);
+  is("and the log says it came from the cloud, not from a token", cameIn.at(-1), "cloud");
 
   cloud.stop();
   delete process.env.CHLOE_CLOUD_URL;

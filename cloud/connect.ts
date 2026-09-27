@@ -64,12 +64,15 @@ export interface Cloud {
   stop(): void;
 }
 
+/** The only two things a cloud may ask for: the API, and a memory file for its frame. */
+const RELAYED = /^\/(api|memory)(\/|$|\?)/;
+
 /** What a request from the cloud has to look like. Anything else is dropped. */
 const Request = z.object({
   type: z.literal("request"),
   id: z.string().min(1),
   method: z.enum(["GET", "POST"]),
-  path: z.string().startsWith("/"),
+  path: z.string().startsWith("/").regex(RELAYED, "only /api and /memory are relayed"),
   headers: z.record(z.string(), z.string()).default({}),
   body: z.string().nullable().default(null),
 });
@@ -82,6 +85,16 @@ const KEPT_BACK = new Set(["set-cookie", "connection", "transfer-encoding", "con
 
 /** How many runs go up when the connection opens, so the dashboard has a history to show while this runtime is offline. */
 const CATCH_UP = 200;
+
+/** A cloud that takes the socket and does not say welcome is not one: the socket is closed and tried again. */
+const WELCOME_WITHIN = 15_000;
+
+/**
+ * The biggest body relayed either way. A memory file with pictures in it is
+ * one message, and base64 makes it a third bigger again, so a file past this
+ * is refused here with a 413 rather than closing the socket at the far end.
+ */
+const LARGEST = 32 * 1024 * 1024;
 
 /**
  * Opens the connection to the cloud named in settings and keeps it open.
@@ -164,7 +177,18 @@ export function startCloud(options: CloudOptions): Cloud {
     }
     socket = one;
     welcomed = false;
-    one.onopen = () => send(one, hello(want.key));
+    one.onopen = () => {
+      send(one, hello(want.key));
+      // Nothing else is sent until the cloud answers, so a cloud that never
+      // does is closed rather than held.
+      const waiting = setTimeout(() => {
+        if (socket === one && !welcomed) {
+          say(`${want.url} took the connection and did not say welcome`);
+          one.close(1002, "no welcome");
+        }
+      }, WELCOME_WITHIN);
+      waiting.unref();
+    };
     one.onmessage = (event) => void receive(one, String(event.data));
     // An error is always followed by a close, which is where it is dealt with.
     one.onerror = () => {};
@@ -203,8 +227,8 @@ export function startCloud(options: CloudOptions): Cloud {
     if (kind === "welcome") {
       welcomed = true;
       wait = backoff.first;
-      const named = (message as { installation?: { name?: string } }).installation?.name;
-      say(`connected to ${using.url} as ${named ?? "an installation"}`);
+      const said = (message as { installation?: { name?: string; label?: string } }).installation;
+      say(`connected to ${using.url} as ${said?.label ?? said?.name ?? "an installation"}`);
       if (settings.cloud.sync.runs) send(one, { type: "runs", runs: recentRuns() });
       return;
     }
@@ -230,7 +254,17 @@ export function startCloud(options: CloudOptions): Cloud {
         if (value) headers[name] = value;
       }
       headers[RELAY] = RELAY_SECRET;
+      // So a run somebody started from the dashboard says so in the log,
+      // rather than looking like another system holding a token.
+      headers["x-chloe-channel"] = "cloud";
       const body = asked.body === null ? undefined : Buffer.from(asked.body, "utf8");
+      if (body && body.length > LARGEST) {
+        return done({
+          status: 413,
+          headers: { "content-type": "application/json; charset=utf-8" },
+          body: Buffer.from(JSON.stringify({ error: "That is too large to send through the cloud." })).toString("base64"),
+        });
+      }
       if (body) headers["content-length"] = String(body.length);
 
       const failed = (why: string) =>
@@ -247,12 +281,16 @@ export function startCloud(options: CloudOptions): Cloud {
           response.on("data", (chunk: Buffer) => chunks.push(chunk));
           response.on("error", (error) => failed(error.message));
           response.on("end", () => {
+            const whole = Buffer.concat(chunks);
+            if (whole.length > LARGEST) {
+              return failed(`that answer is ${Math.round(whole.length / 1e6)}MB, which is too large to send through the cloud`);
+            }
             const back: Record<string, string> = {};
             for (const [name, value] of Object.entries(response.headers)) {
               if (value === undefined || KEPT_BACK.has(name)) continue;
               back[name] = Array.isArray(value) ? value.join(", ") : value;
             }
-            done({ status: response.statusCode ?? 502, headers: back, body: Buffer.concat(chunks).toString("base64") });
+            done({ status: response.statusCode ?? 502, headers: back, body: whole.toString("base64") });
           });
         },
       );
@@ -285,7 +323,12 @@ export function startCloud(options: CloudOptions): Cloud {
         wait = backoff.first;
         return connect();
       }
-      if (socket && welcomed && settings.cloud.sync.agents) send(socket, { type: "agents", agents: agentList() });
+      // The switches go with it, so what the dashboard shows about this
+       // installation follows a settings change without a reconnect. The
+       // runtime enforces them from the live settings either way.
+      if (socket && welcomed && settings.cloud.sync.agents) {
+        send(socket, { type: "agents", agents: agentList(), sync: settings.cloud.sync, remote: settings.cloud.remote });
+      }
     },
     connected: () => Boolean(socket) && welcomed,
     stop() {

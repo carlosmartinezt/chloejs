@@ -133,11 +133,16 @@ export function summary(agent: Agent) {
 }
 
 /**
- * `npm run agent` comes in over the API too, and says so in a header, so the
- * log can tell a person at a terminal from another system. Anything else is "api".
+ * What the log says a run came in on. `npm run agent` and the cloud both come
+ * in over the API and say so in a header, so the log can tell a person at a
+ * terminal, and somebody pressing a button on a dashboard, from another system
+ * holding a token. Anything else is "api".
  */
+const CHANNELS = ["terminal", "cloud"];
+
 function channelOf(request: IncomingMessage): string {
-  return request.headers["x-chloe-channel"] === "terminal" ? "terminal" : "api";
+  const said = request.headers["x-chloe-channel"];
+  return typeof said === "string" && CHANNELS.includes(said) ? said : "api";
 }
 
 export const routes: Route[] = [
