@@ -2631,6 +2631,13 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     throw new Error(`no response to ${id}`);
   };
 
+  // Set rather than assumed: this suite runs from whichever repo installed the
+  // runtime, and that repo's settings.json may well name a cloud of its own.
+  live.cloud.url = "";
+  live.cloud.key = "";
+  live.cloud.sync = { runs: true, agents: true };
+  live.cloud.remote = { read: true, chat: true, run: true, memory: false, write: false };
+
   // Nothing named: nothing opened.
   delete process.env.CHLOE_CLOUD_URL;
   delete process.env.CHLOE_API_KEY;
