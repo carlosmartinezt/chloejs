@@ -636,11 +636,11 @@ about("a model step that never fits");
 }
 
 {
-  about("reading a reply from the claude cli");
+  about("reading a reply from a cli");
   // Reaching into the package by path rather than through "@chloejs/core": reading the
   // CLI's replies is the runtime's own business, and this case should move in
   // with it the day chloe becomes its own repo.
-  const { readReply } = await import("#chloe/model/claude.ts");
+  const { readReply } = await import("#chloe/model/cli.ts");
 
   is("plain words are an answer", readReply("The site is up.").call, undefined);
   const tagged = readReply(
@@ -681,6 +681,129 @@ about("a model step that never fits");
     readReply('{"tool": "disk_report"}').call?.function.arguments,
     "{}",
   );
+}
+
+{
+  about("which route a model goes by");
+  const { models, routeFor, via } = await import("#chloe/model/model.ts");
+  const { codexModel, readCodex } = await import("#chloe/model/codex.ts");
+  const { cliModel } = await import("#chloe/model/claude.ts");
+  const { settings } = await import("@chloejs/core");
+  const forced = process.env.MODEL_VIA;
+  const key = process.env.AI_GATEWAY_API_KEY;
+  const before = { ...settings.model };
+  delete process.env.MODEL_VIA;
+  delete process.env.AI_GATEWAY_API_KEY;
+  try {
+    Object.assign(settings.model, { via: "", routes: {}, key: "", models: [] });
+    is("with nothing set, an anthropic model goes by the claude cli", routeFor("anthropic/claude-sonnet-5"), "claude");
+    is("and an openai model by codex", routeFor("openai/gpt-6-luna"), "codex");
+    is("a name with no provider is anthropic's", routeFor("claude-sonnet-5"), "claude");
+    settings.model.key = "k";
+    is("a key sends everything to the gateway", [routeFor("anthropic/claude-sonnet-5"), routeFor("openai/gpt-6-luna")], ["gateway", "gateway"]);
+    settings.model.via = "claude";
+    is("model.via wins for a provider it can carry", routeFor("anthropic/claude-sonnet-5"), "claude");
+    is("and is passed over for one it cannot", routeFor("openai/gpt-6-luna"), "gateway");
+    settings.model.routes = { openai: "codex" };
+    is("a provider's own route wins over both", routeFor("openai/gpt-6-luna"), "codex");
+    process.env.MODEL_VIA = "gateway";
+    is("and the environment wins over everything, for one run", routeFor("openai/gpt-6-luna"), "gateway");
+    is("via() is the route for a provider that says nothing", via(), "gateway");
+    delete process.env.MODEL_VIA;
+
+    is("the codex cli is handed the name alone", codexModel("openai/gpt-6-luna"), "gpt-6-luna");
+    let refused = "";
+    try {
+      codexModel("anthropic/claude-sonnet-5");
+    } catch (error) {
+      refused = (error as Error).message;
+    }
+    is("and refuses another provider's model before running anything", refused.includes("can only run OpenAI models"), true);
+    is("the claude cli writes a dash for a dot", cliModel("anthropic/claude-haiku-4.5"), "claude-haiku-4-5");
+
+    const lines = [
+      '{"type":"thread.started","thread_id":"t"}',
+      '{"type":"turn.started"}',
+      '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Five."}}',
+      '{"type":"turn.completed","usage":{"input_tokens":7572,"cached_input_tokens":1792,"output_tokens":25}}',
+    ].join("\n");
+    is("codex's lines are read for the message and the tokens", readCodex(lines), { text: "Five.", tokensIn: 7572, tokensOut: 25 });
+    let failed = "";
+    try {
+      readCodex('{"type":"turn.started"}\n{"type":"turn.failed","error":{"message":"The model is not supported"}}');
+    } catch (error) {
+      failed = (error as Error).message;
+    }
+    is("and a failed turn is the error, in its words", failed, "Model call refused: codex: The model is not supported");
+
+    // What is on offer is what this box can run: a route with no program is left out.
+    process.env.MODEL_VIA = "";
+    Object.assign(settings.model, { via: "", routes: {}, key: "", models: ["openai/gpt-6-luna", "anthropic/claude-sonnet-5", "openai/gpt-6-luna"] });
+    process.env.CLAUDE_BIN = "/nowhere/claude";
+    process.env.CODEX_BIN = "/nowhere/codex";
+    is("nothing is offered when neither cli is on the path", models(), []);
+    process.env.CODEX_BIN = process.execPath;
+    is("a model is offered once its program is there, and once only", models(), [{ model: "openai/gpt-6-luna", route: "codex" }]);
+    const agent = agentFor(codeJob("nightly", async () => ({})));
+    agent.model = "openai/gpt-5.5";
+    is("an agent's own model is offered after the list", models(agent).map((one) => one.model), ["openai/gpt-6-luna", "openai/gpt-5.5"]);
+    delete process.env.CLAUDE_BIN;
+    delete process.env.CODEX_BIN;
+  } finally {
+    Object.assign(settings.model, before);
+    process.env.MODEL_VIA = forced;
+    process.env.AI_GATEWAY_API_KEY = key;
+  }
+}
+
+{
+  about("a model picked on the fly");
+  const { choices, choose, chosen, modelFor } = await import("#chloe/model/choices.ts");
+  const { commands, receive } = await import("#chloe/channels/shared.ts");
+  const { settings } = await import("@chloejs/core");
+  const job = codeJob("nightly", async () => ({}));
+  const agent = agentFor(job);
+  const named = { ...job, model: "anthropic/claude-sonnet-5" };
+
+  is("without a pick, the file decides", [modelFor(agent), modelFor(agent, job), modelFor(agent, named)], ["anthropic/claude-haiku-4.5", "anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-5"]);
+  choose("test", "agent", "openai/gpt-6-luna");
+  is("a pick for everything beats the agent's own, not a job's own", [modelFor(agent), modelFor(agent, job), modelFor(agent, named)], ["openai/gpt-6-luna", "openai/gpt-6-luna", "anthropic/claude-sonnet-5"]);
+  choose("test", "job:nightly", "openai/gpt-5.5");
+  is("a pick for a job beats everything", modelFor(agent, job), "openai/gpt-5.5");
+  is("every pick is listed, the agent's first", choices("test").map((one) => `${one.scope}=${one.model}`), ["agent=openai/gpt-6-luna", "job:nightly=openai/gpt-5.5"]);
+  choose("test", "agent", "");
+  choose("test", "job:nightly", "");
+  is("an empty model takes a pick back", [chosen("test", "agent"), choices("test")], [undefined, []]);
+
+  is("the menu ends with /models", commands(agent).at(-1), { command: "models", description: "Which model answers here, and the ones to pick from" });
+
+  const listBefore = settings.model.models;
+  settings.model.models = ["openai/gpt-6-luna"];
+  const from = (text: string, thread = "test/api-pick") =>
+    receive(agent, { channel: "api", chat: thread, thread, from: { id: "1", name: "me" }, text, private: true });
+  try {
+    const list = await from("/models");
+    is("/models says what this chat uses and lists the rest", list?.text.split("\n").slice(0, 5), ["This chat: anthropic/claude-haiku-4.5 (the default)", "", "I can run:", "• openai/gpt-6-luna", "• anthropic/claude-haiku-4.5"]);
+    is("with a button for each that sends the pick", list?.buttons?.map((one) => [one.label, one.sends]), [["openai/gpt-6-luna", "/model openai/gpt-6-luna"], ["anthropic/claude-haiku-4.5", "/model anthropic/claude-haiku-4.5"]]);
+    is("/model picks for this chat", (await from("/model openai/gpt-6-luna"))?.text, "This chat now uses openai/gpt-6-luna.");
+    answers.push("hello");
+    await from("hi");
+    const run = db.prepare("select model from runs where source = 'api' order by started desc limit 1").get() as { model: string };
+    is("and the next turn in it goes there", run.model, "openai/gpt-6-luna");
+    is("a chat on another thread does not", (await from("/models", "test/api-other"))?.text.split("\n")[0], "This chat: anthropic/claude-haiku-4.5 (the default)");
+    is("a name that cannot be run is refused", (await from("/model nonsense"))?.text, "I cannot run nonsense. /models lists what I can.");
+    is("for everything picks for the agent", (await from("/model openai/gpt-6-luna for everything"))?.text, "Everything test does now uses openai/gpt-6-luna, apart from a job that names its own.");
+    is("which a job with no model of its own follows", modelFor(agent, job), "openai/gpt-6-luna");
+    is("for a job picks for that job, with _ for -", (await from("/model anthropic/claude-haiku-4.5 for nightly"))?.text, "nightly now uses anthropic/claude-haiku-4.5.");
+    is("and a job it does not have is said", (await from("/model openai/gpt-6-luna for weekly"))?.text, "I have no job called weekly. Mine: nightly.");
+    is("/models then shows every pick that is not a chat's", (await from("/models"))?.text.split("\n").slice(0, 3), ["This chat: openai/gpt-6-luna", "Everything: openai/gpt-6-luna", "nightly: anthropic/claude-haiku-4.5"]);
+    is("default takes one back", (await from("/model default for everything"))?.text, "Everything test does is back on the default, anthropic/claude-haiku-4.5.");
+    is("and says what a job is back on", (await from("/model default for nightly"))?.text, "nightly is back on the default, anthropic/claude-haiku-4.5.");
+    is("a call with no conversation has nowhere to keep a pick", (await from("/model openai/gpt-6-luna", ""))?.text, "This call has no conversation to remember a pick for. Say for everything, or for a job.");
+    choose("test", "chat:test/api-pick", "");
+  } finally {
+    settings.model.models = listBefore;
+  }
 }
 
 {
@@ -1167,7 +1290,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and its own reply is what the chat is sent, whole", said(), [`-100: ${whole}`]);
   const { recall: recalled } = await import("#chloe/model/memory.ts");
   is("and the exchange is kept in that chat's conversation", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["\u201cA line from a book.\u201d \u2014 A Book", whole]);
-  is("the / menu is the agent's jobs", calls.find((c) => c.method === "setMyCommands")?.body.commands, [{ command: "highlights", description: "highlights" }]);
+  is("the / menu is the agent's jobs, then /models", calls.find((c) => c.method === "setMyCommands")?.body.commands, [
+    { command: "highlights", description: "highlights" },
+    { command: "models", description: "Which model answers here, and the ones to pick from" },
+  ]);
 
   // Two messages a second apart are one message, and the answer goes under the
   // first of them. A share that arrives as a quote and then a comment is why.
@@ -1203,6 +1329,35 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   failing.stop();
   await pause(100);
   is("a failed job says what failed, not that it is already running", said(), ["-100: highlights failed. the page would not write"]);
+
+  // /models comes with a button a model, and pressing one picks it for the chat.
+  // The list is the agent's own model alone here, whatever this box's settings offer.
+  calls.length = 0;
+  const { settings: withModels } = await import("@chloejs/core");
+  const offeredBefore = withModels.model.models;
+  withModels.model.models = [];
+  const eighth = listen({ name: "test", token: "t", api, allowFrom: [7], agent: () => agent });
+  inbox.push(privately(60, me, "/models"));
+  await settle(1);
+  const offered = calls.find((c) => c.method === "sendMessage");
+  const rows = offered?.body.reply_markup?.inline_keyboard as { text: string; callback_data: string }[][] | undefined;
+  is("the models are buttons, one a row, each sending the pick", rows, [[{ text: "anthropic/claude-haiku-4.5", callback_data: "s:/model anthropic/claude-haiku-4.5" }]]);
+  inbox.push({
+    update_id: 61,
+    callback_query: {
+      id: "q2",
+      from: me,
+      data: "s:/model anthropic/claude-haiku-4.5",
+      message: { message_id: 70, chat: { id: 7, type: "private" }, text: "the list", reply_markup: offered?.body.reply_markup },
+    },
+  });
+  await settle(2);
+  eighth.stop();
+  withModels.model.models = offeredBefore;
+  await pause(100);
+  is("pressing one picks it", said()[1], "7: This chat now uses anthropic/claude-haiku-4.5.");
+  is("and the buttons are replaced by what was pressed", calls.find((c) => c.method === "editMessageText")?.body.text, "the list\n\n→ anthropic/claude-haiku-4.5");
+  is("the menu offers /models", calls.find((c) => c.method === "setMyCommands")?.body.commands.at(-1)?.command, "models");
 
   telegram.close();
 

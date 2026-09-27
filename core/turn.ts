@@ -10,6 +10,7 @@ import { db } from "#chloe/core/db.ts";
 import { oneLineSummary } from "#chloe/core/markdown.ts";
 import type { Agent, ChatHistory, Skill } from "#chloe/load/load.ts";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model.ts";
+import { modelFor } from "#chloe/model/choices.ts";
 import { recall, remember } from "#chloe/model/memory.ts";
 import { describe, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool.ts";
 import { afterRun, beforeRun } from "#chloe/services/historyService.ts";
@@ -19,7 +20,7 @@ export interface Ask {
   prompt: string;
   /** Photos and PDFs that came with the prompt. Seen this turn only: the thread keeps the words. */
   attachments?: Attachment[];
-  /** When this job wants one the agent does not normally use. */
+  /** When this job wants one the agent does not normally use. Unsaid, what was chosen for the agent, else what it names. */
   model?: string;
   /** Without one, the turn starts fresh. */
   thread?: string;
@@ -75,7 +76,7 @@ const MAX_STEPS = 40;
  */
 export async function turn({ agent, prompt, attachments, model, thread, source, job, history, said, talkingTo, owner, instead, signal }: Ask): Promise<Result> {
   const runId = randomUUID();
-  const using = model ?? agent.model;
+  const using = model ?? modelFor(agent);
   const tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
 
   const started = new Date().toISOString();

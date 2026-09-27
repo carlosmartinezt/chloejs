@@ -24,6 +24,7 @@ import { db } from "#chloe/core/db.ts";
 import { afterRun, beforeRun } from "#chloe/services/historyService.ts";
 import { oneLineSummary } from "#chloe/core/markdown.ts";
 import type { Agent, Job } from "#chloe/load/load.ts";
+import { modelFor } from "#chloe/model/choices.ts";
 import { ask as askModel, type Message } from "#chloe/model/model.ts";
 import { loop, money } from "#chloe/core/turn.ts";
 import type { Approve, Call, Tool, Tools } from "#chloe/model/tool.ts";
@@ -464,7 +465,7 @@ async function once<T>(
 /** One question, one shape, and the run priced for it. */
 function modelStep<S extends z.ZodType>(ctx: Ctx, name: string, options: ModelStep<S>): Promise<z.infer<S>> {
   return once(ctx, name, "model", async (charge) => {
-    const using = options.model ?? ctx.job.model ?? ctx.agent.model;
+    const using = options.model ?? modelFor(ctx.agent, ctx.job);
     const shape = shapeOf(options.output);
 
     // The shape goes in the words rather than in a provider flag, so this
@@ -514,7 +515,7 @@ const AGENT_STEPS = 10;
  */
 function agentStep<S extends z.ZodType>(ctx: Ctx, name: string, options: AgentStep<S>): Promise<unknown> {
   return once<unknown>(ctx, name, "agent", async (charge, calls) => {
-    const using = options.model ?? ctx.job.model ?? ctx.agent.model;
+    const using = options.model ?? modelFor(ctx.agent, ctx.job);
     const tools: Tools = Array.isArray(options.tools)
       ? Object.fromEntries(options.tools.map((one) => [one.id, one]))
       : options.tools;

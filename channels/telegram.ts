@@ -38,7 +38,7 @@ import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask.ts";
 import type { Attachment } from "#chloe/model/model.ts";
 import { settings } from "#chloe/core/settings.ts";
-import { commands, receive, type Incoming, type Rules } from "./shared.ts";
+import { type Button, commands, receive, type Incoming, type Rules } from "./shared.ts";
 
 const MAX_MESSAGE = 3500; // Telegram rejects anything over 4096, and the tags added below count.
 const WAIT = 50; // Seconds Telegram holds a poll open when there is nothing new.
@@ -225,6 +225,16 @@ export function listen(
   // A private chat's id is the person's user id, so the first allowed person is reachable at it.
   if (options.allowFrom?.[0]) ownedBy(name, `${channel}:${options.allowFrom[0]}`);
 
+  /**
+   * A reply's buttons, one a row, each carrying what it sends. Telegram holds
+   * 64 bytes on a button, so one whose text is longer is left out and the
+   * words in the reply still say how to write it.
+   */
+  function keyboard(buttons: Button[] = []): object {
+    const rows = buttons.filter((one) => Buffer.byteLength(`s:${one.sends}`) <= 64).map((one) => [{ text: one.label, callback_data: `s:${one.sends}` }]);
+    return rows.length ? { reply_markup: { inline_keyboard: rows } } : {};
+  }
+
   function wanted(mediaType: string): boolean {
     return allowedTypes.some((one) => (one.endsWith("/*") ? mediaType.startsWith(one.slice(0, -1)) : one === mediaType));
   }
@@ -336,24 +346,30 @@ export function listen(
       working: () => typing(chatId, topic),
       send: (words) => send(chatId, words, extra),
     });
-    if (handled?.text) await send(chatId, handled.text, extra).catch((error) => console.error("telegram:", error.message));
+    if (handled?.text) await send(chatId, handled.text, { ...extra, ...keyboard(handled.buttons) }).catch((error) => console.error("telegram:", error.message));
   }
 
-  /** A pressed button is its text, sent by whoever pressed it, which is how it answers a waiting job. */
+  /**
+   * A pressed button is sent by whoever pressed it as if they had written it:
+   * "a:<n>" sends the button's own text, which is how it answers a waiting
+   * job, and "s:<text>" sends that text, which is how a reply's buttons work.
+   */
   async function onButton(query: NonNullable<Update["callback_query"]>): Promise<void> {
     await call("answerCallbackQuery", { callback_query_id: query.id }).catch(() => {});
     const message = query.message;
     const agent = options.agent();
     if (!message || !agent) return;
-    const index = Number(query.data?.replace(/^a:/, ""));
-    const choice = message.reply_markup?.inline_keyboard?.flat()[index]?.text;
-    if (!choice) return;
+    const data = query.data ?? "";
+    const buttons = message.reply_markup?.inline_keyboard?.flat() ?? [];
+    const sends = data.startsWith("s:") ? data.slice(2) : buttons[Number(data.replace(/^a:/, ""))]?.text;
+    if (!sends) return;
+    const label = buttons.find((one) => one.callback_data === data)?.text ?? sends;
     const topic = message.message_thread_id;
-    const handled = await receive(agent, { ...incoming(message, query.from, choice), addressed: true }, rules);
+    const handled = await receive(agent, { ...incoming(message, query.from, sends), addressed: true }, rules);
     if (!handled) return;
     // Take the buttons away so the question cannot be answered twice, and say what was chosen.
-    await call("editMessageText", { chat_id: message.chat.id, message_id: message.message_id, text: `${message.text ?? ""}\n\n→ ${choice}` }).catch(() => {});
-    if (handled.text) await send(message.chat.id, handled.text, topic ? { message_thread_id: topic } : {}).catch(() => {});
+    await call("editMessageText", { chat_id: message.chat.id, message_id: message.message_id, text: `${message.text ?? ""}\n\n→ ${label}` }).catch(() => {});
+    if (handled.text) await send(message.chat.id, handled.text, { ...(topic ? { message_thread_id: topic } : {}), ...keyboard(handled.buttons) }).catch(() => {});
   }
 
   /**

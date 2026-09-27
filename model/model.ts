@@ -1,33 +1,121 @@
-// Asking a model, two ways.
+// Asking a model, by one of three routes.
 //
-// A model is a string like "anthropic/claude-sonnet-5". By default it goes to
-// the Vercel AI Gateway over HTTP, so changing provider is changing that
-// string, and any gateway that speaks the same shape works by setting
-// AI_GATEWAY_URL.
+// A model is a string like "anthropic/claude-sonnet-5": a provider, then the
+// model's name. The provider decides the route, `routeFor()` below:
 //
-// MODEL_VIA=claude sends it through the Claude Code CLI instead, which is the
-// only way to spend a Claude subscription: a subscription authorises the CLI
-// and is not an API key. See claude.ts. Everything above this file is the same
-// either way, which is the reason ask() is the only seam.
+//   gateway  the Vercel AI Gateway over HTTP, any model, on a key. Any gateway
+//            that speaks the same shape works by setting AI_GATEWAY_URL.
+//   claude   the Claude Code CLI, Anthropic models, on a Claude subscription.
+//   codex    the Codex CLI, OpenAI models, on a ChatGPT plan.
+//
+// A CLI is the only way to spend a subscription: it authorises the program,
+// and there is no key to put in a header. Everything above this file is the
+// same either way, which is the reason ask() is the only seam.
 
+import { accessSync, constants } from "node:fs";
+import { delimiter, join } from "node:path";
+
+import type { Agent } from "#chloe/load/load.ts";
 import { setting, settings } from "#chloe/core/settings.ts";
 
 import { viaClaude } from "./claude.ts";
+import { viaCodex } from "./codex.ts";
+
+/** One way a model call goes. */
+export type Route = "gateway" | "claude" | "codex";
+
+/** The provider in front of a model's name. A name with none is Anthropic's, the way the CLIs write it. */
+export function providerOf(model: string): string {
+  const at = model.indexOf("/");
+  return at < 0 ? "anthropic" : model.slice(0, at);
+}
+
+/** Whether a route can run a provider's models at all. */
+function carries(route: Route, provider: string): boolean {
+  return route === "gateway" || (route === "claude" && provider === "anthropic") || (route === "codex" && provider === "openai");
+}
 
 /**
- * Which way a model call goes. A box with a key uses it; a box with only a
- * subscription falls through to the CLI, so a fresh clone runs either way
- * without being told. MODEL_VIA settles it when both are there.
+ * The route a model goes by. MODEL_VIA in the environment settles it for one
+ * run; then `model.routes` for its provider; then `model.via` when that route
+ * can carry the provider; then what the box has: the gateway with a key, or
+ * the provider's own CLI.
  */
-export function via(): "gateway" | "claude" {
+export function routeFor(model: string): Route {
+  const provider = providerOf(model);
+  const forced = process.env.MODEL_VIA;
+  if (forced) return checked(forced, "MODEL_VIA");
+  const byProvider = settings.model.routes[provider];
+  if (byProvider) return byProvider;
+  const chosen = settings.model.via;
+  if (chosen && carries(chosen, provider)) return chosen;
+  if (gatewayKey()) return "gateway";
+  return provider === "openai" ? "codex" : "claude";
+}
+
+/**
+ * The route for a model whose provider says nothing, as `model.via` and the
+ * environment settle it. What the startup line reports.
+ */
+export function via(): Route {
   const chosen = setting(settings.model.via, "MODEL_VIA");
-  if (chosen === "gateway" || chosen === "claude") return chosen;
-  if (chosen) throw new Error(`model.via is ${JSON.stringify(chosen)}. It is "gateway" or "claude".`);
+  if (chosen) return checked(chosen, "model.via");
   return gatewayKey() ? "gateway" : "claude";
+}
+
+function checked(value: string, where: string): Route {
+  if (value === "gateway" || value === "claude" || value === "codex") return value;
+  throw new Error(`${where} is ${JSON.stringify(value)}. It is "gateway", "claude" or "codex".`);
 }
 
 function gatewayKey(): string {
   return setting(settings.model.key, "AI_GATEWAY_API_KEY");
+}
+
+/** The program a CLI route runs, as the environment may rename it. */
+function programOf(route: Exclude<Route, "gateway">): string {
+  return route === "claude" ? setting("claude", "CLAUDE_BIN") : setting("codex", "CODEX_BIN");
+}
+
+function onPath(program: string): boolean {
+  if (program.includes("/")) return can(program);
+  return (process.env.PATH ?? "").split(delimiter).some((dir) => dir && can(join(dir, program)));
+}
+
+function can(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether this box can send a call down a route: a key for the gateway, the program for a CLI. */
+export function runnable(route: Route): boolean {
+  return route === "gateway" ? Boolean(gatewayKey()) : onPath(programOf(route));
+}
+
+/** One model somebody may pick, and the route it would go by here. */
+export interface Offered {
+  model: string;
+  route: Route;
+}
+
+/**
+ * The models on offer: `model.models` in settings, plus what the agent and its
+ * jobs already name, each with its route, and only those this box can run.
+ * Order is the settings' order, then the agent's.
+ */
+export function models(agent?: Agent): Offered[] {
+  const named = [...settings.model.models, ...(agent ? [agent.model, ...agent.jobs.flatMap((job) => (job.model ? [job.model] : []))] : [])];
+  const out: Offered[] = [];
+  for (const model of named) {
+    if (out.some((one) => one.model === model)) continue;
+    const route = routeFor(model);
+    if (carries(route, providerOf(model)) && runnable(route)) out.push({ model, route });
+  }
+  return out;
 }
 
 /** A file handed to the model with a message: a photo or a PDF. */
@@ -98,11 +186,14 @@ function forGateway({ attachments, ...message }: Message): unknown {
 }
 
 /**
- * Asks a model once and returns what it said, whichever way `model.via` sends
- * it. The only seam between a key and a subscription.
+ * Asks a model once and returns what it said, by whichever route its
+ * provider goes. The only seam between a key and a subscription.
  */
 export function ask(request: Ask): Promise<Answer> {
-  return via() === "claude" ? viaClaude(request) : viaGateway(request);
+  const route = routeFor(request.model);
+  if (route === "claude") return viaClaude(request);
+  if (route === "codex") return viaCodex(request);
+  return viaGateway(request);
 }
 
 async function viaGateway({ model, messages, tools, maxTokens, signal }: Ask): Promise<Answer> {
@@ -110,7 +201,7 @@ async function viaGateway({ model, messages, tools, maxTokens, signal }: Ask): P
   if (!key) {
     throw new Error(
       "No gateway key. Put it in settings.local.json as model.key. " +
-        'To run on a Claude subscription instead, set model.via to "claude".',
+        'To run on a subscription instead, set model.via to "claude" or "codex", or route the provider in model.routes.',
     );
   }
 

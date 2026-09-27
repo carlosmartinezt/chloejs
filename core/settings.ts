@@ -22,8 +22,22 @@ import { ROOT } from "./root.ts";
 const schema = z.object({
   model: z
     .object({
-      /** "gateway" for HTTP, "claude" for the CLI. Empty picks by what the machine has. */
-      via: z.enum(["gateway", "claude", ""]).default(""),
+      /**
+       * The route for a model whose provider has no entry in `routes`:
+       * "gateway" over HTTP on a key, "claude" through the Claude Code CLI on
+       * a subscription, "codex" through the Codex CLI on a ChatGPT plan. Empty
+       * picks by what the machine has. A route that cannot carry a provider
+       * (claude for an OpenAI model) is passed over for one that can.
+       */
+      via: z.enum(["gateway", "claude", "codex", ""]).default(""),
+      /** The route for one provider's models, like `{ "openai": "codex" }`. */
+      routes: z.record(z.string(), z.enum(["gateway", "claude", "codex"])).default({}),
+      /**
+       * The models somebody may pick for a chat, an agent or a job, on top of
+       * the ones the agents already name. Only those this box can run are
+       * offered.
+       */
+      models: z.array(z.string()).default([]),
       /** Any gateway that speaks the OpenAI chat-completions shape. */
       gateway: z.string().default("https://ai-gateway.vercel.sh/v1/chat/completions"),
       /** The gateway's key. Empty means no gateway, so via "" picks the CLI. */

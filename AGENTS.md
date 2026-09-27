@@ -228,9 +228,18 @@ npm run test         # the runtime and the jobs: does it do the thing
 npm run evals <agent>  # the prompts: did the model decide well
 ```
 
-Which model a call goes through is `model.via` in settings: the gateway, or the
-Claude Code CLI on somebody's subscription. `MODEL_VIA=` in front of a command
-changes it for one run.
+Which route a call goes by is decided in `model/model.ts` from the provider in
+front of the model's name: `model.routes` per provider, else `model.via`, else
+what the box has. Three routes: the gateway on a key, the Claude Code CLI on a
+subscription, the Codex CLI on a ChatGPT plan. Each CLI route is one file the
+shape of `model/claude.ts` with the CLI's own tools switched off, and
+`model/cli.ts` is what they share. `MODEL_VIA=` in front of a command forces one
+route for one run.
+
+A model picked on the fly (`/models` in a chat, `POST /api/agents/<name>/model`)
+is a row in `model/choices.ts`, and `modelFor()` there is the one place that
+says which wins: a pick for the job, the job's own, a pick for the agent, the
+agent's own. The three runners read it; nothing else decides a model.
 
 `npm run test` runs jobs for real against an in-memory database and a stand-in
 gateway on a loopback port, so it costs nothing and it either passes or it does

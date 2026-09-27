@@ -12,7 +12,9 @@ import { z } from "zod";
 import { db } from "#chloe/core/db.ts";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load.ts";
 import type { Clock } from "#chloe/core/clock.ts";
+import { choices, choose, modelFor, type Scope } from "#chloe/model/choices.ts";
 import { forget, recall } from "#chloe/model/memory.ts";
+import { models } from "#chloe/model/model.ts";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
 import { editable, open, save, tree } from "./files.ts";
 import {
@@ -93,7 +95,12 @@ function summary(agent: Agent) {
     name: agent.name,
     label: agent.label,
     description: agent.description,
-    model: agent.model,
+    /** What its runs go to now: a choice made on the fly, else what its definition names. */
+    model: modelFor(agent),
+    /** What its definition names. */
+    declaredModel: agent.model,
+    /** Every choice made on the fly: for everything it does, for one job, or for one chat. */
+    chosen: choices(agent.name),
     channels: agent.channels.map((one) => one.name).sort(),
     /** Whether a token may chat to it or run its jobs. */
     api: onTheApi(agent),
@@ -109,7 +116,7 @@ function summary(agent: Agent) {
       when: s.cron ? describe(s.cron, s.timezone) : undefined,
       timezone: s.timezone,
       // A job made of code has no model until one of its steps asks for one.
-      model: s.run ? "code" : s.model ?? agent.model,
+      model: s.run ? "code" : modelFor(agent, s),
       code: Boolean(s.run),
       files: s.files,
     })),
@@ -223,6 +230,16 @@ export const routes: Route[] = [
     does: "One agent's configuration: its model, tools, skills, channels and jobs.",
     token: true,
     handle: ({ response, context, params }) => json(response, summary(context.agent(params.name))),
+  },
+  {
+    method: "GET",
+    path: "/api/models",
+    does: "The models somebody may pick, each with the route it goes by on this box. ?agent= adds what that agent and its jobs name.",
+    token: true,
+    handle: ({ response, context, url }) => {
+      const name = url.searchParams.get("agent");
+      json(response, models(name ? context.agent(name) : undefined));
+    },
   },
   {
     method: "GET",
@@ -373,6 +390,27 @@ export const routes: Route[] = [
         model,
       }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory });
       json(response, handled);
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:name/model",
+    does: 'Pick a model on the fly: for everything the agent does, one job, or one chat. An empty model takes the pick back.',
+    takes: '{"scope": "agent" | "job:<id>" | "chat:<thread>", "model": "..." or ""}',
+    handle: async ({ request, response, context, params }) => {
+      const agent = context.agent(params.name);
+      const { scope, model } = await body(
+        request,
+        z.object({ scope: z.string().regex(/^(agent|job:.+|chat:.+)$/, 'agent, job:<id> or chat:<thread>'), model: z.string().trim() }),
+      );
+      if (scope.startsWith("job:") && !agent.jobs.some((one) => one.id === scope.slice(4))) {
+        throw new BadRequest(`${agent.name} has no job called ${scope.slice(4)}.`);
+      }
+      if (model && !models(agent).some((one) => one.model === model)) {
+        throw new BadRequest(`${model} is not on offer here. GET /api/models lists what is.`);
+      }
+      choose(agent.name, scope as Scope, model);
+      json(response, summary(agent));
     },
   },
   {

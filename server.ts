@@ -9,7 +9,7 @@
 import { readdirSync, watch, type FSWatcher } from "node:fs";
 
 import { ROOT } from "#chloe/core/paths.ts";
-import { reloadSettings, unclaimed } from "#chloe/core/settings.ts";
+import { reloadSettings, settings, unclaimed } from "#chloe/core/settings.ts";
 import { closeCutOff, trim } from "#chloe/core/db.ts";
 import { loadAll, type Agent, type Running } from "#chloe/load/load.ts";
 import { via } from "#chloe/model/model.ts";
@@ -68,7 +68,9 @@ serve({
 });
 
 console.log(`agents: ${[...agents.keys()].join(", ")} on http://${HOST}:${PORT}`);
-console.log(`models: ${via() === "claude" ? "the claude cli, on a subscription" : "the gateway, on a key"}`);
+const byRoute = (route: string) => (route === "gateway" ? "the gateway, on a key" : `the ${route} cli, on a subscription`);
+const routed = Object.entries(settings.model.routes).map(([provider, route]) => `${provider} by ${byRoute(route)}`);
+console.log(`models: ${[byRoute(via()), ...routed].join("; ")}`);
 for (const agent of agents.values()) {
   for (const job of agent.jobs) {
     console.log(

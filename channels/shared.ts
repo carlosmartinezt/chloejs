@@ -14,7 +14,8 @@
 //   3. In a group, a message that is not for the agent is left alone, unless
 //      the channel's inGroups is "always".
 //   4. "/<job id> ..." runs that job. "_" stands for "-", because some
-//      platforms allow no hyphens in a command.
+//      platforms allow no hyphens in a command. "/models" and "/model" are
+//      the agent's own, and pick which model answers.
 //   5. A message one of the agent's jobs `answers` runs that job.
 //   6. Anything else is a turn, shown the chat's recent conversation.
 //
@@ -23,7 +24,9 @@
 // conversation, so the next turn knows it happened.
 import type { Agent, ChatHistory, Job } from "#chloe/load/load.ts";
 import type { Attachment } from "#chloe/model/model.ts";
+import { choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices.ts";
 import { forget, remember } from "#chloe/model/memory.ts";
+import { models } from "#chloe/model/model.ts";
 import { clock, type Fired, ran } from "#chloe/core/clock.ts";
 import { answer, waitingOn, WrongInput } from "#chloe/core/steps.ts";
 import { turn } from "#chloe/core/turn.ts";
@@ -91,6 +94,14 @@ export interface Handled {
   cost: number;
   /** The job that took it, when one did. */
   job?: string;
+  /** Choices to show under the text, on a channel that can. Pressing one sends `sends` as if the person had written it. */
+  buttons?: Button[];
+}
+
+/** One button under a reply. */
+export interface Button {
+  label: string;
+  sends: string;
 }
 
 /**
@@ -120,6 +131,9 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
     return said("Conversation cleared.");
   }
 
+  const picking = modelCommand(text);
+  if (picking) return { ...picked(agent, message, picking), steps: 0, cost: 0 };
+
   const waiting = text ? waitingOn(`${channel}:${message.chat}`, agent.name) : undefined;
   if (waiting) return during(working, () => answered(agent, message, waiting.id, waiting.job));
 
@@ -137,11 +151,79 @@ function clearCommand(text: string): boolean {
   return /^\/clear(?:@\w+)?\s*$/i.test(text);
 }
 
-/** The commands a channel can offer in its own menu: each job, with "_" for "-". */
+/** The commands a channel can offer in its own menu: each job, with "_" for "-", then /models. */
 export function commands(agent: Agent): { command: string; description: string }[] {
-  return agent.jobs
-    .map((job) => ({ command: job.id.replace(/-/g, "_").toLowerCase(), description: (job.description || job.id).slice(0, 256) }))
-    .filter((one) => /^[a-z0-9_]{1,32}$/.test(one.command));
+  return [
+    ...agent.jobs
+      .map((job) => ({ command: job.id.replace(/-/g, "_").toLowerCase(), description: (job.description || job.id).slice(0, 256) }))
+      .filter((one) => /^[a-z0-9_]{1,32}$/.test(one.command)),
+    { command: "models", description: "Which model answers here, and the ones to pick from" },
+  ];
+}
+
+/**
+ * `/models` lists the models and what is chosen. `/model <name>` picks one
+ * for this chat, `/model <name> for everything` for the whole agent, and
+ * `/model <name> for <job>` for one job. `/model default` takes a pick back,
+ * with the same `for`. `/model` alone lists too.
+ */
+function modelCommand(text: string): { pick?: string; target?: string } | undefined {
+  const asked = text.trim().match(/^\/models?(?:@\w+)?(?:\s+(.*))?$/i);
+  if (!asked) return undefined;
+  const words = asked[1]?.trim();
+  if (!words) return {};
+  const split = words.match(/^(\S+)(?:\s+for\s+(.+))?$/i);
+  if (!split) return { pick: words };
+  return { pick: split[1], target: split[2]?.trim() };
+}
+
+/** What a model command comes back with: the list, or the pick made. */
+function picked(agent: Agent, message: Incoming, asked: { pick?: string; target?: string }): { text: string; buttons?: Button[] } {
+  const offered = models(agent);
+  const thread = message.thread;
+  const here = thread ? chosen(agent.name, `chat:${thread}`) : undefined;
+
+  if (!asked.pick) {
+    const made = choices(agent.name).filter((one) => !one.scope.startsWith("chat:"));
+    const lines = [
+      `This chat: ${here ?? modelFor(agent)}${here ? "" : " (the default)"}`,
+      ...made.map((one) => `${one.scope === "agent" ? "Everything" : one.scope.slice(4)}: ${one.model}`),
+      "",
+      offered.length ? "I can run:" : "There is nothing to pick from: model.models in settings is empty, or nothing on it runs on this box.",
+      ...offered.map((one) => `• ${one.model}`),
+      "",
+      "Pick one for this chat, or write /model <name>, /model <name> for everything, /model <name> for <job>, or /model default.",
+    ];
+    return { text: lines.join("\n"), buttons: offered.map((one) => ({ label: one.model, sends: `/model ${one.model}` })) };
+  }
+
+  let scope: Scope;
+  let where: string;
+  if (!asked.target) {
+    if (!thread) return { text: "This call has no conversation to remember a pick for. Say for everything, or for a job." };
+    scope = `chat:${thread}`;
+    where = "This chat";
+  } else if (/^everything$/i.test(asked.target)) {
+    scope = "agent";
+    where = `Everything ${agent.label ?? agent.name} does`;
+  } else {
+    const id = asked.target.toLowerCase();
+    const job = agent.jobs.find((one) => one.id === id || one.id === id.replace(/_/g, "-"));
+    if (!job) return { text: `I have no job called ${asked.target}. Mine: ${agent.jobs.map((one) => one.id).join(", ") || "none"}.` };
+    scope = `job:${job.id}`;
+    where = job.id;
+  }
+
+  if (/^default$/i.test(asked.pick)) {
+    choose(agent.name, scope, "");
+    const now = scope === "agent" ? modelFor(agent) : scope.startsWith("job:") ? modelFor(agent, agent.jobs.find((one) => one.id === scope.slice(4))) : modelFor(agent);
+    return { text: `${where} is back on the default, ${now}.` };
+  }
+  const model = offered.find((one) => one.model.toLowerCase() === asked.pick!.toLowerCase());
+  if (!model) return { text: `I cannot run ${asked.pick}. /models lists what I can.` };
+  choose(agent.name, scope, model.model);
+  const aside = scope === "agent" ? ", apart from a job that names its own" : "";
+  return { text: `${where} now uses ${model.model}${aside}.` };
 }
 
 async function during(working: () => () => void, work: () => Promise<Handled>): Promise<Handled> {
@@ -265,7 +347,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, send?: (te
       history: rules.chatHistory,
       said,
       talkingTo: message.from.name,
-      model: message.model,
+      model: message.model ?? (message.thread ? chosen(agent.name, `chat:${message.thread}`) : undefined),
       source: message.channel,
       owner: `${message.channel}:${message.from.id}`,
     });
