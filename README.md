@@ -21,6 +21,22 @@ npm install @chloejs/core @chloejs/ui
 [Examples](https://chloejs.org/examples) ·
 [Primitives](https://chloejs.org/docs/primitives)
 
+## Somewhere to watch it from
+
+The runtime serves its own page, and `@chloejs/ui` turns that into a dashboard.
+Both are on the box it runs on. To watch it from anywhere without opening a
+port, point it at a Chloe Cloud:
+
+```json
+{ "cloud": { "url": "https://dashboard.chloejs.org", "key": "chl_install_..." } }
+```
+
+It connects out and stays connected, and that dashboard can then show this
+runtime and send it what you ask for. Nothing reaches in: there is no port to
+open, no domain and no certificate. What may be asked for is switch by switch
+in `cloud.remote`, off for memory and for writes until you say otherwise, and
+taking the key out leaves everything running exactly as it was.
+
 ## The least autonomy that does the job
 
 Three ways to do a piece of work. Start at the top, and move down only when you
