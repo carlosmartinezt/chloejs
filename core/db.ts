@@ -80,6 +80,9 @@ db.exec("update runs set source = 'terminal' where source = 'npm run'");
 added("runs", "commits", "text");
 // The tools a reply called, as JSON, so the next turn knows how it was reached.
 added("messages", "used", "text");
+// The messages handed to a model before its first answer. This is separate
+// from prompt because a turn can recall earlier messages too.
+added("runs", "context", "text");
 db.exec("create index if not exists runs_parked on runs (parked) where parked is not null");
 
 // When somebody last looked at an agent's changes. One row per agent.

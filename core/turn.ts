@@ -88,6 +88,9 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
+  // Keep the initial request as the model received it. Attachments stay out of
+  // the record because their bytes are already kept by the channel, not the run.
+  db.prepare("update runs set context = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), runId);
   if (thread) remember(thread, "user", prompt);
 
   const trace: LoopStep[] = [];
@@ -133,6 +136,12 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
     await committed({ error: why });
     throw error;
   }
+}
+
+/** The text and tool calls a model saw before it began, without attachment bytes. */
+function contextMessage(message: Message): Omit<Message, "attachments"> {
+  const { attachments: _, ...kept } = message;
+  return kept;
 }
 
 /** What one turn of the loop did: what the model said, or one tool it ran. */

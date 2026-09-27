@@ -1487,9 +1487,22 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   answers.push("Noted.");
   const { receive } = await import("#chloe/channels/shared.ts");
   const brief = agentFor(codeJob("unused", async () => ({})));
+  const askedBefore = asked;
   await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "and today?", private: true }, { chatHistory: { messages: 1 } });
   const shownTo = lastAsked.filter((m) => m.role !== "system").map((m) => m.content);
   is("a channel's chatHistory is what a turn on it is shown", shownTo, ["just now", "and today?"]);
+  answers.push("Fresh start.");
+  const cleared = await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "/clear", private: true });
+  is("/clear confirms the conversation was cleared", cleared?.text, "Conversation cleared.");
+  is("/clear does not ask the model", asked, askedBefore + 1);
+  is("/clear leaves this chat with no recalled messages", recall("test/old"), []);
+  await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "new topic", private: true });
+  is("the next message starts without the old conversation", lastAsked.filter((m) => m.role !== "system").map((m) => m.content), ["new topic"]);
+  const context = JSON.parse((db.prepare("select context from runs order by started desc limit 1").get() as { context: string }).context);
+  is("the run keeps the messages the model saw", context.map((one: { role: string; content: string }) => [one.role, one.content]), [
+    ["system", (lastAsked.find((one) => one.role === "system")?.content ?? "")],
+    ["user", "new topic"],
+  ]);
   const system = lastAsked.find((m) => m.role === "system")?.content ?? "";
   is("a turn on a channel is told who it is talking to, and to say you", system.includes('You are talking with Me on test, directly. Write to them as "you"'), true);
   is("and not that its lines on the way are sent, when they are not", system.includes("sent to them straight away"), false);

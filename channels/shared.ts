@@ -23,7 +23,7 @@
 // conversation, so the next turn knows it happened.
 import type { Agent, ChatHistory, Job } from "#chloe/load/load.ts";
 import type { Attachment } from "#chloe/model/model.ts";
-import { remember } from "#chloe/model/memory.ts";
+import { forget, remember } from "#chloe/model/memory.ts";
 import { clock, type Fired, ran } from "#chloe/core/clock.ts";
 import { answer, waitingOn, WrongInput } from "#chloe/core/steps.ts";
 import { turn } from "#chloe/core/turn.ts";
@@ -115,6 +115,11 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
     }
   }
 
+  if (clearCommand(text)) {
+    if (message.thread) forget(message.thread);
+    return said("Conversation cleared.");
+  }
+
   const waiting = text ? waitingOn(`${channel}:${message.chat}`, agent.name) : undefined;
   if (waiting) return during(working, () => answered(agent, message, waiting.id, waiting.job));
 
@@ -125,6 +130,11 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
   if (job && clock()) return during(working, () => started(agent, message, job.job, job.text));
 
   return during(working, () => chatted(agent, message, rules, whileWorking.send));
+}
+
+/** `/clear`, with an optional channel mention, starts this chat or topic fresh. */
+function clearCommand(text: string): boolean {
+  return /^\/clear(?:@\w+)?\s*$/i.test(text);
 }
 
 /** The commands a channel can offer in its own menu: each job, with "_" for "-". */
