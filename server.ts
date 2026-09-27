@@ -15,6 +15,7 @@ import { loadAll, type Agent, type Running } from "#chloe/load/load.ts";
 import { via } from "#chloe/model/model.ts";
 import { HOST, PORT, serve } from "#chloe/serve/http.ts";
 import { startClock } from "#chloe/core/clock.ts";
+import { startCloud } from "#chloe/cloud/connect.ts";
 
 let agents: Map<string, Agent> = await loadAll();
 
@@ -67,6 +68,10 @@ serve({
   channels: () => [...running.values()].flatMap((one) => one.routes ?? []),
 });
 
+// The connection to Chloe Cloud, if settings name one. It reads settings itself,
+// so a change to cloud.url or cloud.key is a reload away like everything else.
+const cloud = startCloud({ agents: () => agents });
+
 console.log(`agents: ${[...agents.keys()].join(", ")} on http://${HOST}:${PORT}`);
 const byRoute = (route: string) => (route === "gateway" ? "the gateway, on a key" : `the ${route} cli, on a subscription`);
 const routed = Object.entries(settings.model.routes).map(([provider, route]) => `${provider} by ${byRoute(route)}`);
@@ -116,6 +121,7 @@ async function reload(): Promise<void> {
         watchFolders();
         startChannels(changedChannels);
         changedChannels.clear();
+        cloud.reload();
         console.log(`reloaded: ${[...agents.keys()].join(", ")}`);
       } catch (error) {
         console.error(
@@ -186,6 +192,7 @@ watchFolders();
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     clock.stop();
+    cloud.stop();
     process.exit(0);
   });
 }

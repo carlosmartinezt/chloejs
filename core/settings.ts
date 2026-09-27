@@ -102,6 +102,43 @@ const schema = z.object({
         .strict(),
     )
     .default({}),
+  /**
+   * Chloe Cloud: a dashboard somewhere else that this runtime connects out to
+   * and is shown on. Nothing about how a job runs depends on it, and with no
+   * `url` there is no connection.
+   */
+  cloud: z
+    .object({
+      /** Where the cloud is, like "https://dashboard.chloejs.org". Empty means not connected. CHLOE_CLOUD_URL beats it. */
+      url: z.string().default(""),
+      /** This installation's key, made on the dashboard and shown once. settings.local.json. CHLOE_API_KEY beats it. */
+      key: z.string().default(""),
+      /** What is sent up as it happens, so the dashboard can show it when this runtime is offline. */
+      sync: z
+        .object({
+          /** Each run's row, as GET /api/runs shows it, when it starts and when it ends. */
+          runs: z.boolean().default(true),
+          /** Every agent's configuration, as GET /api/agents shows it, on connect and on each reload. */
+          agents: z.boolean().default(true),
+        })
+        .prefault({}),
+      /** What the dashboard may ask over the connection. Each is a switch, and a request that needs one that is off is refused. */
+      remote: z
+        .object({
+          /** Read: the agents, the runs, the files, the conversations. */
+          read: z.boolean().default(true),
+          /** Talk to an agent. */
+          chat: z.boolean().default(true),
+          /** Run a job now. */
+          run: z.boolean().default(true),
+          /** Read a memory. Every file is still written to the audit log first, saying it came through the cloud. */
+          memory: z.boolean().default(false),
+          /** Write: a file, a memory file, an answer to a parked job, a model pick. */
+          write: z.boolean().default(false),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   /** Everything the agents keep: their folders and the run history. Empty means data/ inside the repo. */
   state: z.string().default(""),
   /** Where the memories are, one folder per agent. Empty means memory/ inside the state folder. */

@@ -88,6 +88,12 @@ db.exec("create index if not exists runs_parked on runs (parked) where parked is
 // When somebody last looked at an agent's changes. One row per agent.
 db.exec("create table if not exists seen (agent text primary key, at text not null)");
 
+/**
+ * The columns a run is listed by: GET /api/runs, an agent's log, and what is
+ * sent to a cloud. The trace, the state and the prompt are left to GET /api/runs/:id.
+ */
+export const RUN_COLUMNS = "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary";
+
 /** One commit a run made: in the agent's memory, or in the repo its own folder is in. */
 export interface RunCommit {
   in: "memory" | "folder";

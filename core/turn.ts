@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { duringRun } from "#chloe/core/current.ts";
 import { db } from "#chloe/core/db.ts";
+import { runChanged } from "#chloe/core/events.ts";
 import { oneLineSummary } from "#chloe/core/markdown.ts";
 import type { Agent, ChatHistory, Skill } from "#chloe/load/load.ts";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model.ts";
@@ -83,6 +84,7 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
   db.prepare(
     "insert into runs (id, agent, started, source, job, model, prompt, kind, owner) values (?, ?, ?, ?, ?, ?, ?, 'turn', ?)",
   ).run(runId, agent.name, started, source, job ?? null, using, prompt, owner ?? null);
+  runChanged(runId);
 
   const messages: Message[] = [
     { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }) },
@@ -340,12 +342,14 @@ function finish(runId: string, reply: string, steps: number, cost: number, trace
   db.prepare("update runs set finished = ?, reply = ?, summary = ?, steps = ?, cost = ?, trace = ? where id = ?").run(
     new Date().toISOString(), reply, oneLineSummary(reply), steps, cost, JSON.stringify(trace), runId,
   );
+  runChanged(runId);
 }
 
 function fail(runId: string, error: string, steps: number, cost: number, trace: unknown[]): void {
   db.prepare("update runs set finished = ?, error = ?, steps = ?, cost = ?, trace = ? where id = ?").run(
     new Date().toISOString(), error, steps, cost, JSON.stringify(trace), runId,
   );
+  runChanged(runId);
 }
 
 /** So one tool answer in the record is not a megabyte of HTML. */

@@ -21,6 +21,7 @@ import { z } from "zod";
 import { deliver, owner as whoOwns } from "#chloe/model/ask.ts";
 import { duringRun } from "#chloe/core/current.ts";
 import { db } from "#chloe/core/db.ts";
+import { runChanged } from "#chloe/core/events.ts";
 import { afterRun, beforeRun } from "#chloe/services/historyService.ts";
 import { oneLineSummary } from "#chloe/core/markdown.ts";
 import type { Agent, Job } from "#chloe/load/load.ts";
@@ -243,6 +244,7 @@ export async function work(options: {
     JSON.stringify(state),
     JSON.stringify(input),
   );
+  runChanged(runId);
 
   return drive({
     runId,
@@ -881,6 +883,7 @@ function finish(ctx: Ctx, reply: string, summary: string | null): void {
   save(ctx);
   db.prepare("update runs set finished = ?, reply = ?, summary = ? where id = ?")
     .run(new Date().toISOString(), reply, summary, ctx.runId);
+  runChanged(ctx.runId);
 }
 
 /**
@@ -909,4 +912,5 @@ function summarise(job: Job, value: unknown): string | null {
 function fail(ctx: Ctx, why: string): void {
   save(ctx);
   db.prepare("update runs set finished = ?, error = ? where id = ?").run(new Date().toISOString(), why, ctx.runId);
+  runChanged(ctx.runId);
 }

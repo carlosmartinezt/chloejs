@@ -157,7 +157,7 @@ reached. The rest is the runtime plus what a job commonly
 needs, in folders by what they do: `model/` is asking a model, and
 `model/tools/` inside it is the only thing a model can be handed,
 `load/` is what an agent and a job
-are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `serve/` is the one port
+are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `cloud/` is the connection out to a dashboard somewhere else, `serve/` is the one port
 and what it answers with, which is `/api` and nothing else (the routes, the
 login, and the folder behind the file tree): it serves no page, and an address
 that is not an API call is a 404, `core/` is the floor (paths, running a command, staying
@@ -434,6 +434,21 @@ does not compile. Do not answer a path anywhere else.
 everything else is the account. A token may read, and may chat to and fire the
 jobs of the agents that bind an api channel. It may never write a file, read
 the notes, or touch the tokens.
+
+**A cloud is something this runtime connects out to, never something that
+reaches in.** `cloud/connect.ts` opens one WebSocket to `cloud.url` in
+settings, says which installation it is with `cloud.key` inside the first
+message, and answers requests the dashboard sends down it by making them
+against the one port with `RELAY_SECRET` from `serve/login.ts`, a secret made
+when the process starts and never written anywhere. That makes the caller kind
+`cloud`, and `api()` in `serve/http.ts` lets it have a route only if the route
+names a `remote` switch and `cloud.remote` in settings has every one it names
+on. A route with no `remote` is never answered through the cloud: signing in,
+setting up, and the tokens. Do not add one without deciding which switch it
+is, and do not let the secret out of the process. `from()` says "via cloud as
+<email>" for such a request, so the memory audit log still says who.
+What goes up is `cloud.sync`: run rows as they are written (`core/events.ts`
+is how the runners say so) and the agent summaries on reload.
 
 **The runtime serves its own site**, plain HTML from `serve/site.ts`, with
 no build step and no dependencies. A build step here is the thing that site

@@ -9,7 +9,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 
 import { z } from "zod";
 
-import { db } from "#chloe/core/db.ts";
+import { db, RUN_COLUMNS } from "#chloe/core/db.ts";
+import { settings } from "#chloe/core/settings.ts";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load.ts";
 import type { Clock } from "#chloe/core/clock.ts";
 import { choices, choose, modelFor, type Scope } from "#chloe/model/choices.ts";
@@ -35,7 +36,7 @@ import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound } from "./errors.ts";
 import { recentWork } from "./recentWork.ts";
 import { describe } from "#chloe/timer/every.ts";
-import { type Caller, caller, covers, createAccount, from, hasAccount, overHttps, renew, setCookie, signIn } from "./login.ts";
+import { type Caller, caller, covers, createAccount, from, hasAccount, overHttps, relayedBy, renew, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "./alerts.ts";
 import { docsPage, type RouteDoc, sitePage } from "./site.ts";
@@ -78,19 +79,27 @@ export interface At {
  *   open             answered without a session or a token.
  *   token            a token may call it. Without this, only the account may.
  *   needsApiChannel  for a token, only when that agent binds an api channel.
+ *   remote           the switch or switches in `cloud.remote` a request sent
+ *                    through the dashboard needs, all on. Without one, the
+ *                    route is never answered through the cloud, whatever the
+ *                    settings say: signing in, setting up, and the tokens.
  */
 export interface Route extends RouteDoc {
   method: "GET" | "POST";
+  remote?: Remote | Remote[];
   handle(at: At): Promise<void> | void;
 }
+
+/** The switches in `cloud.remote` in settings, each a thing the dashboard may ask for. */
+export type Remote = "read" | "chat" | "run" | "memory" | "write";
 
 /** Whether an agent has opted in to being reached by another system. */
 function onTheApi(agent: Agent): boolean {
   return hasChannel(agent, "api");
 }
 
-/** One agent's configuration, the same shape from the list and from its own route. */
-function summary(agent: Agent) {
+/** One agent's configuration, the same shape from the list, from its own route, and as sent to a cloud. */
+export function summary(agent: Agent) {
   return {
     name: agent.name,
     label: agent.label,
@@ -131,28 +140,17 @@ function channelOf(request: IncomingMessage): string {
   return request.headers["x-chloe-channel"] === "terminal" ? "terminal" : "api";
 }
 
-const RUN_COLUMNS = "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary";
-
 export const routes: Route[] = [
   {
     method: "GET",
     path: "/api",
     does: "This list: every route, what it does and who may call it.",
     open: true,
+    remote: "read",
     handle: ({ request, response }) => {
       // A browser gets the page. Anything else gets the same thing as JSON.
       if ((request.headers.accept ?? "").includes("text/html")) return void html(response, docsPage(routes));
-      json(
-        response,
-        routes.map((one) => ({
-          method: one.method,
-          path: one.path,
-          does: one.does,
-          takes: one.takes,
-          who: one.open ? "anybody" : one.token ? "account or token" : "account",
-          needsApiChannel: one.needsApiChannel || undefined,
-        })),
-      );
+      json(response, routeList());
     },
   },
 
@@ -222,6 +220,7 @@ export const routes: Route[] = [
     path: "/api/agents",
     does: "Every agent that is loaded, with its configuration.",
     token: true,
+    remote: "read",
     handle: ({ response, context }) => json(response, [...context.agents().values()].map(summary)),
   },
   {
@@ -229,6 +228,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name",
     does: "One agent's configuration: its model, tools, skills, channels and jobs.",
     token: true,
+    remote: "read",
     handle: ({ response, context, params }) => json(response, summary(context.agent(params.name))),
   },
   {
@@ -236,6 +236,7 @@ export const routes: Route[] = [
     path: "/api/models",
     does: "The models somebody may pick, each with the route it goes by on this box. ?agent= adds what that agent and its jobs name.",
     token: true,
+    remote: "read",
     handle: ({ response, context, url }) => {
       const name = url.searchParams.get("agent");
       json(response, models(name ? context.agent(name) : undefined));
@@ -246,6 +247,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name/log",
     does: "That agent's runs, newest first. Takes ?limit=, at most 200.",
     token: true,
+    remote: "read",
     handle: ({ response, context, params, url }) => {
       context.agent(params.name);
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
@@ -262,6 +264,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name/files",
     does: "That agent's own folder as a tree: its instructions, skills, scripts and jobs.",
     token: true,
+    remote: "read",
     handle: async ({ response, context, params }) => {
       context.agent(params.name);
       json(response, await tree(params.name));
@@ -272,6 +275,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name/file",
     does: "One file in that folder. Takes ?path=, and a folder answers with what is in it.",
     token: true,
+    remote: "read",
     handle: async ({ response, context, params, url }) => {
       context.agent(params.name);
       const path = url.searchParams.get("path");
@@ -286,6 +290,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name/threads",
     does: "That agent's conversations, newest first, however they were started.",
     token: true,
+    remote: "read",
     handle: ({ response, context, params }) => {
       context.agent(params.name);
       json(
@@ -303,6 +308,7 @@ export const routes: Route[] = [
     path: "/api/runs",
     does: "Every agent's runs, newest first. Takes ?agent= and ?limit=.",
     token: true,
+    remote: "read",
     handle: ({ response, url }) => {
       const agent = url.searchParams.get("agent");
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
@@ -319,6 +325,7 @@ export const routes: Route[] = [
     path: "/api/runs/:id",
     does: "One run in full, with every step it took and the commits it made.",
     token: true,
+    remote: "read",
     handle: ({ response, params }) => {
       const row = db.prepare("select * from runs where id = ?").get(params.id) as { trace: string; commits: string | null } | undefined;
       if (!row) throw new NotFound("No run with that id.");
@@ -330,6 +337,7 @@ export const routes: Route[] = [
     path: "/api/threads/:thread",
     does: "What was said in one conversation.",
     token: true,
+    remote: "read",
     handle: ({ response, params }) => json(response, recall(decodeURIComponent(params.thread), { limit: 100 })),
   },
   {
@@ -337,6 +345,7 @@ export const routes: Route[] = [
     path: "/api/parked",
     does: "Every job waiting on an answer. A question nobody answers is a job that never finishes.",
     token: true,
+    remote: "read",
     handle: ({ response }) => json(response, parkedRuns()),
   },
   {
@@ -344,6 +353,7 @@ export const routes: Route[] = [
     path: "/api/recent-work",
     does: "What each agent has done lately, as its own jobs record it.",
     token: true,
+    remote: "read",
     handle: ({ response, context }) =>
       json(response, Object.fromEntries([...context.agents().values()].map((a) => [a.name, recentWork(a)]))),
   },
@@ -352,6 +362,7 @@ export const routes: Route[] = [
     path: "/api/health",
     does: "Which agents are loaded and which jobs are running right now.",
     token: true,
+    remote: "read",
     handle: ({ response, context }) =>
       json(response, { ok: true, agents: [...context.agents().keys()], running: context.clock.running() }),
   },
@@ -364,6 +375,7 @@ export const routes: Route[] = [
     takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional"}',
     token: true,
     needsApiChannel: true,
+    remote: "chat",
     handle: async ({ request, response, context, params, who }) => {
       const agent = context.agent(params.name);
       const { prompt, thread, model } = await body(
@@ -397,6 +409,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name/model",
     does: 'Pick a model on the fly: for everything the agent does, one job, or one chat. An empty model takes the pick back.',
     takes: '{"scope": "agent" | "job:<id>" | "chat:<thread>", "model": "..." or ""}',
+    remote: "write",
     handle: async ({ request, response, context, params }) => {
       const agent = context.agent(params.name);
       const { scope, model } = await body(
@@ -420,6 +433,7 @@ export const routes: Route[] = [
     takes: 'whatever the job declares, as JSON or as a query string: {"text": "..."}',
     token: true,
     needsApiChannel: true,
+    remote: "run",
     handle: async ({ request, response, context, params, url }) => {
       const agent = context.agent(params.name);
       const job = agent.jobs.find((one: Job) => one.id === params.job);
@@ -454,6 +468,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name/file",
     does: "Write a file in that agent's folder back. Markdown only: code is edited where the type checker runs.",
     takes: '{"path": "skills/x.md", "content": "..."}',
+    remote: "write",
     handle: async ({ request, response, context, params }) => {
       context.agent(params.name);
       const { path, content } = await body(request, z.object({ path: z.string(), content: z.string() }));
@@ -468,6 +483,7 @@ export const routes: Route[] = [
     path: "/api/runs/:id/answer",
     does: "Answer a job that stopped to ask something, from here rather than on the channel it asked on.",
     takes: '{"text": "..."}',
+    remote: "write",
     handle: async ({ request, response, context, params }) => {
       const { text } = await body(request, z.object({ text: z.string().trim().min(1) }));
       json(response, await answer(params.id, text, context.agents()));
@@ -477,6 +493,7 @@ export const routes: Route[] = [
     method: "POST",
     path: "/api/threads/:thread/forget",
     does: "Forget one conversation.",
+    remote: "write",
     handle: ({ response, params }) => {
       forget(decodeURIComponent(params.thread));
       json(response, { forgotten: decodeURIComponent(params.thread) });
@@ -512,6 +529,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:name/memory",
     does: "That agent's memory as a tree. Empty when it has never written anything. Recorded like a read.",
+    remote: "memory",
     handle: async ({ request, response, context, params }) =>
       json(response, await memoryTree(context.agent(params.name), from(request))),
   },
@@ -519,6 +537,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:name/memory/file",
     does: "One file as text, for editing. Takes ?path=. Written to the audit log before it is sent.",
+    remote: "memory",
     handle: async ({ request, response, context, params, url }) => {
       const path = url.searchParams.get("path");
       if (!path) return json(response, { error: "No path." }, 400);
@@ -532,6 +551,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name/memory/file",
     does: "Write a file back. A commit too, when the memory is a repo and the agent says to commit.",
     takes: '{"path": "01_projects/x.html", "content": "..."}',
+    remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) => {
       const { path, content } = await body(request, z.object({ path: z.string(), content: z.string() }));
       json(response, await memorySave(context.agent(params.name), path, content, from(request)));
@@ -542,6 +562,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name/memory/rename",
     does: "Move a file or a folder inside that memory.",
     takes: '{"from": "a.html", "to": "b/a.html"}',
+    remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) => {
       const moved = await body(request, z.object({ from: z.string().min(1), to: z.string().min(1) }));
       json(response, await memoryRename(context.agent(params.name), moved.from, moved.to, from(request)));
@@ -552,6 +573,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name/memory/delete",
     does: "Delete a file or a folder. In a repo, git still has it.",
     takes: '{"path": "a.html"}',
+    remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) => {
       const { path } = await body(request, z.object({ path: z.string().min(1) }));
       json(response, await memoryDelete(context.agent(params.name), path, from(request)));
@@ -561,6 +583,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:name/memory/pass",
     does: "A pass to show that memory's files in a frame, for ten minutes. See pass.ts.",
+    remote: "memory",
     handle: ({ response, context, params }) => {
       const pass = makePass(context.agent(params.name).name);
       json(response, { pass, at: `/memory/${encodeURIComponent(pass)}` });
@@ -570,6 +593,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:name/memory/log",
     does: "That agent's audit log: every file read, served, written, moved or deleted, when, and from where.",
+    remote: "memory",
     handle: async ({ response, context, params, url }) =>
       json(
         response,
@@ -580,6 +604,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:name/memory/git",
     does: "Source control for that memory, when it is a repo: what changed, the branch, and the recent history.",
+    remote: "memory",
     handle: async ({ response, context, params }) => json(response, await memoryGit(context.agent(params.name))),
   },
   {
@@ -587,6 +612,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name/memory/git/commit",
     does: "Commit everything that changed in that memory.",
     takes: '{"message": "..."}',
+    remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) => {
       const { message } = await body(request, z.object({ message: z.string() }));
       json(response, await memoryCommit(context.agent(params.name), message, from(request)));
@@ -596,6 +622,7 @@ export const routes: Route[] = [
     method: "POST",
     path: "/api/agents/:name/memory/git/push",
     does: "Push that memory's commits. Says where they went, because this is what sends them off the box.",
+    remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) =>
       json(response, await memoryPush(context.agent(params.name), from(request))),
   },
@@ -603,6 +630,7 @@ export const routes: Route[] = [
     method: "POST",
     path: "/api/agents/:name/memory/git/pull",
     does: "Pull, fast-forward only.",
+    remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) =>
       json(response, await memoryPull(context.agent(params.name), from(request))),
   },
@@ -613,6 +641,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:name/changes",
     does: "Commits to that agent's memory and own folder, newest first, the ones it made since somebody last looked marked new. Takes ?in=memory|folder, ?path= for one file's history, and ?limit=, at most 200.",
+    remote: "memory",
     handle: async ({ request, response, context, params, url }) =>
       json(
         response,
@@ -631,6 +660,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:name/changes/:id",
     does: "One commit and its diff, cut to that agent's part of the repository. Takes ?in=memory|folder.",
+    remote: "memory",
     handle: async ({ request, response, context, params, url }) => {
       const place = placeOf(url.searchParams.get("in"));
       if (!place) return json(response, { error: "Say which: ?in=memory or ?in=folder." }, 400);
@@ -641,6 +671,7 @@ export const routes: Route[] = [
     method: "POST",
     path: "/api/agents/:name/changes/seen",
     does: "Everything that agent has changed up to now has been looked at.",
+    remote: "write",
     handle: ({ response, context, params }) => json(response, agentSeen(context.agent(params.name))),
   },
   {
@@ -648,6 +679,7 @@ export const routes: Route[] = [
     path: "/api/agents/:name/changes/:id/undo",
     does: "Put every file one commit changed back how it was, and commit that. Refused when a file has changed since.",
     takes: '{"in": "memory"}',
+    remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) => {
       const { in: place } = await body(request, z.object({ in: z.enum(["memory", "folder"]) }));
       json(response, await agentUndo(context.agent(params.name), place, params.id, from(request)));
@@ -670,6 +702,19 @@ async function wayIn({ request, response }: At, making: boolean): Promise<void> 
   } catch (error) {
     json(response, { error: (error as Error).message }, 401);
   }
+}
+
+/** Every route as GET /api lists it: what it does, and who may call it. Sent to a cloud on connect too. */
+export function routeList() {
+  return routes.map((one) => ({
+    method: one.method,
+    path: one.path,
+    does: one.does,
+    takes: one.takes,
+    who: one.open ? "anybody" : one.token ? "account or token" : "account",
+    needsApiChannel: one.needsApiChannel || undefined,
+    remote: one.remote,
+  }));
 }
 
 /** The route whose path matches, with whatever its `:parts` caught. */
@@ -762,6 +807,11 @@ async function framed(request: IncomingMessage, response: ServerResponse, url: U
   const whose = checkPass(pass);
   const refuse = (status: number, text: string): void =>
     void response.writeHead(status, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" }).end(text);
+  // A pass is made by a memory route, which through the cloud already needed
+  // this switch. Checked again here, so turning it off stops the frame too.
+  if (relayedBy(request) !== null && !settings.cloud.remote.memory) {
+    return refuse(403, "This installation does not allow memory through the cloud.");
+  }
   if (!whose) return refuse(403, "This pass has run out. Open the file again.");
   const agent = context.agents().get(whose);
   if (!agent) return refuse(404, "Not here.");
@@ -813,7 +863,21 @@ async function api(
   if (!found) throw new NotFound(`No route for ${request.method} ${path}. GET /api lists them.`);
   const { route, params } = found;
 
-  const who = route.open ? null : caller(request);
+  const who = caller(request);
+  // Through the dashboard: only the routes that say so, and only the switches
+  // this installation has on. The open routes are not open to it either, so a
+  // fresh runtime's setup form cannot be filled in from the cloud.
+  if (who?.kind === "cloud") {
+    if (!route.remote) return json(response, { error: "Not through the cloud: that is done on the box itself." }, 403);
+    const off = [route.remote].flat().filter((one) => !settings.cloud.remote[one]);
+    if (off.length) {
+      return json(
+        response,
+        { error: `This installation does not allow ${off.join(" and ")} through the cloud. cloud.remote in its settings.json switches it on.` },
+        403,
+      );
+    }
+  }
   if (!route.open) {
     if (!who) return json(response, { error: "Sign in first." }, 401);
     if (who.kind === "token" && !route.token) {

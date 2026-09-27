@@ -2571,6 +2571,149 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and nothing at all when the page adds nothing", withHead("<p>x</p>", ""), "<p>x</p>");
 }
 
+{
+  about("the connection to a cloud");
+
+  const { serve } = await import("#chloe/serve/http.ts");
+  const { startCloud } = await import("#chloe/cloud/connect.ts");
+  type Socket = import("#chloe/cloud/connect.ts").Socket;
+  const { settings: live } = await import("#chloe/core/settings.ts");
+  const { readFile: get } = await import("node:fs/promises");
+
+  // A runtime to relay to, with one agent whose memory holds one file.
+  const folder = `${process.env.AGENTS_STATE}/memory-through-cloud`;
+  await mkdir(folder, { recursive: true });
+  await writeFile(`${folder}/note.md`, "# Kept\n");
+  const keeper: Agent = { ...agentFor(codeJob("relayed", async () => "done")), memory: { folder } };
+  process.env.CHLOE_PAGE = "builtin";
+  const server = serve({
+    host: "127.0.0.1",
+    port: 0,
+    agents: () => new Map([["test", keeper]]),
+    clock: { fire() {}, running: () => [] } as unknown as import("#chloe/core/clock.ts").Clock,
+    channels: () => [],
+  });
+  await new Promise<void>((done) => server.once("listening", done));
+  const at = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+
+  // A cloud that is a fake socket: what the runtime sends is kept, and the
+  // case plays the cloud's side by calling the handlers the runtime set.
+  const opened: { address: string; socket: Socket; sent: any[] }[] = [];
+  const fake = (address: string): Socket => {
+    const socket: Socket = {
+      onopen: null,
+      onmessage: null,
+      onclose: null,
+      onerror: null,
+      send: (text: string) => void opened.at(-1)!.sent.push(JSON.parse(text)),
+      close: (code = 1000, reason = "") => void setTimeout(() => socket.onclose?.({ code, reason })),
+    };
+    opened.push({ address, socket, sent: [] });
+    return socket;
+  };
+  const last = () => opened.at(-1)!;
+  const tick = () => new Promise<void>((done) => setTimeout(done, 20));
+  const said = (type: string) => last().sent.filter((one) => one.type === type);
+  const answer = async (id: string, method: "GET" | "POST", path: string, headers: Record<string, string> = {}, body: string | null = null) => {
+    last().socket.onmessage?.({ data: JSON.stringify({ type: "request", id, method, path, headers: { accept: "application/json", "x-forwarded-for": "203.0.113.5", "x-chloe-relay-user": "someone@example.com", ...headers }, body }) });
+    for (let waited = 0; waited < 100; waited++) {
+      const found = said("response").find((one) => one.id === id);
+      if (found) return { ...found, text: Buffer.from(found.body, "base64").toString("utf8") };
+      await tick();
+    }
+    throw new Error(`no response to ${id}`);
+  };
+
+  // Nothing named: nothing opened.
+  delete process.env.CHLOE_CLOUD_URL;
+  delete process.env.CHLOE_API_KEY;
+  const idle = startCloud({ agents: () => new Map([["test", keeper]]), self: at, socket: fake, backoff: { first: 10, most: 20 } });
+  await tick();
+  is("with no cloud.url nothing is opened", opened.length, 0);
+  idle.stop();
+
+  process.env.CHLOE_CLOUD_URL = "https://cloud.example/";
+  process.env.CHLOE_API_KEY = "chl_install_test";
+  const cloud = startCloud({ agents: () => new Map([["test", keeper]]), self: at, socket: fake, backoff: { first: 10, most: 20 }, version: "9.9.9" });
+  await tick();
+  is("the address is the cloud's, on /connect, over a socket", last().address, "wss://cloud.example/connect");
+  last().socket.onopen?.({});
+  const hello = said("hello")[0];
+  is("the first message says hello, with the key inside it", [hello?.type, hello?.key, hello?.protocol, hello?.coreVersion], ["hello", "chl_install_test", 1, "9.9.9"]);
+  is("and carries the agents and the routes", [hello?.agents?.[0]?.name, hello?.routes?.some((one: { path: string }) => one.path === "/api/agents")], ["test", true]);
+  is("and which switches are on", hello?.remote, { read: true, chat: true, run: true, memory: false, write: false });
+  is("nothing else until the cloud answers", cloud.connected(), false);
+
+  last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", installation: { slug: "here", name: "Here" } }) });
+  await tick();
+  is("welcome makes it connected", cloud.connected(), true);
+  is("and the last runs go up in one message", said("runs").length, 1);
+
+  // A run's row goes up as it starts and as it ends.
+  const before = said("run").length;
+  await work({ agent: keeper, job: keeper.jobs[0] });
+  await tick();
+  const rows = said("run").slice(before);
+  is("a run is sent when it starts and when it ends", rows.length, 2);
+  is("as the row GET /api/runs would show", [rows[0].run.agent, rows[0].run.finished, typeof rows[1].run.finished], ["test", null, "string"]);
+
+  // A request down the socket is a request to the runtime's own port.
+  const agents = await answer("1", "GET", "/api/agents");
+  is("a relayed read is answered", [agents.status, JSON.parse(agents.text)[0]?.name], [200, "test"]);
+  is("with the runtime's own headers, less the ones the socket owns", [agents.headers["content-type"]?.startsWith("application/json"), "set-cookie" in agents.headers, "content-length" in agents.headers], [true, false, false]);
+  const list = await answer("2", "GET", "/api");
+  is("the route list is answered, with each route's switch on it", JSON.parse(list.text).find((one: { path: string }) => one.path === "/api/agents/:name/memory")?.remote, "memory");
+
+  // What is never relayed, and what a switched-off switch refuses.
+  is("the way in is not answered through the cloud", (await answer("3", "GET", "/api/account")).status, 403);
+  is("nor are the tokens", (await answer("4", "GET", "/api/tokens")).status, 403);
+  const shut = await answer("5", "GET", "/api/agents/test/memory");
+  is("a memory is refused while its switch is off", [shut.status, JSON.parse(shut.text).error.includes("memory")], [403, true]);
+  is("and so is a write", (await answer("6", "POST", "/api/agents/test/memory/file", { "content-type": "application/json" }, JSON.stringify({ path: "x.md", content: "" }))).status, 403);
+  is("a session cannot be minted through it either", (await answer("7", "POST", "/api/login", { "content-type": "application/json" }, JSON.stringify({ username: "somebody", password: "a long enough one" }))).status, 403);
+
+  live.cloud.remote.memory = true;
+  const tree = await answer("8", "GET", "/api/agents/test/memory");
+  is("switched on, the memory is answered", [tree.status, JSON.parse(tree.text)[0]?.name], [200, "note.md"]);
+  const log = await get(`${process.env.AGENTS_STATE}/memory-audit/test.jsonl`, "utf8");
+  is("and the audit log says who it was, through the cloud", log.includes('"from":"203.0.113.5 via cloud as someone@example.com"'), true);
+  is("a write still needs its own switch", (await answer("9", "POST", "/api/agents/test/memory/file", { "content-type": "application/json" }, JSON.stringify({ path: "x.md", content: "" }))).status, 403);
+  const pass = JSON.parse((await answer("10", "GET", "/api/agents/test/memory/pass")).text) as { at: string };
+  const framed = await answer("11", "GET", `${pass.at}/note.md`, { host: "dashboard.example", "x-forwarded-proto": "https" });
+  is("a memory file for the frame comes through too", [framed.status, framed.text], [200, "# Kept\n"]);
+  is("with its policy naming the host the cloud said", framed.headers["content-security-policy"]?.includes("https://dashboard.example"), true);
+  live.cloud.remote.memory = false;
+  is("and switching memory off stops the frame as well", (await answer("12", "GET", `${pass.at}/note.md`)).status, 403);
+
+  // A dropped connection is opened again, and a refused key says why.
+  const count = opened.length;
+  last().socket.close(1006, "");
+  await tick();
+  await tick();
+  is("a dropped socket is opened again", opened.length > count, true);
+  is("and is not connected until welcomed", cloud.connected(), false);
+
+  // A change to the settings while connected is a new socket.
+  last().socket.onopen?.({});
+  last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", installation: { slug: "here", name: "Here" } }) });
+  await tick();
+  const again = opened.length;
+  cloud.reload();
+  await tick();
+  is("a reload with the same settings sends the agents up", said("agents").length, 1);
+  is("and opens nothing new", opened.length, again);
+  process.env.CHLOE_API_KEY = "chl_install_other";
+  cloud.reload();
+  await tick();
+  is("a new key is a new socket", opened.length, again + 1);
+
+  cloud.stop();
+  delete process.env.CHLOE_CLOUD_URL;
+  delete process.env.CHLOE_API_KEY;
+  delete process.env.CHLOE_PAGE;
+  server.close();
+}
+
 await rm(process.env.AGENTS_STATE, { recursive: true, force: true });
 gateway.close();
 console.log(failed() === 0 ? "\nAll clear." : `\n${failed()} to fix above.`);

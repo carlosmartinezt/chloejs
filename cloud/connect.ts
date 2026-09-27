@@ -1,0 +1,309 @@
+// The connection to Chloe Cloud: a dashboard somewhere else that shows this
+// runtime, reached by this runtime connecting out to it and nothing else.
+//
+// One WebSocket, opened here, kept open, opened again when it drops. The first
+// message says which installation this is (the key rides inside the encrypted
+// connection, never in the address or a header, so no proxy logs it) and what
+// the runtime has: its version, its routes, its agents, and which switches in
+// `cloud.remote` are on. After that two things happen on it:
+//
+//   up      a run's row when a run starts or ends, and the agents when they
+//           reload, each only if `cloud.sync` says so
+//   down    a request, which is an ordinary HTTP request to this runtime's own
+//           API carried in a message. It is made against the one port with a
+//           secret only this process knows, so `caller()` in serve/login.ts
+//           knows it came through the cloud, and api() in serve/http.ts
+//           decides whether that route, with the switches this installation
+//           has on, may be answered. The answer goes back with the same id.
+//
+// Nothing here changes how a job runs. With no `cloud.url` in settings there
+// is no connection, and the only line this file writes is saying so once.
+import { readFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
+
+import { z } from "zod";
+
+import { db, RUN_COLUMNS } from "#chloe/core/db.ts";
+import { events } from "#chloe/core/events.ts";
+import { setting, settings } from "#chloe/core/settings.ts";
+import type { Agent } from "#chloe/load/load.ts";
+import { HOST, PORT, routeList, summary } from "#chloe/serve/http.ts";
+import { RELAY, RELAY_SECRET, RELAY_USER } from "#chloe/serve/login.ts";
+
+/** The version of what is said on the socket. The cloud refuses one it does not speak. */
+export const PROTOCOL = 1;
+
+/** What the runtime opens: Node's own WebSocket, or whatever a test hands in. */
+export interface Socket {
+  send(text: string): void;
+  close(code?: number, reason?: string): void;
+  onopen: ((event: unknown) => void) | null;
+  onmessage: ((event: { data: unknown }) => void) | null;
+  onclose: ((event: { code: number; reason: string }) => void) | null;
+  onerror: ((event: unknown) => void) | null;
+}
+
+export interface CloudOptions {
+  agents: () => Map<string, Agent>;
+  /** Where this runtime answers, for a relayed request. The one port, unless a test says otherwise. */
+  self?: string;
+  /** Opens a socket to an address. Node's own WebSocket unless a test hands in another. */
+  socket?: (address: string) => Socket;
+  /** How long to wait before connecting again, the first time and at most, in milliseconds. */
+  backoff?: { first: number; most: number };
+  /** What this runtime says it is. The package's own version unless given. */
+  version?: string;
+}
+
+/** The connection, as the server holds it. */
+export interface Cloud {
+  /** The settings or the agents changed: send the agents up, and connect again if the address or the key changed. */
+  reload(): void;
+  /** Whether the cloud has said welcome on the socket that is open now. */
+  connected(): boolean;
+  stop(): void;
+}
+
+/** What a request from the cloud has to look like. Anything else is dropped. */
+const Request = z.object({
+  type: z.literal("request"),
+  id: z.string().min(1),
+  method: z.enum(["GET", "POST"]),
+  path: z.string().startsWith("/"),
+  headers: z.record(z.string(), z.string()).default({}),
+  body: z.string().nullable().default(null),
+});
+
+/** The headers a relayed request keeps. Everything else the browser sent stayed with the cloud. */
+const CARRIED = ["accept", "content-type", "host", "x-forwarded-proto", "x-forwarded-for", RELAY_USER];
+
+/** The headers an answer does not carry back: a session is never set through the cloud, and the rest are the socket's own. */
+const KEPT_BACK = new Set(["set-cookie", "connection", "transfer-encoding", "content-length", "keep-alive"]);
+
+/** How many runs go up when the connection opens, so the dashboard has a history to show while this runtime is offline. */
+const CATCH_UP = 200;
+
+/**
+ * Opens the connection to the cloud named in settings and keeps it open.
+ * Returns at once; connecting happens behind it. With no `cloud.url` it says so
+ * once and waits for `reload()` to bring one.
+ */
+export function startCloud(options: CloudOptions): Cloud {
+  const self = new URL(options.self ?? `http://${HOST}:${PORT}`);
+  const make = options.socket ?? ((address: string) => new WebSocket(address) as unknown as Socket);
+  const backoff = options.backoff ?? { first: 1000, most: 60_000 };
+  const version = options.version ?? ownVersion();
+
+  let socket: Socket | undefined;
+  let welcomed = false;
+  let stopped = false;
+  let wait = backoff.first;
+  let timer: NodeJS.Timeout | undefined;
+  /** What the open socket was opened with, so a change to either is noticed. */
+  let using = { url: "", key: "" };
+  /** The last line written, so a cloud that is down is one line and not one a second. */
+  let said = "";
+
+  function where(): { url: string; key: string } {
+    return {
+      url: setting(settings.cloud.url, "CHLOE_CLOUD_URL").trim().replace(/\/+$/, ""),
+      key: setting(settings.cloud.key, "CHLOE_API_KEY").trim(),
+    };
+  }
+
+  function say(line: string): void {
+    if (line === said) return;
+    said = line;
+    console.log(`cloud: ${line}`);
+  }
+
+  function send(one: Socket, message: unknown): void {
+    try {
+      one.send(JSON.stringify(message));
+    } catch (error) {
+      // A socket that closed between the check and the send. The close event
+      // is on its way and will connect again.
+      say(`could not send: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  function agentList() {
+    return [...options.agents().values()].map(summary);
+  }
+
+  function hello(key: string) {
+    return {
+      type: "hello",
+      protocol: PROTOCOL,
+      key,
+      coreVersion: version,
+      nodeVersion: process.version,
+      capabilities: ["relay", "runs", "agents"],
+      sync: settings.cloud.sync,
+      remote: settings.cloud.remote,
+      routes: routeList(),
+      agents: settings.cloud.sync.agents ? agentList() : [],
+    };
+  }
+
+  function connect(): void {
+    clearTimeout(timer);
+    if (stopped) return;
+    const want = where();
+    using = want;
+    if (!want.url) return say("not connected: no cloud.url in settings.");
+    if (!want.key) return say("not connected: cloud.url is set and cloud.key is not.");
+
+    const address = `${want.url.replace(/^http/, "ws")}/connect`;
+    let one: Socket;
+    try {
+      one = make(address);
+    } catch (error) {
+      say(`could not open ${address}: ${error instanceof Error ? error.message : String(error)}`);
+      return again();
+    }
+    socket = one;
+    welcomed = false;
+    one.onopen = () => send(one, hello(want.key));
+    one.onmessage = (event) => void receive(one, String(event.data));
+    // An error is always followed by a close, which is where it is dealt with.
+    one.onerror = () => {};
+    one.onclose = (event) => {
+      if (socket !== one) return;
+      socket = undefined;
+      welcomed = false;
+      say(
+        event.code === 4001
+          ? `refused by ${want.url}: ${event.reason || "no reason given"}`
+          : `disconnected from ${want.url} (${event.code}${event.reason ? `, ${event.reason}` : ""}), trying again`,
+      );
+      again();
+    };
+  }
+
+  function again(): void {
+    if (stopped) return;
+    clearTimeout(timer);
+    // With some jitter, so many runtimes coming back after the cloud does do not
+    // all knock at once.
+    timer = setTimeout(connect, wait + Math.floor(Math.random() * wait * 0.5));
+    timer.unref();
+    wait = Math.min(wait * 2, backoff.most);
+  }
+
+  async function receive(one: Socket, text: string): Promise<void> {
+    let message: unknown;
+    try {
+      message = JSON.parse(text);
+    } catch {
+      return;
+    }
+    const kind = (message as { type?: unknown })?.type;
+
+    if (kind === "welcome") {
+      welcomed = true;
+      wait = backoff.first;
+      const named = (message as { installation?: { name?: string } }).installation?.name;
+      say(`connected to ${using.url} as ${named ?? "an installation"}`);
+      if (settings.cloud.sync.runs) send(one, { type: "runs", runs: recentRuns() });
+      return;
+    }
+
+    if (kind === "request") {
+      const asked = Request.safeParse(message);
+      if (!asked.success) return;
+      const answer = await relay(asked.data);
+      if (socket === one) send(one, { type: "response", id: asked.data.id, ...answer });
+    }
+  }
+
+  /**
+   * One request from the cloud, made against this runtime's own port. Only the
+   * headers in CARRIED come through, plus the secret that says it was relayed,
+   * so a cloud cannot hand over a cookie or a token it happens to hold.
+   */
+  function relay(asked: z.infer<typeof Request>): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+    return new Promise((done) => {
+      const headers: Record<string, string> = {};
+      for (const name of CARRIED) {
+        const value = asked.headers[name];
+        if (value) headers[name] = value;
+      }
+      headers[RELAY] = RELAY_SECRET;
+      const body = asked.body === null ? undefined : Buffer.from(asked.body, "utf8");
+      if (body) headers["content-length"] = String(body.length);
+
+      const failed = (why: string) =>
+        done({
+          status: 502,
+          headers: { "content-type": "application/json; charset=utf-8" },
+          body: Buffer.from(JSON.stringify({ error: `The runtime did not answer: ${why}` })).toString("base64"),
+        });
+
+      const sent = httpRequest(
+        { host: self.hostname, port: self.port, method: asked.method, path: asked.path, headers },
+        (response) => {
+          const chunks: Buffer[] = [];
+          response.on("data", (chunk: Buffer) => chunks.push(chunk));
+          response.on("error", (error) => failed(error.message));
+          response.on("end", () => {
+            const back: Record<string, string> = {};
+            for (const [name, value] of Object.entries(response.headers)) {
+              if (value === undefined || KEPT_BACK.has(name)) continue;
+              back[name] = Array.isArray(value) ? value.join(", ") : value;
+            }
+            done({ status: response.statusCode ?? 502, headers: back, body: Buffer.concat(chunks).toString("base64") });
+          });
+        },
+      );
+      sent.on("error", (error) => failed(error.message));
+      if (body) sent.write(body);
+      sent.end();
+    });
+  }
+
+  function recentRuns(): unknown[] {
+    return db.prepare(`select ${RUN_COLUMNS} from runs order by started desc limit ?`).all(CATCH_UP);
+  }
+
+  const onRun = (id: string): void => {
+    if (!socket || !welcomed || !settings.cloud.sync.runs) return;
+    const row = db.prepare(`select ${RUN_COLUMNS} from runs where id = ?`).get(id);
+    if (row) send(socket, { type: "run", run: row });
+  };
+  events.on("run", onRun);
+
+  connect();
+
+  return {
+    reload() {
+      const want = where();
+      if (want.url !== using.url || want.key !== using.key) {
+        const open = socket;
+        socket = undefined;
+        open?.close(1000, "settings changed");
+        wait = backoff.first;
+        return connect();
+      }
+      if (socket && welcomed && settings.cloud.sync.agents) send(socket, { type: "agents", agents: agentList() });
+    },
+    connected: () => Boolean(socket) && welcomed,
+    stop() {
+      stopped = true;
+      clearTimeout(timer);
+      events.off("run", onRun);
+      const open = socket;
+      socket = undefined;
+      open?.close(1000, "stopping");
+    },
+  };
+}
+
+/** The version in this package's package.json, which is what the runtime reports. */
+function ownVersion(): string {
+  try {
+    return (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version?: string }).version ?? "0";
+  } catch {
+    return "0";
+  }
+}

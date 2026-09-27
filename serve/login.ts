@@ -102,9 +102,11 @@ export function signIn(username: string, password: string, from: string): string
  * browser sends either the same session value or a token as
  * `Authorization: Bearer`, and which one it is decides what it may do.
  */
-export type Caller = { kind: "account" } | { kind: "token"; token: Token } | null;
+export type Caller = { kind: "account" } | { kind: "token"; token: Token } | { kind: "cloud"; user: string } | null;
 
 export function caller(request: IncomingMessage): Caller {
+  const relayed = relayedBy(request);
+  if (relayed !== null) return { kind: "cloud", user: relayed };
   const held = read();
   const values = carried(request);
   if (held && values.some((value) => holds(value, held))) return { kind: "account" };
@@ -113,6 +115,29 @@ export function caller(request: IncomingMessage): Caller {
     if (token) return { kind: "token", token };
   }
   return null;
+}
+
+/**
+ * The third kind of caller: a request the dashboard sent down this runtime's
+ * own connection to it, which cloud/connect.ts turns into a request to this
+ * port. It carries this secret, which is made when the process starts and
+ * never leaves it, so nothing that reaches the port from outside can carry
+ * it. What such a caller may have is decided by `cloud.remote` in settings,
+ * in api() in http.ts, and it never has a session: signing in is not relayed.
+ */
+export const RELAY_SECRET = crypto.randomBytes(32).toString("base64url");
+
+/** The header that carries the secret, and the one that says who asked. */
+export const RELAY = "x-chloe-relay";
+export const RELAY_USER = "x-chloe-relay-user";
+
+/** The account the dashboard relayed this request for, or null when it is not a relayed request. */
+export function relayedBy(request: IncomingMessage): string | null {
+  const carried = request.headers[RELAY];
+  const value = Array.isArray(carried) ? carried[0] : carried;
+  if (!value || !same(value, RELAY_SECRET)) return null;
+  const user = request.headers[RELAY_USER];
+  return (Array.isArray(user) ? user[0] : user) || "somebody";
 }
 
 /** Whether this request carries anything at all this copy will accept. */
@@ -324,7 +349,11 @@ export function from(request: IncomingMessage): string {
   };
   const cloudflare = head("cf-connecting-ip")[0];
   const forwarded = head("x-forwarded-for").at(-1);
-  return cloudflare || forwarded || request.socket.remoteAddress || "unknown";
+  const address = cloudflare || forwarded || request.socket.remoteAddress || "unknown";
+  // Through the cloud, the address is the browser's as the cloud saw it, and
+  // the audit log and the console say whose account it was signed in to.
+  const user = relayedBy(request);
+  return user === null ? address : `${address} via cloud as ${user}`;
 }
 
 /** True when the proxy in front is speaking HTTPS, so the cookie can be Secure. */
