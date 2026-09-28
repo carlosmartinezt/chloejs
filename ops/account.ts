@@ -1,20 +1,11 @@
-// Making the one account, from a shell on the box that runs chloe.
+// The one password, set from a shell on the box that runs chloe.
 //
-//   npm run account            asks for a username and a password
-//   npm run account carlos     asks for the password only
+//   npx chloe account     asks for a password, or makes one up if none is typed
 //
-// There used to be a setup form on the first visit. There is no page on this
-// port any more, so the first account is made here instead, which is better
-// anyway: it takes a shell rather than whoever reaches the address first.
-//
-// Changing the account later means deleting data/login.json and running this
-// again, which is deliberate and takes the same shell.
-import { createAccount, hasAccount } from "#chloe/serve/login";
-
-if (hasAccount()) {
-  console.error("There is already an account. To change it, delete data/login.json and run this again.");
-  process.exit(1);
-}
+// Run again later and it sets a new one, which is the way back in from a
+// forgotten password. It takes a shell rather than an address, so nobody who
+// only reaches the port can do it.
+import { createAccount, hasAccount, resetPassword, suggestPassword } from "#chloe/serve/login";
 
 /**
  * Whatever was typed past the end of the line just read, kept for the next
@@ -90,20 +81,36 @@ function line(question: string, hide: boolean): Promise<string> {
   });
 }
 
-const username = process.argv[2] ?? (await line("Username: ", false));
-const password = await line("Password: ", true);
-const again = await line("Again:    ", true);
+const already = hasAccount();
+if (already) {
+  console.log("This copy already has a password, and this replaces it.");
+  console.log("Nothing else changes: the agents, their runs, their memories and the tokens stay as they are.");
+  console.log("Browsers signed in on the old one will have to sign in again.\n");
+}
 
-if (password !== again) {
-  console.error("Those two are not the same.");
-  process.exit(1);
+const typed = await line("Password (leave blank for one made up here): ", true);
+let password = typed;
+
+if (typed) {
+  const again = await line("Again:    ", true);
+  if (typed !== again) {
+    console.error("Those two are not the same.");
+    process.exit(1);
+  }
+} else {
+  password = suggestPassword();
 }
 
 try {
-  createAccount(username, password);
+  if (already) resetPassword(password);
+  else createAccount(password);
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);
 }
 
-console.log(`\nDone. ${username} can sign in at whatever serves the page.`);
+if (typed) console.log(`\nDone. Sign in with it at whatever serves the page.`);
+else {
+  console.log(`\nYour password is  ${password}\n`);
+  console.log("Write it down. Only its hash is kept, so this is the one time it is shown.");
+}

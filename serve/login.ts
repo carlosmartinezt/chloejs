@@ -1,9 +1,9 @@
-// The login in front of the page: one account, made on the first visit.
+// The login in front of the page: one password, set on the first visit.
 //
-// Nothing is configured to set this up. A fresh copy of chloe has no account,
-// so the first person to open the page is asked to choose a username and a
-// password, and once one exists that door is shut. Changing it afterwards means
-// deleting the file below, which is deliberate: it takes a shell on the box.
+// There is no username, because with one account a name identifies nobody. A
+// fresh copy of chloe has no password, so the first person to open the page
+// chooses one, and once one exists that door is shut. Changing it afterwards
+// takes a shell on the box: `npx chloe account` again.
 //
 // Hand rolled on node:crypto, scrypt for the password and HMAC-SHA256 for the
 // cookie, because the alternative is a dependency for forty lines.
@@ -29,10 +29,11 @@ const WINDOW = 15 * 60 * 1000;
 const LOCKED = 15 * 60 * 1000;
 
 interface Account {
-  username: string;
   password: string;
   /** Signs the session cookie. Made with the account, so a restart keeps people signed in. */
   secret: string;
+  /** Older copies had one. Read so their file still loads, never checked. */
+  username?: string;
 }
 
 let account: Account | null | undefined;
@@ -53,16 +54,30 @@ export function hasAccount(): boolean {
 }
 
 /**
- * The account this copy will have, from the setup page. Throws if one already
+ * The password this copy will have, from the setup page. Throws if one already
  * exists: the first visit wins, and every visit after it is refused.
  */
-export function createAccount(username: string, password: string): void {
-  if (hasAccount()) throw new Error("An account already exists.");
-  const who = username.trim();
-  if (!who) throw new Error("Choose a username.");
+export function createAccount(password: string): void {
+  if (hasAccount()) throw new Error("A password is already set.");
+  write(password);
+}
+
+/**
+ * A new password for a copy that already has one, for somebody who has a shell.
+ * No route calls this and none ever should: the way back in from a forgotten
+ * password is `npx chloe account`, and that is the whole of the recovery.
+ *
+ * Nothing else is touched. The agents, their runs, their memories and the
+ * tokens are all somewhere else. Browsers signed in on the old password are
+ * signed out, because the secret that signs their cookies is made fresh here.
+ */
+export function resetPassword(password: string): void {
+  write(password);
+}
+
+function write(password: string): void {
   if (password.length < 8) throw new Error("The password must be at least 8 characters.");
   const made: Account = {
-    username: who,
     password: hash(password),
     secret: crypto.randomBytes(32).toString("base64url"),
   };
@@ -73,18 +88,30 @@ export function createAccount(username: string, password: string): void {
 }
 
 /**
- * The cookie value for a correct username and password, or the reason it was
- * refused. The address is what the lockout counts, so one person guessing does
- * not lock everybody out.
+ * A password nobody has to think up: twelve characters in groups of four, from
+ * an alphabet with no 0/o, 1/l/i or u in it, so reading one off a screen and
+ * typing it into a phone works. Sixty bits, which is not guessable.
  */
-export function signIn(username: string, password: string, from: string): string {
+export function suggestPassword(): string {
+  const alphabet = "abcdefghjkmnpqrstvwxyz23456789";
+  const pick = (): string =>
+    Array.from(crypto.randomBytes(4), (byte) => alphabet[byte % alphabet.length]).join("");
+  return [pick(), pick(), pick()].join("-");
+}
+
+/**
+ * The cookie value for the right password, or the reason it was refused. The
+ * address is what the lockout counts, so one person guessing does not lock
+ * everybody out.
+ */
+export function signIn(password: string, from: string): string {
   const held = read();
-  if (!held) throw new Error("There is no account yet.");
+  if (!held) throw new Error("There is no password yet.");
   const wait = lockedFor(from);
   if (wait) throw new Error(`Too many tries. Try again in ${Math.ceil(wait / 60)} minutes.`);
-  if (!same(username.trim(), held.username) || !check(password, held.password)) {
+  if (!check(password, held.password)) {
     countFailure(from);
-    throw new Error("Wrong username or password.");
+    throw new Error("Wrong password.");
   }
   failures.delete(from);
   return sign(held);
@@ -180,8 +207,8 @@ function holds(value: string, held: Account): boolean {
   const expected = crypto.createHmac("sha256", held.secret).update(body).digest("base64url");
   if (!same(value.slice(dot + 1), expected)) return false;
   try {
-    const inside = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as { who: string; until: number };
-    return inside.until > Math.floor(Date.now() / 1000) && same(inside.who, held.username);
+    const inside = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as { until: number };
+    return inside.until > Math.floor(Date.now() / 1000);
   } catch {
     return false;
   }
@@ -232,7 +259,7 @@ export function setCookie(value: string, secure: boolean): string[] {
  */
 export function ownCookie(): string {
   const held = read();
-  if (!held) throw new Error(`There is no account yet. Open the page and make one.`);
+  if (!held) throw new Error("There is no password yet. Open the page and set one.");
   return `${COOKIE}=${sign(held)}`;
 }
 
@@ -243,7 +270,7 @@ export function ownCookie(): string {
  */
 export function renew(): string {
   const held = read();
-  if (!held) throw new Error("There is no account yet.");
+  if (!held) throw new Error("There is no password yet.");
   return sign(held);
 }
 
@@ -255,7 +282,7 @@ export function renew(): string {
  */
 export function seal(purpose: string, payload: object): string {
   const held = read();
-  if (!held) throw new Error("There is no account yet, so nothing can be signed.");
+  if (!held) throw new Error("There is no password yet, so nothing can be signed.");
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${body}.${crypto.createHmac("sha256", held.secret).update(`${purpose}:${body}`).digest("base64url")}`;
 }
@@ -277,9 +304,7 @@ export function unseal<T>(purpose: string, value: string): T | null {
 }
 
 function sign(held: Account): string {
-  const body = Buffer.from(
-    JSON.stringify({ who: held.username, until: Math.floor(Date.now() / 1000) + LASTS }),
-  ).toString("base64url");
+  const body = Buffer.from(JSON.stringify({ until: Math.floor(Date.now() / 1000) + LASTS })).toString("base64url");
   return `${body}.${crypto.createHmac("sha256", held.secret).update(body).digest("base64url")}`;
 }
 

@@ -79,7 +79,7 @@ const byRoute = (route: string) => (route === "gateway" ? "the gateway, on a key
 const routed = Object.entries(settings.model.routes).map(([provider, route]) => `${provider} by ${byRoute(route)}`);
 console.log(`models: ${[byRoute(via()), ...routed].join("; ")}`);
 for (const line of whatIsMissing()) console.log(line);
-if (!hasAccount()) console.log('no account yet: run "npx chloe account" in another terminal, then open that address');
+if (!hasAccount()) console.log('no password yet: run "npx chloe account" in another terminal, then open that address');
 for (const agent of agents.values()) {
   for (const job of agent.jobs) {
     console.log(

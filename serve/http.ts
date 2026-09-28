@@ -164,7 +164,7 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/account",
-    does: "Whether this copy has an account yet, so a page knows which form to show.",
+    does: "Whether this copy has a password yet, so a page knows which form to show.",
     open: true,
     handle: ({ response }) => json(response, { exists: hasAccount() }),
   },
@@ -172,15 +172,15 @@ export const routes: Route[] = [
     method: "POST",
     path: "/api/login",
     does: "Sign in. Sets the cookie, and hands back the same value for anything that is not a browser.",
-    takes: '{"username": "...", "password": "..."}',
+    takes: '{"password": "..."}',
     open: true,
     handle: (at) => wayIn(at, false),
   },
   {
     method: "POST",
     path: "/api/setup",
-    does: "Make the one account, when there is none. Refused once one exists.",
-    takes: '{"username": "...", "password": "..."}',
+    does: "Set the one password, when there is none. Refused once one is set.",
+    takes: '{"password": "..."}',
     open: true,
     handle: (at) => wayIn(at, true),
   },
@@ -692,16 +692,16 @@ export const routes: Route[] = [
   },
 ];
 
-/** Signing in, and making the account the first time. One body, two doors. */
+/** Signing in, and setting the password the first time. One body, two doors. */
 async function wayIn({ request, response }: At, making: boolean): Promise<void> {
-  const { username, password } = await body(request, z.object({ username: z.string(), password: z.string() }));
+  const { password } = await body(request, z.object({ password: z.string() }));
   try {
-    if (making) createAccount(username, password);
+    if (making) createAccount(password);
     // The same value twice: the cookie for a browser, and the body for
     // anything that is not one.
     const at = from(request);
-    const token = signIn(username, password, at);
-    signedInFrom(username, at);
+    const token = signIn(password, at);
+    signedInFrom(at);
     response.setHeader("set-cookie", setCookie(token, overHttps(request)));
     json(response, { ok: true, token });
   } catch (error) {

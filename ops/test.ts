@@ -2047,24 +2047,34 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("the login in front of the page");
 
-  const { covers, createAccount, hasAccount, setCookie, shareLogin, signIn, signedIn } = await import("#chloe/serve/login");
+  const { covers, createAccount, hasAccount, resetPassword, setCookie, shareLogin, signIn, signedIn, suggestPassword } =
+    await import("#chloe/serve/login");
   const carrying = (cookie: string) => ({ headers: { cookie } }) as import("node:http").IncomingMessage;
 
-  is("a fresh copy has no account", hasAccount(), false);
-  createAccount("somebody", "a long enough one");
-  is("the first visit makes it", hasAccount(), true);
-
-  const refused = (() => {
+  is("a fresh copy has no password", hasAccount(), false);
+  const short = (() => {
     try {
-      createAccount("nobody", "another long one");
-      return "made a second";
+      createAccount("short");
+      return "took it";
     } catch (error) {
       return (error as Error).message;
     }
   })();
-  is("and every visit after it is refused", refused, "An account already exists.");
+  is("one that is too short is refused", short, "The password must be at least 8 characters.");
+  createAccount("a long enough one");
+  is("the first visit sets it", hasAccount(), true);
 
-  const session = signIn("somebody", "a long enough one", "1.2.3.4");
+  const refused = (() => {
+    try {
+      createAccount("another long one");
+      return "set a second";
+    } catch (error) {
+      return (error as Error).message;
+    }
+  })();
+  is("and every visit after it is refused", refused, "A password is already set.");
+
+  const session = signIn("a long enough one", "1.2.3.4");
   is("the right password signs in", signedIn(carrying(`chloe_session=${session}`)), true);
   is("a cookie somebody edited does not", signedIn(carrying(`chloe_session=${session.slice(0, -1)}x`)), false);
   is("no cookie does not", signedIn(carrying("")), false);
@@ -2095,31 +2105,51 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   const wrong = (() => {
     try {
-      signIn("somebody", "not the password", "1.2.3.4");
+      signIn("not the password", "1.2.3.4");
       return "signed in";
     } catch (error) {
       return (error as Error).message;
     }
   })();
-  is("the wrong password does not", wrong, "Wrong username or password.");
+  is("the wrong password does not", wrong, "Wrong password.");
 
   for (let tries = 0; tries < 5; tries++) {
     try {
-      signIn("somebody", "not the password", "9.9.9.9");
+      signIn("not the password", "9.9.9.9");
     } catch {
       // Counting the failures is the point; the message is checked above.
     }
   }
   const locked = (() => {
     try {
-      signIn("somebody", "a long enough one", "9.9.9.9");
+      signIn("a long enough one", "9.9.9.9");
       return "signed in";
     } catch (error) {
       return (error as Error).message;
     }
   })();
   is("guessing over and over locks that address out", locked.startsWith("Too many tries."), true);
-  is("and only that one", Boolean(signIn("somebody", "a long enough one", "1.2.3.4")), true);
+  is("and only that one", Boolean(signIn("a long enough one", "1.2.3.4")), true);
+
+  // The way back in from a forgotten password, which only a shell can do.
+  resetPassword("a different long one");
+  is("a new password from the terminal works", Boolean(signIn("a different long one", "1.2.3.4")), true);
+  is("the old one stops working", (() => {
+    try {
+      signIn("a long enough one", "1.2.3.4");
+      return "signed in";
+    } catch (error) {
+      return (error as Error).message;
+    }
+  })(), "Wrong password.");
+  is("and every session signed on it is over", signedIn(carrying(`chloe_session=${session}`)), false);
+
+  const made = suggestPassword();
+  is("a password made up here is long enough to be one", made.length >= 8, true);
+  is("and two are not the same", made === suggestPassword(), false);
+
+  // One account file for the whole run, so put back the one later blocks sign in with.
+  resetPassword("a long enough one");
 }
 
 {
@@ -2149,7 +2179,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const got = await fetch(`${at}/api/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: "somebody", password: "a long enough one" }),
+    body: JSON.stringify({ password: "a long enough one" }),
   });
   const { token } = (await got.json()) as { token?: string };
   is("signing in hands back a token", typeof token === "string" && token.length > 0, true);
@@ -2417,7 +2447,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     await fetch(`${at}/api/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: "somebody", password: "a long enough one" }),
+      body: JSON.stringify({ password: "a long enough one" }),
     })
   ).json()) as { token: string };
   const as = { cookie: `chloe_session=${token}` };
@@ -2709,7 +2739,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const shut = await answer("5", "GET", "/api/agents/test/memory");
   is("a memory is refused while its switch is off", [shut.status, JSON.parse(shut.text).error.includes("memory")], [403, true]);
   is("and so is a write", (await answer("6", "POST", "/api/agents/test/memory/file", { "content-type": "application/json" }, JSON.stringify({ path: "x.md", content: "" }))).status, 403);
-  is("a session cannot be minted through it either", (await answer("7", "POST", "/api/login", { "content-type": "application/json" }, JSON.stringify({ username: "somebody", password: "a long enough one" }))).status, 403);
+  is("a session cannot be minted through it either", (await answer("7", "POST", "/api/login", { "content-type": "application/json" }, JSON.stringify({ password: "a long enough one" }))).status, 403);
 
   live.cloud.remote.memory = true;
   const tree = await answer("8", "GET", "/api/agents/test/memory");

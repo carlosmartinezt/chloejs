@@ -51,7 +51,7 @@ function mail(subject: string, body: string): void {
 }
 
 /** Records a successful sign-in, and mails when the address is a new one. */
-export function signedInFrom(username: string, address: string): void {
+export function signedInFrom(address: string): void {
   const all = read();
   const first = !all[address];
   all[address] = new Date().toISOString();
@@ -59,8 +59,8 @@ export function signedInFrom(username: string, address: string): void {
   if (!first) return;
   mail(
     `New sign-in from ${address}`,
-    `${username} signed in from ${address}, which this copy had not seen before.\n\n` +
-      `If that was not you, change the password: delete data/login.json on the box and run \`npm run account\`.\n` +
+    `Somebody signed in from ${address}, which this copy had not seen before.\n\n` +
+      `If that was not you, run \`npx chloe account\` on the box for a new password, which signs them out.\n` +
       `Revoke every token at the same time, from the site's tokens page.\n`,
   );
 }

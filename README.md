@@ -11,7 +11,7 @@ decide where deterministic work ends and where non-deterministic work begins.
 
 ```sh
 npm install @chloejs/core @chloejs/ui
-npx chloe account     # the one account the page asks for
+npx chloe account     # the one password the page asks for
 npx chloe             # the agents, the cron lines and one port on 127.0.0.1:3067
 ```
 
@@ -206,7 +206,7 @@ Plus `.env` for what belongs to the box rather than the project: the workspace
 key for a dashboard, a gateway key, whatever a script needs.
 
 ```sh
-npx chloe account                # make the one account
+npx chloe account                # set the one password
 npx chloe                        # the one process, on 127.0.0.1:3067
 npx chloe agent <name>           # talk to one agent
 npx chloe agent <name> <job>     # run one job now, without waiting for its cron line
@@ -238,7 +238,7 @@ services/    the work itself, called straight from a job, published as
              "@chloejs/core/services"
 channels/    the ways in, for an agent to bind
 ops/         cli.ts, which is `npx chloe`, and what it runs: the tests, the
-             evals, talking to an agent, making the account, and install.sh
+             evals, talking to an agent, setting the password, and install.sh
 test-agent/  the agent the tests load. Not published
 ```
 

@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 const WHAT = `chloe: agents that are mostly code.
 
   npx chloe                      the server: every agent, every cron line, one port
-  npx chloe account [username]   make the one account, which the page asks for
+  npx chloe account              set the one password, or a new one later
   npx chloe agent <name>         talk to one agent in this terminal
   npx chloe agent <name> "..."   ask it one thing and stop
   npx chloe agent <name> <job>   run one of its jobs now, step by step

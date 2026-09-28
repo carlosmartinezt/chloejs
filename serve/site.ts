@@ -152,19 +152,18 @@ ${body}
 function loginPage(): string {
   const making = !hasAccount();
   return shell(
-    making ? "Create an account" : "Sign in",
-    `<h1>${making ? "Create an account" : "Sign in"}</h1>
+    making ? "Choose a password" : "Sign in",
+    `<h1>${making ? "Choose a password" : "Sign in"}</h1>
 <p class="quiet">${
       making
-        ? "This copy has no account yet. Anything else running on this machine can reach this port, so chloe asks for a password before it shows the agents, their runs and the folders they keep. Choose any username and password: they stay on this machine, and signing in lasts a week. <code>npm run account</code> in a terminal does the same thing."
-        : "One account. Everything behind it is the agents, what they have run, and whatever folders they keep."
+        ? "This copy has no password yet. Anything else running on this machine can reach this port, so chloe asks for one before it shows the agents, their runs and the folders they keep. It stays on this machine, and signing in lasts a week. There is no username: with one password there is nobody to tell apart. Forgotten it later is <code>npx chloe account</code> in a terminal, which sets a new one and loses nothing."
+        : "Everything behind this is the agents, what they have run, and whatever folders they keep."
     }</p>
 <form onsubmit="return go(this)">
-  <input name="username" placeholder="Username" autocomplete="username" required>
-  <input name="password" type="password" placeholder="Password" autocomplete="${
-      making ? "new-password" : "current-password"
-    }" minlength="8" required>
-  <button>${making ? "Create account" : "Sign in"}</button>
+  <input name="password" type="password" placeholder="${
+      making ? "Password, 8 characters or more" : "Password"
+    }" autocomplete="${making ? "new-password" : "current-password"}" minlength="8" autofocus required>
+  <button>${making ? "Set password" : "Sign in"}</button>
 </form>
 <p id="trouble" class="quiet"></p>
 <script>
@@ -172,7 +171,7 @@ function go(form) {
   fetch(${making ? "'/api/setup'" : "'/api/login'"}, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: form.username.value, password: form.password.value }),
+    body: JSON.stringify({ password: form.password.value }),
   })
     .then((r) => r.json())
     .then((a) => { if (a.ok) location = back(); else document.getElementById('trouble').textContent = a.error; })
