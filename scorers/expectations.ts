@@ -4,8 +4,8 @@
 // eval case, so one judge covers every agent and every job: the file that says
 // what good means is the eval file, which is JSON a person can read and change
 // without touching code.
-import { ask } from "#chloe/model/model.ts";
-import type { Result } from "#chloe/core/turn.ts";
+import { ask } from "#chloe/model/model";
+import type { Result } from "#chloe/core/turn";
 import type { Mark } from "./calls.ts";
 
 /**

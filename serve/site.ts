@@ -10,12 +10,12 @@
 // needs. Everything it shows, it was given.
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { hasChannel, type Agent } from "#chloe/load/load.ts";
+import { hasChannel, type Agent } from "#chloe/load/load";
 import { caller, from, hasAccount } from "./login.ts";
 import { installedPage, servePageFile } from "./page.ts";
 import { memoryLabel, memoryTree } from "./memory.ts";
 import { makePass } from "./pass.ts";
-import { describe } from "#chloe/timer/every.ts";
+import { describe } from "#chloe/timer/every";
 
 /** What the docs page needs to know about a route. http.ts's Route is this plus its handler. */
 export interface RouteDoc {
@@ -152,17 +152,19 @@ ${body}
 function loginPage(): string {
   const making = !hasAccount();
   return shell(
-    making ? "Make the account" : "Sign in",
-    `<h1>${making ? "Make the account" : "Sign in"}</h1>
+    making ? "Create an account" : "Sign in",
+    `<h1>${making ? "Create an account" : "Sign in"}</h1>
 <p class="quiet">${
       making
-        ? "This copy has no account yet. The first one is made here, or with <code>npm run account</code> on the box."
+        ? "This copy has no account yet. Anything else running on this machine can reach this port, so chloe asks for a password before it shows the agents, their runs and the folders they keep. Choose any username and password: they stay on this machine, and signing in lasts a week. <code>npm run account</code> in a terminal does the same thing."
         : "One account. Everything behind it is the agents, what they have run, and whatever folders they keep."
     }</p>
 <form onsubmit="return go(this)">
   <input name="username" placeholder="Username" autocomplete="username" required>
-  <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
-  <button>${making ? "Make it" : "Sign in"}</button>
+  <input name="password" type="password" placeholder="Password" autocomplete="${
+      making ? "new-password" : "current-password"
+    }" minlength="8" required>
+  <button>${making ? "Create account" : "Sign in"}</button>
 </form>
 <p id="trouble" class="quiet"></p>
 <script>

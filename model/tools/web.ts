@@ -1,8 +1,8 @@
 // The tool over services/webService.ts: reading one public web page.
 import { z } from "zod";
 
-import { readPage } from "#chloe/services/webService.ts";
-import { tool } from "#chloe/model/tool.ts";
+import { readPage } from "#chloe/services/webService";
+import { tool } from "#chloe/model/tool";
 
 /** A tool that reads one public web page as plain text. */
 export function read_web() {

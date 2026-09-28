@@ -11,7 +11,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import crypto from "node:crypto";
 import type { IncomingMessage } from "node:http";
 
-import { STATE } from "#chloe/core/paths.ts";
+import { STATE } from "#chloe/core/paths";
 import { checkToken, type Token } from "./tokens.ts";
 import { lockedOut } from "./alerts.ts";
 

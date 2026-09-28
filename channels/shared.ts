@@ -22,14 +22,14 @@
 // Rules 4 and 5 are code, never a model: which job gets a message is a rule
 // somebody can write down. What a job said in a chat is kept in that chat's
 // conversation, so the next turn knows it happened.
-import type { Agent, ChatHistory, Job } from "#chloe/load/load.ts";
-import type { Attachment } from "#chloe/model/model.ts";
-import { choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices.ts";
-import { forget, remember } from "#chloe/model/memory.ts";
-import { models } from "#chloe/model/model.ts";
-import { clock, type Fired, ran } from "#chloe/core/clock.ts";
-import { answer, waitingOn, WrongInput } from "#chloe/core/steps.ts";
-import { turn } from "#chloe/core/turn.ts";
+import type { Agent, ChatHistory, Job } from "#chloe/load/load";
+import type { Attachment } from "#chloe/model/model";
+import { choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices";
+import { forget, remember } from "#chloe/model/memory";
+import { models } from "#chloe/model/model";
+import { clock, type Fired, ran } from "#chloe/core/clock";
+import { answer, waitingOn, WrongInput } from "#chloe/core/steps";
+import { turn } from "#chloe/core/turn";
 
 /** One message, in the words every channel shares. */
 export interface Incoming {

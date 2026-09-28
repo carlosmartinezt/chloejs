@@ -6,8 +6,8 @@
 //   run:       the job is code. Nothing asks a model unless the code does.
 import type { z } from "zod";
 
-import type { Prompt } from "#chloe/core/markdown.ts";
-import type { Work } from "#chloe/core/steps.ts";
+import type { Prompt } from "#chloe/core/markdown";
+import type { Work } from "#chloe/core/steps";
 
 export interface Definition<
   State extends z.ZodType = z.ZodType<Record<string, unknown>>,

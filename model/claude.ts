@@ -6,7 +6,7 @@
 // agents through here instead. The route "claude" in settings picks it.
 //
 // The CLI's own tools and loop are switched off: see cli.ts for why and how.
-import { setting } from "#chloe/core/settings.ts";
+import { setting } from "#chloe/core/settings";
 
 import { asText, invoke, readReply } from "./cli.ts";
 import type { Answer, Ask } from "./model.ts";

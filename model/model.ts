@@ -15,8 +15,8 @@
 import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";
 
-import type { Agent } from "#chloe/load/load.ts";
-import { setting, settings } from "#chloe/core/settings.ts";
+import type { Agent } from "#chloe/load/load";
+import { setting, settings } from "#chloe/core/settings";
 
 import { viaClaude } from "./claude.ts";
 import { viaCodex } from "./codex.ts";

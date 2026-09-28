@@ -16,19 +16,19 @@
 //           decides whether that route, with the switches this workspace
 //           has on, may be answered. The answer goes back with the same id.
 //
-// Nothing here changes how a job runs. With no `cloud.url` in settings there
-// is no connection, and the only line this file writes is saying so once.
+// Nothing here changes how a job runs. With no CHLOE_API_KEY there is no
+// connection, and the only line this file writes is saying so once.
 import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 
 import { z } from "zod";
 
-import { db, RUN_COLUMNS } from "#chloe/core/db.ts";
-import { events } from "#chloe/core/events.ts";
-import { setting, settings } from "#chloe/core/settings.ts";
-import type { Agent } from "#chloe/load/load.ts";
-import { HOST, PORT, routeList, summary } from "#chloe/serve/http.ts";
-import { RELAY, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login.ts";
+import { db, RUN_COLUMNS } from "#chloe/core/db";
+import { events } from "#chloe/core/events";
+import { setting, settings } from "#chloe/core/settings";
+import type { Agent } from "#chloe/load/load";
+import { HOST, PORT, routeList, summary } from "#chloe/serve/http";
+import { RELAY, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login";
 
 /** The version of what is said on the socket. The cloud refuses one it does not speak. */
 export const PROTOCOL = 1;
@@ -120,7 +120,8 @@ export function startCloud(options: CloudOptions): Cloud {
   function where(): { url: string; key: string } {
     return {
       url: setting(settings.cloud.url, "CHLOE_CLOUD_URL").trim().replace(/\/+$/, ""),
-      key: setting(settings.cloud.key, "CHLOE_API_KEY").trim(),
+      // The key is never a setting: it belongs to the box, not to the project.
+      key: (process.env.CHLOE_API_KEY ?? "").trim(),
     };
   }
 
@@ -164,8 +165,8 @@ export function startCloud(options: CloudOptions): Cloud {
     if (stopped) return;
     const want = where();
     using = want;
-    if (!want.url) return say("not connected: no cloud.url in settings.");
-    if (!want.key) return say("not connected: cloud.url is set and cloud.key is not.");
+    if (!want.key) return say("not connected: no CHLOE_API_KEY. Make a workspace on the dashboard and put its key in .env.");
+    if (!want.url) return say("not connected: cloud.url in settings is empty.");
 
     const address = `${want.url.replace(/^http/, "ws")}/connect`;
     let one: Socket;

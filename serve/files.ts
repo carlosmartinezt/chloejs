@@ -14,9 +14,9 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 
-import { confine } from "#chloe/core/confine.ts";
-import { agentDir, memoryDir } from "#chloe/core/paths.ts";
-import { listFiles, readFiles, writeFiles } from "#chloe/services/filesService.ts";
+import { confine } from "#chloe/core/confine";
+import { agentDir, memoryDir } from "#chloe/core/paths";
+import { listFiles, readFiles, writeFiles } from "#chloe/services/filesService";
 
 export interface Entry {
   name: string;

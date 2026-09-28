@@ -4,9 +4,9 @@
 // writes is the subject and the body.
 import { z } from "zod";
 
-import { type EmailSender, sendEmail } from "#chloe/services/emailService.ts";
-import { writeFiles } from "#chloe/services/filesService.ts";
-import { tool, type Tools } from "#chloe/model/tool.ts";
+import { type EmailSender, sendEmail } from "#chloe/services/emailService";
+import { writeFiles } from "#chloe/services/filesService";
+import { tool, type Tools } from "#chloe/model/tool";
 
 interface Options extends EmailSender {
   /** Who it reaches and when to use it, in the agent's own words. Shown to the model. */

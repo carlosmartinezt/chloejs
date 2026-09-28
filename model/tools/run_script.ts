@@ -7,9 +7,9 @@ import { existsSync, readdirSync } from "node:fs";
 
 import { z } from "zod";
 
-import { agentDir } from "#chloe/core/paths.ts";
-import { listScripts, runScripts as runOne } from "#chloe/services/scriptsService.ts";
-import { tool, type Tools } from "#chloe/model/tool.ts";
+import { agentDir } from "#chloe/core/paths";
+import { listScripts, runScripts as runOne } from "#chloe/services/scriptsService";
+import { tool, type Tools } from "#chloe/model/tool";
 
 /** A tool that runs one file from that agent's own `scripts/` folder. */
 export function runScript(agent: string) {

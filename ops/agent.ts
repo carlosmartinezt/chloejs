@@ -24,7 +24,7 @@
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 
-import { ownCookie } from "#chloe/serve/login.ts";
+import { ownCookie } from "#chloe/serve/login";
 
 // Matches HOST and PORT in serve/http.ts, which are deliberately not settable.
 const BASE = "http://127.0.0.1:3067";

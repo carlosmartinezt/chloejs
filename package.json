@@ -4,33 +4,55 @@
   "type": "module",
   "description": "A job runner where asking a model is one kind of step.",
   "exports": {
-    ".": "./index.ts",
-    "./channels": "./channels/index.ts",
-    "./services": "./services/index.ts",
-    "./scorers": "./scorers/index.ts",
-    "./timer": "./timer/index.ts",
-    "./tools": "./model/tools/index.ts",
-    "./test": "./ops/check.ts"
+    ".": {
+      "chloe-source": "./index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./channels": {
+      "chloe-source": "./channels/index.ts",
+      "types": "./dist/channels/index.d.ts",
+      "default": "./dist/channels/index.js"
+    },
+    "./services": {
+      "chloe-source": "./services/index.ts",
+      "types": "./dist/services/index.d.ts",
+      "default": "./dist/services/index.js"
+    },
+    "./scorers": {
+      "chloe-source": "./scorers/index.ts",
+      "types": "./dist/scorers/index.d.ts",
+      "default": "./dist/scorers/index.js"
+    },
+    "./timer": {
+      "chloe-source": "./timer/index.ts",
+      "types": "./dist/timer/index.d.ts",
+      "default": "./dist/timer/index.js"
+    },
+    "./tools": {
+      "chloe-source": "./model/tools/index.ts",
+      "types": "./dist/model/tools/index.d.ts",
+      "default": "./dist/model/tools/index.js"
+    },
+    "./test": {
+      "chloe-source": "./ops/check.ts",
+      "types": "./dist/ops/check.d.ts",
+      "default": "./dist/ops/check.js"
+    }
   },
   "bin": {
-    "chloe": "./server.ts"
+    "chloe": "./dist/ops/cli.js"
   },
   "imports": {
-    "#chloe/*": "./*"
+    "#chloe/*": {
+      "chloe-source": "./*.ts",
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
   },
   "files": [
-    "channels",
-    "cloud",
-    "core",
-    "index.ts",
-    "load",
-    "model",
-    "ops",
-    "scorers",
-    "serve",
-    "services",
-    "server.ts",
-    "timer"
+    "dist",
+    "ops/install.sh"
   ],
   "engines": {
     "node": ">=22.18.0"
@@ -53,9 +75,15 @@
     "typescript"
   ],
   "scripts": {
-    "test": "node ops/test.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "start": "node --conditions=chloe-source server.ts",
+    "account": "node --conditions=chloe-source ops/account.ts",
+    "agent": "node --conditions=chloe-source ops/agent.ts",
+    "evals": "node --conditions=chloe-source ops/evals.ts",
+    "test": "node --conditions=chloe-source ops/test.ts",
     "typecheck": "tsc --noEmit -p .",
-    "check": "tsc --noEmit -p . && node ops/test.ts"
+    "check": "tsc --noEmit -p . && node --conditions=chloe-source ops/test.ts"
   },
   "devDependencies": {
     "@types/node": "latest",

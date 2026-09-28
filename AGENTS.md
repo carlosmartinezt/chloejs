@@ -53,10 +53,17 @@ person goes in `settings.local.json`, in a section named for the service it
 belongs to (`resend`, `google`). What belongs to one agent, its channels'
 tokens, goes under `agents` and that agent's name:
 `"agents": { "tempo": { "telegram": "..." } }`, read by the name the agent has
-when the channel starts. There is no `.env`. An environment variable still
-beats both settings files, which is for a one-off run and for the tests, not
-for keeping a setting in. The server re-reads both files when either changes,
-so a setting is read when it is needed, never copied at import.
+when the channel starts.
+
+`.env` beside `chloe.config.ts` is the other file, and it holds what belongs to
+the box rather than to the project. `core/env.ts` reads it into the
+environment before any setting is read, and a variable already in the real
+environment wins, so `MODEL_VIA=gateway npx chloe` still beats the file. The
+workspace key for a Chloe Cloud is only ever there, as `CHLOE_API_KEY`: a
+settings file that names `cloud.key` is refused rather than passed over,
+because a key that silently stops being read is a runtime that silently leaves
+its dashboard. The server re-reads all three when any of them changes, so a
+setting is read when it is needed, never copied at import.
 
 **Plug and play.** Adding a capability should be writing a file and naming it
 in the agent's `agent.ts`, not editing four. `agent.ts` imports every part of
@@ -172,10 +179,11 @@ list of names `chloe` exports, and nothing is written in it.
 A thing only one agent wants is not common, and lives in that agent's folder.
 `agents/<name>/` is that agent's
 own, including its `evals/`, which say what a good run of its jobs looks like.
-`ops/` is the four things a person runs rather than the service: the
-tests, the evals, `agent.ts`, which is talking to one agent and trying one
-of its jobs without waiting for the cron line, and `account.ts`, which makes the
-one account, because there is no setup page to make it on. A job lives in `jobs/` whether
+`ops/` is what a person runs rather than the service: `cli.ts`, which is what
+`npx chloe` reaches and which runs each of the others, then the tests, the
+evals, `agent.ts`, which is talking to one agent and trying one of its jobs
+without waiting for the cron line, and `account.ts`, which makes the one
+account, because there is no setup page to make it on. A job lives in `jobs/` whether
 it is code or a prompt, and whether or not it has a cron line: one folder.
 
 The runtime is the floor everyone stands on, so nothing in it may name an agent
@@ -342,7 +350,11 @@ before you write one.
 
 **The runtime is a package: import it as `"@chloejs/core"`, never by path.**
 Inside this repo, `test-agent/` imports it by name too, which works because a
-package can import itself. Seven entrances and no others: `@chloejs/core`,
+package can import itself. Every entrance has a branch per condition in
+`package.json`: `chloe-source` for the `.ts` in this repo, the default for the
+`dist/` that is published. That is why this repo's own scripts all say
+`node --conditions=chloe-source`, and why `ops/install.sh` adds it when the
+install is a symlink to a clone. Seven entrances and no others: `@chloejs/core`,
 `@chloejs/core/services` for the work a job does, `@chloejs/core/tools` for a tool to
 bind, `@chloejs/core/channels` for a channel to bind, `@chloejs/core/scorers` for
 marking a run, `@chloejs/core/timer` for when a job runs (`every`, and cron lines on
@@ -351,7 +363,9 @@ index file (`index.ts`, `services/index.ts`, `model/tools/index.ts`,
 `channels/index.ts`) is publishing it, and taking one
 away is a break, so anything not on those lists is free to move. Inside
 the runtime the files reach each other by `#chloe/`, which `package.json`
-maps, and `../` is the thing not to do.
+maps, with no extension (`#chloe/core/db`, not `#chloe/core/db.ts`, which tsc
+will not rewrite on the way out), and `../` is the thing not to do. A relative
+import inside one folder keeps its `.ts`.
 
 **A job may be markdown or TypeScript, and a prompt is markdown either
 way.** A `.md` beside a `.ts` of the same name is that job's words. A `.ts`

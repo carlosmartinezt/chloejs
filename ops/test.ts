@@ -33,7 +33,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { about, failed, is } from "#chloe/ops/check.ts";
+import { about, failed, is } from "#chloe/ops/check";
 
 // A stand-in gateway, up before anything reads AI_GATEWAY_URL. An answer is
 // either what the model said, or a whole message when a case needs it to ask
@@ -146,7 +146,7 @@ about("what a run did, in one line");
   is("a summary that throws does not fail the run", row(done.runId).error, null);
   is("and it says so", row(done.runId).summary, "(its summary failed: no such field)");
 
-  const { recentWork } = await import("#chloe/serve/recentWork.ts");
+  const { recentWork } = await import("#chloe/serve/recentWork");
   const agent = { ...agentFor(counted), name: "recent" };
   const at = (minutes: number) => new Date(Date.UTC(2026, 0, 1, 0, minutes)).toISOString();
   const insert = db.prepare(
@@ -593,11 +593,33 @@ about("a model step that never fits");
     refused = error instanceof Error ? error.message.split("\n")[0] : "";
   }
   is("a setting that is not a choice is refused, not ignored", refused, "settings are not valid:");
+
+  let moved = "";
+  try {
+    readSettings({}, { cloud: { key: "chl_workspace_x" } });
+  } catch (error) {
+    moved = error instanceof Error ? error.message : "";
+  }
+  is("cloud.key in a settings file is refused, and says where it went", moved.includes("CHLOE_API_KEY in .env"), true);
+  is("and the dashboard's address is what it is unless somebody says", readSettings({}, {}).cloud.url, "https://dashboard.chloejs.org");
+}
+
+{
+  about("the .env file beside chloe.config.ts");
+  const { readEnvFile } = await import("#chloe/core/env");
+
+  is("a plain line", readEnvFile("CHLOE_API_KEY=chl_workspace_x").CHLOE_API_KEY, "chl_workspace_x");
+  is("blank lines and comments are passed over", Object.keys(readEnvFile("\n# a note\nA=1\n")), ["A"]);
+  is("quotes around a value come off", readEnvFile('A="one two"').A, "one two");
+  is("and so does export in front, so a shell reads the same file", readEnvFile("export A=1").A, "1");
+  is("a value may hold an =", readEnvFile("A=b=c").A, "b=c");
+  is("a line with no = is not a setting", readEnvFile("nonsense").nonsense, undefined);
+  is("space either side of the name is not part of it", readEnvFile("  A = 1  ").A, "1");
 }
 
 {
   about("what mail says when a person has to sign in");
-  const { explain } = await import("#chloe/services/gmailService.ts");
+  const { explain } = await import("#chloe/services/gmailService");
 
   // The account is read from settings, which on a real box has a real one in it.
   const { settings } = await import("@chloejs/core");
@@ -640,7 +662,7 @@ about("a model step that never fits");
   // Reaching into the package by path rather than through "@chloejs/core": reading the
   // CLI's replies is the runtime's own business, and this case should move in
   // with it the day chloe becomes its own repo.
-  const { readReply } = await import("#chloe/model/cli.ts");
+  const { readReply } = await import("#chloe/model/cli");
 
   is("plain words are an answer", readReply("The site is up.").call, undefined);
   const tagged = readReply(
@@ -685,9 +707,9 @@ about("a model step that never fits");
 
 {
   about("which route a model goes by");
-  const { models, routeFor, via } = await import("#chloe/model/model.ts");
-  const { codexModel, readCodex } = await import("#chloe/model/codex.ts");
-  const { cliModel } = await import("#chloe/model/claude.ts");
+  const { models, routeFor, via } = await import("#chloe/model/model");
+  const { codexModel, readCodex } = await import("#chloe/model/codex");
+  const { cliModel } = await import("#chloe/model/claude");
   const { settings } = await import("@chloejs/core");
   const forced = process.env.MODEL_VIA;
   const key = process.env.AI_GATEWAY_API_KEY;
@@ -758,8 +780,8 @@ about("a model step that never fits");
 
 {
   about("a model picked on the fly");
-  const { choices, choose, chosen, modelFor } = await import("#chloe/model/choices.ts");
-  const { commands, receive } = await import("#chloe/channels/shared.ts");
+  const { choices, choose, chosen, modelFor } = await import("#chloe/model/choices");
+  const { commands, receive } = await import("#chloe/channels/shared");
   const { settings } = await import("@chloejs/core");
   const job = codeJob("nightly", async () => ({}));
   const agent = agentFor(job);
@@ -906,8 +928,8 @@ about("a model step that never fits");
 {
   about("a job with no cron line, and one with a bad cron line");
 
-  const { jobsOf, markdownJob } = await import("#chloe/load/load.ts");
-  const { startClock } = await import("#chloe/core/clock.ts");
+  const { jobsOf, markdownJob } = await import("#chloe/load/load");
+  const { startClock } = await import("#chloe/core/clock");
   const folder = await mkdtemp(join(tmpdir(), "chloe-jobs-"));
   await mkdir(join(folder, "jobs"));
   await writeFile(join(folder, "jobs/by-hand.md"), "---\ndescription: Says hello.\n---\n\nSay hello.\n");
@@ -1009,7 +1031,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("the folder the page reads and writes");
 
-  const { editable, open, save, tree } = await import("#chloe/serve/files.ts");
+  const { editable, open, save, tree } = await import("#chloe/serve/files");
   const { names } = await import("@chloejs/core");
   const agent = (await names())[0];
 
@@ -1041,7 +1063,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("what a request may send");
 
-  const { body, BadRequest } = await import("#chloe/serve/http.ts");
+  const { body, BadRequest } = await import("#chloe/serve/http");
   const shape = z.object({ text: z.string().trim().min(1) });
   // A stand-in caller: whatever it is handed is the body of one request.
   const server = createServer(async (request, response) => {
@@ -1066,7 +1088,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
 {
   about("telegram");
-  const { listen, telegramChannel, telegramHtml, inPieces } = await import("#chloe/channels/telegram.ts");
+  const { listen, telegramChannel, telegramHtml, inPieces } = await import("#chloe/channels/telegram");
 
   is(
     "markdown arrives as telegram's own formatting",
@@ -1268,7 +1290,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // A plain message a job answers goes to that job, not to the chat, and with
   // inGroups "always" a group message needs no mention.
   calls.length = 0;
-  const { startClock } = await import("#chloe/core/clock.ts");
+  const { startClock } = await import("#chloe/core/clock");
   const handed: string[] = [];
   const highlights = {
     ...codeJob("highlights", async ({ input }) => (handed.push(String(input.text)), { ok: true }), undefined, () => "Filed."),
@@ -1288,7 +1310,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("a message a job answers goes to that job, whole", handed, ["\u201cA line from a book.\u201d \u2014 A Book"]);
   const whole = "Filed. " + "A reply that is longer than one line. ".repeat(8).trim();
   is("and its own reply is what the chat is sent, whole", said(), [`-100: ${whole}`]);
-  const { recall: recalled } = await import("#chloe/model/memory.ts");
+  const { recall: recalled } = await import("#chloe/model/memory");
   is("and the exchange is kept in that chat's conversation", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["\u201cA line from a book.\u201d \u2014 A Book", whole]);
   is("the / menu is the agent's jobs, then /models", calls.find((c) => c.method === "setMyCommands")?.body.commands, [
     { command: "highlights", description: "highlights" },
@@ -1365,7 +1387,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
 {
   about("slack");
-  const { listen } = await import("#chloe/channels/slack.ts");
+  const { listen } = await import("#chloe/channels/slack");
   const { createHash } = await import("node:crypto");
 
   // A stand-in Slack: its web methods over HTTP, and one socket that hands
@@ -1492,7 +1514,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // A slash command runs the job it names, and is answered where it was typed.
   calls.length = 0;
   socket = undefined;
-  const { startClock } = await import("#chloe/core/clock.ts");
+  const { startClock } = await import("#chloe/core/clock");
   const handed: string[] = [];
   const noted = { ...codeJob("note-it", async ({ input }) => (handed.push(String(input.text)), { ok: true })), input: z.object({ text: z.string() }), reply: () => "Noted." } as Job;
   delete noted.cron;
@@ -1521,10 +1543,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("the api channel");
 
-  const { apiChannel } = await import("#chloe/channels/api.ts");
-  const { recall } = await import("#chloe/model/memory.ts");
-  const { serve } = await import("#chloe/serve/http.ts");
-  const { makeToken, revokeToken, forgetTokens } = await import("#chloe/serve/tokens.ts");
+  const { apiChannel } = await import("#chloe/channels/api");
+  const { recall } = await import("#chloe/model/memory");
+  const { serve } = await import("#chloe/serve/http");
+  const { makeToken, revokeToken, forgetTokens } = await import("#chloe/serve/tokens");
 
   // It listens to nothing. What binding it does is give a token permission to
   // reach that agent: the server answers the routes either way.
@@ -1540,7 +1562,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     host: "127.0.0.1",
     port: 0,
     agents: () => new Map([["test", open], ["closed", closed]]),
-    clock: { fire() {}, running: () => [] } as unknown as import("#chloe/core/clock.ts").Clock,
+    clock: { fire() {}, running: () => [] } as unknown as import("#chloe/core/clock").Clock,
     channels: () => [],
   });
   await new Promise<void>((done) => server.once("listening", done));
@@ -1594,7 +1616,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("runs a stop cut off");
 
-  const { closeCutOff } = await import("#chloe/core/db.ts");
+  const { closeCutOff } = await import("#chloe/core/db");
   const insert = db.prepare(
     "insert into runs (id, agent, started, finished, source, model, prompt, parked) values (?, 'stopped', ?, ?, 'x', 'code', '', ?)",
   );
@@ -1613,7 +1635,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("a conversation remembers which tools a reply used");
 
-  const { recall, remember } = await import("#chloe/model/memory.ts");
+  const { recall, remember } = await import("#chloe/model/memory");
   remember("test/tools", "user", "What board am I on?");
   remember("test/tools", "assistant", "Board 210.", [
     { tool: "read_web", args: { url: "https://example.com/pairings" } },
@@ -1640,7 +1662,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   // What a turn is shown is its channel's chatHistory.
   answers.push("Noted.");
-  const { receive } = await import("#chloe/channels/shared.ts");
+  const { receive } = await import("#chloe/channels/shared");
   const brief = agentFor(codeJob("unused", async () => ({})));
   const askedBefore = asked;
   await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "and today?", private: true }, { chatHistory: { messages: 1 } });
@@ -1701,13 +1723,13 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const { execFileSync } = await import("node:child_process");
   const { chmod, mkdtemp, mkdir: makeDir, readFile: get, writeFile: put } = await import("node:fs/promises");
   const { realpathSync } = await import("node:fs");
-  const { jobsOf, loadAll, markdownJob } = await import("#chloe/load/load.ts");
-  const { setAgentDirs } = await import("#chloe/core/paths.ts");
-  const { change, makeRepo, markSeen, undo } = await import("#chloe/services/historyService.ts");
-  const { whyNot, writeOwn } = await import("#chloe/services/ownFilesService.ts");
-  const { runScripts } = await import("#chloe/services/scriptsService.ts");
-  const { agentChanges } = await import("#chloe/serve/changes.ts");
-  const { open, tree } = await import("#chloe/serve/files.ts");
+  const { jobsOf, loadAll, markdownJob } = await import("#chloe/load/load");
+  const { setAgentDirs } = await import("#chloe/core/paths");
+  const { change, makeRepo, markSeen, undo } = await import("#chloe/services/historyService");
+  const { whyNot, writeOwn } = await import("#chloe/services/ownFilesService");
+  const { runScripts } = await import("#chloe/services/scriptsService");
+  const { agentChanges } = await import("#chloe/serve/changes");
+  const { open, tree } = await import("#chloe/serve/files");
 
   // What this box's git calls a person, for the commits a person makes.
   const identity = ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"];
@@ -2025,7 +2047,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("the login in front of the page");
 
-  const { covers, createAccount, hasAccount, setCookie, shareLogin, signIn, signedIn } = await import("#chloe/serve/login.ts");
+  const { covers, createAccount, hasAccount, setCookie, shareLogin, signIn, signedIn } = await import("#chloe/serve/login");
   const carrying = (cookie: string) => ({ headers: { cookie } }) as import("node:http").IncomingMessage;
 
   is("a fresh copy has no account", hasAccount(), false);
@@ -2107,12 +2129,12 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // asked. Whether a page package happens to be installed in this repo is not
   // what these are testing, and letting it decide would make them drift.
   process.env.CHLOE_PAGE = "builtin";
-  const { serve } = await import("#chloe/serve/http.ts");
+  const { serve } = await import("#chloe/serve/http");
   const server = serve({
     host: "127.0.0.1",
     port: 0,
     agents: () => new Map(),
-    clock: { fire() {} } as unknown as import("#chloe/core/clock.ts").Clock,
+    clock: { fire() {} } as unknown as import("#chloe/core/clock").Clock,
     channels: () => [],
   });
   await new Promise<void>((done) => server.once("listening", done));
@@ -2163,7 +2185,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   about("a channel's own path, through the server");
 
   process.env.CHLOE_PAGE = "builtin";
-  const { serve } = await import("#chloe/serve/http.ts");
+  const { serve } = await import("#chloe/serve/http");
 
   // A channel that is sent its messages, as telegram's webhook mode is, gets
   // its path handed to it before the login. The api channel is not one of
@@ -2181,7 +2203,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     host: "127.0.0.1",
     port: 0,
     agents: () => new Map([["test", reachable]]),
-    clock: { fire() {}, running: () => [] } as unknown as import("#chloe/core/clock.ts").Clock,
+    clock: { fire() {}, running: () => [] } as unknown as import("#chloe/core/clock").Clock,
     channels: () => [route],
   });
   await new Promise<void>((done) => server.once("listening", done));
@@ -2200,7 +2222,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("what a job is started with");
 
-  const { work: runJob, checkInput, WrongInput } = await import("#chloe/core/steps.ts");
+  const { work: runJob, checkInput, WrongInput } = await import("#chloe/core/steps");
 
   const takes = z.object({
     text: z.string().min(1),
@@ -2256,9 +2278,9 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("starting a job over the API");
 
-  const { serve } = await import("#chloe/serve/http.ts");
-  const { apiChannel } = await import("#chloe/channels/api.ts");
-  const { makeToken, forgetTokens } = await import("#chloe/serve/tokens.ts");
+  const { serve } = await import("#chloe/serve/http");
+  const { apiChannel } = await import("#chloe/channels/api");
+  const { makeToken, forgetTokens } = await import("#chloe/serve/tokens");
 
   process.env.CHLOE_PAGE = "builtin";
   let started: unknown;
@@ -2282,7 +2304,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
         return Promise.resolve(undefined);
       },
       running: () => [],
-    } as unknown as import("#chloe/core/clock.ts").Clock,
+    } as unknown as import("#chloe/core/clock").Clock,
     channels: () => [],
   });
   await new Promise<void>((done) => server.once("listening", done));
@@ -2327,7 +2349,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("who a request is really from");
 
-  const { from } = await import("#chloe/serve/login.ts");
+  const { from } = await import("#chloe/serve/login");
   const asking = (headers: Record<string, string>) =>
     from({ headers, socket: { remoteAddress: "127.0.0.1" } } as unknown as import("node:http").IncomingMessage);
 
@@ -2350,10 +2372,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   about("an agent's memory, and the log of what was served");
 
   const { mkdir: makeDir, writeFile: put, readFile: get } = await import("node:fs/promises");
-  const { serve } = await import("#chloe/serve/http.ts");
-  const { makeToken, forgetTokens } = await import("#chloe/serve/tokens.ts");
-  const { memoryFolder } = await import("#chloe/load/load.ts");
-  const { MEMORIES } = await import("#chloe/core/paths.ts");
+  const { serve } = await import("#chloe/serve/http");
+  const { makeToken, forgetTokens } = await import("#chloe/serve/tokens");
+  const { memoryFolder } = await import("#chloe/load/load");
+  const { MEMORIES } = await import("#chloe/core/paths");
 
   const folder = `${process.env.AGENTS_STATE}/memory-under-test`;
   await makeDir(`${folder}/01_projects`, { recursive: true });
@@ -2385,7 +2407,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     host: "127.0.0.1",
     port: 0,
     agents: () => new Map([["test", keeper], ["other", other]]),
-    clock: { fire() {}, running: () => [] } as unknown as import("#chloe/core/clock.ts").Clock,
+    clock: { fire() {}, running: () => [] } as unknown as import("#chloe/core/clock").Clock,
     channels: () => [],
   });
   await new Promise<void>((done) => server.once("listening", done));
@@ -2500,7 +2522,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await put(`${outer}/data/tempo/journal.md`, "a day");
 
   const inside: Agent = { ...agentFor(codeJob("unused", async () => ({}))), name: "inside", memory: { folder: `${outer}/data/tempo` } };
-  const { memoryGit, memoryCommit } = await import("#chloe/serve/memory.ts");
+  const { memoryGit, memoryCommit } = await import("#chloe/serve/memory");
   is("a memory inside another repo is not a repo", (await memoryGit(inside)).repo, false);
   const tried = await memoryCommit(inside, "tidy up", "test").then(() => "committed", (error: Error) => error.message);
   is("so commit refuses rather than committing that repo's work", tried, "This memory is not a git repository.");
@@ -2518,7 +2540,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("a page a package offers");
 
-  const { installedPage, pageIn } = await import("#chloe/serve/page.ts");
+  const { installedPage, pageIn } = await import("#chloe/serve/page");
 
   // A node_modules of its own, holding one package that declares a page. The
   // runtime never names a package: it looks for the declaration.
@@ -2542,7 +2564,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // What it serves. A file that is there is the file. Everything else is one of
   // the page's own addresses, including one with a dot in it: an address inside
   // the page can name a file that lives somewhere else entirely.
-  const { servePageFile } = await import("#chloe/serve/page.ts");
+  const { servePageFile } = await import("#chloe/serve/page");
   const served = async (path: string) => {
     let type = "";
     let body = "";
@@ -2563,7 +2585,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("what the page adds to a note");
 
-  const { withHead } = await import("#chloe/serve/memory.ts");
+  const { withHead } = await import("#chloe/serve/memory");
   const add = '<link rel="stylesheet" href="/notes.css">';
   is("first inside the note's own head", withHead("<html><head><title>x</title></head></html>", add), `<html><head>\n${add}<title>x</title></head></html>`);
   is("not inside a header that is not a head", withHead("<!doctype html><header>h</header>", add), `<!doctype html>\n${add}<header>h</header>`);
@@ -2574,10 +2596,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("the connection to a cloud");
 
-  const { serve } = await import("#chloe/serve/http.ts");
-  const { startCloud } = await import("#chloe/cloud/connect.ts");
-  type Socket = import("#chloe/cloud/connect.ts").Socket;
-  const { settings: live } = await import("#chloe/core/settings.ts");
+  const { serve } = await import("#chloe/serve/http");
+  const { startCloud } = await import("#chloe/cloud/connect");
+  type Socket = import("#chloe/cloud/connect").Socket;
+  const { settings: live } = await import("#chloe/core/settings");
   const { readFile: get } = await import("node:fs/promises");
 
   // A runtime to relay to, with one agent whose memory holds one file.
@@ -2598,7 +2620,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
         return Promise.resolve(undefined);
       },
       running: () => [],
-    } as unknown as import("#chloe/core/clock.ts").Clock,
+    } as unknown as import("#chloe/core/clock").Clock,
     channels: () => [],
   });
   await new Promise<void>((done) => server.once("listening", done));
@@ -2638,7 +2660,6 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // Set rather than assumed: this suite runs from whichever repo installed the
   // runtime, and that repo's settings.json may well name a cloud of its own.
   live.cloud.url = "";
-  live.cloud.key = "";
   live.cloud.sync = { runs: true, agents: true };
   live.cloud.remote = { read: true, chat: true, run: true, memory: false, write: false };
 
@@ -2647,7 +2668,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   delete process.env.CHLOE_API_KEY;
   const idle = startCloud({ agents: () => new Map([["test", keeper]]), self: at, socket: fake, backoff: { first: 10, most: 20 } });
   await tick();
-  is("with no cloud.url nothing is opened", opened.length, 0);
+  is("with no key nothing is opened", opened.length, 0);
   idle.stop();
 
   process.env.CHLOE_CLOUD_URL = "https://cloud.example/";

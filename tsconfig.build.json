@@ -1,0 +1,22 @@
+{
+  // Building the package for publishing. `npm run check` still asks tsconfig.json
+  // a question and emits nothing: this is the one that writes dist/.
+  //
+  // Node refuses to strip types for any file under node_modules, with no flag to
+  // say otherwise, so a package of .ts files cannot be run by anyone who
+  // installs it. dist/ is what they run. Nothing changes for them: their own
+  // agent files are outside node_modules and Node reads those directly.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    // Every import here names the real .ts file. This rewrites the relative
+    // ones to .js on the way out; the #chloe/ ones are rewritten by the
+    // "imports" map in package.json, which has a branch per condition.
+    "rewriteRelativeImportExtensions": true
+  },
+  "exclude": ["node_modules", "data", "dist", "test-agent", "chloe.config.ts", "ops/test.ts"]
+}

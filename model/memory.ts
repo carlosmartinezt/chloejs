@@ -1,7 +1,7 @@
 // The last few messages of one thread, and nothing else: no summarising and
 // nothing kept between threads. What an agent should remember across runs it
 // writes into its own folder, where it can be read and corrected.
-import { db } from "#chloe/core/db.ts";
+import { db } from "#chloe/core/db";
 import type { Message } from "./model.ts";
 
 /** How many messages of a conversation a turn is shown, when the agent does not say. */

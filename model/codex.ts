@@ -11,7 +11,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { setting } from "#chloe/core/settings.ts";
+import { setting } from "#chloe/core/settings";
 
 import { asText, invoke, readReply } from "./cli.ts";
 import type { Answer, Ask } from "./model.ts";

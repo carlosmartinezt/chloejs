@@ -7,7 +7,7 @@
 // The tool a model reaches is model/tools/send_email.ts, which calls
 // this. A job calls this directly, from a step.
 
-import { setting, settings } from "#chloe/core/settings.ts";
+import { setting, settings } from "#chloe/core/settings";
 
 /**
  * Who an agent's mail comes from, who it goes to, and the tag in front of

@@ -6,16 +6,17 @@
 // lists them, so adding one is adding it to that list.
 //
 // If this process is not running, nothing fires.
-import { readdirSync, watch, type FSWatcher } from "node:fs";
+import { readdirSync, readFileSync, watch, type FSWatcher } from "node:fs";
 
-import { ROOT } from "#chloe/core/paths.ts";
-import { reloadSettings, settings, unclaimed } from "#chloe/core/settings.ts";
-import { closeCutOff, trim } from "#chloe/core/db.ts";
-import { loadAll, type Agent, type Running } from "#chloe/load/load.ts";
-import { via } from "#chloe/model/model.ts";
-import { HOST, PORT, serve } from "#chloe/serve/http.ts";
-import { startClock } from "#chloe/core/clock.ts";
-import { startCloud } from "#chloe/cloud/connect.ts";
+import { ROOT } from "#chloe/core/paths";
+import { reloadSettings, settings, unclaimed } from "#chloe/core/settings";
+import { closeCutOff, trim } from "#chloe/core/db";
+import { loadAll, type Agent, type Running } from "#chloe/load/load";
+import { runnable, via } from "#chloe/model/model";
+import { HOST, PORT, serve } from "#chloe/serve/http";
+import { startClock } from "#chloe/core/clock";
+import { startCloud } from "#chloe/cloud/connect";
+import { hasAccount } from "#chloe/serve/login";
 
 let agents: Map<string, Agent> = await loadAll();
 
@@ -68,14 +69,17 @@ serve({
   channels: () => [...running.values()].flatMap((one) => one.routes ?? []),
 });
 
-// The connection to Chloe Cloud, if settings name one. It reads settings itself,
-// so a change to cloud.url or cloud.key is a reload away like everything else.
+// The connection to Chloe Cloud, if there is a key for one. It reads the
+// settings and the environment itself, so a change to CHLOE_API_KEY or
+// cloud.url is a reload away like everything else.
 const cloud = startCloud({ agents: () => agents });
 
 console.log(`agents: ${[...agents.keys()].join(", ")} on http://${HOST}:${PORT}`);
 const byRoute = (route: string) => (route === "gateway" ? "the gateway, on a key" : `the ${route} cli, on a subscription`);
 const routed = Object.entries(settings.model.routes).map(([provider, route]) => `${provider} by ${byRoute(route)}`);
 console.log(`models: ${[byRoute(via()), ...routed].join("; ")}`);
+for (const line of whatIsMissing()) console.log(line);
+if (!hasAccount()) console.log('no account yet: run "npx chloe account" in another terminal, then open that address');
 for (const agent of agents.values()) {
   for (const job of agent.jobs) {
     console.log(
@@ -85,9 +89,35 @@ for (const agent of agents.values()) {
   }
 }
 
+/**
+ * What a new project usually has not done yet, said once at startup rather than
+ * left to fail on the first call. Each line is a thing to go and do.
+ */
+function whatIsMissing(): string[] {
+  const lines: string[] = [];
+  const route = via();
+  if (!runnable(route)) {
+    lines.push(
+      route === "gateway"
+        ? "models: no gateway key. Put one in settings.local.json as model.key, or set AI_GATEWAY_API_KEY in .env."
+        : `models: the ${route} command is not on the path. Install it, or set model.key and model.via to "gateway".`,
+    );
+  }
+  // Node reads an agent file as CommonJS first when the project does not say,
+  // which works until the day a file happens to parse both ways.
+  let type = "";
+  try {
+    type = (JSON.parse(readFileSync(`${ROOT}/package.json`, "utf8")) as { type?: string }).type ?? "";
+  } catch {
+    // No package.json is a project that has not run npm install. It has bigger problems.
+  }
+  if (type !== "module") lines.push('package.json: add "type": "module", so node reads your agent files as modules.');
+  return lines;
+}
+
 let pending: NodeJS.Timeout | undefined;
 const changedChannels = new Set<string>();
-const SETTINGS = ["settings.json", "settings.local.json"];
+const SETTINGS = ["settings.json", "settings.local.json", ".env"];
 let settingsChanged = false;
 
 function changed(path: string): void {

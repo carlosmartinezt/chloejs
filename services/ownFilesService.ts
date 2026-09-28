@@ -12,10 +12,10 @@ import { existsSync, realpathSync, statSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
 
-import { confine, unreachable } from "#chloe/core/confine.ts";
-import { markdownJobProblem, type Home, type OwnFileRules } from "#chloe/load/load.ts";
-import { parse } from "#chloe/timer/cron.ts";
-import { settingsAndBody } from "#chloe/core/markdown.ts";
+import { confine, unreachable } from "#chloe/core/confine";
+import { markdownJobProblem, type Home, type OwnFileRules } from "#chloe/load/load";
+import { parse } from "#chloe/timer/cron";
+import { settingsAndBody } from "#chloe/core/markdown";
 import { readFiles, writeFiles } from "./filesService.ts";
 import { uncommitted } from "./historyService.ts";
 

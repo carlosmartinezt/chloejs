@@ -7,7 +7,7 @@
 //
 // What to expect arrives with the run, from the eval case, so this file names
 // no agent and no tool.
-import type { Result } from "#chloe/core/turn.ts";
+import type { Result } from "#chloe/core/turn";
 
 /**
  * Which tools a run should have used, must not have used, and may use only

@@ -6,17 +6,20 @@
 //   settings.json        in source control: true for everyone who clones this
 //   settings.local.json  not in source control: true for this box only
 //
-// An environment variable beats all three. That is for a one-off run
-// (MODEL_VIA=gateway npm run evals) and for the tests, not for keeping
-// settings in.
+// An environment variable beats all three, and .env beside chloe.config.ts is
+// read into the environment before any of this. Which of the two a value goes
+// in: .env is for what belongs to the box rather than to the project, and the
+// workspace key for a Chloe Cloud is only ever there.
 //
 // A value that names a home directory, a machine, a person, or is a
-// credential (a bot token, a chat id) belongs in settings.local.json, so
-// setting chloe up is filling in that one file. Nothing in source control may
+// credential (a bot token, a chat id) belongs in settings.local.json or .env,
+// so setting chloe up is filling in one file. Nothing in source control may
 // hold any of them.
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 
+// First, so .env is in the environment before anything reads a setting.
+import { loadEnv } from "./env.ts";
 import { ROOT } from "./root.ts";
 
 const schema = z.object({
@@ -104,15 +107,14 @@ const schema = z.object({
     .default({}),
   /**
    * Chloe Cloud: a dashboard somewhere else that this runtime connects out to
-   * and is shown on. Nothing about how a job runs depends on it, and with no
-   * `url` there is no connection.
+   * and is shown on. Nothing about how a job runs depends on it. The workspace
+   * key is CHLOE_API_KEY in .env and is not a setting: without it there is no
+   * connection, and taking it out leaves everything running as it was.
    */
   cloud: z
     .object({
-      /** Where the cloud is, like "https://dashboard.chloejs.org". Empty means not connected. CHLOE_CLOUD_URL beats it. */
-      url: z.string().default(""),
-      /** This workspace's key, made on the dashboard and shown once. settings.local.json. CHLOE_API_KEY beats it. */
-      key: z.string().default(""),
+      /** Where the cloud is. CHLOE_CLOUD_URL beats it. Point it at your own by setting this. */
+      url: z.string().default("https://dashboard.chloejs.org"),
       /** What is sent up as it happens, so the dashboard can show it when this runtime is offline. */
       sync: z
         .object({
@@ -180,7 +182,13 @@ function merge(base: Record<string, unknown>, over: Record<string, unknown>): Re
  * tested without a disk, and so the order that wins is one readable line.
  */
 export function readSettings(tracked: unknown, local: unknown): Settings {
-  const found = schema.safeParse(merge(tracked as Record<string, unknown>, local as Record<string, unknown>));
+  const merged = merge(tracked as Record<string, unknown>, local as Record<string, unknown>);
+  // Said rather than passed over, because a key that silently stops being read
+  // is a runtime that silently leaves its dashboard.
+  if ((merged.cloud as Record<string, unknown> | undefined)?.key !== undefined) {
+    throw new Error("settings: cloud.key is now CHLOE_API_KEY in .env, beside chloe.config.ts. Move it and take it out of the settings file.");
+  }
+  const found = schema.safeParse(merged);
   if (!found.success) throw new Error(`settings are not valid:\n${z.prettifyError(found.error)}`);
   return found.data;
 }
@@ -199,6 +207,7 @@ export const settings: Settings = readSettings(read("settings.json"), read("sett
  * Throws, and changes nothing, when the files are not valid.
  */
 export function reloadSettings(): void {
+  loadEnv();
   Object.assign(settings, readSettings(read("settings.json"), read("settings.local.json")));
 }
 

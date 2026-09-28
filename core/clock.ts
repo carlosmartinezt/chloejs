@@ -1,11 +1,11 @@
 // The clock: anything due this minute runs. What is due comes from the files on disk, so
 // an edited or deleted job takes effect on the next tick with no table to
 // get out of step with the folder.
-import type { Agent, Job } from "#chloe/load/load.ts";
-import { due, parse } from "#chloe/timer/cron.ts";
-import { turn } from "#chloe/core/turn.ts";
-import { modelFor } from "#chloe/model/choices.ts";
-import { sweep, waitingFor, work, WrongInput } from "#chloe/core/steps.ts";
+import type { Agent, Job } from "#chloe/load/load";
+import { due, parse } from "#chloe/timer/cron";
+import { turn } from "#chloe/core/turn";
+import { modelFor } from "#chloe/model/choices";
+import { sweep, waitingFor, work, WrongInput } from "#chloe/core/steps";
 
 /**
  * What a run came to, in the part both kinds of job have: a job made of code

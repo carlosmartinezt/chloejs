@@ -16,7 +16,7 @@ function findRoot(): string {
     if (up === dir) break;
     dir = up;
   }
-  throw new Error(`No chloe.config.ts at or above ${process.cwd()}. Start the agents from inside the repo.`);
+  throw new Error(`No chloe.config.ts at or above ${process.cwd()}. It lists the agents to run, and chloe is started from beside it.`);
 }
 
 /**

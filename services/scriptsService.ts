@@ -9,8 +9,8 @@
 // these from a step.
 import { readdir } from "node:fs/promises";
 
-import { agentDir, memoryDir } from "#chloe/core/paths.ts";
-import { settings } from "#chloe/core/settings.ts";
+import { agentDir, memoryDir } from "#chloe/core/paths";
+import { settings } from "#chloe/core/settings";
 import { run, type Result } from "./runService.ts";
 
 /** What this agent has in scripts/, sorted. Nothing hidden. */

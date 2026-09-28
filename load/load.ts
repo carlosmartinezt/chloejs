@@ -12,17 +12,17 @@ import { getCallSites } from "node:util";
 
 import type { z } from "zod";
 
-import { MEMORIES, ROOT, setAgentDirs } from "#chloe/core/paths.ts";
-import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown.ts";
-import { parse } from "#chloe/timer/cron.ts";
+import { MEMORIES, ROOT, setAgentDirs } from "#chloe/core/paths";
+import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown";
+import { parse } from "#chloe/timer/cron";
 import type { Definition as JobFile } from "./job.ts";
-import type { Tool, Tools } from "#chloe/model/tool.ts";
-import { memoryTools } from "#chloe/model/tools/memory.ts";
-import { ownFiles } from "#chloe/model/tools/own_files.ts";
-import { runScripts } from "#chloe/model/tools/run_script.ts";
-import { makeRepo } from "#chloe/services/historyService.ts";
-import { shareLogin } from "#chloe/serve/login.ts";
-import type { Work } from "#chloe/core/steps.ts";
+import type { Tool, Tools } from "#chloe/model/tool";
+import { memoryTools } from "#chloe/model/tools/memory";
+import { ownFiles } from "#chloe/model/tools/own_files";
+import { runScripts } from "#chloe/model/tools/run_script";
+import { makeRepo } from "#chloe/services/historyService";
+import { shareLogin } from "#chloe/serve/login";
+import type { Work } from "#chloe/core/steps";
 
 export const CONFIG = `${ROOT}/chloe.config.ts`;
 

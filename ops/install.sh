@@ -2,7 +2,7 @@
 # Install the service that runs the agents, and start it. Run it from the top
 # of your own project, the folder with chloe.config.ts in it:
 #
-#   sh node_modules/@chloejs/core/ops/install.sh
+#   npx chloe install
 #
 # The unit is called chloe.service. One box runs one of these, so this replaces
 # an existing one and points it at the folder it was run from.
@@ -21,22 +21,36 @@ ROOT=$(pwd)
   echo "No node_modules. Run npm install in $ROOT first." >&2
   exit 1
 }
-# Node runs the TypeScript directly, which needs a version that strips types
-# without being asked. Checked before the settings are read, because reading
-# them is itself a TypeScript import.
+# Your agent files are TypeScript that node reads directly, which needs a
+# version that strips types without being asked.
 node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' || {
-  echo "Node 22 or newer is needed: this runs .ts files directly." >&2
+  echo "Node 22 or newer is needed: your agent files are .ts and node reads them directly." >&2
   exit 1
 }
+
+# Two shapes of install, and they are started differently. A normal install runs
+# the built copy in dist/. An install by path is a symlink to a clone of the
+# chloejs repo, which has the source and may have no dist/ at all, so it is run
+# with the condition that picks the source.
+CORE="$ROOT/node_modules/@chloejs/core"
+if [ -L "$CORE" ]; then
+  START="--conditions=chloe-source $(cd "$CORE" && pwd -P)/server.ts"
+else
+  START="$CORE/dist/server.js"
+  [ -f "$CORE/dist/server.js" ] || {
+    echo "No $CORE/dist. Reinstall @chloejs/core." >&2
+    exit 1
+  }
+fi
 
 # The settings are JSON, so they are read by node rather than sourced. Asking
 # the same module the runtime asks means this script cannot disagree with it
 # about a default. An empty setting comes back as "-" so that read gets two
 # fields either way.
-SETTINGS=$(node --input-type=module -e '
-  const { settings } = await import(process.argv[1] + "/node_modules/@chloejs/core/core/settings.ts");
+SETTINGS=$(cd "$ROOT" && node --conditions=chloe-source --input-type=module -e '
+  const { settings } = await import("@chloejs/core");
   console.log(settings.node || "-", settings.model.via || "-");
-' "$ROOT") || {
+') || {
   echo "settings.json could not be read. The error is above." >&2
   exit 1
 }
@@ -76,9 +90,9 @@ Type=simple
 # needs one.
 Environment=PATH=$NODEBIN$CLAUDEBIN:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=$ROOT
-# server.ts is what is run. The package's index.ts is only its exports and
-# starts nothing. The port and the loopback bind are in serve/http.ts.
-ExecStart=$NODEBIN/node $ROOT/node_modules/@chloejs/core/server.ts
+# The server is what is run. The package's index is only its exports and starts
+# nothing. The port and the loopback bind are in serve/http.ts.
+ExecStart=$NODEBIN/node $START
 Restart=on-failure
 RestartSec=15
 Nice=5
@@ -97,5 +111,5 @@ systemctl --user restart chloe.service
 echo "Installed chloe.service, node at $NODEBIN."
 echo "Model calls go via ${MODELVIA:-whichever this box can}."
 echo "The site and the API are on http://127.0.0.1:3067, loopback only."
-echo "Make the one account with: npm run account"
+echo "Make the one account with: npx chloe account"
 echo "From another machine: ssh -L 3067:127.0.0.1:3067 you@thisbox"

@@ -9,13 +9,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 
 import { z } from "zod";
 
-import { db, RUN_COLUMNS } from "#chloe/core/db.ts";
-import { settings } from "#chloe/core/settings.ts";
-import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load.ts";
-import type { Clock } from "#chloe/core/clock.ts";
-import { choices, choose, modelFor, type Scope } from "#chloe/model/choices.ts";
-import { forget, recall } from "#chloe/model/memory.ts";
-import { models } from "#chloe/model/model.ts";
+import { db, RUN_COLUMNS } from "#chloe/core/db";
+import { settings } from "#chloe/core/settings";
+import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
+import type { Clock } from "#chloe/core/clock";
+import { choices, choose, modelFor, type Scope } from "#chloe/model/choices";
+import { forget, recall } from "#chloe/model/memory";
+import { models } from "#chloe/model/model";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
 import { editable, open, save, tree } from "./files.ts";
 import {
@@ -35,13 +35,13 @@ import {
 import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound } from "./errors.ts";
 import { recentWork } from "./recentWork.ts";
-import { describe } from "#chloe/timer/every.ts";
+import { describe } from "#chloe/timer/every";
 import { type Caller, caller, covers, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, renew, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "./alerts.ts";
 import { docsPage, type RouteDoc, sitePage } from "./site.ts";
-import { receive } from "#chloe/channels/shared.ts";
-import { answer, checkInput, parkedRuns } from "#chloe/core/steps.ts";
+import { receive } from "#chloe/channels/shared";
+import { answer, checkInput, parkedRuns } from "#chloe/core/steps";
 
 /**
  * Where this server listens. Loopback, and one port for the agents, the API

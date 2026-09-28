@@ -4,6 +4,11 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
 
+    // "#chloe/x" and "@chloejs/core" each have a branch per condition in
+    // package.json: the source in this repo, the built copy for anyone who
+    // installs it. This is the branch tsc reads.
+    "customConditions": ["chloe-source"],
+
     // Node runs this TypeScript directly, stripping the types as it reads it,
     // so every import names the real .ts file and tsc is only ever asked a
     // question.

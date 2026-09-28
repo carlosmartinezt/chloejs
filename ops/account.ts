@@ -9,7 +9,7 @@
 //
 // Changing the account later means deleting data/login.json and running this
 // again, which is deliberate and takes the same shell.
-import { createAccount, hasAccount } from "#chloe/serve/login.ts";
+import { createAccount, hasAccount } from "#chloe/serve/login";
 
 if (hasAccount()) {
   console.error("There is already an account. To change it, delete data/login.json and run this again.");

@@ -9,7 +9,7 @@
 // person, so the day there are two, an ask goes to the right one without any
 // of this changing.
 
-import { setting } from "#chloe/core/settings.ts";
+import { setting } from "#chloe/core/settings";
 
 /** `choices` is every answer that fits, when there are few enough to list: a channel may show them as buttons. */
 export type Send = (to: string, text: string, choices?: string[]) => Promise<void>;

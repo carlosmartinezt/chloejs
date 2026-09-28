@@ -2,8 +2,8 @@
 // file: for one chat, for one job, or for everything an agent does. The file
 // stays the default and a choice here beats it, so the run record shows which
 // model made each run and the choice can be undone from a chat or the API.
-import { db } from "#chloe/core/db.ts";
-import type { Agent, Job } from "#chloe/load/load.ts";
+import { db } from "#chloe/core/db";
+import type { Agent, Job } from "#chloe/load/load";
 
 db.exec(`
   create table if not exists choices (

@@ -3,8 +3,8 @@
 // `selfImprovement` in the definition turns them on.
 import { z } from "zod";
 
-import type { Home, OwnFileRules } from "#chloe/load/load.ts";
-import { listOwn, readOwn, writeOwn } from "#chloe/services/ownFilesService.ts";
+import type { Home, OwnFileRules } from "#chloe/load/load";
+import { listOwn, readOwn, writeOwn } from "#chloe/services/ownFilesService";
 import { tool, type Tools } from "../tool.ts";
 
 /** list_own_files, read_own_file and write_own_file, for the files `rules` lets it change. */

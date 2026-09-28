@@ -1,8 +1,8 @@
 // What each agent did recently, for the overview. The same job run again and
 // again is one line with a count, or a check every quarter hour would be all
 // there is to see.
-import { db } from "#chloe/core/db.ts";
-import type { Agent } from "#chloe/load/load.ts";
+import { db } from "#chloe/core/db";
+import type { Agent } from "#chloe/load/load";
 
 export interface RecentWork {
   /** The newest run of the group, which is the one a click opens. */

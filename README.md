@@ -11,9 +11,11 @@ decide where deterministic work ends and where non-deterministic work begins.
 
 ```sh
 npm install @chloejs/core @chloejs/ui
+npx chloe account     # the one account the page asks for
+npx chloe             # the agents, the cron lines and one port on 127.0.0.1:3067
 ```
 
-- **No build step**, and an edit to a job is live in under a second
+- **No build step in your project**, and an edit to a job is live in under a second
 - **One dependency**, zod, and one SQLite file
 - **Node 22.18** or newer
 
@@ -25,15 +27,20 @@ npm install @chloejs/core @chloejs/ui
 
 The runtime serves its own page, and `@chloejs/ui` turns that into a dashboard.
 Both are on the box it runs on. To watch it from anywhere without opening a
-port, point it at a Chloe Cloud:
+port, point it at a Chloe Cloud.
 
-```json
-{ "cloud": { "url": "https://dashboard.chloejs.org", "key": "chl_install_..." } }
+Make a workspace there, and put the key it shows you once in `.env`, beside
+`chloe.config.ts`:
+
+```sh
+CHLOE_API_KEY=chl_workspace_...
 ```
 
-It connects out and stays connected, and that dashboard can then show this
-runtime and send it what you ask for. Nothing reaches in: there is no port to
-open, no domain and no certificate. What may be asked for is switch by switch
+That is the whole of it: `https://dashboard.chloejs.org` is where it looks
+unless `cloud.url` in settings says otherwise. It connects out and stays
+connected, and that dashboard can then show this runtime and send it what you
+ask for. Nothing reaches in: there is no port to open, no domain and no
+certificate. What may be asked for is switch by switch
 in `cloud.remote`, off for memory and for writes until you say otherwise, and
 taking the key out leaves everything running exactly as it was.
 
@@ -186,19 +193,24 @@ Your code, your models, your machine. One process serves the page, keeps every
 cron line and answers the channels. The runtime's only dependency is zod and its
 state is one SQLite file, so moving machine is copying a folder.
 
-Three files, and you have an agent:
+Four files, and you have an agent:
 
 ```
+package.json           with "type": "module", so node reads your .ts files
 chloe.config.ts        the agents this copy runs
 settings.json          which model, and how to reach it
 your-agent/agent.ts    what the agent is: its jobs, tools and channels
 ```
 
+Plus `.env` for what belongs to the box rather than the project: the workspace
+key for a dashboard, a gateway key, whatever a script needs.
+
 ```sh
-npm run account                  # make the one account
-npm start                        # the one process, on 127.0.0.1:3067
-npm run agent <name>             # talk to one agent
-npm run agent <name> <job>       # run one job now, without waiting for its cron line
+npx chloe account                # make the one account
+npx chloe                        # the one process, on 127.0.0.1:3067
+npx chloe agent <name>           # talk to one agent
+npx chloe agent <name> <job>     # run one job now, without waiting for its cron line
+npx chloe install                # run it as a service, so it survives a reboot
 ```
 
 Without `@chloejs/ui` the runtime serves a plain page of its own. With it, that
@@ -207,11 +219,14 @@ installed package declares a page.
 
 ## What is in here
 
-The package is this repo: what is at the top is what is published.
+The package is this repo, compiled into `dist/` on publish. Node refuses to
+strip types for anything under `node_modules`, so what you install is
+JavaScript; your own agent files are outside `node_modules` and node reads
+those directly, which is why there is still no build step in your project.
 
 ```
 index.ts     what "@chloejs/core" is when you import it
-server.ts    the server, and the only thing that is run
+server.ts    the server, which `npx chloe` runs
 model/       asking a model, and tools/, the only thing a model can be handed
 load/        what an agent and a job are, and reading them off disk
 timer/       cron lines and every(), published as "@chloejs/core/timer"
@@ -222,8 +237,8 @@ scorers/     how a run is marked
 services/    the work itself, called straight from a job, published as
              "@chloejs/core/services"
 channels/    the ways in, for an agent to bind
-ops/         the tests, the evals, talking to an agent, making the account,
-             and install.sh, which installs the service
+ops/         cli.ts, which is `npx chloe`, and what it runs: the tests, the
+             evals, talking to an agent, making the account, and install.sh
 test-agent/  the agent the tests load. Not published
 ```
 

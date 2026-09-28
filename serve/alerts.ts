@@ -10,9 +10,9 @@
 // nobody was told about, and the sign-in is recorded either way.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
-import { sendEmail } from "#chloe/services/emailService.ts";
-import { STATE } from "#chloe/core/paths.ts";
-import { settings } from "#chloe/core/settings.ts";
+import { sendEmail } from "#chloe/services/emailService";
+import { STATE } from "#chloe/core/paths";
+import { settings } from "#chloe/core/settings";
 
 const FILE = `${STATE}/seen-addresses.json`;
 

@@ -19,11 +19,11 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, extname } from "node:path";
 import { promisify } from "node:util";
 
-import { confine, unreachable } from "#chloe/core/confine.ts";
-import type { Agent } from "#chloe/load/load.ts";
-import { listFiles, readFiles, writeFiles } from "#chloe/services/filesService.ts";
-import { commitPaths, memoryRepo } from "#chloe/services/historyService.ts";
-import { STATE } from "#chloe/core/paths.ts";
+import { confine, unreachable } from "#chloe/core/confine";
+import type { Agent } from "#chloe/load/load";
+import { listFiles, readFiles, writeFiles } from "#chloe/services/filesService";
+import { commitPaths, memoryRepo } from "#chloe/services/historyService";
+import { STATE } from "#chloe/core/paths";
 import { BadRequest } from "./errors.ts";
 import { noteHead } from "./page.ts";
 

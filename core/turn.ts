@@ -5,16 +5,16 @@ import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
-import { duringRun } from "#chloe/core/current.ts";
-import { db } from "#chloe/core/db.ts";
-import { runChanged } from "#chloe/core/events.ts";
-import { oneLineSummary } from "#chloe/core/markdown.ts";
-import type { Agent, ChatHistory, Skill } from "#chloe/load/load.ts";
-import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model.ts";
-import { modelFor } from "#chloe/model/choices.ts";
-import { recall, remember } from "#chloe/model/memory.ts";
-import { describe, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool.ts";
-import { afterRun, beforeRun } from "#chloe/services/historyService.ts";
+import { duringRun } from "#chloe/core/current";
+import { db } from "#chloe/core/db";
+import { runChanged } from "#chloe/core/events";
+import { oneLineSummary } from "#chloe/core/markdown";
+import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
+import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
+import { modelFor } from "#chloe/model/choices";
+import { recall, remember } from "#chloe/model/memory";
+import { describe, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool";
+import { afterRun, beforeRun } from "#chloe/services/historyService";
 
 export interface Ask {
   agent: Agent;

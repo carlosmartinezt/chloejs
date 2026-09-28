@@ -1,6 +1,9 @@
 # Everything the agents write lives in data/, which is never committed.
 /data/
 node_modules
+# The built copy, made on publish. The source is what is committed.
+/dist/
+# Credentials that belong to this box: CHLOE_API_KEY and anything a script needs.
 .env
 *.tsbuildinfo
 settings.local.json

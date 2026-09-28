@@ -12,7 +12,7 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import crypto from "node:crypto";
 
-import { STATE } from "#chloe/core/paths.ts";
+import { STATE } from "#chloe/core/paths";
 
 /** Beside the account and the run history, mode 600. Not in source control. */
 const FILE = `${STATE}/tokens.json`;

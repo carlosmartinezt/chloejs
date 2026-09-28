@@ -4,8 +4,8 @@
 // A change in a memory shows what that memory held, so it is written to the
 // agent's audit log before it is served, like any other read of a memory, and
 // these routes never take a token.
-import type { Agent } from "#chloe/load/load.ts";
-import { change, changes, markSeen, seenAt, undo, type Change, type Place } from "#chloe/services/historyService.ts";
+import type { Agent } from "#chloe/load/load";
+import { change, changes, markSeen, seenAt, undo, type Change, type Place } from "#chloe/services/historyService";
 import { BadRequest, NotFound } from "./errors.ts";
 import { record } from "./memory.ts";
 

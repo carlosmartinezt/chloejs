@@ -4,8 +4,8 @@
 // write. All the model chooses is how far back and how many.
 import { z } from "zod";
 
-import { readEmailMessages, readOneEmailMessage } from "#chloe/services/gmailService.ts";
-import { tool } from "#chloe/model/tool.ts";
+import { readEmailMessages, readOneEmailMessage } from "#chloe/services/gmailService";
+import { tool } from "#chloe/model/tool";
 
 interface Options {
   /**

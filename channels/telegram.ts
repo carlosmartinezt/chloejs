@@ -34,10 +34,10 @@
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe/load/load.ts";
-import { ownedBy, reachBy, unreach } from "#chloe/model/ask.ts";
-import type { Attachment } from "#chloe/model/model.ts";
-import { settings } from "#chloe/core/settings.ts";
+import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe/load/load";
+import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
+import type { Attachment } from "#chloe/model/model";
+import { settings } from "#chloe/core/settings";
 import { type Button, commands, receive, type Incoming, type Rules } from "./shared.ts";
 
 const MAX_MESSAGE = 3500; // Telegram rejects anything over 4096, and the tags added below count.

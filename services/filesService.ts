@@ -13,7 +13,7 @@
 import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { confine } from "#chloe/core/confine.ts";
+import { confine } from "#chloe/core/confine";
 import { commitPaths, noteCommit, type Place } from "./historyService.ts";
 import { run } from "./runService.ts";
 

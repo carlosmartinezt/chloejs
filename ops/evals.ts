@@ -17,7 +17,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { loadAll, type Agent, turn, type TurnResult, setting, settings } from "@chloejs/core";
-import { settingsAndBody } from "#chloe/core/markdown.ts";
+import { settingsAndBody } from "#chloe/core/markdown";
 import { calls, type ExpectedCalls as Facts, expectations, type ExpectedOutcome as Judged } from "@chloejs/core/scorers";
 
 /** One morning, one nightly run, one anything: a case in an eval file. */

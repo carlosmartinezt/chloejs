@@ -12,7 +12,7 @@
 // with the same binding, so a job does not get a wider search for skipping
 // the model.
 import { run } from "./runService.ts";
-import { setting, settings } from "#chloe/core/settings.ts";
+import { setting, settings } from "#chloe/core/settings";
 
 const GOG = "gog";
 

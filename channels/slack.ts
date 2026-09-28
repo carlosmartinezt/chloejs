@@ -36,10 +36,10 @@
 //
 // What happens to a message once it is read is channels/shared.ts, the same
 // for every channel. This file reads Slack, sends to it, and nothing else.
-import { ownedBy, reachBy, unreach } from "#chloe/model/ask.ts";
-import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load.ts";
-import type { Attachment } from "#chloe/model/model.ts";
-import { settings } from "#chloe/core/settings.ts";
+import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
+import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
+import type { Attachment } from "#chloe/model/model";
+import { settings } from "#chloe/core/settings";
 import { receive, type Incoming, type Rules } from "./shared.ts";
 
 const MAX_MESSAGE = 4000; // Slack cuts a message's text at 40000, and advises under 4000.

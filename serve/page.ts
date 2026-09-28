@@ -16,7 +16,7 @@ import { extname, join, resolve, sep } from "node:path";
 import { readFile } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 
-import { ROOT } from "#chloe/core/paths.ts";
+import { ROOT } from "#chloe/core/paths";
 
 export interface Page {
   /** The package that offered it, for saying so at startup. */

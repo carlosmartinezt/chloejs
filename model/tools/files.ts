@@ -4,8 +4,8 @@
 // folder in plain words for the description.
 import { z } from "zod";
 
-import { listFiles, readFiles, searchFiles, writeFiles } from "#chloe/services/filesService.ts";
-import { tool } from "#chloe/model/tool.ts";
+import { listFiles, readFiles, searchFiles, writeFiles } from "#chloe/services/filesService";
+import { tool } from "#chloe/model/tool";
 
 /**
  * `what` names the folder in the tool's description, e.g. "the shared notes".

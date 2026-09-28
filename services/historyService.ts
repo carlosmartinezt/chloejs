@@ -16,9 +16,9 @@ import { existsSync, realpathSync } from "node:fs";
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 
-import { currentRun } from "#chloe/core/current.ts";
-import { addCommit, db, type RunCommit } from "#chloe/core/db.ts";
-import type { Agent } from "#chloe/load/load.ts";
+import { currentRun } from "#chloe/core/current";
+import { addCommit, db, type RunCommit } from "#chloe/core/db";
+import type { Agent } from "#chloe/load/load";
 
 /** Which of an agent's two places a commit is in. */
 export type Place = RunCommit["in"];
