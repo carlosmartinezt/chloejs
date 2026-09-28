@@ -41,7 +41,7 @@
     }
   },
   "bin": {
-    "chloe": "./dist/ops/cli.js"
+    "chloe": "./bin/chloe.js"
   },
   "imports": {
     "#chloe/*": {
@@ -51,6 +51,7 @@
     }
   },
   "files": [
+    "bin",
     "dist",
     "ops/install.sh"
   ],
