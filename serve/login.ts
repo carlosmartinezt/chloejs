@@ -131,6 +131,23 @@ export const RELAY_SECRET = crypto.randomBytes(32).toString("base64url");
 export const RELAY = "x-chloe-relay";
 export const RELAY_USER = "x-chloe-relay-user";
 
+/**
+ * The path this runtime's addresses sit under on the dashboard, when the
+ * request came from one: `/workspaces/<name>`. A memory file's root-relative
+ * links are pointed back into its own memory, and the address they have to end
+ * up at is the browser's, not this port's, so the dashboard says what to put in
+ * front. Only trusted on a relayed request, and only when it is plain path
+ * segments, so nothing from outside can move the frame's links elsewhere.
+ */
+export const RELAY_UNDER = "x-chloe-relay-under";
+
+export function relayUnder(request: IncomingMessage): string {
+  if (relayedBy(request) === null) return "";
+  const carried = request.headers[RELAY_UNDER];
+  const value = Array.isArray(carried) ? carried[0] : carried;
+  return value && /^(?:\/[A-Za-z0-9._~-]+)+$/.test(value) ? value : "";
+}
+
 /** The account the dashboard relayed this request for, or null when it is not a relayed request. */
 export function relayedBy(request: IncomingMessage): string | null {
   const carried = request.headers[RELAY];

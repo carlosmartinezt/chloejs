@@ -437,7 +437,7 @@ the notes, or touch the tokens.
 
 **A cloud is something this runtime connects out to, never something that
 reaches in.** `cloud/connect.ts` opens one WebSocket to `cloud.url` in
-settings, says which installation it is with `cloud.key` inside the first
+settings, says which workspace it is with `cloud.key` inside the first
 message, and answers requests the dashboard sends down it by making them
 against the one port with `RELAY_SECRET` from `serve/login.ts`, a secret made
 when the process starts and never written anywhere. That makes the caller kind

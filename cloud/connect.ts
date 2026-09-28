@@ -2,7 +2,7 @@
 // runtime, reached by this runtime connecting out to it and nothing else.
 //
 // One WebSocket, opened here, kept open, opened again when it drops. The first
-// message says which installation this is (the key rides inside the encrypted
+// message says which workspace this is (the key rides inside the encrypted
 // connection, never in the address or a header, so no proxy logs it) and what
 // the runtime has: its version, its routes, its agents, and which switches in
 // `cloud.remote` are on. After that two things happen on it:
@@ -13,7 +13,7 @@
 //           API carried in a message. It is made against the one port with a
 //           secret only this process knows, so `caller()` in serve/login.ts
 //           knows it came through the cloud, and api() in serve/http.ts
-//           decides whether that route, with the switches this installation
+//           decides whether that route, with the switches this workspace
 //           has on, may be answered. The answer goes back with the same id.
 //
 // Nothing here changes how a job runs. With no `cloud.url` in settings there
@@ -28,7 +28,7 @@ import { events } from "#chloe/core/events.ts";
 import { setting, settings } from "#chloe/core/settings.ts";
 import type { Agent } from "#chloe/load/load.ts";
 import { HOST, PORT, routeList, summary } from "#chloe/serve/http.ts";
-import { RELAY, RELAY_SECRET, RELAY_USER } from "#chloe/serve/login.ts";
+import { RELAY, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login.ts";
 
 /** The version of what is said on the socket. The cloud refuses one it does not speak. */
 export const PROTOCOL = 1;
@@ -78,7 +78,7 @@ const Request = z.object({
 });
 
 /** The headers a relayed request keeps. Everything else the browser sent stayed with the cloud. */
-const CARRIED = ["accept", "content-type", "host", "x-forwarded-proto", "x-forwarded-for", RELAY_USER];
+const CARRIED = ["accept", "content-type", "host", "x-forwarded-proto", "x-forwarded-for", RELAY_USER, RELAY_UNDER];
 
 /** The headers an answer does not carry back: a session is never set through the cloud, and the rest are the socket's own. */
 const KEPT_BACK = new Set(["set-cookie", "connection", "transfer-encoding", "content-length", "keep-alive"]);
@@ -227,8 +227,8 @@ export function startCloud(options: CloudOptions): Cloud {
     if (kind === "welcome") {
       welcomed = true;
       wait = backoff.first;
-      const said = (message as { installation?: { name?: string; label?: string } }).installation;
-      say(`connected to ${using.url} as ${said?.label ?? said?.name ?? "an installation"}`);
+      const said = (message as { workspace?: { name?: string; label?: string } }).workspace;
+      say(`connected to ${using.url} as ${said?.label ?? said?.name ?? "a workspace"}`);
       if (settings.cloud.sync.runs) send(one, { type: "runs", runs: recentRuns() });
       return;
     }
@@ -324,7 +324,7 @@ export function startCloud(options: CloudOptions): Cloud {
         return connect();
       }
       // The switches go with it, so what the dashboard shows about this
-       // installation follows a settings change without a reconnect. The
+       // workspace follows a settings change without a reconnect. The
        // runtime enforces them from the live settings either way.
       if (socket && welcomed && settings.cloud.sync.agents) {
         send(socket, { type: "agents", agents: agentList(), sync: settings.cloud.sync, remote: settings.cloud.remote });

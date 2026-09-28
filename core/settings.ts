@@ -111,7 +111,7 @@ const schema = z.object({
     .object({
       /** Where the cloud is, like "https://dashboard.chloejs.org". Empty means not connected. CHLOE_CLOUD_URL beats it. */
       url: z.string().default(""),
-      /** This installation's key, made on the dashboard and shown once. settings.local.json. CHLOE_API_KEY beats it. */
+      /** This workspace's key, made on the dashboard and shown once. settings.local.json. CHLOE_API_KEY beats it. */
       key: z.string().default(""),
       /** What is sent up as it happens, so the dashboard can show it when this runtime is offline. */
       sync: z

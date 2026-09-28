@@ -36,7 +36,7 @@ import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound } from "./errors.ts";
 import { recentWork } from "./recentWork.ts";
 import { describe } from "#chloe/timer/every.ts";
-import { type Caller, caller, covers, createAccount, from, hasAccount, overHttps, relayedBy, renew, setCookie, signIn } from "./login.ts";
+import { type Caller, caller, covers, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, renew, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "./alerts.ts";
 import { docsPage, type RouteDoc, sitePage } from "./site.ts";
@@ -815,14 +815,16 @@ async function framed(request: IncomingMessage, response: ServerResponse, url: U
   // A pass is made by a memory route, which through the cloud already needed
   // this switch. Checked again here, so turning it off stops the frame too.
   if (relayedBy(request) !== null && !settings.cloud.remote.memory) {
-    return refuse(403, "This installation does not allow memory through the cloud.");
+    return refuse(403, "This workspace does not allow memory through the cloud.");
   }
   if (!whose) return refuse(403, "This pass has run out. Open the file again.");
   const agent = context.agents().get(whose);
   if (!agent) return refuse(404, "Not here.");
 
   const path = rest.map(decodeURIComponent).join("/");
-  const found = await memoryRaw(agent, path, from(request), `/memory/${raw}`);
+  // Through the dashboard the browser is under /workspaces/<name>, so that
+  // is what a note's own links have to start with. Empty when nobody relayed.
+  const found = await memoryRaw(agent, path, from(request), `${relayUnder(request)}/memory/${raw}`);
   if (!found) return refuse(404, "Not here.");
 
   const here = `${overHttps(request) ? "https" : "http"}://${request.headers.host ?? "localhost"}`;
@@ -870,7 +872,7 @@ async function api(
 
   const who = caller(request);
   // Through the dashboard: only the routes that say so, and only the switches
-  // this installation has on. The open routes are not open to it either, so a
+  // this workspace has on. The open routes are not open to it either, so a
   // fresh runtime's setup form cannot be filled in from the cloud.
   if (who?.kind === "cloud") {
     if (!route.remote) return json(response, { error: "Not through the cloud: that is done on the box itself." }, 403);
@@ -878,7 +880,7 @@ async function api(
     if (off.length) {
       return json(
         response,
-        { error: `This installation does not allow ${off.join(" and ")} through the cloud. cloud.remote in its settings.json switches it on.` },
+        { error: `This workspace does not allow ${off.join(" and ")} through the cloud. cloud.remote in its settings.json switches it on.` },
         403,
       );
     }

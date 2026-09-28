@@ -2584,6 +2584,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const folder = `${process.env.AGENTS_STATE}/memory-through-cloud`;
   await mkdir(folder, { recursive: true });
   await writeFile(`${folder}/note.md`, "# Kept\n");
+  await writeFile(`${folder}/note.html`, '<!doctype html><link rel="stylesheet" href="/static/style.css">\n');
   const keeper: Agent = { ...agentFor(codeJob("relayed", async () => "done")), memory: { folder } };
   process.env.CHLOE_PAGE = "builtin";
   const cameIn: string[] = [];
@@ -2630,6 +2631,9 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     }
     throw new Error(`no response to ${id}`);
   };
+  /** The same request straight at the port, carrying no relay secret. */
+  const direct = async (method: string, path: string, headers: Record<string, string> = {}) =>
+    await (await fetch(`${at}${path}`, { method, headers })).text();
 
   // Set rather than assumed: this suite runs from whichever repo installed the
   // runtime, and that repo's settings.json may well name a cloud of its own.
@@ -2658,7 +2662,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and which switches are on", hello?.remote, { read: true, chat: true, run: true, memory: false, write: false });
   is("nothing else until the cloud answers", cloud.connected(), false);
 
-  last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", installation: { name: "here", label: "Here" } }) });
+  last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", workspace: { name: "here", label: "Here" } }) });
   await tick();
   is("welcome makes it connected", cloud.connected(), true);
   is("and the last runs go up in one message", said("runs").length, 1);
@@ -2688,7 +2692,8 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   live.cloud.remote.memory = true;
   const tree = await answer("8", "GET", "/api/agents/test/memory");
-  is("switched on, the memory is answered", [tree.status, JSON.parse(tree.text)[0]?.name], [200, "note.md"]);
+  const named = (JSON.parse(tree.text) as { name: string }[]).map((one) => one.name).sort();
+  is("switched on, the memory is answered", [tree.status, named], [200, ["note.html", "note.md"]]);
   const log = await get(`${process.env.AGENTS_STATE}/memory-audit/test.jsonl`, "utf8");
   is("and the audit log says who it was, through the cloud", log.includes('"from":"203.0.113.5 via cloud as someone@example.com"'), true);
   is("a write still needs its own switch", (await answer("9", "POST", "/api/agents/test/memory/file", { "content-type": "application/json" }, JSON.stringify({ path: "x.md", content: "" }))).status, 403);
@@ -2696,6 +2701,13 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const framed = await answer("11", "GET", `${pass.at}/note.md`, { host: "dashboard.example", "x-forwarded-proto": "https" });
   is("a memory file for the frame comes through too", [framed.status, framed.text], [200, "# Kept\n"]);
   is("with its policy naming the host the cloud said", framed.headers["content-security-policy"]?.includes("https://dashboard.example"), true);
+  // A note's own root-relative links have to come back at the address the
+  // browser is at, which through a dashboard is under that workspace.
+  const under = { host: "dashboard.example", "x-forwarded-proto": "https", "x-chloe-relay-under": "/workspaces/the-box" };
+  const page = await answer("11b", "GET", `${pass.at}/note.html`, under);
+  is("and a note's own links start where the browser is, not at the root of the cloud", page.text.includes(`href="/workspaces/the-box${pass.at}/static/style.css"`), true);
+  const forged = await direct("GET", `${pass.at}/note.html`, { "x-chloe-relay-under": "/somewhere/else" });
+  is("a prefix nobody relayed is ignored", [forged.includes('href="/somewhere/else'), forged.includes(`href="${pass.at}/static/style.css"`)], [false, true]);
   live.cloud.remote.memory = false;
   is("and switching memory off stops the frame as well", (await answer("12", "GET", `${pass.at}/note.md`)).status, 403);
 
@@ -2709,7 +2721,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   // A change to the settings while connected is a new socket.
   last().socket.onopen?.({});
-  last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", installation: { name: "here", label: "Here" } }) });
+  last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", workspace: { name: "here", label: "Here" } }) });
   await tick();
   const again = opened.length;
   cloud.reload();
