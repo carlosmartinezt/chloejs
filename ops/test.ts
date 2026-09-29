@@ -29,7 +29,7 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { z } from "zod";
 
@@ -788,6 +788,9 @@ about("a model step that never fits");
     is("with nothing set, an anthropic model goes by the claude cli", routeFor("anthropic/claude-sonnet-5"), "claude");
     is("and an openai model by codex", routeFor("openai/gpt-6-luna"), "codex");
     is("a name with no provider is anthropic's", routeFor("claude-sonnet-5"), "claude");
+    // No CLI carries it, so it is the gateway that says a key is missing, rather
+    // than a CLI refusing the provider for a second reason.
+    is("a provider neither cli carries goes to the gateway", routeFor("openrouter/free"), "gateway");
     settings.model.key = "k";
     is("a key sends everything to the gateway", [routeFor("anthropic/claude-sonnet-5"), routeFor("openai/gpt-6-luna")], ["gateway", "gateway"]);
     settings.model.via = "claude";
@@ -2902,6 +2905,81 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   delete process.env.CHLOE_API_KEY;
   delete process.env.CHLOE_PAGE;
   server.close();
+}
+
+{
+  about("the files npx chloe setup writes");
+
+  const { identifier, nameProblem, starterFiles } = await import("#chloe/ops/starter");
+  const { resolveAgent, jobsOf, markdownJob } = await import("#chloe/load/load");
+  const { ROOT, settings } = await import("@chloejs/core");
+
+
+  // Asked before there is a config to find, so it says there is none rather
+  // than throwing the way core/root does: a module that throws stays thrown,
+  // and setup writes the file the rest of that process would have to see.
+  const { findConfig } = await import("#chloe/core/find");
+  is("the project is found by walking up", findConfig(join(ROOT, "ops")), ROOT);
+  is("and nowhere above the root of the disk has one", findConfig("/"), "");
+
+  is("a name with a dash imports as one word", identifier("night-watch"), "nightWatch");
+  is("a plain name is fine", nameProblem("watcher"), "");
+  is("a name with a capital in it is not", nameProblem("Watcher").startsWith("A name is lower case"), true);
+  is("and neither is one that starts with a digit", nameProblem("2fast").startsWith("A name is lower case"), true);
+
+  const files = starterFiles("watcher");
+  const config = files.find((one) => one.path === "chloe.config.ts")!.body;
+  is("chloe.config.ts names the agent it wrote", config.includes('from "./agents/watcher/agent.ts"'), true);
+  is("and lists it, because an agent not on the list does not exist", config.includes("agents: [watcher]"), true);
+
+  // Written inside the repo rather than in tmp, because the agent.ts it writes
+  // imports "@chloejs/core" and a package can only import itself from inside
+  // itself. This is the case that catches a renamed export: the starter is text
+  // here, so nothing else typechecks it.
+  await mkdir(join(ROOT, "data"), { recursive: true });
+  const folder = await mkdtemp(join(ROOT, "data", "starter-"));
+  for (const file of files) {
+    if (file.add) continue;
+    const path = join(folder, file.path.replace("agents/watcher/", ""));
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, file.body);
+  }
+
+  const definition = (await import(pathToFileURL(join(folder, "agent.ts")).href)).default;
+
+  // Set here rather than left to the settings file, because the project this
+  // suite runs in may have one, and both halves of this are about what happens
+  // when it does and when it does not.
+  const was = settings.model.default;
+  settings.model.default = "";
+  const refused = await resolveAgent(definition).then(() => "", (error: Error) => error.message);
+  is("with no model.default set, an agent that names none is refused", refused.includes("does not say which model"), true);
+
+  // What setup writes into settings.json, which is where the model a new
+  // project chose is written down once for every agent.
+  settings.model.default = "anthropic/claude-haiku-4.5";
+  const agent = await resolveAgent(definition);
+  is("the agent it wrote loads", agent.name, "watcher");
+  is("its words come from the file beside it", agent.instructions.startsWith("You are watcher."), true);
+  is("it names no model, so it asks the one in settings", definition.model, undefined);
+  is("and that is what it loads with", agent.model, settings.model.default);
+  is("it has both kinds of job", agent.jobs.map((one) => one.id), ["daily-note", "summary"]);
+  is("the code one has a cron line", agent.jobs[0].cron, "0 8 * * *");
+  is("and asks no model", Boolean(agent.jobs[0].run), true);
+  is("the prompt one is words", Boolean(agent.jobs[1].prompt), true);
+  is("and runs only when somebody starts it", agent.jobs[1].cron, undefined);
+
+  // The job for real, against the same runner the clock uses.
+  const [dailyNote] = await jobsOf("watcher", folder, [(await import(pathToFileURL(join(folder, "jobs/daily-note.ts")).href)).default]);
+  const ran = await work({ agent: { ...agent, jobs: [dailyNote] }, job: dailyNote, source: "terminal" });
+  is("it writes a day and counts them", ran.steps, 3);
+  is("and the line is in its memory", (await readFile(join(agent.memory.folder, "days.md"), "utf8")).startsWith("- "), true);
+
+  const summary = await jobsOf("watcher", folder, [markdownJob("jobs/summary.md")]);
+  is("the prompt job's description is read from its frontmatter", summary[0].description?.includes("asks a model"), true);
+
+  settings.model.default = was;
+  await rm(folder, { recursive: true, force: true });
 }
 
 await rm(process.env.AGENTS_STATE, { recursive: true, force: true });

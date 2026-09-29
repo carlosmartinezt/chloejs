@@ -34,6 +34,13 @@ const schema = z.object({
   model: z
     .object({
       /**
+       * The model an agent asks when its own `agent.ts` names none. Empty means
+       * every agent names its own, and one that does not is refused as it loads.
+       * Written by `npx chloe setup`, so a new project has the model it chose in
+       * one place rather than in every agent.
+       */
+      default: z.string().default(""),
+      /**
        * The route for a model whose provider has no entry in `routes`:
        * "gateway" over HTTP on a key, "claude" through the Claude Code CLI on
        * a subscription, "codex" through the Codex CLI on a ChatGPT plan. Empty

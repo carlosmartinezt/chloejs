@@ -10,10 +10,15 @@ You write the workflow in code, **and ask AI where a step needs judgement**. You
 decide where deterministic work ends and where non-deterministic work begins.
 
 ```sh
-npm install @chloejs/core @chloejs/ui
-npx chloe account     # the one password the page asks for
+npm install @chloejs/core
+npx chloe setup       # the files, a model, the one password: it asks, and checks
 npx chloe             # the agents, the cron lines and one port on 127.0.0.1:3067
 ```
+
+`setup` writes `chloe.config.ts` and one agent with two jobs, asks which model to
+use and makes one call to be sure it answers, then runs the job that asks no
+model, so the first thing you see is a finished run. Run it again later and it
+leaves what is already there alone.
 
 - **No build step in your project**, and an edit to a job is live in under a second
 - **One dependency**, zod, and one SQLite file
@@ -30,7 +35,7 @@ Both are on the box it runs on. To watch it from anywhere without opening a
 port, point it at a Chloe Cloud.
 
 Make a workspace there, and put the key it shows you once in `.env`, beside
-`chloe.config.ts`:
+`chloe.config.ts`, which is one of the questions `npx chloe setup` asks:
 
 ```sh
 CHLOE_API_KEY=chl_workspace_...

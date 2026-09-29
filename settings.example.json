@@ -1,5 +1,6 @@
 {
   "model": {
+    "default": "anthropic/claude-sonnet-5",
     "via": "claude",
     "routes": { "openai": "codex" },
     "models": ["anthropic/claude-sonnet-5", "openai/gpt-6-luna"],

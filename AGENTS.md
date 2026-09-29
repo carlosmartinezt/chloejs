@@ -45,7 +45,10 @@ home directory or a machine. An agent is somebody's own, so a folder outside
 the repo that it uses is a full path written in the agent file that uses it,
 like `const BACKUPS = "/home/you/backups"` in the job that uses it.
 
-Setting chloe up is copying `settings.example.json`, which holds every
+Setting chloe up is `npx chloe setup`, which asks, writes the files, checks that
+the model it was given actually answers, and runs a job. `ops/setup.ts` is that,
+`ops/starter.ts` is the files it writes, and neither is imported by the service.
+By hand it is copying `settings.example.json`, which holds every
 section at a stand-in value, to `settings.local.json` and filling it in.
 Settings are JSON in `settings.json` (in source control) and
 `settings.local.json` (one machine only, mode 600), with every default and its
@@ -199,8 +202,13 @@ own, including its `evals/`, which say what a good run of its jobs looks like.
 `ops/` is what a person runs rather than the service: `cli.ts`, which is what
 `npx chloe` reaches and which runs each of the others, then the tests, the
 evals, `agent.ts`, which is talking to one agent and trying one of its jobs
-without waiting for the cron line, and `account.ts`, which makes the one
-account, because there is no setup page to make it on. A job lives in `jobs/` whether
+without waiting for the cron line, `account.ts`, which makes the one
+account, because there is no setup page to make it on, and `setup.ts`, which is
+the one command a new project runs and the only one that works before there is a
+`chloe.config.ts`: it reads no setting as it loads, because reading one needs
+that file, so it imports the runtime inside the steps that need it. `starter.ts`
+beside it is the files it writes, as text, and `terminal.ts` is how those two ask
+a person something. A job lives in `jobs/` whether
 it is code or a prompt, and whether or not it has a cron line: one folder.
 
 The runtime is the floor everyone stands on, so nothing in it may name an agent
@@ -389,6 +397,10 @@ way.** A `.md` beside a `.ts` of the same name is that job's words. A `.ts`
 job has an `id`, which is what the run history is filed under, so it does not
 change once the job has run, and the file is named after it. Paths given to
 `prompt()` and `markdownJob()` are inside the agent's folder.
+
+**An agent that names no model asks `model.default` in settings.** That is what
+`npx chloe setup` writes, so a project has the model it chose in one place. An
+agent with neither is refused as it loads rather than at its first model call.
 
 **A job can choose its own model, and that is the whole reason this
 runtime exists.** One line, `model: "anthropic/claude-haiku-4.5"`, in the

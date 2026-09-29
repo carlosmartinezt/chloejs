@@ -53,7 +53,12 @@ export function routeFor(model: string): Route {
   const chosen = settings.model.via;
   if (chosen && carries(chosen, provider)) return chosen;
   if (gatewayKey()) return "gateway";
-  return provider === "openai" ? "codex" : "claude";
+  // A CLI only for a provider it can carry. Anything else is the gateway, which
+  // says a key is missing rather than handing a model name to a CLI that would
+  // refuse it for a second reason.
+  if (provider === "openai") return "codex";
+  if (provider === "anthropic") return "claude";
+  return "gateway";
 }
 
 /**

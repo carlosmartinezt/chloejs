@@ -112,6 +112,8 @@ function whatIsMissing(): string[] {
     // No package.json is a project that has not run npm install. It has bigger problems.
   }
   if (type !== "module") lines.push('package.json: add "type": "module", so node reads your agent files as modules.');
+  // One command fixes every line above, and it leaves what is already right alone.
+  if (lines.length) lines.push('all of that is what "npx chloe setup" asks about.');
   return lines;
 }
 

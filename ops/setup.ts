@@ -1,0 +1,381 @@
+// Setting chloe up, one question at a time.
+//
+//   npx chloe setup
+//
+// It writes the files a project needs, asks which model to use and checks that
+// model actually answers, runs the starter agent's first job, and sets the one
+// password. Every answer has a default, so holding Enter through it works.
+//
+// Run it again later and it says what is already there and leaves it alone.
+//
+// Nothing here is imported by the service. It reads no setting as it loads,
+// because it runs before there is a chloe.config.ts to find the settings from,
+// and every file that reads one needs that. So the runtime is imported inside
+// the steps that need it, once the files exist.
+import { spawnSync } from "node:child_process";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import { identifier, nameProblem, starterFiles } from "./starter.ts";
+import { ask, askHidden, pick, setPassword, yes } from "./terminal.ts";
+
+/** The folder being set up: where the person ran the command. */
+const HERE = process.cwd();
+
+/** Free models, and every provider through one key. Written only if they ask for it. */
+const OPENROUTER = "https://openrouter.ai/api/v1/chat/completions";
+
+/** What was written, said once at the end rather than line by line as it happens. */
+const wrote: [string, string][] = [];
+
+/** Every file this wrote or changed, in the order it happened. */
+function written(path: string, what: string): void {
+  wrote.push([path, what]);
+}
+
+/** Two columns, the first as wide as its widest line. */
+function columns(rows: [string, string][]): string {
+  const width = Math.max(...rows.map(([left]) => left.length));
+  return rows.map(([left, right]) => `  ${left.padEnd(width)}  ${right}`).join("\n");
+}
+
+if (!process.stdin.isTTY) {
+  // Nothing to type into, so saying what it would ask beats hanging on a read
+  // that never comes back.
+  process.stdout.write(
+    [
+      "chloe setup asks questions, and nothing here can answer them.",
+      "",
+      "By hand, in this folder:",
+      '  1  package.json needs "type": "module"',
+      "  2  chloe.config.ts lists your agents, and one agent folder holds an agent.ts",
+      "  3  settings.json says model.default, and settings.local.json holds model.key",
+      "  4  npx chloe account sets the one password",
+      "",
+      "All of it is at https://chloejs.org/docs/start",
+      "",
+    ].join("\n"),
+  );
+  process.exit(0);
+}
+
+console.log(`Setting chloe up in ${HERE}.\n`);
+
+// One line and not a stack: whatever went wrong, the person reading it is
+// setting up a project and every step above this one already happened.
+try {
+  await theProject();
+  const agent = await theAgent();
+  const model = await theModel();
+  await firstRun(agent);
+  await somewhereToWatch();
+  await thePassword();
+  sayWhatNext(agent, model);
+} catch (error) {
+  console.error(`\n${error instanceof Error ? error.message : String(error)}`);
+  if (wrote.length) console.error(`\nWhat was written before that:\n${columns(wrote)}`);
+  console.error("\nRun npx chloe setup again: it leaves what is already there alone.");
+  process.exit(1);
+}
+
+/**
+ * package.json, which has to be there, and the one line in it node needs. An
+ * agent file is TypeScript that node reads directly, and without this it reads
+ * one as CommonJS, which works until a file happens to parse both ways.
+ */
+async function theProject(): Promise<void> {
+  const path = join(HERE, "package.json");
+  if (!existsSync(path)) {
+    console.error("There is no package.json here. Run npm init -y first, then this again.");
+    process.exit(1);
+  }
+
+  const pkg = JSON.parse(readFileSync(path, "utf8")) as { type?: string };
+  if (pkg.type !== "module") {
+    writeFileSync(path, `${JSON.stringify({ ...pkg, type: "module" }, null, 2)}\n`);
+    written("package.json", '"type": "module"');
+  }
+
+  if (!existsSync(join(HERE, "node_modules/@chloejs/core"))) {
+    console.log("@chloejs/core is not installed here, and your agent files import it.");
+    if (await yes("Run npm install @chloejs/core? (Y/n)", true)) {
+      const done = spawnSync("npm", ["install", "@chloejs/core"], { cwd: HERE, stdio: "inherit" });
+      if (done.status !== 0) {
+        console.error("That did not work. Install it yourself, then run this again.");
+        process.exit(1);
+      }
+    }
+  }
+}
+
+/** The starter agent: its name, then every file it is made of. */
+async function theAgent(): Promise<string> {
+  // A config that is already there is somebody's own, so it is read and never
+  // written: what it says about an agent decides whether this is that agent again.
+  const configFile = join(HERE, "chloe.config.ts");
+  const config = existsSync(configFile) ? readFileSync(configFile, "utf8") : "";
+  const named = (name: string) => config.includes(`agents/${name}/agent.ts`);
+  if (config) console.log("chloe.config.ts is already here, so this leaves it alone.\n");
+
+  let name = "";
+  while (!name) {
+    const said = (await ask("What is your first agent called? (starter) ")).trim() || "starter";
+    const problem = nameProblem(said);
+    if (problem) console.log(`  ${problem}`);
+    else if (existsSync(join(HERE, "agents", said)) && !named(said)) {
+      console.log(`  agents/${said} is there already and chloe.config.ts does not name it. Pick another name.`);
+    } else name = said;
+  }
+
+  for (const file of starterFiles(name)) {
+    const path = join(HERE, file.path);
+    if (file.add) {
+      // .gitignore: only the lines it does not have, so a project with its own
+      // keeps it. data/, the settings file and .env are secrets and state.
+      const held = existsSync(path) ? readFileSync(path, "utf8") : "";
+      const lines = file.body.trim().split("\n").filter((line) => !held.split("\n").includes(line));
+      if (lines.length === 0) continue;
+      appendFileSync(path, `${held && !held.endsWith("\n") ? "\n" : ""}${lines.join("\n")}\n`);
+      written(file.path, `${lines.join(", ")} ignored`);
+      continue;
+    }
+    if (existsSync(path)) continue;
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, file.body);
+    written(file.path, "written");
+  }
+
+  if (config && !named(name)) {
+    console.log(`\nagents/${name} is written. chloe.config.ts is yours, so add it there:`);
+    console.log(`  import ${identifier(name)} from "./agents/${name}/agent.ts";`);
+    console.log(`  export default defineConfig({ agents: [${identifier(name)}] });`);
+  }
+  console.log(`\n${name} has two jobs: daily-note is code and asks no model, summary is a prompt and asks one.\n`);
+  return name;
+}
+
+/**
+ * Which model, and whether it answers. Written to settings.json, except the key,
+ * which goes in settings.local.json, mode 600 and out of source control.
+ *
+ * Returns the model an agent asks here, or "" when there is none yet.
+ */
+async function theModel(): Promise<string> {
+  const { runnable } = await import("#chloe/model/model");
+  const { settings } = await import("#chloe/core/settings");
+
+  const held = ["AI_GATEWAY_API_KEY", "OPENROUTER_API_KEY", "CHLOE_MODEL_KEY"].find((name) => process.env[name]);
+
+  const choice = await pick("\nA model. Only the prompt job asks one, so this can wait: the code job runs either way.", [
+    ...(runnable("claude") ? [{ key: "claude" as const, what: "your Claude subscription, through the claude command on this box" }] : []),
+    ...(runnable("codex") ? [{ key: "codex" as const, what: "your ChatGPT plan, through the codex command on this box" }] : []),
+    ...(held ? [{ key: "held" as const, what: `the key already in ${held} in your environment` }] : []),
+    { key: "free" as const, what: "a free key from OpenRouter: no card, and rate limited to a few runs an hour" },
+    { key: "key" as const, what: "a gateway key of your own (Vercel AI Gateway, OpenRouter, anything of that shape)" },
+    { key: "later" as const, what: "nothing yet" },
+  ]);
+
+  if (choice === "claude") return await settle({ via: "claude", default: "anthropic/claude-sonnet-5" });
+  if (choice === "codex") return await settle({ via: "codex", default: "openai/gpt-6-luna" });
+
+  if (choice === "held") {
+    const asked = (await ask(`Which model? (${settings.model.default || "openrouter/free"}) `)).trim();
+    const model = asked || settings.model.default || "openrouter/free";
+    // A key under a name chloe already reads stays where it is. One under any
+    // other name is written down, because otherwise nothing would read it.
+    const { settingInEnv } = await import("#chloe/core/settings");
+    const mine = settingInEnv(process.env, ["model", "key"]);
+    return await settle(
+      { default: model, gateway: model.startsWith("openrouter/") ? OPENROUTER : settings.model.gateway },
+      mine ? undefined : process.env[held!],
+    );
+  }
+
+  // Something loadable either way: an agent that names no model and has no
+  // default is refused as it loads, so a project with no key would not start.
+  if (choice === "later") return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free" });
+
+  if (choice === "free") {
+    console.log("\nMake a key at https://openrouter.ai/keys. A free account with no card is enough.");
+    console.log("openrouter/free is one model id that picks a free model and only ones that can call a tool.");
+    const key = (await askHidden("Paste the key (or Enter to do it later): ")).trim();
+    return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free" }, key || undefined);
+  }
+
+  const gateway = (await ask(`Which gateway? (${settings.model.gateway}) `)).trim() || settings.model.gateway;
+  const model = (await ask("Which model, provider first, like anthropic/claude-sonnet-5? ")).trim();
+  const key = (await askHidden("Paste the key: ")).trim();
+  return await settle({ default: model, gateway, via: "gateway" }, key);
+}
+
+/**
+ * Writes the model settings, then asks that model one thing to find out whether
+ * any of it was true. A wrong key, an unauthorised CLI and a model name that has
+ * been retired all look the same until something asks.
+ */
+async function settle(model: Record<string, string>, key?: string): Promise<string> {
+  writeSettings("settings.json", { model });
+  written("settings.json", Object.keys(model).map((one) => `model.${one}`).join(", "));
+  if (key) {
+    writeSettings("settings.local.json", { model: { key } }, 0o600);
+    written("settings.local.json", "model.key, mode 600");
+  }
+
+  const { reloadSettings } = await import("#chloe/core/settings");
+  reloadSettings();
+
+  // Asked of the runtime rather than worked out here, so this cannot disagree
+  // with what the first job will find: a key for the gateway, the program for a CLI.
+  const { routeFor, runnable } = await import("#chloe/model/model");
+  const asking = model.default;
+  if (!runnable(routeFor(asking))) {
+    console.log(`\nNothing here can run ${asking} yet, so nothing was asked.`);
+    console.log("Paste a key into settings.local.json as model.key when you have one, and it can.");
+    return "";
+  }
+
+  process.stdout.write(`\nAsking ${asking} one thing to make sure it answers... `);
+  const trouble = await tryIt(asking);
+  console.log(trouble || "it answered, and it can call a tool.");
+  if (trouble) console.log("Fix that whenever you like: model.default and model.key in the settings files are all of it.");
+  return asking;
+}
+
+/**
+ * One real call down whatever route was just chosen, asking for a tool rather
+ * than for words. A model that cannot call a tool cannot run a prompt job, and
+ * free models differ on that, so the check is worth the tenth of a penny.
+ *
+ * Returns what went wrong, or "" when nothing did.
+ */
+async function tryIt(model: string): Promise<string> {
+  const { ask: askModel } = await import("#chloe/model/model");
+  try {
+    const answer = await askModel({
+      model,
+      maxTokens: 300,
+      messages: [
+        { role: "system", content: "Use the tool. Say nothing else." },
+        { role: "user", content: 'Call ready with word set to "chloe".' },
+      ],
+      tools: [
+        {
+          name: "ready",
+          description: "Say one word back.",
+          parameters: { type: "object", properties: { word: { type: "string" } }, required: ["word"] },
+        },
+      ],
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (answer.toolCalls.length > 0) return "";
+    if (answer.text.trim()) return "it answered, but it would not call the tool, so the prompt job will not work on it.";
+    return "it said nothing at all.";
+  } catch (error) {
+    return `no: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+/**
+ * The starter agent's code job, run here so the first thing that happens is a
+ * run and not a page. It asks no model, so it works before any of the above
+ * did, and it costs nothing.
+ *
+ * The clock is not started and no channel is opened, so this is one writer for
+ * one run even if the service is already going.
+ */
+async function firstRun(name: string): Promise<void> {
+  console.log(`\nRunning ${name}/daily-note, which asks no model.`);
+  try {
+    const { load } = await import("#chloe/load/load");
+    const { work } = await import("#chloe/core/steps");
+    const agent = await load(name);
+    const job = agent.jobs.find((one) => one.id === "daily-note");
+    if (!job) return void console.log("  it is not there any more, so nothing ran.");
+
+    const result = await work({ agent, job, source: "terminal" });
+    console.log(`  ${result.steps} steps, $${result.cost.toFixed(4)}, and a line in ${agent.memory.folder}/days.md`);
+  } catch (error) {
+    console.log(`  it did not run: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/** Where the runs are watched from: a dashboard somewhere else, or this box. */
+async function somewhereToWatch(): Promise<void> {
+  const where = await pick("\nSomewhere to watch it from:", [
+    { key: "cloud", what: "a workspace on dashboard.chloejs.org, which needs nothing open on this box" },
+    { key: "here", what: "the dashboard on this box, at 127.0.0.1:3067" },
+    { key: "later", what: "neither for now: it serves a plain page of its own either way" },
+  ]);
+
+  if (where === "cloud") {
+    console.log("\nMake a workspace at https://dashboard.chloejs.org and paste the key it shows you once.");
+    console.log("It connects out and stays connected, so there is no port to open and no name to point anywhere.");
+    const key = (await askHidden("Paste the workspace key (or Enter to do it later): ")).trim();
+    if (key) {
+      putInEnv("CHLOE_API_KEY", key);
+      written(".env", "CHLOE_API_KEY, mode 600");
+    }
+    return;
+  }
+
+  if (where === "here" && !existsSync(join(HERE, "node_modules/@chloejs/ui"))) {
+    console.log("\n@chloejs/ui is the dashboard. The runtime serves a plain page without it.");
+    if (await yes("Run npm install @chloejs/ui? (Y/n)", true)) {
+      spawnSync("npm", ["install", "@chloejs/ui"], { cwd: HERE, stdio: "inherit" });
+    }
+  }
+}
+
+/**
+ * The one password. Asked whichever way they watch it, because `npx chloe agent`
+ * signs itself in with the account as well, and a dashboard somewhere else has
+ * its own sign-in and not this one.
+ */
+async function thePassword(): Promise<void> {
+  const { hasAccount } = await import("#chloe/serve/login");
+  if (hasAccount()) return void console.log("\nThis copy already has a password. npx chloe account sets a new one.");
+
+  console.log("\nThe one password. It is what the page on this box asks for, and what npx chloe agent signs in with.");
+  await setPassword();
+  written("data/", "the account, and the run history");
+}
+
+function sayWhatNext(name: string, model: string): void {
+  if (wrote.length) console.log(`\nWritten:\n${columns(wrote)}`);
+  console.log(
+    `\nTry these:\n${columns([
+      ["npx chloe", "the server: every cron line, the page, the API"],
+      [`npx chloe agent ${name}`, "talk to it in this terminal"],
+      ...(model ? ([[`npx chloe agent ${name} summary`, "run the prompt job now"]] as [string, string][]) : []),
+      ["npx chloe install", "keep it running after you close this terminal"],
+    ])}`,
+  );
+  console.log("\nWhat to write next, and every setting there is: https://chloejs.org/docs/start");
+}
+
+/**
+ * Merges into one of the settings files, one level down, so a file that already
+ * holds other sections keeps them. Written with a mode when it holds a secret.
+ */
+function writeSettings(file: string, change: Record<string, Record<string, string>>, mode?: number): void {
+  const path = join(HERE, file);
+  const held = existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Record<string, Record<string, string>>) : {};
+  for (const [section, values] of Object.entries(change)) held[section] = { ...held[section], ...values };
+  writeFileSync(path, `${JSON.stringify(held, null, 2)}\n`);
+  if (mode) chmodSync(path, mode);
+}
+
+/**
+ * One line in .env beside chloe.config.ts, replacing that name if it is already
+ * there. .env is for what belongs to the box rather than the project, which is
+ * why the workspace key is only ever here.
+ */
+function putInEnv(name: string, value: string): void {
+  const path = join(HERE, ".env");
+  const held = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const lines = held.split("\n").filter((line) => !line.trim().startsWith(`${name}=`));
+  while (lines.length && !lines.at(-1)!.trim()) lines.pop();
+  lines.push(`${name}=${value}`);
+  writeFileSync(path, `${lines.join("\n")}\n`);
+  chmodSync(path, 0o600);
+}

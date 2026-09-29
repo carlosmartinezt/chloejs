@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 
 const WHAT = `chloe: agents that are mostly code.
 
+  npx chloe setup                write the files, pick a model, set the password
   npx chloe                      the server: every agent, every cron line, one port
   npx chloe account              set the one password, or a new one later
   npx chloe agent <name>         talk to one agent in this terminal
@@ -15,8 +16,10 @@ const WHAT = `chloe: agents that are mostly code.
   npx chloe evals <agent>        score that agent's prompts
   npx chloe install              install chloe.service, so it survives a reboot
 
-Run it from the folder with chloe.config.ts in it.
+Run it from the folder with chloe.config.ts in it, which setup writes.
 `;
+
+const WORDS = ["setup", "account", "agent", "evals", "install"];
 
 const word = process.argv[2];
 
@@ -25,22 +28,34 @@ if (word === "help" || word === "--help" || word === "-h") {
   process.exit(0);
 }
 
-if (word && !["account", "agent", "evals", "install"].includes(word)) {
+if (word && !WORDS.includes(word)) {
   process.stderr.write(`chloe: there is no "${word}".\n\n${WHAT}`);
   process.exit(1);
 }
 
-// core/root walks up for chloe.config.ts and throws if there is none. Asked
-// here so that from a terminal the usual mistake is a line and not a stack,
-// and asked rather than repeated so the two cannot disagree about where to look.
-try {
-  await import("#chloe/core/root");
-} catch (error) {
-  process.stderr.write(`chloe: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
+// Whether there is a project here at all, asked of core/find rather than
+// core/root: root throws when there is none, and a module that throws stays
+// thrown, so asking it here would leave setup writing a chloe.config.ts that
+// the rest of this process could never see. Setup is the one word that runs
+// without one, because writing one is what it does.
+const { findConfig, NO_CONFIG } = await import("#chloe/core/find");
+
+if (!findConfig()) {
+  if (word !== "setup") {
+    process.stderr.write(`chloe: no chloe.config.ts at or above ${process.cwd()}. ${NO_CONFIG}\n`);
+    const { yes } = await import("./terminal.ts");
+    if (!process.stdin.isTTY || !(await yes("\nSet this folder up now? (Y/n)", true))) {
+      process.stderr.write('Setting up is "npx chloe setup".\n');
+      process.exit(1);
+    }
+  }
+  await import("#chloe/ops/setup");
+  process.exit(0);
 }
 
-if (!word) {
+if (word === "setup") {
+  await import("#chloe/ops/setup");
+} else if (!word) {
   // The server is what `npx chloe` on its own means, and it takes no arguments.
   await import("#chloe/server");
 } else if (word === "install") {

@@ -13,6 +13,7 @@ import { getCallSites } from "node:util";
 import type { z } from "zod";
 
 import { MEMORIES, ROOT, setAgentDirs } from "#chloe/core/paths";
+import { settings as configured } from "#chloe/core/settings";
 import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown";
 import { parse } from "#chloe/timer/cron";
 import type { Definition as JobFile } from "./job.ts";
@@ -64,8 +65,12 @@ export interface Definition {
    * of the file that calls defineAgent.
    */
   folder?: string;
-  /** A gateway model id, like "anthropic/claude-sonnet-5". */
-  model: string;
+  /**
+   * A gateway model id, like "anthropic/claude-sonnet-5". Unsaid, it is
+   * `model.default` in settings, and an agent with neither is refused as it
+   * loads.
+   */
+  model?: string;
   /** One line, shown wherever agents are listed. */
   description: string;
   /**
@@ -334,8 +339,10 @@ export interface ChannelRoute {
  * One agent as the runtime holds it: the definition with its instructions
  * read, its tools bound, its skills loaded and its jobs resolved.
  */
-export interface Agent extends Omit<Definition, "instructions" | "tools" | "jobs" | "channels" | "memory"> {
+export interface Agent extends Omit<Definition, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model"> {
   folder: string;
+  /** Its own, or `model.default` in settings. Always there once loaded. */
+  model: string;
   /** Always there once loaded, with its folder worked out. See memoryFolder. */
   memory: Memory & { folder: string };
   instructions: string;
@@ -419,10 +426,16 @@ export async function load(name: string): Promise<Agent> {
   return one;
 }
 
-async function resolveAgent(definition: Defined): Promise<Agent> {
+/**
+ * One declared agent as the runtime uses it: its words read, its jobs loaded,
+ * its tools bound and its memory folder worked out. `loadAll` calls this for
+ * every agent in chloe.config.ts.
+ */
+export async function resolveAgent(definition: Defined): Promise<Agent> {
   const { name, folder } = definition;
   const where = `${name} (${shown(folder)})`;
-  if (!definition.model) throw new Error(`${where} does not say which model.`);
+  const model = definition.model || configured.model.default;
+  if (!model) throw new Error(`${where} does not say which model, and model.default in settings names none.`);
   if (!definition.instructions) throw new Error(`${where} has no instructions. Add instructions: prompt("instructions.md").`);
 
   const { tools, jobs, channels, ...rest } = definition;
@@ -445,6 +458,7 @@ async function resolveAgent(definition: Defined): Promise<Agent> {
   const home = { name, folder, memory };
   return {
     ...rest,
+    model,
     memory,
     instructions: await readPrompt(definition.instructions, { dir: folder, where }),
     instructionsFile: isPrompt(definition.instructions) ? definition.instructions.file : undefined,
