@@ -183,6 +183,8 @@ export interface Skill {
   name: string;
   description: string;
   body: string;
+  /** The file it was read from, inside the agent's folder, so a page can write it back. */
+  file: string;
 }
 
 /**
@@ -512,6 +514,7 @@ async function skillsIn(dir: string): Promise<Skill[]> {
       name: settings.name ?? file.replace(/\.md$/, ""),
       description: settings.description ?? "",
       body,
+      file: `skills/${file}`,
     });
   }
   return skills;

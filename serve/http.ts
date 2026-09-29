@@ -35,7 +35,7 @@ import {
 import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound } from "./errors.ts";
 import { recentWork } from "./recentWork.ts";
-import { channelsOf, connectionsOf } from "./inside.ts";
+import { channelsOf, connectionsOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import { type Caller, caller, covers, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, renew, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
@@ -254,8 +254,18 @@ export const routes: Route[] = [
     handle: ({ response, context, params }) =>
       json(
         response,
-        context.agent(params.name).skills.map((one) => ({ name: one.name, description: one.description, body: one.body })),
+        context
+          .agent(params.name)
+          .skills.map((one) => ({ name: one.name, description: one.description, body: one.body, path: one.file })),
       ),
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:name/tools",
+    does: "What it can do: every tool it is bound, with what the model is told each one is for.",
+    token: true,
+    remote: "read",
+    handle: ({ response, context, params }) => json(response, toolsOf(context.agent(params.name))),
   },
   {
     method: "GET",

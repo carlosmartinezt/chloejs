@@ -21,6 +21,47 @@ export interface Way {
   needs: string;
   /** Whether that setting is filled in. Null when there is nothing to fill in. */
   ready: boolean | null;
+  /** How it was set up, as the agent's definition wrote it. Never a credential. */
+  settings?: { name: string; value: string }[];
+}
+
+/** An option that carries a credential, which is named and never read out. */
+const secret = (name: string): boolean => /credential|token|secret|password|key$/i.test(name);
+
+/** One option's value, as short as it can be said. */
+function said(value: unknown): string {
+  if (Array.isArray(value)) return value.map(said).join(", ");
+  if (value && typeof value === "object") {
+    return Object.entries(value)
+      .map(([name, one]) => `${name} ${said(one)}`)
+      .join(", ");
+  }
+  return String(value);
+}
+
+/**
+ * The options a channel was made with, which say who may reach the agent and
+ * how it answers. Anything naming a credential is left out: what is here is
+ * the shape of the channel, not the way in to it.
+ */
+function optionsOf(channel: { name: string; madeWith?: string }): { name: string; value: string }[] {
+  if (!channel.madeWith) return [];
+  let options: Record<string, unknown>;
+  try {
+    options = JSON.parse(channel.madeWith) as Record<string, unknown>;
+  } catch {
+    return [];
+  }
+  return Object.entries(options)
+    .filter(([name, value]) => !secret(name) && value !== undefined && !(name === "name" && value === channel.name))
+    .map(([name, value]) => ({ name, value: said(value) }));
+}
+
+/** What an agent can do: every tool it is bound, with what the model is told it is for. */
+export function toolsOf(agent: Agent): { name: string; does: string }[] {
+  return Object.entries(agent.tools ?? {})
+    .map(([name, tool]) => ({ name, does: tool.description.trim() }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Whether a setting has anything in it. */
@@ -34,12 +75,14 @@ const filled = (value: string | undefined): boolean => Boolean(value && value.tr
 export function channelsOf(agent: Agent): Way[] {
   return agent.channels
     .map((channel): Way => {
+      const how = optionsOf(channel);
       if (channel.name === "telegram") {
         return {
           name: "telegram",
           does: "A Telegram bot. Anyone it is told to listen to can talk to this agent.",
           needs: `agents.${agent.name}.telegram`,
           ready: filled(settings.agents[agent.name]?.telegram),
+          settings: how,
         };
       }
       if (channel.name === "slack") {
@@ -49,6 +92,7 @@ export function channelsOf(agent: Agent): Way[] {
           does: "A Slack app. It answers in a direct message or wherever it is invited.",
           needs: `agents.${agent.name}.slack`,
           ready: filled(slack?.bot_token) && filled(slack?.app_token),
+          settings: how,
         };
       }
       if (channel.name === "api") {
@@ -57,9 +101,10 @@ export function channelsOf(agent: Agent): Way[] {
           does: "A token another system holds may chat to this agent and run its jobs.",
           needs: "",
           ready: null,
+          settings: how,
         };
       }
-      return { name: channel.name, does: "A way in of this agent's own.", needs: "", ready: null };
+      return { name: channel.name, does: "A way in of this agent's own.", needs: "", ready: null, settings: how };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
