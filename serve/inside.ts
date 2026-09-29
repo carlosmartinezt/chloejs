@@ -25,8 +25,17 @@ export interface Way {
   settings?: { name: string; value: string }[];
 }
 
-/** An option that carries a credential, which is named and never read out. */
-const secret = (name: string): boolean => /credential|token|secret|password|key$/i.test(name);
+/**
+ * Which of a channel's options may be shown, named one by one. A list of what
+ * to hide would be a guess about every option a channel might grow; this is
+ * the other way round, so an option nobody has thought about here is not
+ * shown. A channel of an agent's own is in neither list and shows nothing,
+ * because only that agent knows what it put in there.
+ */
+const SHOWN: Record<string, string[]> = {
+  telegram: ["name", "botUsername", "allowFrom", "inGroups", "chatHistory", "sendWhileWorking", "stackWithin", "mode", "uploadPolicy"],
+  slack: ["name", "allowFrom", "inGroups", "chatHistory", "sendWhileWorking", "uploadPolicy"],
+};
 
 /** One option's value, as short as it can be said. */
 function said(value: unknown): string {
@@ -41,20 +50,21 @@ function said(value: unknown): string {
 
 /**
  * The options a channel was made with, which say who may reach the agent and
- * how it answers. Anything naming a credential is left out: what is here is
- * the shape of the channel, not the way in to it.
+ * how it answers. Only the ones named above: what is here is the shape of the
+ * channel, never the way in to it.
  */
 function optionsOf(channel: { name: string; madeWith?: string }): { name: string; value: string }[] {
-  if (!channel.madeWith) return [];
+  const shown = SHOWN[channel.name];
+  if (!channel.madeWith || !shown) return [];
   let options: Record<string, unknown>;
   try {
     options = JSON.parse(channel.madeWith) as Record<string, unknown>;
   } catch {
     return [];
   }
-  return Object.entries(options)
-    .filter(([name, value]) => !secret(name) && value !== undefined && !(name === "name" && value === channel.name))
-    .map(([name, value]) => ({ name, value: said(value) }));
+  return shown
+    .filter((name) => options[name] !== undefined && !(name === "name" && options[name] === channel.name))
+    .map((name) => ({ name, value: said(options[name]) }));
 }
 
 /** What an agent can do: every tool it is bound, with what the model is told it is for. */
