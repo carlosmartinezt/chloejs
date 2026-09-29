@@ -35,6 +35,7 @@ import {
 import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound } from "./errors.ts";
 import { recentWork } from "./recentWork.ts";
+import { channelsOf, connectionsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import { type Caller, caller, covers, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, renew, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
@@ -235,6 +236,42 @@ export const routes: Route[] = [
     token: true,
     remote: "read",
     handle: ({ response, context, params }) => json(response, summary(context.agent(params.name))),
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:name/instructions",
+    does: "What it is told to do, as the model is given it. A definition that points at a markdown file is that file.",
+    token: true,
+    remote: "read",
+    handle: ({ response, context, params }) => json(response, { text: context.agent(params.name).instructions }),
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:name/skills",
+    does: "Its skills, each with what it says. A skill is words it reaches for when it needs them.",
+    token: true,
+    remote: "read",
+    handle: ({ response, context, params }) =>
+      json(
+        response,
+        context.agent(params.name).skills.map((one) => ({ name: one.name, description: one.description, body: one.body })),
+      ),
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:name/channels",
+    does: "The ways in it binds, and which setting carries each one's credentials. Never the credentials.",
+    token: true,
+    remote: "read",
+    handle: ({ response, context, params }) => json(response, channelsOf(context.agent(params.name))),
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:name/connections",
+    does: "What it can reach that is not on this box, and whether each is set up. Never the credentials.",
+    token: true,
+    remote: "read",
+    handle: ({ response, context, params }) => json(response, connectionsOf(context.agent(params.name))),
   },
   {
     method: "GET",
