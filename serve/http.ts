@@ -240,10 +240,13 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents/:name/instructions",
-    does: "What it is told to do, as the model is given it. A definition that points at a markdown file is that file.",
+    does: "What it is told to do, as the model is given it, and which file it is in when it is in one.",
     token: true,
     remote: "read",
-    handle: ({ response, context, params }) => json(response, { text: context.agent(params.name).instructions }),
+    handle: ({ response, context, params }) => {
+      const agent = context.agent(params.name);
+      return json(response, { text: agent.instructions, path: agent.instructionsFile });
+    },
   },
   {
     method: "GET",

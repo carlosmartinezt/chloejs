@@ -339,6 +339,8 @@ export interface Agent extends Omit<Definition, "instructions" | "tools" | "jobs
   /** Always there once loaded, with its folder worked out. See memoryFolder. */
   memory: Memory & { folder: string };
   instructions: string;
+  /** The file inside its folder those words are in, when they are in one and not written into the definition. */
+  instructionsFile?: string;
   tools?: Tools;
   skills: Skill[];
   jobs: Job[];
@@ -445,6 +447,7 @@ async function resolveAgent(definition: Defined): Promise<Agent> {
     ...rest,
     memory,
     instructions: await readPrompt(definition.instructions, { dir: folder, where }),
+    instructionsFile: isPrompt(definition.instructions) ? definition.instructions.file : undefined,
     tools: toolsOf([...featureTools(definition.features, where), ...(tools ?? [])], home, where),
     skills: await skillsIn(`${folder}/skills`),
     jobs: await jobsOf(name, folder, jobs ?? []),
