@@ -26,45 +26,72 @@ export interface Way {
 }
 
 /**
- * Which of a channel's options may be shown, named one by one. A list of what
- * to hide would be a guess about every option a channel might grow; this is
- * the other way round, so an option nobody has thought about here is not
- * shown. A channel of an agent's own is in neither list and shows nothing,
- * because only that agent knows what it put in there.
+ * Every string the settings hold, however deep. This box keeps its credentials
+ * in settings.json, so a value that is in there is a credential whatever the
+ * option it was handed to is called.
  */
-const SHOWN: Record<string, string[]> = {
-  telegram: ["name", "botUsername", "allowFrom", "inGroups", "chatHistory", "sendWhileWorking", "stackWithin", "mode", "uploadPolicy"],
-  slack: ["name", "allowFrom", "inGroups", "chatHistory", "sendWhileWorking", "uploadPolicy"],
-};
+function inSettings(value: unknown, found = new Set<string>()): Set<string> {
+  if (typeof value === "string") {
+    const word = value.trim();
+    if (word.length >= 8) found.add(word);
+  } else if (Array.isArray(value)) {
+    for (const one of value) inSettings(one, found);
+  } else if (value && typeof value === "object") {
+    for (const one of Object.values(value)) inSettings(one, found);
+  }
+  return found;
+}
 
-/** One option's value, as short as it can be said. */
-function said(value: unknown): string {
-  if (Array.isArray(value)) return value.map(said).join(", ");
+/**
+ * Whether a piece of text is a credential rather than something somebody
+ * chose. No list of option names to keep up to date, so a channel anybody
+ * writes is treated like the ones that ship here. Two things say so:
+ *
+ * - the settings hold it, which is where a token handed to a channel comes
+ *   from, and
+ * - it reads like a key: a long run with no spaces in it mixing letters and
+ *   numbers. A setting somebody typed is a word, a name, a number or an
+ *   address, and none of those is that.
+ *
+ * It errs towards hiding. A value that is really a choice and looks like a key
+ * is shown as hidden, and the agent's own file says what it is.
+ */
+function credential(text: string, held: Set<string>): boolean {
+  const word = text.trim();
+  if (held.has(word)) return true;
+  return word.length >= 24 && !/\s/.test(word) && /[a-z]/i.test(word) && /[0-9]/.test(word);
+}
+
+/** One option's value, as short as it can be said, with any credential in it hidden. */
+function said(value: unknown, held: Set<string>): string {
+  if (typeof value === "string") return credential(value, held) ? "hidden" : value;
+  if (Array.isArray(value)) return value.map((one) => said(one, held)).join(", ");
   if (value && typeof value === "object") {
     return Object.entries(value)
-      .map(([name, one]) => `${name} ${said(one)}`)
+      .map(([name, one]) => `${name} ${said(one, held)}`)
       .join(", ");
   }
   return String(value);
 }
 
 /**
- * The options a channel was made with, which say who may reach the agent and
- * how it answers. Only the ones named above: what is here is the shape of the
- * channel, never the way in to it.
+ * The options a channel was made with, all of them, which say who may reach
+ * the agent and how it answers. What is here is the shape of the channel and
+ * never the way in to it: a value that is a credential is hidden wherever it
+ * sits, however deep, and whatever its option is called.
  */
 function optionsOf(channel: { name: string; madeWith?: string }): { name: string; value: string }[] {
-  const shown = SHOWN[channel.name];
-  if (!channel.madeWith || !shown) return [];
+  if (!channel.madeWith) return [];
   let options: Record<string, unknown>;
   try {
     options = JSON.parse(channel.madeWith) as Record<string, unknown>;
   } catch {
     return [];
   }
-  return shown
-    .filter((name) => options[name] !== undefined && !(name === "name" && options[name] === channel.name))
-    .map((name) => ({ name, value: said(options[name]) }));
+  const held = inSettings(settings);
+  return Object.entries(options)
+    .filter(([name, value]) => value !== undefined && !(name === "name" && value === channel.name))
+    .map(([name, value]) => ({ name, value: said(value, held) }));
 }
 
 /** What an agent can do: every tool it is bound, with what the model is told it is for. */

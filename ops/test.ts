@@ -1205,6 +1205,39 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     [true, false],
   );
 
+  // What the page is allowed to show of a channel. Nothing here is a list of
+  // option names: a credential is spotted by what it is, so a channel written
+  // by anybody is treated like the ones that ship here.
+  {
+    const { channelsOf } = await import("#chloe/serve/inside");
+    const { settings } = await import("#chloe/core/settings");
+    const before = settings.agents;
+    settings.agents = { first: { telegram: "the-one-in-settings" } } as unknown as typeof settings.agents;
+    const channel = telegramChannel({
+      allowFrom: [111111111],
+      inGroups: "always",
+      stackWithin: 5,
+      credentials: { botToken: "8301554167:AAH3kQ2vB7pLxZr9TnW4sYdE1cJmU6oKgFa" },
+    });
+    const shown = channelsOf({ name: "first", channels: [channel] } as any)[0].settings;
+    is("who may reach it and how it answers are shown", shown?.slice(0, 3), [
+      { name: "allowFrom", value: "111111111" },
+      { name: "inGroups", value: "always" },
+      { name: "stackWithin", value: "5" },
+    ]);
+    is("a token written into the agent is not, however deep it sits", shown?.[3], {
+      name: "credentials",
+      value: "botToken hidden",
+    });
+    const held = telegramChannel({ credentials: { botToken: "the-one-in-settings" } });
+    is(
+      "nor is a short one the settings hold",
+      channelsOf({ name: "first", channels: [held] } as any)[0].settings,
+      [{ name: "credentials", value: "botToken hidden" }],
+    );
+    settings.agents = before;
+  }
+
   // A stand-in Telegram: each update is handed out once, a file is always the
   // same four bytes, and everything the bot sends is written down.
   const inbox: object[] = [];
