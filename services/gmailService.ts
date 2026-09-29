@@ -12,15 +12,15 @@
 // with the same binding, so a job does not get a wider search for skipping
 // the model.
 import { run } from "./runService.ts";
-import { setting, settings } from "#chloe/core/settings";
+import { settings } from "#chloe/core/settings";
 
 const GOG = "gog";
 
 /** gog reads its account and the password to its saved login from these two. */
 function gog(): Record<string, string> {
   return {
-    GOG_ACCOUNT: setting(settings.google.account, "GOG_ACCOUNT"),
-    GOG_KEYRING_PASSWORD: setting(settings.google.password, "GOG_KEYRING_PASSWORD"),
+    GOG_ACCOUNT: settings.google.account,
+    GOG_KEYRING_PASSWORD: settings.google.password,
   };
 }
 

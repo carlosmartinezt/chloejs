@@ -557,19 +557,19 @@ about("a model step that never fits");
   const { readSettings, setting } = await import("@chloejs/core");
 
   const base = { model: { via: "gateway", judge: "a" } };
-  is("a default fills in what no file mentions", readSettings(base, {}).model.gateway, "https://ai-gateway.vercel.sh/v1/chat/completions");
-  is("a local file wins over the tracked one", readSettings(base, { model: { via: "claude" } }).model.via, "claude");
+  is("a default fills in what no file mentions", readSettings(base, {}, {}).model.gateway, "https://ai-gateway.vercel.sh/v1/chat/completions");
+  is("a local file wins over the tracked one", readSettings(base, { model: { via: "claude" } }, {}).model.via, "claude");
   is(
     "and wins one key without clearing its neighbours",
-    readSettings(base, { model: { via: "claude" } }).model.judge,
+    readSettings(base, { model: { via: "claude" } }, {}).model.judge,
     "a",
   );
-  is("a setting nobody set is empty rather than missing", readSettings({}, {}).node, "");
-  is("each agent's own settings are under its name", readSettings({}, { agents: { tempo: { telegram: "t" } } }).agents.tempo.telegram, "t");
-  is("and what it does not say is empty", readSettings({}, { agents: { tempo: { telegram: "t" } } }).agents.tempo.slack.app_token, "");
+  is("a setting nobody set is empty rather than missing", readSettings({}, {}, {}).node, "");
+  is("each agent's own settings are under its name", readSettings({}, { agents: { tempo: { telegram: "t" } } }, {}).agents.tempo.telegram, "t");
+  is("and what it does not say is empty", readSettings({}, { agents: { tempo: { telegram: "t" } } }, {}).agents.tempo.slack.app_token, "");
   let misspelt = "";
   try {
-    readSettings({}, { agents: { tempo: { telegarm: "t" } } });
+    readSettings({}, { agents: { tempo: { telegarm: "t" } } }, {});
   } catch (error) {
     misspelt = error instanceof Error ? error.message : "";
   }
@@ -582,13 +582,13 @@ about("a model step that never fits");
     is("one left behind by a rename is not", unclaimed(["growth"]), ["tempo"]);
     settings.agents = before;
   }
-  is("an environment variable beats the files", setting("fromfile", "TEST_SETTING_WINS"), "fromfile");
+  is("something that is not a setting takes the value it was given", setting("fromfile", "TEST_SETTING_WINS"), "fromfile");
   process.env.TEST_SETTING_WINS = "fromenv";
-  is("once there is one", setting("fromfile", "TEST_SETTING_WINS"), "fromenv");
+  is("until an environment variable says otherwise", setting("fromfile", "TEST_SETTING_WINS"), "fromenv");
 
   let refused = "";
   try {
-    readSettings({ model: { via: "telepathy" } }, {});
+    readSettings({ model: { via: "telepathy" } }, {}, {});
   } catch (error) {
     refused = error instanceof Error ? error.message.split("\n")[0] : "";
   }
@@ -596,12 +596,79 @@ about("a model step that never fits");
 
   let moved = "";
   try {
-    readSettings({}, { cloud: { key: "chl_workspace_x" } });
+    readSettings({}, { cloud: { key: "chl_workspace_x" } }, {});
   } catch (error) {
     moved = error instanceof Error ? error.message : "";
   }
   is("cloud.key in a settings file is refused, and says where it went", moved.includes("CHLOE_API_KEY in .env"), true);
-  is("and the dashboard's address is what it is unless somebody says", readSettings({}, {}).cloud.url, "https://dashboard.chloejs.org");
+  is("and the dashboard's address is what it is unless somebody says", readSettings({}, {}, {}).cloud.url, "https://dashboard.chloejs.org");
+}
+
+{
+  about("a setting out of the environment");
+  const { readSettings, nameInEnv } = await import("@chloejs/core");
+
+  is("a setting is CHLOE_ and its path, in capitals", nameInEnv(["resend", "api_key"]), "CHLOE_RESEND_API_KEY");
+  is(
+    "the environment beats both files",
+    readSettings({ cloud: { url: "https://tracked" } }, { cloud: { url: "https://local" } }, { CHLOE_CLOUD_URL: "https://env" }).cloud.url,
+    "https://env",
+  );
+  is(
+    "and beats one key without clearing its neighbours",
+    readSettings({}, { cloud: { sync: { runs: false } } }, { CHLOE_CLOUD_URL: "https://env" }).cloud.sync.runs,
+    false,
+  );
+  is("a switch reads as a switch", readSettings({}, {}, { CHLOE_CLOUD_REMOTE_WRITE: "true" }).cloud.remote.write, true);
+  is("and the switches beside it are left alone", readSettings({}, {}, { CHLOE_CLOUD_REMOTE_WRITE: "true" }).cloud.remote.memory, false);
+  is("a list is written with commas", readSettings({}, {}, { CHLOE_MODEL_MODELS: "one/a, one/b" }).model.models, ["one/a", "one/b"]);
+  is("a route is named after its provider", readSettings({}, {}, { CHLOE_MODEL_ROUTES_OPENAI: "codex" }).model.routes.openai, "codex");
+  is(
+    "an agent's token is under its name",
+    readSettings({}, {}, { CHLOE_AGENTS_TEMPO_TELEGRAM: "t" }).agents.tempo.telegram,
+    "t",
+  );
+  is(
+    "and so is a token two deep",
+    readSettings({}, {}, { CHLOE_AGENTS_TEMPO_SLACK_BOT_TOKEN: "xoxb" }).agents.tempo.slack.bot_token,
+    "xoxb",
+  );
+  is(
+    "an agent a settings file spells with a dash is the same agent",
+    Object.keys(readSettings({}, { agents: { "test-agent": {} } }, { CHLOE_AGENTS_TEST_AGENT_TELEGRAM: "t" }).agents),
+    ["test-agent"],
+  );
+  is("the older name a setting had still works", readSettings({}, {}, { MODEL_VIA: "codex" }).model.via, "codex");
+  is("and the name from the schema wins over it", readSettings({}, {}, { MODEL_VIA: "codex", CHLOE_MODEL_VIA: "claude" }).model.via, "claude");
+
+  let switched = "";
+  try {
+    readSettings({}, {}, { CHLOE_CLOUD_REMOTE_WRITE: "please" });
+  } catch (error) {
+    switched = error instanceof Error ? error.message : "";
+  }
+  is("a switch that is neither is refused, not read as off", switched, 'CHLOE_CLOUD_REMOTE_WRITE is "please", and a switch is true or false.');
+
+  let misspelt = "";
+  try {
+    readSettings({}, {}, { CHLOE_AGENTS_TEMPO_TELEGARM: "t" });
+  } catch (error) {
+    misspelt = error instanceof Error ? error.message : "";
+  }
+  is("a misspelt variable under an agent is refused rather than ignored", misspelt.includes("names no setting"), true);
+
+  // The file somebody copies to start. It is checked here because a template
+  // that no longer parses is found by the person setting chloe up, once, and
+  // a renamed setting is exactly what makes it stop parsing.
+  const example = JSON.parse(await readFile(new URL("../settings.example.json", import.meta.url), "utf8"));
+  let template = "";
+  try {
+    readSettings({}, example, {});
+  } catch (error) {
+    template = error instanceof Error ? error.message : "";
+  }
+  is("settings.example.json is every setting the schema has", template, "");
+  is("and shows each one, so the file says what there is to set", Object.keys(example).length, Object.keys(readSettings({}, {}, {})).length);
 }
 
 {
@@ -730,8 +797,14 @@ about("a model step that never fits");
     is("a provider's own route wins over both", routeFor("openai/gpt-6-luna"), "codex");
     process.env.MODEL_VIA = "gateway";
     is("and the environment wins over everything, for one run", routeFor("openai/gpt-6-luna"), "gateway");
-    is("via() is the route for a provider that says nothing", via(), "gateway");
+    is("which the newer name does too", routeFor("openai/gpt-6-luna"), "gateway");
     delete process.env.MODEL_VIA;
+    process.env.CHLOE_MODEL_VIA = "gateway";
+    is("under either name", routeFor("openai/gpt-6-luna"), "gateway");
+    delete process.env.CHLOE_MODEL_VIA;
+    settings.model.via = "gateway";
+    is("via() is the route for a provider that says nothing", via(), "gateway");
+    settings.model.via = "claude";
 
     is("the codex cli is handed the name alone", codexModel("openai/gpt-6-luna"), "gpt-6-luna");
     let refused = "";
@@ -2694,14 +2767,15 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   live.cloud.remote = { read: true, chat: true, run: true, memory: false, write: false };
 
   // Nothing named: nothing opened.
-  delete process.env.CHLOE_CLOUD_URL;
   delete process.env.CHLOE_API_KEY;
   const idle = startCloud({ agents: () => new Map([["test", keeper]]), self: at, socket: fake, backoff: { first: 10, most: 20 } });
   await tick();
   is("with no key nothing is opened", opened.length, 0);
   idle.stop();
 
-  process.env.CHLOE_CLOUD_URL = "https://cloud.example/";
+  // The address is a setting, so it is set as one. The key never is: it is the
+  // box's, and it is only ever in the environment.
+  live.cloud.url = "https://cloud.example/";
   process.env.CHLOE_API_KEY = "chl_install_test";
   const cloud = startCloud({ agents: () => new Map([["test", keeper]]), self: at, socket: fake, backoff: { first: 10, most: 20 }, version: "9.9.9" });
   await tick();
@@ -2792,7 +2866,6 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and the log says it came from the cloud, not from a token", cameIn.at(-1), "cloud");
 
   cloud.stop();
-  delete process.env.CHLOE_CLOUD_URL;
   delete process.env.CHLOE_API_KEY;
   delete process.env.CHLOE_PAGE;
   server.close();

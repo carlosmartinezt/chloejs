@@ -202,8 +202,26 @@ settings.json          which model, and how to reach it
 your-agent/agent.ts    what the agent is: its jobs, tools and channels
 ```
 
+Settings in source control go in `settings.json`, and anything naming this box
+or anybody, every credential included, goes in `settings.local.json`, mode 600
+and never committed. `settings.example.json` in this repo is every section at a
+stand-in value: copy it and fill it in. Each setting's default and its one line
+of explanation are the schema in `core/settings.ts`, and the table on
+chloejs.org is read out of that file.
+
 Plus `.env` for what belongs to the box rather than the project: the workspace
-key for a dashboard, a gateway key, whatever a script needs.
+key for a dashboard, a gateway key, whatever a script needs. Every setting can
+go there too, under `CHLOE_` and its path in capitals, so a box can be set up
+with no settings file at all:
+
+```
+CHLOE_RESEND_API_KEY=re_...
+CHLOE_AGENTS_TEMPO_TELEGRAM=123456789:ABC...
+CHLOE_CLOUD_REMOTE_WRITE=false
+```
+
+A variable beats both files, a list is written with commas, and a switch that
+is neither `true` nor `false` is refused at startup rather than read as off.
 
 ```sh
 npx chloe account                # set the one password

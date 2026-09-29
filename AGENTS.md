@@ -45,10 +45,13 @@ home directory or a machine. An agent is somebody's own, so a folder outside
 the repo that it uses is a full path written in the agent file that uses it,
 like `const BACKUPS = "/home/you/backups"` in the job that uses it.
 
-Setting chloe up is filling in one file. Settings are JSON in
-`settings.json` (in source control) and `settings.local.json` (one machine
-only, mode 600), with every default and its one-line explanation in the schema in
-`core/settings.ts`. A credential, a chat id or anything else naming a
+Setting chloe up is copying `settings.example.json`, which holds every
+section at a stand-in value, to `settings.local.json` and filling it in.
+Settings are JSON in `settings.json` (in source control) and
+`settings.local.json` (one machine only, mode 600), with every default and its
+one-line explanation in the schema in `core/settings.ts`. A copy with nothing
+worth committing keeps only the local file. The example is checked against the
+schema by the suite, so a renamed setting cannot leave it stale. A credential, a chat id or anything else naming a
 person goes in `settings.local.json`, in a section named for the service it
 belongs to (`resend`, `google`). What belongs to one agent, its channels'
 tokens, goes under `agents` and that agent's name:
@@ -58,7 +61,21 @@ when the channel starts.
 `.env` beside `chloe.config.ts` is the other file, and it holds what belongs to
 the box rather than to the project. `core/env.ts` reads it into the
 environment before any setting is read, and a variable already in the real
-environment wins, so `MODEL_VIA=gateway npx chloe` still beats the file. The
+environment wins, so `CHLOE_MODEL_VIA=gateway npx chloe` still beats the file.
+
+**Every setting has a name in the environment**, `CHLOE_` and its path in
+capitals: `CHLOE_CLOUD_URL`, `CHLOE_RESEND_API_KEY`,
+`CHLOE_AGENTS_<agent>_TELEGRAM`, `CHLOE_CLOUD_REMOTE_WRITE`. `nameInEnv` works
+it out from the schema, so a setting added below has one without anybody
+writing it down, and `readSettings` merges them over the files, one setting at
+a time. Text is read as the type the setting has: a list on commas, a switch as
+`true` or `false` and refused when it is neither. The ten older names
+(`MODEL_VIA`, `AGENTS_STATE` and the rest) are a map in `core/settings.ts` and
+the name from the schema wins over them. Nothing new goes in that map.
+
+A setting is read from `settings`, never from `process.env`: the environment is
+already merged in. `settingInEnv` is for the one place that cares where a value
+came from, a route meant for one run beating a provider's own. The
 workspace key for a Chloe Cloud is only ever there, as `CHLOE_API_KEY`: a
 settings file that names `cloud.key` is refused rather than passed over,
 because a key that silently stops being read is a runtime that silently leaves

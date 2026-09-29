@@ -4,7 +4,7 @@
 // model's name. The provider decides the route, `routeFor()` below:
 //
 //   gateway  the Vercel AI Gateway over HTTP, any model, on a key. Any gateway
-//            that speaks the same shape works by setting AI_GATEWAY_URL.
+//            that speaks the same shape works by setting model.gateway.
 //   claude   the Claude Code CLI, Anthropic models, on a Claude subscription.
 //   codex    the Codex CLI, OpenAI models, on a ChatGPT plan.
 //
@@ -16,7 +16,7 @@ import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";
 
 import type { Agent } from "#chloe/load/load";
-import { setting, settings } from "#chloe/core/settings";
+import { nameInEnv, setting, settingInEnv, settings } from "#chloe/core/settings";
 
 import { viaClaude } from "./claude.ts";
 import { viaCodex } from "./codex.ts";
@@ -43,8 +43,11 @@ function carries(route: Route, provider: string): boolean {
  */
 export function routeFor(model: string): Route {
   const provider = providerOf(model);
-  const forced = process.env.MODEL_VIA;
-  if (forced) return checked(forced, "MODEL_VIA");
+  // A route said in the environment is meant for the whole run, so it beats a
+  // provider's own route as well. One said in a file is only the route for a
+  // provider that names none, which is the line below.
+  const forced = settingInEnv(process.env, ["model", "via"]);
+  if (forced) return checked(forced, nameInEnv(["model", "via"]));
   const byProvider = settings.model.routes[provider];
   if (byProvider) return byProvider;
   const chosen = settings.model.via;
@@ -58,7 +61,7 @@ export function routeFor(model: string): Route {
  * environment settle it. What the startup line reports.
  */
 export function via(): Route {
-  const chosen = setting(settings.model.via, "MODEL_VIA");
+  const chosen = settings.model.via;
   if (chosen) return checked(chosen, "model.via");
   return gatewayKey() ? "gateway" : "claude";
 }
@@ -69,7 +72,7 @@ function checked(value: string, where: string): Route {
 }
 
 function gatewayKey(): string {
-  return setting(settings.model.key, "AI_GATEWAY_API_KEY");
+  return settings.model.key;
 }
 
 /** The program a CLI route runs, as the environment may rename it. */
@@ -216,7 +219,7 @@ async function viaGateway({ model, messages, tools, maxTokens, signal }: Ask): P
   for (let attempt = 0; attempt < 4; attempt++) {
     if (attempt > 0) await wait(Math.min(2 ** attempt, 8) * 1000, signal);
 
-    const response = await fetch(setting(settings.model.gateway, "AI_GATEWAY_URL"), {
+    const response = await fetch(settings.model.gateway, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),

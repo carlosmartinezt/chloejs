@@ -6,10 +6,18 @@
 //   settings.json        in source control: true for everyone who clones this
 //   settings.local.json  not in source control: true for this box only
 //
+// Both are optional. `settings.example.json` beside them is every section at a
+// stand-in value, to copy to `settings.local.json` and fill in, and the suite
+// checks it against this schema so a renamed setting cannot leave it stale.
+//
 // An environment variable beats all three, and .env beside chloe.config.ts is
-// read into the environment before any of this. Which of the two a value goes
-// in: .env is for what belongs to the box rather than to the project, and the
-// workspace key for a Chloe Cloud is only ever there.
+// read into the environment before any of this. Every setting has one, named
+// CHLOE_ and its path in capitals: CHLOE_CLOUD_URL, CHLOE_RESEND_API_KEY,
+// CHLOE_AGENTS_<agent>_TELEGRAM. So anything that can be set in a file can be
+// set in .env instead, and a box can be configured with no settings file at
+// all. Which of the two a value goes in is a choice: .env is for what belongs
+// to the box rather than to the project, and the workspace key for a Chloe
+// Cloud is only ever there.
 //
 // A value that names a home directory, a machine, a person, or is a
 // credential (a bot token, a chat id) belongs in settings.local.json or .env,
@@ -178,11 +186,197 @@ function merge(base: Record<string, unknown>, over: Record<string, unknown>): Re
 }
 
 /**
- * The two files merged and checked. Separate from reading them so it can be
- * tested without a disk, and so the order that wins is one readable line.
+ * Every setting can also be set in the environment, under `CHLOE_` and its
+ * path in capitals: `CHLOE_CLOUD_URL` for `cloud.url`, `CHLOE_RESEND_API_KEY`
+ * for `resend.api_key`, `CHLOE_AGENTS_CHLOE_TELEGRAM` for that agent's token.
+ * The name is worked out from the schema, so a setting added below has one
+ * without anybody writing it down.
  */
-export function readSettings(tracked: unknown, local: unknown): Settings {
+export function nameInEnv(path: string[]): string {
+  return ["CHLOE", ...path].join("_").toUpperCase();
+}
+
+/**
+ * The older name a setting is also read from, from before every setting had
+ * one. The name above wins when both are set. Nothing new belongs here: one
+ * setting, one name.
+ */
+const ALSO = new Map<string, string>([
+  ["model.via", "MODEL_VIA"],
+  ["model.gateway", "AI_GATEWAY_URL"],
+  ["model.key", "AI_GATEWAY_API_KEY"],
+  ["model.judge", "JUDGE_MODEL"],
+  ["email.provider", "EMAIL_PROVIDER"],
+  ["resend.api_key", "RESEND_API_KEY"],
+  ["google.account", "GOG_ACCOUNT"],
+  ["google.password", "GOG_KEYRING_PASSWORD"],
+  ["state", "AGENTS_STATE"],
+  ["memory", "AGENTS_MEMORY"],
+]);
+
+/** The environment, as this file reads it: the real one, or a made-up one in a test. */
+type Env = Record<string, string | undefined>;
+
+/**
+ * What the environment holds for one setting, under either of its names, or
+ * nothing when it holds neither. `settings` already has this merged in, so
+ * this is for the few places that care that it came from the environment
+ * rather than from a file, like a route meant for one run.
+ */
+export function settingInEnv(env: Env, path: string[]): string | undefined {
+  const here = env[nameInEnv(path)];
+  if (here !== undefined) return here;
+  const also = ALSO.get(path.join("."));
+  return also ? env[also] : undefined;
+}
+
+const isGroup = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value);
+
+/**
+ * The text as the type the setting already has, because the environment only
+ * ever holds text. A boolean that is neither true nor false is refused rather
+ * than read as false, which is the reading that silently opens a switch.
+ */
+function asTyped(name: string, was: unknown, text: string): unknown {
+  if (typeof was === "boolean") {
+    if (["true", "yes", "on", "1"].includes(text.trim().toLowerCase())) return true;
+    if (["false", "no", "off", "0"].includes(text.trim().toLowerCase())) return false;
+    throw new Error(`${name} is ${JSON.stringify(text)}, and a switch is true or false.`);
+  }
+  if (typeof was === "number") {
+    const found = Number(text.trim());
+    if (Number.isNaN(found)) throw new Error(`${name} is ${JSON.stringify(text)}, and it has to be a number.`);
+    return found;
+  }
+  if (Array.isArray(was)) {
+    return text
+      .split(",")
+      .map((one) => one.trim())
+      .filter(Boolean);
+  }
+  return text;
+}
+
+/** A value written into an object by its path, making the groups above it as it goes. */
+function setIn(into: Record<string, unknown>, path: string[], value: unknown): Record<string, unknown> {
+  let at = into;
+  for (const key of path.slice(0, -1)) {
+    if (!isGroup(at[key])) at[key] = {};
+    at = at[key] as Record<string, unknown>;
+  }
+  at[path[path.length - 1]] = value;
+  return into;
+}
+
+/** Every leaf under a group, as paths. */
+function leaves(group: Record<string, unknown>, path: string[] = []): string[][] {
+  return Object.entries(group).flatMap(([key, value]) => (isGroup(value) ? leaves(value, [...path, key]) : [[...path, key]]));
+}
+
+/**
+ * The fields one entry of a record has, like an agent's `telegram` and
+ * `slack.bot_token`, found by asking the schema to fill an entry in. A record
+ * whose entries are plain values, like `model.routes`, has none, and then
+ * everything after the prefix is the key.
+ */
+function fieldsOf(path: string[]): string[][] {
+  const found = schema.safeParse(setIn({}, [...path, "probe"], {}));
+  if (!found.success) return [];
+  let at: unknown = found.data;
+  for (const key of [...path, "probe"]) at = (at as Record<string, unknown>)[key];
+  return isGroup(at) ? leaves(at) : [];
+}
+
+/**
+ * A record's entries out of the environment: `CHLOE_AGENTS_<name>_TELEGRAM`.
+ * The field is matched off the end, longest first, so an agent whose name has
+ * an underscore in it still reads as one name. The key is lower case, which is
+ * what an agent folder and a provider are, unless a settings file already
+ * spells it another way.
+ */
+function entries(env: Env, path: string[], already: Record<string, unknown>): [string[], unknown][] {
+  const prefix = `${nameInEnv(path)}_`;
+  const fields = fieldsOf(path)
+    .map((field) => ({ field, tail: `_${field.join("_").toUpperCase()}` }))
+    .sort((a, b) => b.tail.length - a.tail.length);
+  const out: [string[], unknown][] = [];
+  for (const [name, text] of Object.entries(env)) {
+    if (!name.startsWith(prefix) || text === undefined) continue;
+    const rest = name.slice(prefix.length);
+    if (fields.length === 0) {
+      out.push([[...path, named(rest, already)], text]);
+      continue;
+    }
+    const one = fields.find(({ tail }) => rest.endsWith(tail) && rest.length > tail.length);
+    if (!one) {
+      throw new Error(`${name} names no setting. Under ${path.join(".")} a name ends in ${fields.map(({ tail }) => tail).join(", ")}.`);
+    }
+    out.push([[...path, named(rest.slice(0, -one.tail.length), already), ...one.field], text]);
+  }
+  return out;
+}
+
+/** The group at a path in the settings files, or nothing there. */
+function groupIn(files: Record<string, unknown>, path: string[]): Record<string, unknown> {
+  let at: unknown = files;
+  for (const key of path) {
+    if (!isGroup(at)) return {};
+    at = at[key];
+  }
+  return isGroup(at) ? at : {};
+}
+
+/**
+ * The key as a settings file spells it when one does, matching on capitals and
+ * treating a dash as an underscore, because a variable's name can hold neither.
+ * Otherwise it is what was written, in lower case: an agent whose folder has a
+ * dash in it and is in no settings file is named in the environment with an
+ * underscore instead, and the server says the entry names no agent.
+ */
+function named(from: string, already: Record<string, unknown>): string {
+  const same = (key: string) => key.toUpperCase().replace(/-/g, "_") === from;
+  return Object.keys(already).find(same) ?? from.toLowerCase();
+}
+
+/**
+ * Everything the environment says, as paths and values ready to write in. The
+ * shape comes from the schema's own defaults, so every setting is here and the
+ * text is read as the type that setting has.
+ */
+export function fromEnv(env: Env, files: Record<string, unknown>): [string[], unknown][] {
+  const out: [string[], unknown][] = [];
+  const walk = (group: Record<string, unknown>, path: string[]): void => {
+    for (const [key, was] of Object.entries(group)) {
+      const here = [...path, key];
+      // A group the schema fills nothing into is a record: its keys are names
+      // somebody chose, like an agent's, so they are read off the variables.
+      if (isGroup(was) && Object.keys(was).length === 0) {
+        out.push(...entries(env, here, groupIn(files, here)));
+        continue;
+      }
+      if (isGroup(was)) {
+        walk(was, here);
+        continue;
+      }
+      const text = settingInEnv(env, here);
+      if (text !== undefined) out.push([here, asTyped(nameInEnv(here), was, text)]);
+    }
+  };
+  walk(schema.parse({}) as Record<string, unknown>, []);
+  return out;
+}
+
+/**
+ * The two files merged, the environment over the top, and the lot checked.
+ * Separate from reading them so it can be tested without a disk, and so the
+ * order that wins is one readable line.
+ */
+export function readSettings(tracked: unknown, local: unknown, env: Env = process.env): Settings {
   const merged = merge(tracked as Record<string, unknown>, local as Record<string, unknown>);
+  // Last, so a variable beats both files, and one setting at a time: setting
+  // cloud.url in the environment leaves the rest of cloud alone.
+  for (const [path, value] of fromEnv(env, merged)) setIn(merged, path, value);
   // Said rather than passed over, because a key that silently stops being read
   // is a runtime that silently leaves its dashboard.
   if ((merged.cloud as Record<string, unknown> | undefined)?.key !== undefined) {
@@ -217,8 +411,10 @@ export function unclaimed(names: string[]): string[] {
 }
 
 /**
- * A setting, with an environment variable winning if there is one. Reading it
- * here rather than at import time is what lets a test set one.
+ * A value an environment variable may replace, for the few that are not
+ * settings: which program a CLI route runs, who a run is for. A setting does
+ * not come through here, because the environment is already merged into
+ * `settings` under the name `nameInEnv` gives it.
  */
 export function setting(value: string, fromEnv: string): string {
   return process.env[fromEnv] || value;

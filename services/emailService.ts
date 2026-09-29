@@ -7,7 +7,7 @@
 // The tool a model reaches is model/tools/send_email.ts, which calls
 // this. A job calls this directly, from a step.
 
-import { setting, settings } from "#chloe/core/settings";
+import { settings } from "#chloe/core/settings";
 
 /**
  * Who an agent's mail comes from, who it goes to, and the tag in front of
@@ -48,7 +48,7 @@ export interface EmailProvider {
 
 const resend: EmailProvider = {
   async send({ from, to, replyTo, subject, body, html }) {
-    const key = setting(settings.resend.api_key, "RESEND_API_KEY");
+    const key = settings.resend.api_key;
     if (!key) throw new Error("No Resend key. Put it in settings.local.json as resend.api_key.");
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -87,7 +87,7 @@ export async function sendEmail(
   // Refuse rather than send nowhere.
   if (to.length === 0) throw new Error("Nobody to send to. Give the sender at least one address in to.");
   const tagged = tag && !subject.startsWith(`[${tag}]`) ? `[${tag}] ${subject}` : subject;
-  const chosen = setting(settings.email.provider, "EMAIL_PROVIDER") as typeof settings.email.provider;
+  const chosen = settings.email.provider;
   const provider = providers[chosen];
   if (!provider) throw new Error(`No email provider called "${chosen}". It is one of: ${Object.keys(providers).join(", ")}.`);
   const { id } = await provider.send({

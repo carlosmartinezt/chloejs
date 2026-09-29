@@ -5,7 +5,7 @@
 import { join } from "node:path";
 
 import { ROOT } from "./root.ts";
-import { setting, settings } from "./settings.ts";
+import { settings } from "./settings.ts";
 
 export { ROOT };
 
@@ -48,7 +48,7 @@ export function agentDir(name: string): string {
  * rewritten every run. Unset, this is `data/` inside the repo, which git
  * ignores, so a second clone keeps its own state. `git clean -x` would delete it.
  */
-export const STATE = setting(settings.state, "AGENTS_STATE") || `${ROOT}/data`;
+export const STATE = settings.state || `${ROOT}/data`;
 
 /**
  * Where the memories are: one folder per agent, and one git repository holding
@@ -57,4 +57,4 @@ export const STATE = setting(settings.state, "AGENTS_STATE") || `${ROOT}/data`;
  * ignored folder holds everything this box keeps. It is a repository of its own
  * even so: what the agents write is in git, and nothing else in STATE ever is.
  */
-export const MEMORIES = setting(settings.memory, "AGENTS_MEMORY") || `${STATE}/memory`;
+export const MEMORIES = settings.memory || `${STATE}/memory`;

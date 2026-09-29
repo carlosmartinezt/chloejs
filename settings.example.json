@@ -1,0 +1,31 @@
+{
+  "model": {
+    "via": "claude",
+    "routes": { "openai": "codex" },
+    "models": ["anthropic/claude-sonnet-5", "openai/gpt-6-luna"],
+    "key": "",
+    "judge": "anthropic/claude-sonnet-5"
+  },
+  "email": { "provider": "resend" },
+  "resend": { "api_key": "re_..." },
+  "google": {
+    "account": "you@example.com",
+    "password": "",
+    "GA_KEY_FILE": "/path/to/ga-service-account.json"
+  },
+  "alerts": {
+    "email_to": "you@example.com",
+    "email_from": "chloe <info@example.com>"
+  },
+  "agents": {
+    "tempo": { "telegram": "123456789:ABC..." }
+  },
+  "cloud": {
+    "url": "https://dashboard.chloejs.org",
+    "sync": { "runs": true, "agents": true },
+    "remote": { "read": true, "chat": true, "run": true, "memory": false, "write": false }
+  },
+  "state": "",
+  "memory": "",
+  "node": ""
+}

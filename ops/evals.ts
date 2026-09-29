@@ -16,7 +16,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 
-import { loadAll, type Agent, turn, type TurnResult, setting, settings } from "@chloejs/core";
+import { loadAll, type Agent, turn, type TurnResult, settings } from "@chloejs/core";
 import { settingsAndBody } from "#chloe/core/markdown";
 import { calls, type ExpectedCalls as Facts, expectations, type ExpectedOutcome as Judged } from "@chloejs/core/scorers";
 
@@ -51,7 +51,7 @@ const NOTHING = "Nothing here. This is an eval, and the case does not answer thi
 const PASS = { calls: 1, expectations: 0.8 } as const;
 
 /** Who marks the writing. Cheaper than the agent being marked, on purpose. */
-const JUDGE = setting(settings.model.judge, "JUDGE_MODEL");
+const JUDGE = settings.model.judge;
 
 /**
  * Answer one tool call from the case.

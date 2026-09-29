@@ -25,7 +25,7 @@ import { z } from "zod";
 
 import { db, RUN_COLUMNS } from "#chloe/core/db";
 import { events } from "#chloe/core/events";
-import { setting, settings } from "#chloe/core/settings";
+import { settings } from "#chloe/core/settings";
 import type { Agent } from "#chloe/load/load";
 import { HOST, PORT, routeList, summary } from "#chloe/serve/http";
 import { RELAY, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login";
@@ -119,7 +119,7 @@ export function startCloud(options: CloudOptions): Cloud {
 
   function where(): { url: string; key: string } {
     return {
-      url: setting(settings.cloud.url, "CHLOE_CLOUD_URL").trim().replace(/\/+$/, ""),
+      url: settings.cloud.url.trim().replace(/\/+$/, ""),
       // The key is never a setting: it belongs to the box, not to the project.
       key: (process.env.CHLOE_API_KEY ?? "").trim(),
     };
