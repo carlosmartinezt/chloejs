@@ -171,7 +171,7 @@ outside one runs again on every resume, so it must not send, write or spend.
 | Schedules | Cron lines in TypeScript, with real time zones. |
 | Models | Any model the gateway reaches, and a job can pick its own. |
 | Agents | Tools, approvals and a budget, set where the step is written. |
-| Tools | A description, a schema and one call. Typed at both ends. |
+| Tools | A description, a schema and one call. Typed at both ends. A tool that needs somebody signed in brings that with it. |
 | Human approvals | A run parks for days and carries on when somebody answers. |
 | Channels | Telegram and Slack, one file each. A question goes out where the person is. |
 | Memory | A folder of notes per agent, in one git repository of their own: one commit per run, under the agent's name. |

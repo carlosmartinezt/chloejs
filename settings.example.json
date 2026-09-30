@@ -2,16 +2,28 @@
   "model": {
     "default": "anthropic/claude-sonnet-5",
     "via": "claude",
-    "routes": { "openai": "codex" },
-    "models": ["anthropic/claude-sonnet-5", "openai/gpt-6-luna"],
+    "routes": {
+      "openai": "codex"
+    },
+    "models": [
+      "anthropic/claude-sonnet-5",
+      "openai/gpt-6-luna"
+    ],
     "key": "",
     "judge": "anthropic/claude-sonnet-5"
   },
-  "email": { "provider": "resend" },
-  "resend": { "api_key": "re_..." },
+  "email": {
+    "provider": "resend"
+  },
+  "resend": {
+    "api_key": "re_..."
+  },
   "google": {
     "account": "you@example.com",
-    "password": "",
+    "client": "/path/to/google-client.json",
+    "callback": "",
+    "gog": "",
+    "version": "",
     "GA_KEY_FILE": "/path/to/ga-service-account.json"
   },
   "alerts": {
@@ -19,12 +31,24 @@
     "email_from": "chloe <info@example.com>"
   },
   "agents": {
-    "tempo": { "telegram": "123456789:ABC..." }
+    "tempo": {
+      "telegram": "123456789:ABC..."
+    }
   },
   "cloud": {
     "url": "https://dashboard.chloejs.org",
-    "sync": { "runs": true, "agents": true },
-    "remote": { "read": true, "chat": true, "run": true, "memory": false, "write": false }
+    "sync": {
+      "runs": true,
+      "agents": true
+    },
+    "remote": {
+      "read": true,
+      "chat": true,
+      "run": true,
+      "memory": false,
+      "write": false,
+      "google": false
+    }
   },
   "state": "",
   "memory": "",

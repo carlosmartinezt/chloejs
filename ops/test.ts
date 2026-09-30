@@ -685,43 +685,117 @@ about("a model step that never fits");
 }
 
 {
-  about("what mail says when a person has to sign in");
-  const { explain } = await import("#chloe/services/gmailService");
-
-  // The account is read from settings, which on a real box has a real one in it.
+  about("what Google says when a person has to sign in");
+  const { asLink, callback, explain, signInState, start } = await import("#chloe/services/googleService");
   const { settings } = await import("@chloejs/core");
+
+  // Every one of these is fixed by one sign-in, and a sign-in is something the
+  // agent starts itself, so none of them may send anybody to the machine.
+  for (const [what, text] of [
+    ["a keyring that will not open", "read token: aes.KeyUnwrap(): integrity check failed"],
+    ["a sign-in Google has taken back", "oauth2: invalid_grant"],
+    ["nobody having signed in yet", "no token for account"],
+  ] as const) {
+    const said = explain(text);
+    is(`${what} points at the tool`, said.includes("google_sign_in"), true);
+    is(`${what} says not to retry`, said.includes("do not retry"), true);
+    is(`${what} does not send anybody to the box`, /auth login|on the box|paste/i.test(said), false);
+  }
+
   const was = settings.google.account;
   delete process.env.GOG_ACCOUNT;
-  settings.google.account = "somebody@example.com";
-
-  const keyring = explain("read token: aes.KeyUnwrap(): integrity check failed");
-  is(
-    "a keyring that will not open hands over the command to paste",
-    keyring.includes("gog auth login --account somebody@example.com"),
-    true,
-  );
-  is("and says not to retry", keyring.includes("Do not retry"), true);
-
-  const expired = explain("oauth2: invalid_grant");
-  is(
-    "so does a sign-in Google has revoked",
-    expired.includes("gog auth login --account somebody@example.com"),
-    true,
-  );
-
   settings.google.account = "";
   is(
-    "with no account set there is nothing to put after --account",
-    explain("KeyUnwrap(): integrity check failed").includes("--account"),
-    false,
+    "no account is the one thing a sign-in cannot fix, so it asks for the setting",
+    explain("missing --account").includes("settings.local.json"),
+    true,
+  );
+  const nobody = await signInState();
+  is("and the state says so without running anything", nobody.ready, false);
+  is("naming the setting that is missing", nobody.missing.includes("google.account"), true);
+
+  let refused = "";
+  try {
+    await start();
+  } catch (error) {
+    refused = (error as Error).message;
+  }
+  is("a sign-in with nobody to sign in is refused", refused.includes("google.account"), true);
+  settings.google.account = was;
+
+  about("where Google is told to send its answer");
+  const cloudWas = settings.google.callback;
+  const keyWas = process.env.CHLOE_API_KEY;
+
+  settings.google.callback = "https://example.com/oauth/google/callback";
+  settings.cloud.remote.google = true;
+  is("the address it was given is the one Google is told", callback().url, "https://example.com/oauth/google/callback");
+  is("and the sign-in finishes on its own", callback().relayed, true);
+
+  // Set but switched off is the trap worth a case: the address would be
+  // registered with Google and nothing would ever come back down, and the
+  // person would be told to wait for something that cannot arrive.
+  settings.cloud.remote.google = false;
+  is("with the switch off, somebody still has to paste it back", callback().relayed, false);
+  settings.cloud.remote.google = true;
+
+  settings.google.callback = "";
+  is("with no address there is nowhere to catch it", callback().url, "");
+  is("so somebody pastes it back", callback().relayed, false);
+
+  if (keyWas === undefined) delete process.env.CHLOE_API_KEY;
+  else process.env.CHLOE_API_KEY = keyWas;
+  settings.google.callback = cloudWas;
+
+  about("what a Google tool brings with it");
+  const { read_mail } = await import("#chloe/model/tools/gmail");
+  const { send_email } = await import("#chloe/model/tools/send_email");
+
+  // Nobody should have to remember to add the sign-in. An agent that can read
+  // mail can get itself signed in to read mail, and that is one decision.
+  const reading = read_mail({ search: "in:inbox" });
+  is("read_mail is not one tool on its own", Object.keys(reading).sort(), [
+    "finish_google_sign_in",
+    "google_sign_in",
+    "read_mail",
+  ]);
+
+  // Both of them bringing it is the case that would have thrown, before the
+  // loader learned that the same tool twice is the same tool.
+  const home = { name: "somebody", folder: "/tmp", memory: { folder: "/tmp", commit: false } };
+  const providerWas = settings.email.provider;
+  settings.email.provider = "gmail";
+  const sending = send_email({ when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] })(home);
+  is("send_email brings it too, when the mail goes out through Google", "google_sign_in" in sending, true);
+  is("and it is the same tool, not a second one of the name", sending.google_sign_in === reading.google_sign_in, true);
+
+  settings.email.provider = "resend";
+  const elsewhere = send_email({ when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] })(home);
+  is("through any other provider there is nothing to sign in to", "google_sign_in" in elsewhere, false);
+  settings.email.provider = providerWas;
+
+  about("what a person sends back");
+  const waiting = {
+    account: "somebody@example.com",
+    services: "gmail",
+    redirect: "http://127.0.0.1:33547/oauth2/callback",
+    state: "the-state",
+    started: new Date().toISOString(),
+  };
+  is(
+    "the whole address is used as it is",
+    asLink("http://127.0.0.1:33547/oauth2/callback?code=abc&state=the-state", waiting),
+    "http://127.0.0.1:33547/oauth2/callback?code=abc&state=the-state",
   );
 
-  settings.google.account = was;
-  is(
-    "a missing keyring password is not a sign-in, so it does not say to sign in",
-    explain("GOG_KEYRING_PASSWORD is not set").includes("auth login"),
-    false,
-  );
+  // A phone selects the code and not the address around it, so a bare code is
+  // put back together with what was written down when the link was made. The
+  // state has to survive that, or gog's own check on it means nothing.
+  const rebuilt = new URL(asLink("abc123", waiting));
+  is("a bare code is rebuilt into one", rebuilt.searchParams.get("code"), "abc123");
+  is("with the state it was started with", rebuilt.searchParams.get("state"), "the-state");
+  is("at the address it was started with", rebuilt.pathname, "/oauth2/callback");
+  is("and code= in front of it is not part of the code", new URL(asLink("code=xyz", waiting)).searchParams.get("code"), "xyz");
 }
 
 {
@@ -2800,7 +2874,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // runtime, and that repo's settings.json may well name a cloud of its own.
   live.cloud.url = "";
   live.cloud.sync = { runs: true, agents: true };
-  live.cloud.remote = { read: true, chat: true, run: true, memory: false, write: false };
+  live.cloud.remote = { read: true, chat: true, run: true, memory: false, write: false, google: false };
 
   // Nothing named: nothing opened.
   delete process.env.CHLOE_API_KEY;
@@ -2820,7 +2894,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const hello = said("hello")[0];
   is("the first message says hello, with the key inside it", [hello?.type, hello?.key, hello?.protocol, hello?.coreVersion], ["hello", "chl_install_test", 1, "9.9.9"]);
   is("and carries the agents and the routes", [hello?.agents?.[0]?.name, hello?.routes?.some((one: { path: string }) => one.path === "/api/agents")], ["test", true]);
-  is("and which switches are on", hello?.remote, { read: true, chat: true, run: true, memory: false, write: false });
+  is("and which switches are on", hello?.remote, { read: true, chat: true, run: true, memory: false, write: false, google: false });
   is("nothing else until the cloud answers", cloud.connected(), false);
 
   last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", workspace: { name: "here", label: "Here" } }) });

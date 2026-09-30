@@ -515,7 +515,12 @@ function toolsOf(list: (Tool | Tools | Binding)[], home: Home, where: string): T
       typeof one === "function" ? one(home) : typeof (one as Tool).execute === "function" ? { [(one as Tool).id]: one as Tool } : (one as Tools);
     for (const [id, each] of Object.entries(some)) {
       if (typeof each?.execute !== "function") throw new Error(`${where}: tool ${id} is not a tool.`);
-      if (tools[id]) throw new Error(`${where}: two tools are called ${id}.`);
+      // The same tool twice is the same tool. A set that comes along with
+      // something else, like the Google sign-in that read_mail and send_email
+      // both bring, arrives once per binding and is the one object each time,
+      // so an agent with both is not a clash. Two different tools of one name
+      // still is, because only one of them could ever be reached.
+      if (tools[id] && tools[id] !== each) throw new Error(`${where}: two different tools are called ${id}.`);
       tools[id] = each;
     }
   }

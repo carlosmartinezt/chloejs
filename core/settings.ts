@@ -72,7 +72,7 @@ const schema = z.object({
        * is what a test run and a box with no mail account use. EMAIL_PROVIDER
        * overrides it for one run.
        */
-      provider: z.enum(["resend", "none"]).default("resend"),
+      provider: z.enum(["resend", "gmail", "none"]).default("resend"),
     })
     .prefault({}),
   /** Sending mail through Resend. */
@@ -84,10 +84,27 @@ const schema = z.object({
     .prefault({}),
   google: z
     .object({
-      /** The account a mail tool reads from. */
+      /** The account that gets signed in, and the one a mail tool reads from. */
       account: z.string().default(""),
-      /** Opens the saved login, from when a person signed in to that account. */
-      password: z.string().default(""),
+      /**
+       * What this copy signs in with: the path to the client file Google's
+       * console downloads, or that file's contents pasted in here. One person
+       * makes one once. There is no passphrase setting, because the runtime
+       * makes that itself in the state folder: two copies of one passphrase is
+       * how a sign-in that works comes to look like one that has expired.
+       */
+      client: z.string().default(""),
+      /**
+       * Where Google sends its answer. Empty and connected to a dashboard, the
+       * dashboard catches it and the sign-in finishes on its own. Empty and not
+       * connected, the answer goes to a port on this machine that the person's
+       * browser cannot reach, so they paste the address back instead.
+       */
+      callback: z.string().default(""),
+      /** The gog program to use. Empty means find one, or fetch one into the state folder. */
+      gog: z.string().default(""),
+      /** Which gog release to fetch when this machine has none new enough. */
+      version: z.string().default(""),
       /** The Analytics service account's key, handed to scripts as GA_KEY_FILE. */
       GA_KEY_FILE: z.string().default(""),
     })
@@ -152,6 +169,13 @@ const schema = z.object({
           memory: z.boolean().default(false),
           /** Write: a file, a memory file, an answer to a parked job, a model pick. */
           write: z.boolean().default(false),
+          /**
+           * Let the dashboard hand back the answer to a Google sign-in this
+           * runtime started, so nobody has to paste a code. Nothing else about
+           * Google comes through it, and a code that does not match the sign-in
+           * this runtime is waiting for is refused.
+           */
+          google: z.boolean().default(false),
         })
         .prefault({}),
     })
@@ -216,7 +240,6 @@ const ALSO = new Map<string, string>([
   ["email.provider", "EMAIL_PROVIDER"],
   ["resend.api_key", "RESEND_API_KEY"],
   ["google.account", "GOG_ACCOUNT"],
-  ["google.password", "GOG_KEYRING_PASSWORD"],
   ["state", "AGENTS_STATE"],
   ["memory", "AGENTS_MEMORY"],
 ]);

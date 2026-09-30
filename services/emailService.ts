@@ -9,6 +9,8 @@
 
 import { settings } from "#chloe/core/settings";
 
+import { sendGmail } from "./gmailService.ts";
+
 /**
  * Who an agent's mail comes from, who it goes to, and the tag in front of
  * every subject.
@@ -64,6 +66,20 @@ const resend: EmailProvider = {
 };
 
 /**
+ * Sends as the person, through the Google sign-in this copy already has.
+ *
+ * No key and no second account: whoever is signed in is who it comes from. So
+ * the From line has to be that account or an alias Google has verified for it,
+ * and anything else is refused. A reply comes back to their own mailbox, which
+ * is the reason to pick this over Resend and the reason not to.
+ */
+const gmail: EmailProvider = {
+  async send({ from, to, replyTo, subject, body, html }) {
+    return await sendGmail({ from, to, replyTo, subject, text: body, html });
+  },
+};
+
+/**
  * Carries nothing: the subject and who it was for go to the log and the
  * message is dropped. What a test run and a box with no mail account use, so
  * that code which mails can be exercised without anything leaving the box.
@@ -76,7 +92,7 @@ const none: EmailProvider = {
 };
 
 /** Every provider email.provider can name. Adding one is an entry here and in the settings schema. */
-const providers: Record<typeof settings.email.provider, EmailProvider> = { resend, none };
+const providers: Record<typeof settings.email.provider, EmailProvider> = { resend, gmail, none };
 
 /** Sends one email through the configured provider and returns its id. The tag is put in front of the subject. */
 export async function sendEmail(

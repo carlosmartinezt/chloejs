@@ -20,9 +20,12 @@
 // One folder, as tools, for an agent that needs a different set.
 export { list_in, read_in, search_in, write_in } from "./files.ts";
 
-// Mail in, mail out.
+// Mail in, mail out. Either of these brings the Google sign-in with it, so an
+// agent that reads or sends mail can get itself signed in and there is nothing
+// to add here for that.
 export { read_mail } from "./gmail.ts";
 export { send_email } from "./send_email.ts";
+
 
 // Reading a public web page.
 export { read_web } from "./web.ts";

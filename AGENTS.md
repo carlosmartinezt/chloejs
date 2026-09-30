@@ -215,6 +215,15 @@ The runtime is the floor everyone stands on, so nothing in it may name an agent
 or a person, and nothing in `model/tools/` or `channels/` exports a
 default: each exports a function that an agent binds.
 
+**A tool that needs somebody signed in brings that with it.** `read_mail`
+hands back a set and not one tool: the mail tool, and the two that get a person
+signed in to Google. `send_email` brings the same two when the mail goes out
+through Google, and nothing when it does not. So an agent says `read_mail` and
+is done, rather than remembering to add the sign-in beside it, and there is no
+way to have mail without the means to fix mail. The set is made once and handed
+out, and the loader takes the same tool twice and refuses two different tools of
+one name, which is what lets an agent have both of those bindings.
+
 **A tool is for a model and nothing else.** The work is a plain function in
 `services/`, published as `"@chloejs/core/services"`, and a job calls it from a step.
 `model/tools/` holds the wrappers over those functions, and a wrapper is
@@ -583,6 +592,25 @@ other than the proxy can reach the port, which is why it binds loopback.
 a case that answers `read_mail` with `{}` fails the moment the agent asks for
 one message by id. Mark that answer `"anyArgs": true` when the arguments
 do not change the answer, and `"times"` when one answer covers several calls.
+
+**Which kind of Google client it is decides where Google will answer.** A
+client made in the console as a desktop app may send its answer to any port on
+the machine and to no address on the internet. One made as a web application is
+the other way round, except that a loopback address is allowed as a named
+exception. So the sign-in that finishes by itself needs a web client, and
+`services/googleService.ts` asks Google to answer at one fixed loopback port
+rather than a port picked per run, because a web client only accepts the exact
+addresses somebody registered and "any port" is not something you can register.
+A client file holding its id and secret loose, with neither an `installed` nor a
+`web` section, is refused rather than guessed at: guessing shows up as Google
+rejecting the address at the last step, long after the guess.
+
+**Nothing may ask a person for the Google passphrase.** It is made in the state
+folder and read from there, and it is not a setting. gog will also prompt for
+one, and a person who answers that prompt saves the sign-in under a passphrase
+the runtime does not have. What that looks like is "integrity check failed",
+which reads exactly like a sign-in that expired, and it cost this box
+seventeen days of unreadable mail before anybody looked.
 
 **Do not assume a program is installed.** A tool that assumed `rg` was there
 returned "nothing matched" for every search for weeks without anyone noticing. If a command might be missing, check for it and say so

@@ -35,6 +35,7 @@ import {
 import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound } from "./errors.ts";
 import { recentWork } from "./recentWork.ts";
+import { finish as finishSignIn, signInState, start as startSignIn } from "#chloe/services/googleService";
 import { channelsOf, connectionsOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import { type Caller, caller, covers, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, renew, setCookie, signIn } from "./login.ts";
@@ -92,7 +93,7 @@ export interface Route extends RouteDoc {
 }
 
 /** The switches in `cloud.remote` in settings, each a thing the dashboard may ask for. */
-export type Remote = "read" | "chat" | "run" | "memory" | "write";
+export type Remote = "read" | "chat" | "run" | "memory" | "write" | "google";
 
 /** Whether an agent has opted in to being reached by another system. */
 function onTheApi(agent: Agent): boolean {
@@ -728,6 +729,38 @@ export const routes: Route[] = [
     does: "Everything that agent has changed up to now has been looked at.",
     remote: "write",
     handle: ({ response, context, params }) => json(response, agentSeen(context.agent(params.name))),
+  },
+  // Getting signed in to Google. Starting one is the agent's own tool; these
+  // two are for a person at the page and for the dashboard handing back the
+  // answer, so that nobody has to copy a code off a page that will not load.
+  {
+    method: "GET",
+    path: "/api/google",
+    does: "Whether Google can be reached: which account, what is missing, and whether a sign-in is waiting for its answer.",
+    remote: "read",
+    handle: async ({ response }) => json(response, await signInState()),
+  },
+  {
+    method: "POST",
+    path: "/api/google/sign-in",
+    does: "Start a sign-in and hand back the link for the person to open.",
+    takes: '{"again": true, to sign in over one that already works}',
+    remote: "google",
+    handle: async ({ request, response }) => {
+      const { again } = await body(request, z.object({ again: z.boolean().optional() }));
+      json(response, await startSignIn({ again }));
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/google/finish",
+    does: "Finish the sign-in this runtime started, with the address the browser landed on or the code out of it.",
+    takes: '{"answer": "http://127.0.0.1:.../oauth2/callback?code=..."}',
+    remote: "google",
+    handle: async ({ request, response }) => {
+      const { answer } = await body(request, z.object({ answer: z.string().trim().min(1) }));
+      json(response, await finishSignIn(answer));
+    },
   },
   {
     method: "POST",

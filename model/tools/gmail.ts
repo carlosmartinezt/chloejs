@@ -5,7 +5,8 @@
 import { z } from "zod";
 
 import { readEmailMessages, readOneEmailMessage } from "#chloe/services/gmailService";
-import { tool } from "#chloe/model/tool";
+import { tool, type Tools } from "#chloe/model/tool";
+import { googleSignIn } from "./google.ts";
 
 interface Options {
   /**
@@ -24,14 +25,19 @@ interface Options {
 /**
  * A tool that reads the mail the agent is bound to. The search is the
  * binding's, and the model chooses only how far back and how many.
+ *
+ * It comes with the Google sign-in, because mail that cannot be read because
+ * nobody has signed in is not a different problem from mail: an agent that can
+ * read mail can get itself signed in to read mail. Nothing to add, and no way
+ * to have one without the other.
  */
 export function read_mail({
   search = "in:inbox",
   what = "mail in the inbox",
   days = 7,
   id = "read_mail",
-}: Options = {}) {
-  return tool({
+}: Options = {}): Tools {
+  const read = tool({
     id,
     description:
       `Read ${what}. Lists what is there; pass a messageId from that list to read one in full. ` +
@@ -49,4 +55,5 @@ export function read_mail({
         ? readOneEmailMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
         : readEmailMessages({ search, days: back ?? days, limit: limit ?? 10 }),
   });
+  return { [id]: read, ...googleSignIn() };
 }

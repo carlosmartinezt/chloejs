@@ -173,7 +173,14 @@ export function connectionsOf(agent: Agent): Way[] {
   ];
   if (has("send_email")) {
     out.push(
-      settings.email.provider === "resend"
+      settings.email.provider === "gmail"
+        ? {
+            name: "gmail",
+            does: "Its mail goes out as the signed-in account, from their own address.",
+            needs: "google.account",
+            ready: filled(settings.google.account) && filled(settings.google.client),
+          }
+        : settings.email.provider === "resend"
         ? {
             name: "resend",
             does: "Where its mail is sent. Without a key nothing is sent and nothing fails.",
@@ -191,9 +198,9 @@ export function connectionsOf(agent: Agent): Way[] {
   if (has("read_mail")) {
     out.push({
       name: "google",
-      does: "The account its mail is read from.",
+      does: "The account its mail is read from. Somebody still has to sign in once, which the agent can ask them to do.",
       needs: "google.account",
-      ready: filled(settings.google.account) && filled(settings.google.password),
+      ready: filled(settings.google.account) && filled(settings.google.client),
     });
   }
   if (has("read_web")) {
