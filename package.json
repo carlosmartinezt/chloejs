@@ -1,6 +1,6 @@
 {
   "name": "@chloejs/core",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "description": "A job runner where asking a model is one kind of step.",
   "exports": {

@@ -11,7 +11,7 @@
 export { run, type Result } from "./runService.ts";
 export { markdownToHtml, markdownToText, sendEmail, type EmailSender } from "./emailService.ts";
 export { readEmailMessages, readOneEmailMessage, sendGmail, type Message as Mail } from "./gmailService.ts";
-export { NeedsClient, ensureGog, finish, setupSteps, signInState, start, type SignInState, type Started } from "./googleService.ts";
+export { NeedsClient, addressesIn, ensureGog, finish, setupSteps, signInState, start, type SignInState, type Started } from "./googleService.ts";
 export { listFiles, readFiles, searchFiles, writeFiles } from "./filesService.ts";
 export { listScripts, runScripts } from "./scriptsService.ts";
 export { readPage, htmlToText, isPrivate, type Page } from "./webService.ts";

@@ -747,6 +747,36 @@ about("a model step that never fits");
   else process.env.CHLOE_API_KEY = keyWas;
   settings.google.callback = cloudWas;
 
+  about("whose sign-in came back");
+  const { addressesIn } = await import("#chloe/services/googleService");
+
+  // The People API's own shape, and the flatter one.
+  is(
+    "an address is read out of the field that holds addresses",
+    addressesIn(JSON.stringify({ emailAddresses: [{ metadata: { primary: true }, value: "Somebody@Example.com" }] })),
+    ["somebody@example.com"],
+  );
+  is("and out of a plain one", addressesIn(JSON.stringify({ email: "somebody@example.com" })), [
+    "somebody@example.com",
+  ]);
+
+  // The reason this is not a search through the whole profile: a display name
+  // is somebody's own writing, and anybody can set theirs to your address.
+  is(
+    "a name that reads like an address is not an address",
+    addressesIn(
+      JSON.stringify({
+        names: [{ displayName: "carlos@example.com", givenName: "carlos@example.com" }],
+        nickname: "carlos@example.com",
+        emailAddresses: [{ value: "somebody-else@example.com" }],
+      }),
+    ),
+    ["somebody-else@example.com"],
+  );
+
+  is("a shape with no address in it finds nothing, so the check fails shut", addressesIn(JSON.stringify({ names: [] })), []);
+  is("and so does something that is not JSON", addressesIn("not json"), []);
+
   about("what a Google tool brings with it");
   const { read_mail } = await import("#chloe/model/tools/gmail");
   const { send_email } = await import("#chloe/model/tools/send_email");

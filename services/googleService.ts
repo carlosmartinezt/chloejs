@@ -453,14 +453,61 @@ export async function finish(answer: string): Promise<{ account: string; signedI
 async function mustBe(account: string): Promise<void> {
   const program = await ensureGog();
   const out = await run(program, ["people", "me", "--json"], { timeoutMs: 30_000, env: where() });
-  const matches = out.exitCode === 0 && out.stdout.toLowerCase().includes(account.toLowerCase());
-  if (matches) return;
+  const found = out.exitCode === 0 ? addressesIn(out.stdout) : [];
+  if (found.includes(account.toLowerCase())) return;
+
   await run(program, ["auth", "remove", account, "-y"], { timeoutMs: 30_000, env: where() });
+  if (out.exitCode !== 0) {
+    throw new Error(
+      `That sign-in could not be checked against ${account}, so it was thrown away: ${(out.stderr || out.stdout).trim().slice(0, 200)}`,
+    );
+  }
   throw new Error(
-    out.exitCode === 0
-      ? `That sign-in was approved by somebody other than ${account}, so it was thrown away. Sign in again with that account.`
-      : `That sign-in could not be checked against ${account}, so it was thrown away: ${(out.stderr || out.stdout).trim().slice(0, 200)}`,
+    found.length
+      ? `That sign-in was approved by ${found.join(", ")} and not by ${account}, so it was thrown away. Sign in again with that account.`
+      : `That sign-in could not be checked against ${account}, because the profile it reached holds no address, so it was thrown away.`,
   );
+}
+
+/**
+ * Every address in a profile, and nothing else in it.
+ *
+ * Only values under a key whose name begins with "email" count, and inside one
+ * of those only a string or a `value`. The rest of a profile is somebody's own
+ * writing: a display name reading "you@example.com" is a thing anybody can
+ * set, so a profile that merely contains the address somewhere is not a
+ * profile belonging to it. Nothing found is a refusal rather than a pass, so a
+ * shape this does not understand fails shut.
+ */
+export function addressesIn(json: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  const found = new Set<string>();
+
+  const values = (node: unknown): void => {
+    if (typeof node === "string") return void found.add(node.trim().toLowerCase());
+    if (Array.isArray(node)) return void node.forEach(values);
+    if (node && typeof node === "object") {
+      const value = (node as Record<string, unknown>).value;
+      if (typeof value === "string") found.add(value.trim().toLowerCase());
+    }
+  };
+
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) return void node.forEach(walk);
+    if (!node || typeof node !== "object") return;
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (/^email/i.test(key)) values(value);
+      else walk(value);
+    }
+  };
+
+  walk(parsed);
+  return [...found].filter((one) => one.includes("@"));
 }
 
 /**
