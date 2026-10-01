@@ -9,6 +9,7 @@
 import { readdirSync, readFileSync, watch, type FSWatcher } from "node:fs";
 
 import { ROOT } from "#chloe/core/paths";
+import { bold, dim } from "#chloe/core/style";
 import { reloadSettings, settings, unclaimed } from "#chloe/core/settings";
 import { closeCutOff, trim } from "#chloe/core/db";
 import { loadAll, type Agent, type Running } from "#chloe/load/load";
@@ -72,37 +73,93 @@ serve({
 // The connection to Chloe Cloud, if there is a key for one. It reads the
 // settings and the environment itself, so a change to CHLOE_API_KEY or
 // cloud.url is a reload away like everything else.
-const cloud = startCloud({ agents: () => agents });
+//
+// Its first line is held back so it can be printed in among the rest below
+// rather than landing a moment later on its own. Every line after that is
+// something that changed, and goes out as it happens.
+let cloudSays = "";
+let started = false;
+const cloud = startCloud({
+  agents: () => agents,
+  says: (line) => {
+    cloudSays = line;
+    if (started) console.log(`cloud: ${line}`);
+  },
+});
 
-console.log(`agents: ${[...agents.keys()].join(", ")} on http://${HOST}:${PORT}`);
-const byRoute = (route: string) => (route === "gateway" ? "the gateway, on a key" : `the ${route} cli, on a subscription`);
-const routed = Object.entries(settings.model.routes).map(([provider, route]) => `${provider} by ${byRoute(route)}`);
-console.log(`models: ${[byRoute(via()), ...routed].join("; ")}`);
-for (const line of whatIsMissing()) console.log(line);
-if (!hasAccount()) console.log('no password yet: run "npx chloe account" in another terminal, then open that address');
-for (const agent of agents.values()) {
-  for (const job of agent.jobs) {
-    console.log(
-      `  ${agent.name}/${job.id}: ${job.cron ? `${job.cron} ${job.timezone}` : "when started"}` +
-        (job.model ? ` on ${job.model}` : ""),
-    );
-  }
+/** Waits for the connection to say where it stands, and gives up after `within` ms. */
+function firstWord(within: number): Promise<void> {
+  return new Promise((done) => {
+    if (cloudSays) return done();
+    const looking = setInterval(() => {
+      if (!cloudSays) return;
+      clearInterval(looking);
+      clearTimeout(enough);
+      done();
+    }, 25);
+    const enough = setTimeout(() => {
+      clearInterval(looking);
+      done();
+    }, within);
+  });
+}
+
+await firstWord(1500);
+started = true;
+for (const line of startup()) console.log(line);
+
+/** One row of the block at startup: a label, and what there is to say about it. */
+function row(label: string, said: string): string {
+  return `  ${bold(label.padEnd(12))}${said}`;
+}
+
+/** A line under a row, lined up with what the row said. */
+function under(said: string): string {
+  return `  ${"".padEnd(12)}${dim(said)}`;
+}
+
+/** What the model route is called in words rather than in settings. */
+function byRoute(route: string): string {
+  if (route === "gateway") return "the AI gateway, on a key";
+  return route === "claude" ? "Claude, on a subscription" : "Codex, on a ChatGPT plan";
 }
 
 /**
- * What a new project usually has not done yet, said once at startup rather than
- * left to fail on the first call. Each line is a thing to go and do.
+ * Everything worth knowing as it starts: where it is, how to get in, what it
+ * asks when a step needs a model, and what runs on a clock. Each line that
+ * reports something missing carries the command that fixes it, because a person
+ * reading this is usually about to go looking for one.
  */
-function whatIsMissing(): string[] {
-  const lines: string[] = [];
+function startup(): string[] {
+  const lines = ["", bold("Chloe is running."), ""];
+
+  lines.push(row("Agents", [...agents.keys()].join(", ") || dim("none yet. Write one in agents/, and list it in chloe.config.ts")));
+
+  lines.push(row("Page", `http://${HOST}:${PORT}`));
+  lines.push(under(hasAccount() ? "Forgot the password? Set a new one: npx chloe account" : "No password yet. Set one: npx chloe account"));
+
+  lines.push(row("Cloud", cloudSays || `connecting to ${settings.cloud.url}`));
+
   const route = via();
+  const routed = Object.entries(settings.model.routes).map(([provider, one]) => `${provider} by ${byRoute(one)}`);
+  lines.push(row("AI models", runnable(route) ? [byRoute(route), ...routed].join("; ") : "not set up"));
   if (!runnable(route)) {
-    lines.push(
+    lines.push(under(
       route === "gateway"
-        ? "models: no gateway key. Put one in settings.local.json as model.key, or set AI_GATEWAY_API_KEY in .env."
-        : `models: the ${route} command is not on the path. Install it, or set model.key and model.via to "gateway".`,
-    );
+        ? "No gateway key. Set one up: npx chloe setup"
+        : `The ${route} command is not on the path. Install it, or set a key up: npx chloe setup`,
+    ));
   }
+
+  const jobs = [...agents.values()].flatMap((agent) =>
+    agent.jobs.map(
+      (job) =>
+        `${agent.name}/${job.id}  ${job.cron ? `${job.cron} ${job.timezone}` : "when started"}` + (job.model ? ` on ${job.model}` : ""),
+    ),
+  );
+  lines.push(row("Jobs", jobs.length ? jobs[0] : dim("none yet")));
+  for (const job of jobs.slice(1)) lines.push(under(job));
+
   // Node reads an agent file as CommonJS first when the project does not say,
   // which works until the day a file happens to parse both ways.
   let type = "";
@@ -111,9 +168,11 @@ function whatIsMissing(): string[] {
   } catch {
     // No package.json is a project that has not run npm install. It has bigger problems.
   }
-  if (type !== "module") lines.push('package.json: add "type": "module", so node reads your agent files as modules.');
-  // One command fixes every line above, and it leaves what is already right alone.
-  if (lines.length) lines.push('all of that is what "npx chloe setup" asks about.');
+  if (type !== "module") {
+    lines.push(row("package.json", 'add "type": "module", so node reads your agent files as modules'));
+  }
+
+  lines.push("", dim("  Need help? Run: npx chloe help"), "");
   return lines;
 }
 

@@ -24,6 +24,7 @@
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 
+import { bold, dim } from "#chloe/core/style";
 import { ownCookie } from "#chloe/serve/login";
 
 // Matches HOST and PORT in serve/http.ts, which are deliberately not settable.
@@ -107,10 +108,6 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   return parsed as T;
 }
 
-const ESC = String.fromCharCode(27);
-const dim = (s: string) => (process.stdout.isTTY ? `${ESC}[2m${s}${ESC}[0m` : s);
-const bold = (s: string) => (process.stdout.isTTY ? `${ESC}[1m${s}${ESC}[0m` : s);
-
 function show(result: Result): void {
   console.log(`\n${result.text.trim()}\n`);
   const parts = [`${result.steps} step${result.steps === 1 ? "" : "s"}`, `$${result.cost.toFixed(4)}`];
@@ -119,15 +116,35 @@ function show(result: Result): void {
   console.log(dim(`(${parts.join(", ")})\n`));
 }
 
-const [name, ...rest] = process.argv.slice(2);
+const [named, ...rest] = process.argv.slice(2);
 
 const agents = await api<Listed[]>("/api/agents").catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
+
+// No name: ask, when there is somebody there to ask. Piped or in a script it
+// says what the names are and stops, because a prompt nobody can answer is a
+// command that hangs.
+let name = named;
 if (!name) {
-  console.error(`Which agent? One of: ${agents.map((a) => a.name).join(", ")}`);
-  process.exit(2);
+  if (agents.length === 0) {
+    console.error("There are no agents here yet. Write one in agents/, and list it in chloe.config.ts.");
+    process.exit(2);
+  }
+  if (agents.length === 1) {
+    name = agents[0].name;
+  } else if (process.stdin.isTTY) {
+    const { pick } = await import("./terminal.ts");
+    name = await pick(
+      "Which agent?",
+      agents.map((one) => ({ key: one.name, what: one.description ? `${one.name}  ${dim(one.description)}` : one.name })),
+    );
+    console.log("");
+  } else {
+    console.error(`Which agent? One of: ${agents.map((a) => a.name).join(", ")}`);
+    process.exit(2);
+  }
 }
 const agent = agents.find((a) => a.name === name);
 if (!agent) {

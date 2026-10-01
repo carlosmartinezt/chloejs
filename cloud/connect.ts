@@ -57,6 +57,12 @@ export interface CloudOptions {
   backoff?: { first: number; most: number };
   /** What this runtime says it is. The package's own version unless given. */
   version?: string;
+  /**
+   * Where a line about the connection goes, as it changes. console.log unless
+   * the caller wants it somewhere else: the server holds the first one back so
+   * it can print it in among everything else it says at startup.
+   */
+  says?: (line: string) => void;
 }
 
 /** The connection, as the server holds it. */
@@ -129,10 +135,12 @@ export function startCloud(options: CloudOptions): Cloud {
     };
   }
 
+  const tell = options.says ?? ((line: string) => console.log(`cloud: ${line}`));
+
   function say(line: string): void {
     if (line === said) return;
     said = line;
-    console.log(`cloud: ${line}`);
+    tell(line);
   }
 
   function send(one: Socket, message: unknown): void {

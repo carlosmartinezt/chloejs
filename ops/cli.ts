@@ -5,16 +5,25 @@
 // runs the same way from this repo's own npm scripts.
 import { existsSync } from "node:fs";
 
-const WHAT = `chloe: agents that are mostly code.
+import { bold } from "#chloe/core/style";
 
+const WHAT = `${bold("Chloe is a TypeScript agent framework that uses AI only when you need it.")}
+See https://chloejs.org.
+
+${bold("Starting out")}
   npx chloe setup                write the files, pick a model, set the password
-  npx chloe                      the server: every agent, every cron line, one port
-  npx chloe account              set the one password, or a new one later
-  npx chloe agent <name>         talk to one agent in this terminal
+  npx chloe                      run it: every agent, every cron line, one page
+
+${bold("Every day")}
+  npx chloe agent                pick an agent and talk to it
+  npx chloe agent <name>         talk to that one
   npx chloe agent <name> "..."   ask it one thing and stop
   npx chloe agent <name> <job>   run one of its jobs now, step by step
   npx chloe evals <agent>        score that agent's prompts
-  npx chloe install              install chloe.service, so it survives a reboot
+
+${bold("Looking after it")}
+  npx chloe account              set the password for the page, or a new one later
+  npx chloe install              keep it running after a reboot
 
 Run it from the folder with chloe.config.ts in it, which setup writes.
 `;
