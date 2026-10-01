@@ -20,10 +20,14 @@
 // One folder, as tools, for an agent that needs a different set.
 export { list_in, read_in, search_in, write_in } from "./files.ts";
 
-// Mail in, mail out. Either of these brings the Google sign-in with it, so an
-// agent that reads or sends mail can get itself signed in and there is nothing
-// to add here for that.
-export { read_mail } from "./gmail.ts";
+// Mail in, mail out, and answering one that came in. Each of these brings the
+// Google sign-in with it, so an agent that reads, sends or replies can get
+// itself signed in and there is nothing to add here for that.
+//
+// reply_mail is the narrow one of the three: it answers a message the agent has
+// already read, at that message's own address, so it cannot reach anybody who
+// has not written in. Prefer it over send_email wherever the mail is a reply.
+export { read_mail, reply_mail } from "./gmail.ts";
 export { send_email } from "./send_email.ts";
 
 

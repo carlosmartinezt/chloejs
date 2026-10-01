@@ -18,7 +18,7 @@ This repo is the runtime, and the package is the whole of it: what is at the
 top is what is published, less `test-agent/` and `chloe.config.ts`, which are
 here so the runtime's own tests have an agent to load.
 
-Three other repos sit beside this one, and none of them is in it:
+Two other repos sit beside this one, and neither is in it:
 `@chloejs/ui` (`~/chloejs-ui`) is the dashboard, a package the runtime works
 without and never names. `chloejs-site` (`~/chloejs-site`) is chloejs.org: the
 written docs, the examples, and a reference read out of this source on every
@@ -26,8 +26,7 @@ build, so a doc comment here is what the site says and a renamed export that a
 doc quotes fails that site's next build. A push to `main` here rebuilds it.
 The example agent, a small shop's back office that the docs quote, lives there
 too, under `example/`, and its `services/` folder stands in for the order, customer
-and stock systems, which is why it runs with nothing installed. `automations`
-(`~/automations`) is one person's agents, running on this.
+and stock systems, which is why it runs with nothing installed.
 
 ## What it is trying to be
 

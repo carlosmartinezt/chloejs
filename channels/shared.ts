@@ -137,13 +137,26 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
   const waiting = text ? waitingOn(`${channel}:${message.chat}`, agent.name) : undefined;
   if (waiting) return during(working, () => answered(agent, message, waiting.id, waiting.job));
 
-  const forAgent = message.private || message.addressed || rules.inGroups === "always" || text.startsWith("/");
-  if (!forAgent) return undefined;
+  if (!isForAgent(message, rules)) return undefined;
 
   const job = text ? jobFor(agent, text) : undefined;
   if (job && clock()) return during(working, () => started(agent, message, job.job, job.text));
 
   return during(working, () => chatted(agent, message, rules, whileWorking.send));
+}
+
+/**
+ * Whether a message is the agent's business at all: a one-to-one chat always
+ * is, and in a group it is a mention, a reply to the agent, a command, or any
+ * message at all where the agent answers the whole group.
+ *
+ * Exported because a channel that holds messages back for a moment to join them
+ * up has to ask this before joining, not after. Joining an unaddressed group
+ * message onto an addressed one would hand the agent something it was never
+ * given, which is a wider boundary arrived at by accident.
+ */
+export function isForAgent(message: Incoming, rules: Rules = {}): boolean {
+  return message.private || !!message.addressed || rules.inGroups === "always" || message.text.startsWith("/");
 }
 
 /** `/clear`, with an optional channel mention, starts this chat or topic fresh. */

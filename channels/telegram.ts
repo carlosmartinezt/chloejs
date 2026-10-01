@@ -38,7 +38,7 @@ import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
 import type { Attachment } from "#chloe/model/model";
 import { settings } from "#chloe/core/settings";
-import { type Button, commands, inPieces, receive, type Incoming, type Rules } from "./shared.ts";
+import { type Button, commands, inPieces, isForAgent, receive, type Incoming, type Rules } from "./shared.ts";
 
 const MAX_MESSAGE = 3500; // Telegram rejects anything over 4096, and the tags added below count.
 const WAIT = 50; // Seconds Telegram holds a poll open when there is nothing new.
@@ -72,9 +72,13 @@ export interface TelegramOptions {
   /**
    * Seconds to wait before handling a text message, so that anything else sent
    * in the same chat inside that time is handled as one message, joined by a
-   * blank line in the order it arrived. Zero, the default, handles each one on
-   * its own. A share that arrives as two messages (a quote and a comment) is
-   * what this is for. A message carrying a file is never held.
+   * blank line in the order it arrived. A share that arrives as two messages (a
+   * quote and a comment) is what this is for, and so is a person who writes a
+   * sentence, sends it, and then adds the rest.
+   *
+   * One second by default, which is long enough to catch a second message
+   * somebody was already typing and short enough that nobody waits on it. Zero
+   * handles each message on its own. A message carrying a file is never held.
    */
   stackWithin?: number;
   mode?: "polling" | "webhook";
@@ -303,15 +307,25 @@ export function listen(
     };
   }
 
-  /** Text waiting for the stacking window to close, by chat: what was said, and the first message it was said in. */
-  const stacking = new Map<string, { parts: string[]; first: TgMessage; timer: ReturnType<typeof setTimeout> }>();
+  /** Text waiting for the stacking window to close, by chat: what was said, the first message it was said in, and the "typing" that is already showing. */
+  const stacking = new Map<
+    string,
+    { parts: string[]; first: TgMessage; timer: ReturnType<typeof setTimeout>; stop: () => void }
+  >();
 
   async function onMessage(message: TgMessage): Promise<void> {
     const agent = options.agent();
     const text = message.text ?? message.caption ?? "";
     if (!agent || !message.from || (!text && !message.photo && !message.document)) return;
-    const wait = options.stackWithin ?? 0;
-    if (wait > 0 && text && !message.photo && !message.document) {
+    const wait = options.stackWithin ?? 1;
+    // Only a message the agent would be handed on its own is ever held. Two
+    // reasons, and the first is the one that matters: joining an unaddressed
+    // group message onto the mention that follows it would hand the agent a
+    // message nobody sent it, so stacking would quietly widen what it sees.
+    // The second is that a stranger's message must not ride in on Carlos's.
+    const known = !rules.allowFrom?.length || rules.allowFrom.map(String).includes(String(message.from.id));
+    const mine = known && isForAgent(incoming(message, message.from, text), rules);
+    if (wait > 0 && text && mine && !message.photo && !message.document) {
       const key = `${message.chat.id}${message.is_topic_message ? `-${message.message_thread_id}` : ""}`;
       const held = stacking.get(key);
       if (held) clearTimeout(held.timer);
@@ -319,12 +333,19 @@ export function listen(
       // The first message is the one answered, so the reply sits under the
       // start of what was sent rather than under its last line.
       const first = held?.first ?? message;
+      // "typing" starts now rather than when the window closes. Waiting for it
+      // read as the bot being slow to notice: the whole stacking window went by
+      // with nothing on screen at all, so a five second stack looked like five
+      // seconds of being ignored. One indicator spans the wait and the run.
+      const stop = held?.stop ?? typing(message.chat.id, first.is_topic_message ? first.message_thread_id : undefined);
       stacking.set(key, {
         parts,
         first,
+        stop,
         timer: setTimeout(() => {
           stacking.delete(key);
-          void handled(first, parts.join("\n\n")).catch((error) => console.error("telegram:", error));
+          // handled() owns `stop` from here and clears it in its own finally.
+          void handled(first, parts.join("\n\n"), stop).catch((error) => console.error("telegram:", error));
         }, wait * 1000),
       });
       return;
@@ -332,21 +353,32 @@ export function listen(
     await handled(message, text);
   }
 
-  /** One message, or everything stacked into it, from the point the text is settled. */
-  async function handled(message: TgMessage, text: string): Promise<void> {
-    const agent = options.agent();
-    if (!agent || !message.from) return;
-    const chatId = message.chat.id;
-    const topic = message.is_topic_message ? message.message_thread_id : undefined;
-    const extra = {
-      ...(topic ? { message_thread_id: topic } : {}),
-      ...(message.chat.type === "private" ? {} : { reply_parameters: { message_id: message.message_id } }),
-    };
-    const handled = await receive(agent, incoming(message, message.from, text), rules, {
-      working: () => typing(chatId, topic),
-      send: (words) => send(chatId, words, extra),
-    });
-    if (handled?.text) await send(chatId, handled.text, { ...extra, ...keyboard(handled.buttons) }).catch((error) => console.error("telegram:", error.message));
+  /**
+   * One message, or everything stacked into it, from the point the text is
+   * settled. `showing` is a "typing" already on screen from the stacking
+   * window, which this owns from here: it is stopped once the reply is sent,
+   * whatever happens in between, so the indicator never outlives the turn.
+   */
+  async function handled(message: TgMessage, text: string, showing?: () => void): Promise<void> {
+    try {
+      const agent = options.agent();
+      if (!agent || !message.from) return;
+      const chatId = message.chat.id;
+      const topic = message.is_topic_message ? message.message_thread_id : undefined;
+      const extra = {
+        ...(topic ? { message_thread_id: topic } : {}),
+        ...(message.chat.type === "private" ? {} : { reply_parameters: { message_id: message.message_id } }),
+      };
+      const handled = await receive(agent, incoming(message, message.from, text), rules, {
+        // One indicator at a time. Starting a second would double the calls to
+        // Telegram and leave the first running after this turn is over.
+        working: showing ? () => () => {} : () => typing(chatId, topic),
+        send: (words) => send(chatId, words, extra),
+      });
+      if (handled?.text) await send(chatId, handled.text, { ...extra, ...keyboard(handled.buttons) }).catch((error) => console.error("telegram:", error.message));
+    } finally {
+      showing?.();
+    }
   }
 
   /**
@@ -457,6 +489,16 @@ export function listen(
     stop() {
       stopping.abort();
       unreach(channel, name);
+      // Anything still inside its stacking window is handled now rather than
+      // dropped. A reader is replaced whenever the agent's folder is edited,
+      // and how far this bot has read outlives it, so Telegram will not hand
+      // the message over a second time: forgetting the timer here would lose
+      // what somebody had just sent.
+      for (const [key, held] of stacking) {
+        clearTimeout(held.timer);
+        stacking.delete(key);
+        void handled(held.first, held.parts.join("\n\n"), held.stop).catch((error) => console.error("telegram:", error));
+      }
     },
   };
 }
