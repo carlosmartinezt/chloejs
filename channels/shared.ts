@@ -227,6 +227,22 @@ function picked(agent: Agent, message: Incoming, asked: { pick?: string; target?
   return { text: `${where} now uses ${model.model}${aside}.` };
 }
 
+/**
+ * A long reply cut into pieces a channel will take, at a line break where
+ * there is one, so a tag or a line is never cut in half.
+ */
+export function inPieces(text: string, max: number): string[] {
+  const pieces: string[] = [];
+  let rest = text;
+  while (rest.length > max) {
+    const cut = rest.lastIndexOf("\n", max);
+    const at = cut > max / 2 ? cut : max;
+    pieces.push(rest.slice(0, at));
+    rest = rest.slice(at).replace(/^\n/, "");
+  }
+  return [...pieces, rest];
+}
+
 async function during(working: () => () => void, work: () => Promise<Handled>): Promise<Handled> {
   const stop = working();
   try {

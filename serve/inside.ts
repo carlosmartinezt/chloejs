@@ -102,7 +102,9 @@ export function toolsOf(agent: Agent): { name: string; does: string }[] {
 }
 
 /** Whether a setting has anything in it. */
-const filled = (value: string | undefined): boolean => Boolean(value && value.trim());
+/** Whether a setting has been filled in. An object counts when it has anything in it. */
+const filled = (value: string | Record<string, unknown> | undefined): boolean =>
+  typeof value === "object" ? Object.keys(value).length > 0 : Boolean(value && value.trim());
 
 /**
  * The ways in this agent binds. A channel chloe ships says which setting holds
@@ -129,6 +131,15 @@ export function channelsOf(agent: Agent): Way[] {
           does: "A Slack app. It answers in a direct message or wherever it is invited.",
           needs: `agents.${agent.name}.slack`,
           ready: filled(slack?.bot_token) && filled(slack?.app_token),
+          settings: how,
+        };
+      }
+      if (channel.name === "whatsapp") {
+        return {
+          name: "whatsapp",
+          does: "A linked device on a WhatsApp account. It answers in the chat that number has with itself, and wherever else it is allowed.",
+          needs: "whatsapp.number",
+          ready: filled(settings.whatsapp.number),
           settings: how,
         };
       }

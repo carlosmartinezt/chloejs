@@ -87,13 +87,19 @@ const schema = z.object({
       /** The account that gets signed in, and the one a mail tool reads from. */
       account: z.string().default(""),
       /**
-       * What this copy signs in with: the path to the client file Google's
-       * console downloads, or that file's contents pasted in here. One person
-       * makes one once. There is no passphrase setting, because the runtime
-       * makes that itself in the state folder: two copies of one passphrase is
-       * how a sign-in that works comes to look like one that has expired.
+       * What this copy signs in with, in whichever of the three forms is in
+       * front of you: the client Google's console downloads, pasted in here as
+       * it is, the path to that file, or its contents as one string.
+       *
+       * It keeps the console's own shape, a `web` or an `installed` section,
+       * because which of the two it is decides where Google will agree to send
+       * its answer and nothing else says which it is.
+       *
+       * There is no passphrase setting beside it: the runtime makes that
+       * itself, in the state folder. Two copies of one passphrase is how a
+       * sign-in that works comes to look like one that has expired.
        */
-      client: z.string().default(""),
+      client: z.union([z.string(), z.looseObject({})]).default(""),
       /**
        * Where Google sends its answer. Empty and connected to a dashboard, the
        * dashboard catches it and the sign-in finishes on its own. Empty and not
@@ -107,6 +113,18 @@ const schema = z.object({
       version: z.string().default(""),
       /** The Analytics service account's key, handed to scripts as GA_KEY_FILE. */
       GA_KEY_FILE: z.string().default(""),
+    })
+    .prefault({}),
+  /**
+   * The WhatsApp account an agent's whatsapp channel answers as. There is no
+   * bot account on WhatsApp: chloe links to this number as one of its linked
+   * devices, so it can be a number already in use, and the link itself lives
+   * in `whatsapp/` inside the state folder rather than here.
+   */
+  whatsapp: z
+    .object({
+      /** The number to link, in full international form, like "+447700900123". Empty links nothing. */
+      number: z.string().default(""),
     })
     .prefault({}),
   /** Mail sent when somebody signs in from an address this copy has not seen. */

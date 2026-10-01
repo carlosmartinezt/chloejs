@@ -66,6 +66,17 @@ export const SERVICES = "gmail,calendar,drive,docs,sheets";
  */
 const PASTE_BACK = "http://127.0.0.1:33067/oauth2/callback";
 
+/**
+ * A page that shows the person their code, for `google.callback` to point at
+ * when this copy has no dashboard catching the answer.
+ *
+ * Not the default, because Google refuses an address like this one for a
+ * client made as a desktop app, and that is the kind most people make first.
+ * Named here so the walkthrough can offer it, and so there is one spelling of
+ * it rather than one per README.
+ */
+export const SHOWS_THE_CODE = "https://chloejs.org/connected";
+
 /** Which release to fetch, and where from. */
 const RELEASE = (version: string, asset: string) =>
   `https://github.com/openclaw/gogcli/releases/download/v${version}/${asset}`;
@@ -251,11 +262,16 @@ async function fetchGog(v: string, to: string): Promise<string> {
  * person has in front of them and which one depends on where they are.
  */
 async function client(program: string): Promise<void> {
-  const held = await run(program, ["auth", "credentials", "list", "-p"], { timeoutMs: 20_000, env: where() });
-  if (held.exitCode === 0 && held.stdout.trim()) return;
-
-  const given = settings.google.client.trim();
-  if (!given) {
+  // Pasted in whole, written out as the file gog wants. Typing a path is the
+  // other way, and which one somebody reaches for depends on whether they
+  // still have the file the console downloaded.
+  const said = settings.google.client;
+  const given = typeof said === "string" ? said.trim() : JSON.stringify(said, null, 2);
+  if (!given || given === "{}") {
+    // Nothing in settings is only a problem if gog has nothing either, which
+    // is the case for somebody who set gog up by hand before chloe owned it.
+    const held = await run(program, ["auth", "credentials", "list", "-p"], { timeoutMs: 20_000, env: where() });
+    if (held.exitCode === 0 && held.stdout.trim()) return;
     throw new NeedsClient();
   }
 
@@ -269,6 +285,10 @@ async function client(program: string): Promise<void> {
     throw new Error(`google.client points at ${JSON.stringify(path)} and there is no file there.`);
   }
   mustBeAClientFile(path);
+  // Set every time a sign-in starts, rather than only when gog holds nothing.
+  // Otherwise the setting is read once, on the first sign-in ever, and an edit
+  // to it afterwards changes nothing and says nothing: the sign-in carries on
+  // using a client the settings no longer name.
   const set = await run(program, ["auth", "credentials", "set", path], { timeoutMs: 20_000, env: where() });
   if (set.exitCode !== 0) throw new Error(`That Google client was refused: ${set.stderr || set.stdout}`);
 }
@@ -420,15 +440,38 @@ export async function start({
     { mode: 0o600 },
   );
 
-  return {
-    link,
-    account,
-    relayed: to.relayed,
-    say: to.relayed
-      ? `Open this link and approve it as ${account}. I will know when you are done, so there is nothing to send back.`
-      : `Open this link and approve it as ${account}. The page it lands on will not load, which is expected: ` +
-        `copy that page's whole address out of the address bar and send it back to me.`,
-  };
+  return { link, account, relayed: to.relayed, say: whatToDo(account, to) };
+}
+
+/** Whether an address is on the machine the runtime is on, where no browser of the person's can reach it. */
+function onThisMachine(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What to tell the person, which is different in each of the three ways this
+ * can end and is the whole of what they experience.
+ *
+ * The one that reads as broken is the last, and it is the default: nothing is
+ * listening on that port, so their browser shows an error and the answer is in
+ * the address bar. Saying so in advance is the difference between a step and a
+ * fault.
+ */
+export function whatToDo(account: string, to: { url: string; relayed: boolean }): string {
+  const open = `Open this link and approve it as ${account}.`;
+  if (to.relayed) return `${open} I will know when you are done, so there is nothing to send back.`;
+  if (!onThisMachine(to.url || PASTE_BACK)) {
+    return `${open} The page it lands on will show you a short code: send me that code and I will finish.`;
+  }
+  return (
+    `${open} The page it lands on will not load, which is expected, because that address is on my machine ` +
+    `and not yours. Copy that page's whole address out of the address bar and send it back to me.`
+  );
 }
 
 /**
@@ -588,7 +631,7 @@ export function setupSteps(): { steps: string[]; addresses: string[]; why: strin
     why:
       "Reading Gmail is in Google's strictest tier, so every copy of this signs in with a client of its own. " +
       "One person makes one once, in about ten minutes, and nobody does it again.",
-    addresses: [PASTE_BACK, ...(to.url ? [to.url] : [])],
+    addresses: [...new Set([PASTE_BACK, SHOWS_THE_CODE, ...(to.url ? [to.url] : [])])],
     steps: [
       "Go to console.cloud.google.com and make a project. The name does not matter.",
       "Open APIs and Services, then Library, and switch on the Gmail API. Switch on Calendar, Drive, Docs and Sheets too if the agents should reach those.",
@@ -596,6 +639,7 @@ export function setupSteps(): { steps: string[]; addresses: string[]; why: strin
       "Add your own Google address as a test user. You are the only user this will ever have.",
       "Go to Credentials, create an OAuth client, and choose Web application as the type.",
       "Add the redirect addresses listed here, exactly as they are written, one per line in that form.",
+      "The chloejs.org one is optional and worth it: with that registered, the page you land on shows you a short code to send back, instead of a browser error with the answer hidden in its address bar.",
       "Download the client file it gives you, and put either its path or the whole of its contents in settings.local.json as google.client.",
       "Tell me when that is done and I will send you the link to approve.",
     ],

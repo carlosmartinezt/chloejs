@@ -26,6 +26,9 @@
     "version": "",
     "GA_KEY_FILE": "/path/to/ga-service-account.json"
   },
+  "whatsapp": {
+    "number": "+447700900123"
+  },
   "alerts": {
     "email_to": "you@example.com",
     "email_from": "chloe <info@example.com>"

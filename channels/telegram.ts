@@ -38,7 +38,7 @@ import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
 import type { Attachment } from "#chloe/model/model";
 import { settings } from "#chloe/core/settings";
-import { type Button, commands, receive, type Incoming, type Rules } from "./shared.ts";
+import { type Button, commands, inPieces, receive, type Incoming, type Rules } from "./shared.ts";
 
 const MAX_MESSAGE = 3500; // Telegram rejects anything over 4096, and the tags added below count.
 const WAIT = 50; // Seconds Telegram holds a poll open when there is nothing new.
@@ -459,22 +459,6 @@ export function listen(
       unreach(channel, name);
     },
   };
-}
-
-/**
- * A long reply cut into pieces Telegram will take, at a line break where there
- * is one, so a tag is never cut in half.
- */
-export function inPieces(text: string, max: number): string[] {
-  const pieces: string[] = [];
-  let rest = text;
-  while (rest.length > max) {
-    const cut = rest.lastIndexOf("\n", max);
-    const at = cut > max / 2 ? cut : max;
-    pieces.push(rest.slice(0, at));
-    rest = rest.slice(at).replace(/^\n/, "");
-  }
-  return [...pieces, rest];
 }
 
 const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

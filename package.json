@@ -1,6 +1,6 @@
 {
   "name": "@chloejs/core",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "type": "module",
   "description": "A job runner where asking a model is one kind of step.",
   "exports": {
@@ -61,6 +61,14 @@
   },
   "dependencies": {
     "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "baileys": ">=6.7 <8"
+  },
+  "peerDependenciesMeta": {
+    "baileys": {
+      "optional": true
+    }
   },
   "license": "MIT",
   "author": "Carlos Martinez",

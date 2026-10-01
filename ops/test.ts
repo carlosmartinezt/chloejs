@@ -804,6 +804,32 @@ about("a model step that never fits");
   is("through any other provider there is nothing to sign in to", "google_sign_in" in elsewhere, false);
   settings.email.provider = providerWas;
 
+  about("what the person is told to do");
+  const { whatToDo } = await import("#chloe/services/googleService");
+
+  // Three endings, and these words are the whole of what the person
+  // experiences. The one that reads as a fault is the default, so saying so
+  // before they see it is the difference between a step and a broken page.
+  const page = "https://chloejs.org/connected";
+  is(
+    "with the answer coming back on its own, there is nothing to send",
+    whatToDo("a@b.co", { url: page, relayed: true }).includes("nothing to send back"),
+    true,
+  );
+  is(
+    "with a page in front of it, the person sends a code",
+    whatToDo("a@b.co", { url: page, relayed: false }).includes("short code"),
+    true,
+  );
+  const loopback = whatToDo("a@b.co", { url: "", relayed: false });
+  is("and on this machine, that the page will not load is said first", loopback.includes("will not load"), true);
+  is("with the reason, which is that the address is not theirs", loopback.includes("not yours"), true);
+  is(
+    "an address that happens to be localhost is the same case",
+    whatToDo("a@b.co", { url: "http://localhost:9/x", relayed: false }).includes("will not load"),
+    true,
+  );
+
   about("what a person sends back");
   const waiting = {
     account: "somebody@example.com",
@@ -1296,7 +1322,8 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
 {
   about("telegram");
-  const { listen, telegramChannel, telegramHtml, inPieces } = await import("#chloe/channels/telegram");
+  const { listen, telegramChannel, telegramHtml } = await import("#chloe/channels/telegram");
+  const { inPieces } = await import("#chloe/channels/shared");
 
   is(
     "markdown arrives as telegram's own formatting",
@@ -1780,6 +1807,163 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and is answered where it was typed", replies, ["Noted."]);
   slack.close();
   slack.closeAllConnections();
+}
+
+{
+  about("whatsapp");
+  const { whatsappChannel, whatsappText, asNumber, chatOf } = await import("#chloe/channels/whatsapp");
+  const { inPieces } = await import("#chloe/channels/shared");
+
+  is(
+    "markdown arrives as whatsapp's own formatting",
+    whatsappText("**Blocked on you:**\n- `main` needs a push, see [the log](https://example.com/a?b=1)\n- *one* item, ~~not two~~"),
+    "*Blocked on you:*\n• `main` needs a push, see the log (https://example.com/a?b=1)\n• _one_ item, ~not two~",
+  );
+  is("a heading is a bold line", whatsappText("## Numbers"), "*Numbers*");
+  is("a code block keeps its lines", whatsappText("```\na < b\n  c\n```"), "```\na < b\n  c\n```");
+  is("a sum is not italics", whatsappText("2 * 3 * 4"), "2 * 3 * 4");
+  is("a long reply is cut at a line break", inPieces("aaaa\nbbbb\ncc", 10), ["aaaa\nbbbb", "cc"]);
+  is(
+    "a chat id is read as the number it is, and an alias is left as it is",
+    [asNumber("447700900123:7@s.whatsapp.net"), asNumber("+44 7700 900123"), asNumber("8891234@lid")],
+    ["+447700900123", "+447700900123", "8891234@lid"],
+  );
+  is("and a number as the chat to write to", chatOf("+447700900123"), "447700900123@s.whatsapp.net");
+
+  // A stand-in connection: it writes down what was sent, and hands messages to
+  // whatever the channel registered, the way Baileys' socket does.
+  const ME = "447700900123@s.whatsapp.net";
+  const sent: { to: string; text: string; id?: string }[] = [];
+  const handlers = new Map<string, (data: any) => void>();
+  let ended = 0;
+  const socket = {
+    ev: { on: (event: string, handler: (data: any) => void) => void handlers.set(event, handler) },
+    user: { id: "447700900123:7@s.whatsapp.net" },
+    async sendMessage(to: string, content: { text: string }, options?: { messageId?: string }) {
+      sent.push({ to, text: content.text, id: options?.messageId });
+      return { key: { id: options?.messageId } };
+    },
+    async sendPresenceUpdate() {},
+    async groupMetadata(chat: string) {
+      return { subject: chat === "111@g.us" ? "Tempo" : "Family" };
+    },
+    end: () => void ended++,
+  };
+  const connect = async () => ({ socket, registered: true, download: async () => Buffer.from("PNG!") });
+
+  const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
+  const until = async (done: () => boolean) => {
+    for (let i = 0; i < 100 && !done(); i++) await pause(20);
+    await pause(50);
+  };
+  const settle = (count: number) => until(() => sent.length >= count);
+  let ids = 0;
+  const now = () => Math.floor(Date.now() / 1000);
+  const arrives = (message: object) => handlers.get("messages.upsert")!({ type: "notify", messages: [message] });
+  const privately = (text: string, more: object = {}) => ({
+    key: { remoteJid: ME, fromMe: true, id: `m${++ids}` },
+    messageTimestamp: now(),
+    pushName: "Me",
+    message: { conversation: text },
+    ...more,
+  });
+  const inGroup = (chat: string, text: string, from = ME, fromMe = true) => ({
+    key: { remoteJid: chat, fromMe, id: `m${++ids}`, participant: from },
+    messageTimestamp: now(),
+    pushName: fromMe ? "Me" : "Somebody",
+    message: { conversation: text },
+  });
+
+  {
+    // No number and nothing linked: it says what to put in settings rather
+    // than connecting to nothing.
+    const said: string[] = [];
+    const log = console.error;
+    console.error = (line: string) => void said.push(line);
+    whatsappChannel({ session: `${process.env.AGENTS_STATE}/unlinked` }).start(() => ({ name: "nobody" }) as any).stop();
+    console.error = log;
+    is("with no number and no link, it says which setting is missing", said.some((l) => l.includes('"whatsapp": { "number"')), true);
+  }
+
+  // Two agents on one number: chloe takes what is not addressed, tempo has a
+  // group of its own.
+  const chloe = { ...agentFor(codeJob("unused", async () => ({}))), name: "chloe" };
+  const tempo = { ...agentFor(codeJob("unused", async () => ({}))), name: "tempo" };
+  const session = `${process.env.AGENTS_STATE}/whatsapp-test`;
+  const shared = { number: "+447700900123", session, connect, allowFrom: ["+447700900123"] };
+  const onChloe = whatsappChannel({ ...shared, default: true }).start(() => chloe as any);
+  const onTempo = whatsappChannel({ ...shared, chats: ["Tempo"] }).start(() => tempo as any);
+  await until(() => handlers.has("messages.upsert"));
+  is("every agent on one number shares the one connection", handlers.size, 2);
+  handlers.get("connection.update")!({ connection: "open" });
+
+  answers.push("hello from chloe", "the tests pass", "the deploy went fine");
+  arrives(privately("what is up"));
+  await settle(1);
+  arrives(privately("tempo, how are the tests"));
+  await settle(2);
+  arrives(inGroup("111@g.us", "and the deploy?"));
+  await settle(3);
+  is(
+    "an unaddressed message goes to the agent that takes the rest, a named one to the agent it names, and a bound group to the agent whose it is",
+    sent.map((one) => `${one.to}: ${one.text}`),
+    [`${ME}: hello from chloe`, `${ME}: the tests pass`, "111@g.us: the deploy went fine"],
+  );
+  const ran = db.prepare("select agent, prompt from runs where source = 'whatsapp' order by started").all() as { agent: string; prompt: string }[];
+  is("so each run is filed under the agent that answered", ran.map((one) => one.agent), ["chloe", "tempo", "tempo"]);
+  is("the agent's name is taken off the message it was named in", ran[1].prompt.includes("how are the tests"), true);
+  is("and it is not handed the name again", ran[1].prompt.includes("tempo, how are the tests"), false);
+  is("the agent is told where the message came from", ran[0].prompt.includes("<whatsapp_context>"), true);
+  is("and that the chat with yourself is nobody else's", ran[0].prompt.includes("chat_type: self"), true);
+
+  // The guard that matters on a personal number: a reply arrives back as a
+  // message this account sent, and answering it would never stop.
+  const mine = sent[0];
+  arrives({ key: { remoteJid: ME, fromMe: true, id: mine.id }, messageTimestamp: now(), message: { conversation: mine.text } });
+  await pause(100);
+  is("an answer coming back as an incoming message is not answered again", sent.length, 3);
+
+  arrives({ key: { remoteJid: "999@s.whatsapp.net", fromMe: true, id: `m${++ids}` }, messageTimestamp: now(), message: { conversation: "see you at six" } });
+  arrives(inGroup("222@g.us", "anyone home", "447700900999@s.whatsapp.net", false));
+  arrives({ ...privately("old news"), messageTimestamp: now() - 7200 });
+  await pause(100);
+  is(
+    "a message of mine to somebody else, a stranger in a group, and anything older than this process are all left alone",
+    sent.length,
+    3,
+  );
+
+  // A file on a message is fetched and named to the agent.
+  answers.push("a red square");
+  arrives(
+    privately("", {
+      message: { imageMessage: { mimetype: "image/jpeg", fileLength: 4, caption: "what is this?" } },
+    }),
+  );
+  await settle(4);
+  const withFile = db.prepare("select prompt from runs where source = 'whatsapp' order by started desc limit 1").get() as { prompt: string };
+  is("a photo arrives with the message", withFile.prompt.includes("(Attached: image.jpeg)"), true);
+
+  onTempo.stop();
+  is("one agent leaving the number does not close the connection", ended, 0);
+  onChloe.stop();
+  is("the last one does", ended, 1);
+
+  // Nobody named and nobody taking the rest: it says who is there instead of
+  // picking one.
+  sent.length = 0;
+  handlers.clear();
+  const second = `${process.env.AGENTS_STATE}/whatsapp-two`;
+  const bothOn = [
+    whatsappChannel({ ...shared, session: second }).start(() => chloe as any),
+    whatsappChannel({ ...shared, session: second }).start(() => tempo as any),
+  ];
+  await until(() => handlers.has("messages.upsert"));
+  handlers.get("connection.update")!({ connection: "open" });
+  arrives(privately("who is there"));
+  await settle(1);
+  for (const one of bothOn) one.stop();
+  is("with nobody named and nobody taking the rest, it says which names there are", sent[0]?.text, "Say which of us you mean first: chloe, tempo.");
 }
 
 {
