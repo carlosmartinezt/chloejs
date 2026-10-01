@@ -15,7 +15,7 @@
 // The sign-in itself is services/googleService.ts, and every call out goes
 // through `gog()` there, so one file holds it, renews it and explains it and
 // this one only reads mail.
-import { explain, gog } from "./googleService.ts";
+import { explain, gog, unwrapped } from "./googleService.ts";
 
 export { explain };
 
@@ -181,10 +181,62 @@ export async function sendGmail({
   return { id: parsed.id ?? parsed.messageId ?? "" };
 }
 
-/** The bare address out of a From line, so `A B <a@b.com>` is `a@b.com`. */
-function addressOf(line: string): string {
-  const angled = /<([^>]+)>/.exec(line);
-  return (angled ? angled[1] : line).trim();
+/** The longest subject a reply will carry over. Longer than any real one. */
+const SUBJECT = 200;
+
+/** One line, which is all a mail header can carry. */
+function oneLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Who a reply goes to and what its subject is, read off the message being
+ * answered.
+ *
+ * Every input here was written by somebody else, so this is the one place a
+ * reply can be talked into something, and all three rules below are about
+ * that rather than about tidiness.
+ *
+ * **One address, and it is the sender's.** A display name can hold angle
+ * brackets of its own (`"<them@example.com>" <me@example.com>`), so taking the
+ * first bracketed thing in the line would send the reply to an address the
+ * sender chose to put in their own name. The quoted part goes first, and a
+ * header carrying more than one address is refused rather than guessed at: a
+ * second one is either a header nobody should be replying to or somebody
+ * trying to be copied in. What is left has to look like one address and
+ * nothing else, so a comma (which gog reads as another recipient), a space or
+ * a bracket is refused too.
+ *
+ * **One line.** gog refuses a header value with a newline in it, which is
+ * right, and a subject arrives folded across lines often enough. The subject
+ * is also written into the frontmatter of the copy an agent keeps, where a
+ * newline would be a second field nobody wrote.
+ *
+ * **The markers come off.** The subject comes back wrapped as somebody else's
+ * words, which is what it is, and a header is not a place that can carry them.
+ * That is why the length below is capped: unwrapped, the subject is the one
+ * piece of the sender's text that comes back to a model as this tool's own
+ * answer rather than as marked-up mail, so it is held to the length of a
+ * subject and cannot carry a paragraph of instructions.
+ */
+export function replyTo(headers: Record<string, string>): { to: string; subject: string } {
+  // Unwrapped before being chosen between, not after: an empty Reply-To that
+  // came back wrapped is still a wrapper, and a wrapper is not falsy.
+  const line = oneLine(unwrapped(headers.reply_to ?? "")) || oneLine(unwrapped(headers.from ?? ""));
+  const named = line.replace(/"(?:[^"\\]|\\.)*"/g, "");
+  const angled = [...named.matchAll(/<([^>]*)>/g)].map((found) => found[1].trim());
+  if (angled.length > 1) {
+    throw new Error(
+      `That message gives more than one address to reply to, so nothing was sent. Reply to it from Gmail.`,
+    );
+  }
+  const to = (angled[0] ?? named).trim();
+  if (!/^[^\s,<>"]+@[^\s,<>"]+$/.test(to)) {
+    throw new Error(`That message carries no address to reply to, so nothing was sent.`);
+  }
+
+  const was = oneLine(unwrapped(headers.subject ?? "")).slice(0, SUBJECT) || "(no subject)";
+  return { to, subject: /^re:/i.test(was) ? was : `Re: ${was}` };
 }
 
 /**
@@ -231,12 +283,7 @@ export async function replyGmail({
   // somebody else's mail does not have to be read again to answer it.
   const out = await gog(["gmail", "get", messageId, "--format", "metadata", "--json"], { reading: true });
   const headers = (JSON.parse(out || "{}") as { headers?: Record<string, string> }).headers ?? {};
-  const to = addressOf(headers.reply_to || headers.from || "");
-  if (!to.includes("@")) {
-    throw new Error(`That message carries no address to reply to, so nothing was sent.`);
-  }
-  const was = headers.subject?.trim() || "(no subject)";
-  const subject = /^re:/i.test(was) ? was : `Re: ${was}`;
+  const { to, subject } = replyTo(headers);
 
   const args = [
     "gmail",

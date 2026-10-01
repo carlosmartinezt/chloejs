@@ -681,6 +681,34 @@ export function explain(text: string): string {
 }
 
 /**
+ * One field of a `reading: true` answer with gog's untrusted markers taken off.
+ *
+ * **Only for a value this code is about to use as data**: an address to send
+ * to, a subject to put in a header. Never for a value on its way to a model,
+ * which is the one thing the markers are for, and never for anything written
+ * into a file a model reads later.
+ *
+ * gog wraps field by field rather than answer by answer, and which fields it
+ * wraps is its choice, not ours: today a subject comes back wrapped and the
+ * `from` beside it does not. So anything read out of a reading answer goes
+ * through here, whether it looks wrapped or not, and a value that was never
+ * wrapped comes back as it was.
+ *
+ * The id in the end marker has to be the one the start marker opened with.
+ * gog picks a fresh one per field, so text inside a field cannot close a
+ * wrapper it did not open, and a subject with the marker words typed into it
+ * stays a subject.
+ */
+export function unwrapped(value: string): string {
+  const found =
+    /^<<<EXTERNAL_UNTRUSTED_CONTENT id="([^"]+)">>>\n([\s\S]*)\n<<<END_EXTERNAL_UNTRUSTED_CONTENT id="\1">>>$/
+      .exec(value.trim());
+  if (!found) return value;
+  // gog's own preamble, inside the markers and above the text.
+  return found[2].replace(/^Source: [^\n]*\n---\n/, "");
+}
+
+/**
  * Every gog call goes through here, so none of them can miss the folder or the
  * passphrase, and none of them can forget the two guards.
  *

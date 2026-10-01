@@ -145,7 +145,10 @@ export function reply_mail({
         if (!keep) return sent;
         const at = new Date().toISOString();
         const slug = sent.subject.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
-        const copy = `---\nto: ${sent.to}\nsubject: ${sent.subject}\nsent: ${at}\n---\n\n${body}\n`;
+        // Quoted, because the subject is the sender's words: a value that
+        // happens to hold a colon is a broken file, and the frontmatter of a
+        // file a model reads later is not a place to find out.
+        const copy = `---\nto: ${sent.to}\nsubject: ${JSON.stringify(sent.subject)}\nsent: ${at}\n---\n\n${body}\n`;
         const { folder, commit } = agent.memory;
         // With "each run", the end of the run commits the copy with everything else it wrote.
         const kept = await writeFiles(folder, `${keep}/${at.slice(0, 16).replace("T", "-").replace(":", "")}-${slug}.md`, copy, {
