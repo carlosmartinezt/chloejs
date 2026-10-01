@@ -22,7 +22,6 @@ import { memoryTools } from "#chloe/model/tools/memory";
 import { ownFiles } from "#chloe/model/tools/own_files";
 import { runScripts } from "#chloe/model/tools/run_script";
 import { makeRepo } from "#chloe/services/historyService";
-import { shareLogin } from "#chloe/serve/login";
 import type { Work } from "#chloe/core/steps";
 
 export const CONFIG = `${ROOT}/chloe.config.ts`;
@@ -121,14 +120,6 @@ export function defineAgent(definition: Definition): Defined {
 /** What chloe.config.ts exports: every agent this box runs. */
 export interface Config {
   agents: Defined[];
-  login?: {
-    /**
-     * A name like "example.com" makes the one login cover every site under
-     * it, so another app can ask GET /api/check whether its visitor is signed
-     * in. Leave it out and the login is for this site's own name only.
-     */
-    domain?: string;
-  };
 }
 
 /** The default export of chloe.config.ts: every agent to run. */
@@ -400,7 +391,6 @@ export async function loadAll(): Promise<Map<string, Agent>> {
   })) as { default?: Config };
   const listed = module.default?.agents;
   if (!Array.isArray(listed)) throw new Error("chloe.config.ts does not export defineConfig({ agents: [...] }) as its default.");
-  shareLogin(module.default?.login?.domain);
 
   const folders = new Map<string, string>();
   const memories = new Map<string, string>();

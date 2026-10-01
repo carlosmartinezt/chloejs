@@ -38,7 +38,7 @@ import { recentWork } from "./recentWork.ts";
 import { finish as finishSignIn, signInState, start as startSignIn } from "#chloe/services/googleService";
 import { channelsOf, connectionsOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
-import { type Caller, caller, covers, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, renew, setCookie, signIn } from "./login.ts";
+import { type Caller, caller, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "./alerts.ts";
 import { docsPage, type RouteDoc, sitePage } from "./site.ts";
@@ -199,28 +199,11 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/check",
-    does: "204 when the account is signed in, 401 when not. For a proxy in front of another site under the same login.",
+    does: "204 when the account is signed in, 401 when not. For a proxy deciding whether to let a visitor through to a site of its own.",
     handle: ({ response }) => {
       response.writeHead(204).end();
     },
   },
-  {
-    method: "GET",
-    path: "/api/back",
-    does: "Sends a signed-in browser back to ?to=, an https address under login.domain in chloe.config.ts. Anybody else goes to the sign-in page first.",
-    takes: "?to=https://...",
-    open: true,
-    handle: ({ request, response, url }) => {
-      const to = url.searchParams.get("to") ?? "";
-      if (!covers(to)) return void response.writeHead(302, { location: "/" }).end();
-      if (caller(request)?.kind !== "account") {
-        return void response.writeHead(302, { location: `/login?back=${encodeURIComponent(to)}` }).end();
-      }
-      response.setHeader("set-cookie", setCookie(renew(), overHttps(request)));
-      response.writeHead(302, { location: to }).end();
-    },
-  },
-
   // Reading. A token may do all of this.
   {
     method: "GET",

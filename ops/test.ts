@@ -2616,8 +2616,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("the login in front of the page");
 
-  const { covers, createAccount, hasAccount, resetPassword, setCookie, shareLogin, signIn, signedIn, suggestPassword } =
-    await import("#chloe/serve/login");
+  const { createAccount, hasAccount, resetPassword, setCookie, signIn, signedIn, suggestPassword } = await import("#chloe/serve/login");
   const carrying = (cookie: string) => ({ headers: { cookie } }) as import("node:http").IncomingMessage;
 
   is("a fresh copy has no password", hasAccount(), false);
@@ -2648,21 +2647,8 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("a cookie somebody edited does not", signedIn(carrying(`chloe_session=${session.slice(0, -1)}x`)), false);
   is("no cookie does not", signedIn(carrying("")), false);
   is("signing out clears it", setCookie("", true)[0].includes("Max-Age=0"), true);
-  shareLogin(undefined);
-  is("with no domain the cookie is this site's alone", setCookie(session, true)[0].includes("Domain="), false);
-  is("and nowhere else is somewhere to send somebody back to", covers("https://example.com/"), false);
-
-  shareLogin("example.com");
-  is("with one, the cookie covers every site under it", setCookie(session, true)[0].includes("Domain=example.com"), true);
-  is("and signing out ends the old one too", setCookie("", true).length, 2);
-  is("a site under it is somewhere to go back to", covers("https://money.example.com/x?y=1"), true);
-  is("and so is the name itself", covers("https://example.com/"), true);
-  is("but not over plain http", covers("http://money.example.com/"), false);
-  is("nor a name that only ends the same way", covers("https://badexample.com/"), false);
-  is("nor one that only starts the same way", covers("https://example.com.evil.net/"), false);
-  is("nor something that is not an address", covers("/elsewhere"), false);
-  is("a name that is not one is refused", (() => { try { shareLogin("not a name"); return "taken"; } catch { return "refused"; } })(), "refused");
-  shareLogin(undefined);
+  is("the cookie is this site's alone, never a family of names", setCookie(session, true)[0].includes("Domain="), false);
+  is("so signing out has one cookie to end", setCookie("", true).length, 1);
 
   // The same value said the other way, for a caller that is not a browser.
   const bearing = (authorization: string) => ({ headers: { authorization } }) as import("node:http").IncomingMessage;

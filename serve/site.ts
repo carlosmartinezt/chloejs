@@ -174,14 +174,9 @@ function go(form) {
     body: JSON.stringify({ password: form.password.value }),
   })
     .then((r) => r.json())
-    .then((a) => { if (a.ok) location = back(); else document.getElementById('trouble').textContent = a.error; })
+    .then((a) => { if (a.ok) location = '/'; else document.getElementById('trouble').textContent = a.error; })
     .catch((e) => { document.getElementById('trouble').textContent = String(e); });
   return false;
-}
-// Where a sign-in started, when another site under the same login sent it here.
-function back() {
-  const to = new URLSearchParams(location.search).get('back');
-  return to ? '/api/back?to=' + encodeURIComponent(to) : '/';
 }
 </script>`,
     false,
