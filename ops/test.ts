@@ -27,7 +27,7 @@ process.env.EMAIL_PROVIDER = "none";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -3337,6 +3337,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   last().socket.onopen?.({});
   const hello = said("hello")[0];
   is("the first message says hello, with the key inside it", [hello?.type, hello?.key, hello?.protocol, hello?.coreVersion], ["hello", "chl_install_test", 1, "9.9.9"]);
+  is("and says which machine it is on", hello?.machine, hostname());
   is("and carries the agents and the routes", [hello?.agents?.[0]?.name, hello?.routes?.some((one: { path: string }) => one.path === "/api/agents")], ["test", true]);
   is("and which switches are on", hello?.remote, { read: true, chat: true, run: true, memory: false, write: false, google: false });
   is("nothing else until the cloud answers", cloud.connected(), false);

@@ -4,8 +4,9 @@
 // One WebSocket, opened here, kept open, opened again when it drops. The first
 // message says which workspace this is (the key rides inside the encrypted
 // connection, never in the address or a header, so no proxy logs it) and what
-// the runtime has: its version, its routes, its agents, and which switches in
-// `cloud.remote` are on. After that two things happen on it:
+// the runtime has: its version, the machine it runs on, its routes, its agents,
+// and which switches in `cloud.remote` are on. After that two things happen on
+// it:
 //
 //   up      a run's row when a run starts or ends, and the agents when they
 //           reload, each only if `cloud.sync` says so
@@ -20,6 +21,9 @@
 // connection, and the only line this file writes is saying so once.
 import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
+import { hostname } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
@@ -152,6 +156,10 @@ export function startCloud(options: CloudOptions): Cloud {
       key,
       coreVersion: version,
       nodeVersion: process.version,
+      // Read here rather than written down, so the dashboard can say which
+      // machine of yours this is. It is whatever the box calls itself, which
+      // on a laptop is usually its owner's name.
+      machine: hostname(),
       capabilities: ["relay", "runs", "agents"],
       sync: settings.cloud.sync,
       remote: settings.cloud.remote,
@@ -343,11 +351,24 @@ export function startCloud(options: CloudOptions): Cloud {
   };
 }
 
-/** The version in this package's package.json, which is what the runtime reports. */
+/**
+ * The version in this package's package.json, which is what the runtime
+ * reports. The nearest one above this file, because it is a folder deeper when
+ * the package is installed (dist/cloud/) than when it is the source (cloud/),
+ * and reading only the folder above gives an installed copy nothing to report.
+ */
 function ownVersion(): string {
-  try {
-    return (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version?: string }).version ?? "0";
-  } catch {
-    return "0";
+  let folder = dirname(fileURLToPath(import.meta.url));
+  for (let up = 0; up < 4; up++) {
+    try {
+      const said = JSON.parse(readFileSync(join(folder, "package.json"), "utf8")) as { version?: string };
+      if (said.version) return said.version;
+    } catch {
+      // Not a package folder. Try the one above.
+    }
+    const above = dirname(folder);
+    if (above === folder) break;
+    folder = above;
   }
+  return "0";
 }
