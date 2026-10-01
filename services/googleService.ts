@@ -90,6 +90,17 @@ export interface Pending {
   redirect: string;
   /** Google hands this back with the code, and gog checks it. Kept so a bare code can be rebuilt into a link. */
   state: string;
+  /**
+   * Whether step one was told to ask Google for consent again.
+   *
+   * Written down because **step two has to be given the same flags as step
+   * one**. gog folds this one into what it checks the saved state against, so
+   * a step one that forced consent and a step two that did not fails with
+   * "manual auth state mismatch", which says nothing about flags and sends
+   * everybody looking at the state instead. It fails that way in both
+   * directions.
+   */
+  forceConsent: boolean;
   started: string;
 }
 
@@ -386,6 +397,8 @@ export async function start({
   ];
   // Google only hands back a refresh token the first time it asks, so a
   // sign-in meant to replace one that stopped working has to ask again.
+  // Whatever is decided here is written down below, because finish() has to
+  // pass the same thing.
   if (again) args.push("--force-consent");
 
   const out = await run(program, args, { timeoutMs: 60_000, env: where() });
@@ -399,7 +412,11 @@ export async function start({
   folder();
   writeFileSync(
     PENDING,
-    JSON.stringify({ account, services, redirect, state, started: new Date().toISOString() } satisfies Pending, null, 2),
+    JSON.stringify(
+      { account, services, redirect, state, forceConsent: again, started: new Date().toISOString() } satisfies Pending,
+      null,
+      2,
+    ),
     { mode: 0o600 },
   );
 
@@ -425,14 +442,17 @@ export async function finish(answer: string): Promise<{ account: string; signedI
   if (!waiting) {
     throw new Error("No sign-in is waiting for a code. Start one first, then send what the browser came back with.");
   }
+  if (typeof waiting.forceConsent !== "boolean") {
+    rmSync(PENDING, { force: true });
+    throw new Error(
+      "That sign-in was started by an older version of this and cannot be finished, because it did not write down " +
+        "everything the second half needs. Start a new one.",
+    );
+  }
   const url = asLink(answer.trim(), waiting);
   const program = await ensureGog();
 
-  const out = await run(
-    program,
-    ["auth", "add", waiting.account, "--remote", "--step", "2", "--auth-url", url, "--services", waiting.services, "-p"],
-    { timeoutMs: 120_000, env: where() },
-  );
+  const out = await run(program, finishArgs(waiting, url), { timeoutMs: 120_000, env: where() });
   if (out.exitCode !== 0) throw new Error(explain(out.stderr || out.stdout));
 
   rmSync(PENDING, { force: true });
@@ -508,6 +528,25 @@ export function addressesIn(json: string): string[] {
 
   walk(parsed);
   return [...found].filter((one) => one.includes("@"));
+}
+
+/**
+ * What finishes a sign-in, as gog's own arguments.
+ *
+ * Its own function because every one of these has to agree with what step one
+ * was given, and the way that goes wrong is silent: gog answers "manual auth
+ * state mismatch", which reads like the person pasted the wrong thing when
+ * what actually happened is that these two calls disagreed.
+ */
+export function finishArgs(waiting: Pending, url: string): string[] {
+  return [
+    "auth", "add", waiting.account,
+    "--remote", "--step", "2",
+    "--auth-url", url,
+    "--services", waiting.services,
+    "-p",
+    ...(waiting.forceConsent ? ["--force-consent"] : []),
+  ];
 }
 
 /**

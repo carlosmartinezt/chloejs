@@ -810,6 +810,7 @@ about("a model step that never fits");
     services: "gmail",
     redirect: "http://127.0.0.1:33547/oauth2/callback",
     state: "the-state",
+    forceConsent: false,
     started: new Date().toISOString(),
   };
   is(
@@ -826,6 +827,30 @@ about("a model step that never fits");
   is("with the state it was started with", rebuilt.searchParams.get("state"), "the-state");
   is("at the address it was started with", rebuilt.pathname, "/oauth2/callback");
   is("and code= in front of it is not part of the code", new URL(asLink("code=xyz", waiting)).searchParams.get("code"), "xyz");
+
+  about("the second half of a sign-in is given what the first half was");
+  const { finishArgs } = await import("#chloe/services/googleService");
+
+  // What this is guarding: gog folds --force-consent into what it checks the
+  // saved state against, in both directions, and answers "manual auth state
+  // mismatch" when the two calls disagree. That reads like the person pasted
+  // the wrong thing, so it sends everybody looking in the wrong place. It is
+  // what made the first sign-in on a real box fail every time.
+  is(
+    "forcing consent in the first half forces it in the second",
+    finishArgs({ ...waiting, forceConsent: true }, "http://x/?code=a").includes("--force-consent"),
+    true,
+  );
+  is(
+    "and not forcing it leaves it off",
+    finishArgs({ ...waiting, forceConsent: false }, "http://x/?code=a").includes("--force-consent"),
+    false,
+  );
+  is(
+    "the services are the ones it started with, not whatever is configured now",
+    finishArgs({ ...waiting, services: "gmail,drive" }, "http://x/?code=a").includes("gmail,drive"),
+    true,
+  );
 }
 
 {
@@ -977,7 +1002,10 @@ about("a model step that never fits");
   choose("test", "job:nightly", "");
   is("an empty model takes a pick back", [chosen("test", "agent"), choices("test")], [undefined, []]);
 
-  is("the menu ends with /models", commands(agent).at(-1), { command: "models", description: "Which model answers here, and the ones to pick from" });
+  is("the menu ends with /models and /clear", commands(agent).slice(-2), [
+    { command: "models", description: "Which model answers here, and the ones to pick from" },
+    { command: "clear", description: "Start this conversation fresh" },
+  ]);
 
   const listBefore = settings.model.models;
   settings.model.models = ["openai/gpt-6-luna"];
@@ -1525,9 +1553,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and its own reply is what the chat is sent, whole", said(), [`-100: ${whole}`]);
   const { recall: recalled } = await import("#chloe/model/memory");
   is("and the exchange is kept in that chat's conversation", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["\u201cA line from a book.\u201d \u2014 A Book", whole]);
-  is("the / menu is the agent's jobs, then /models", calls.find((c) => c.method === "setMyCommands")?.body.commands, [
+  is("the / menu is the agent's jobs, then /models and /clear", calls.find((c) => c.method === "setMyCommands")?.body.commands, [
     { command: "highlights", description: "highlights" },
     { command: "models", description: "Which model answers here, and the ones to pick from" },
+    { command: "clear", description: "Start this conversation fresh" },
   ]);
 
   // Two messages a second apart are one message, and the answer goes under the
@@ -1592,7 +1621,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await pause(100);
   is("pressing one picks it", said()[1], "7: This chat now uses anthropic/claude-haiku-4.5.");
   is("and the buttons are replaced by what was pressed", calls.find((c) => c.method === "editMessageText")?.body.text, "the list\n\n→ anthropic/claude-haiku-4.5");
-  is("the menu offers /models", calls.find((c) => c.method === "setMyCommands")?.body.commands.at(-1)?.command, "models");
+  is("the menu offers /models and /clear", calls.find((c) => c.method === "setMyCommands")?.body.commands.slice(-2).map((one: { command: string }) => one.command), ["models", "clear"]);
 
   telegram.close();
 

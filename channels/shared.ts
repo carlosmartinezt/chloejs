@@ -151,13 +151,14 @@ function clearCommand(text: string): boolean {
   return /^\/clear(?:@\w+)?\s*$/i.test(text);
 }
 
-/** The commands a channel can offer in its own menu: each job, with "_" for "-", then /models. */
+/** The commands a channel can offer in its own menu: each job, with "_" for "-", then /models and /clear. */
 export function commands(agent: Agent): { command: string; description: string }[] {
   return [
     ...agent.jobs
       .map((job) => ({ command: job.id.replace(/-/g, "_").toLowerCase(), description: (job.description || job.id).slice(0, 256) }))
       .filter((one) => /^[a-z0-9_]{1,32}$/.test(one.command)),
     { command: "models", description: "Which model answers here, and the ones to pick from" },
+    { command: "clear", description: "Start this conversation fresh" },
   ];
 }
 
