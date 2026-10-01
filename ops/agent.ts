@@ -14,10 +14,10 @@
 // question. So `npm run agent cc check-sites` is a run and `npm run agent cc
 // "is the disk full?"` is a question.
 //
-// It asks the running service over loopback rather than loading the runtime
-// itself. A second runtime would be a second writer on the database and a
-// second clock firing the same cron lines, so the nightly backup could go
-// twice.
+// It asks the chloe that is already running, over loopback, rather than
+// loading a runtime of its own, so `npx chloe` has to be running somewhere. A
+// second runtime would be a second writer on the database and a second clock
+// firing the same cron lines, so the nightly backup could go twice.
 //
 // Every turn lands in the run history with its tool calls and its cost, the
 // same as one from the page or a job.
@@ -94,7 +94,11 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   ).catch((error: unknown) => error as Error);
 
   if (response instanceof Error) {
-    throw new Error(`Nothing is answering on ${BASE}. Start it with: systemctl --user start chloe.service`);
+    throw new Error(
+      `Nothing is answering on ${BASE}.\n` +
+        "This talks to a chloe that is already running rather than starting one of its own, " +
+        "so leave it running in another terminal: npx chloe",
+    );
   }
   const text = await response.text();
   let parsed: unknown;
@@ -221,7 +225,7 @@ if (job) {
   if (!runId) {
     console.error(
       "It was started but no run appeared. Something refused it before it began: " +
-        "systemctl --user status chloe.service",
+        "the terminal chloe is running in says what.",
     );
     process.exit(1);
   }
