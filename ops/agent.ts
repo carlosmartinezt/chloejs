@@ -30,12 +30,12 @@ import { ownCookie } from "#chloe/serve/login";
 // Matches HOST and PORT in serve/http.ts, which are deliberately not settable.
 const BASE = "http://127.0.0.1:3067";
 
+/** What one turn came back with. The same shape every channel gets. */
 interface Result {
-  runId: string;
+  runId?: string;
   text: string;
   steps: number;
   cost: number;
-  calls: { tool: string; args: unknown; result: unknown }[];
 }
 
 interface Listed {
@@ -66,6 +66,15 @@ interface Step {
   cost: number;
 }
 
+/** One line of a conversation's record: what the model said, or one tool it ran. */
+interface Line {
+  tool?: string;
+  args?: unknown;
+  result?: unknown;
+  failed?: boolean;
+  refused?: boolean;
+}
+
 interface Run {
   id: string;
   agent: string;
@@ -79,6 +88,11 @@ interface Run {
   reply?: string | null;
   parked?: string | null;
   trace?: Step[];
+}
+
+/** A conversation's run, whose trace is lines rather than steps. */
+interface Turn {
+  trace?: Line[];
 }
 
 async function api<T>(path: string, body?: unknown): Promise<T> {
@@ -114,10 +128,17 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
 
 function show(result: Result): void {
   console.log(`\n${result.text.trim()}\n`);
-  const parts = [`${result.steps} step${result.steps === 1 ? "" : "s"}`, `$${result.cost.toFixed(4)}`];
-  const used = result.calls.map((c) => c.tool);
-  if (used.length > 0) parts.push(`used ${used.join(", ")}`);
-  console.log(dim(`(${parts.join(", ")})\n`));
+  console.log(dim(`(${result.steps} step${result.steps === 1 ? "" : "s"}, $${result.cost.toFixed(4)})\n`));
+}
+
+/**
+ * The tools one turn ran, read off the run it left behind rather than sent back
+ * with the reply: a channel's answer is what to say, and this is only ever
+ * wanted when somebody types /tools.
+ */
+async function toolsOf(runId: string): Promise<Line[]> {
+  const run = await api<Turn>(`/api/runs/${encodeURIComponent(runId)}`);
+  return (run.trace ?? []).filter((one) => one.tool);
 }
 
 const [named, ...rest] = process.argv.slice(2);
@@ -295,8 +316,9 @@ for (;;) {
     continue;
   }
   if (line === "/tools") {
-    if (!last || last.calls.length === 0) console.log(dim("No tool calls in the last turn.\n"));
-    else console.log(`${JSON.stringify(last.calls, null, 2)}\n`);
+    const calls = last?.runId ? await toolsOf(last.runId).catch(() => []) : [];
+    if (calls.length === 0) console.log(dim("No tool calls in the last turn.\n"));
+    else console.log(`${JSON.stringify(calls, null, 2)}\n`);
     continue;
   }
 
