@@ -173,7 +173,7 @@ outside one runs again on every resume, so it must not send, write or spend.
 | Agents | Tools, approvals and a budget, set where the step is written. |
 | Tools | A description, a schema and one call. Typed at both ends. A tool that needs somebody signed in brings that with it. |
 | Human approvals | A run parks for days and carries on when somebody answers. |
-| Channels | Telegram, Slack and WhatsApp, one file each. A question goes out where the person is. |
+| Channels | Telegram, Slack and WhatsApp, one file each, and no dependency of their own. A question goes out where the person is. |
 | Memory | A folder of notes per agent, in one git repository of their own: one commit per run, under the agent's name. |
 | Self-improvement | An agent can rewrite its skills, jobs and instructions if you let it, never its code. Every change can be undone. |
 | Run history | Every step of every run, with its arguments and its answer. |
@@ -196,9 +196,7 @@ npm run evals <name>  # the prompts: did the model decide well
 
 Your code, your models, your machine. One process serves the page, keeps every
 cron line and answers the channels. The runtime's only dependency is zod and its
-state is one SQLite file, so moving machine is copying a folder. WhatsApp is the
-one channel that needs more: `npm install baileys` where the runtime is
-installed, and nothing is imported from it until an agent is on WhatsApp.
+state is one SQLite file, so moving machine is copying a folder.
 
 Four files, and you have an agent:
 

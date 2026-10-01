@@ -19,8 +19,8 @@ top is what is published, less `test-agent/` and `chloe.config.ts`, which are
 here so the runtime's own tests have an agent to load.
 
 Two other repos sit beside this one, and neither is in it:
-`@chloejs/ui` (`~/chloejs-ui`) is the dashboard, a package the runtime works
-without and never names. `chloejs-site` (`~/chloejs-site`) is chloejs.org: the
+`@chloejs/ui` is the dashboard, a package the runtime works
+without and never names. `chloejs-site` is chloejs.org: the
 written docs, the examples, and a reference read out of this source on every
 build, so a doc comment here is what the site says and a renamed export that a
 doc quotes fails that site's next build. A push to `main` here rebuilds it.
@@ -92,6 +92,15 @@ agents. `skills/` is the one folder read by looking, because a skill is loaded
 only when the model asks for it. Everything else is named: a job, a tool and a
 channel exist because `agent.ts` says so. There is no deploy, so an edit is live
 in under a second.
+
+**Nothing here needs a way in.** The one port binds loopback, and a box running
+chloe should never have to open one to the internet. Telegram and Slack work
+because chloe calls out to them. A channel that can only be pushed to, which is
+what WhatsApp is, takes its messages through something the runtime connects out
+to and asks: a Chloe Cloud, or anything else of that shape. An address the person
+deliberately opened is their choice to make and never the only way. The channel
+is the same either way, and the runtime is never the public half of a
+connection.
 
 **Generic before specific.** Anything every agent needs is written once and
 bound, never copied per agent. If you find yourself writing the same small file
@@ -452,6 +461,23 @@ and an allowlist of its own.
 **Slack is the same shape**: `slackChannel({ allowFrom: [...] })` from
 `@chloejs/core/channels`, with Slack member ids. It uses Socket Mode only,
 chloe connecting out to Slack, so it adds no path past the login at all.
+
+**WhatsApp is WhatsApp's own API, and nothing else.** `whatsappChannel()` needs
+no library: a number registered with Meta, a token, and one route past the login
+at `/chloe/v1/<agent>/whatsapp`, which checks the app secret on every POST and
+answers Meta's verification GET only for the word it was given. Meta only pushes,
+and has nothing to ask for messages with, so by default nothing reaches that
+route at all: the channel asks `postBox` (`cloud.url` in settings, and no account
+is needed) for a box of its own, that address is what goes into the app, and it
+collects from it with one held-open request at a time. Each delivery is sealed to
+a key the runtime made (`core/sealed.ts`), and Meta's signature travels with it
+and is checked here, so whatever holds a message can neither read it nor make one
+up. `postBox: ""` leaves only the route, for somebody who opened an address on
+purpose. A channel with
+no app secret refuses every message rather than trusting the address. There are
+no groups, because the API carries none, and a reply outside 24 hours of the
+last message that person sent is refused by WhatsApp itself, which is what a job
+that stops to ask somebody runs into.
 
 **An agent is reachable by another system because its `agent.ts` lists
 `apiChannel()` in `channels`**, imported from `@chloejs/core/channels`.

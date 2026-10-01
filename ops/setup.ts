@@ -16,7 +16,7 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { identifier, nameProblem, starterFiles } from "./starter.ts";
+import { identifier, nameProblem, starterFiles, withChannel } from "./starter.ts";
 import { ask, askHidden, pick, setPassword, yes } from "./terminal.ts";
 
 /** The folder being set up: where the person ran the command. */
@@ -68,6 +68,7 @@ try {
   const agent = await theAgent();
   const model = await theModel();
   await firstRun(agent);
+  await onWhatsApp(agent);
   await somewhereToWatch();
   await thePassword();
   sayWhatNext(agent, model);
@@ -297,6 +298,78 @@ async function firstRun(name: string): Promise<void> {
   } catch (error) {
     console.log(`  it did not run: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/**
+ * WhatsApp. A number registered with Meta, and an address they post each
+ * message to, so this is the one channel that needs the box reachable from
+ * outside. Three things to paste, and the channel is written into the agent.
+ *
+ * Holding Enter skips it, because it asks for things nobody has to hand, and an
+ * empty answer on a second run keeps whatever is already there.
+ */
+async function onWhatsApp(agent: string): Promise<void> {
+  console.log("\nWhatsApp. It answers as a number registered with Meta, which cannot be a number already in the app.");
+  console.log("Meta posts each message to an address, so chloe keeps a post box somewhere else and collects from it.");
+  console.log("Nothing here is opened, and the post box can neither read a message nor make one up.");
+  if (!(await yes("Set it up now? (y/N)", false))) return;
+
+  console.log("\nAt developers.facebook.com: make an app, add WhatsApp to it, and it hands you a number to try with.");
+  console.log("The token on that page lasts a day. A permanent one comes from a system user with whatsapp_business_messaging.");
+  // What is already there, so a second run can be held through without
+  // blanking a token: an empty answer keeps the one in the file.
+  const had = agentSettings(agent).whatsapp ?? {};
+  const keep = (what: string) => (had[what] ? " (or Enter to keep the one there)" : "");
+  const phoneNumberId = (await ask(`The number's id, called phone_number_id there${keep("phone_number_id") || " (or Enter to skip)"}: `)).trim() || had.phone_number_id || "";
+  if (!phoneNumberId) return void console.log(`  Nothing written. Add agents.${agent}.whatsapp to settings.local.json when you want it.`);
+  const token = (await askHidden(`Paste a token for it${keep("token")}: `)).trim() || had.token || "";
+  const appSecret = (await askHidden(`Paste the app's secret, which signs everything WhatsApp posts in${keep("app_secret")}: `)).trim() || had.app_secret || "";
+  writeAgentSettings(agent, { whatsapp: { phone_number_id: phoneNumberId, token, app_secret: appSecret } });
+  written("settings.local.json", `agents.${agent}.whatsapp, mode 600`);
+  channelIn(agent, 'import { whatsappChannel } from "@chloejs/core/channels";', "whatsappChannel({ allowFrom: [] })");
+  console.log("\nStart chloe and it writes one address to the log, its own post box. Paste that into the app's WhatsApp");
+  console.log("page, subscribed to messages, and WhatsApp posts there while chloe collects from it. Nothing is opened here.");
+  console.log("allowFrom is empty, so the first message is answered with the sender's number, which is what goes in it.");
+}
+
+/**
+ * Writes a channel into the agent's own file, or says the two lines to add when
+ * the file already has channels of its own. A file that already names this one
+ * is left alone and said to be, because setup is run again and again and the
+ * second run should not ask for a line that is already in there.
+ */
+function channelIn(agent: string, importLine: string, entry: string): void {
+  const where = join("agents", agent, "agent.ts");
+  const path = join(HERE, where);
+  const held = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const channel = `${entry.split("(")[0]}(`;
+  if (held.includes(channel)) return void console.log(`\n${where} is already on it, so it is left alone.`);
+  const added = withChannel(held, importLine, entry);
+  if (!added) {
+    console.log(`\n${where} is yours, so add these two lines to it:`);
+    console.log(`  ${importLine}`);
+    console.log(`  channels: [${entry}],`);
+    return;
+  }
+  writeFileSync(path, added);
+  written(where, "the channel added");
+}
+
+/** One agent's own settings as the local file has them, for a question that offers to keep what is there. */
+function agentSettings(agent: string): Record<string, Record<string, string>> {
+  const path = join(HERE, "settings.local.json");
+  if (!existsSync(path)) return {};
+  const held = JSON.parse(readFileSync(path, "utf8")) as { agents?: Record<string, Record<string, Record<string, string>>> };
+  return held.agents?.[agent] ?? {};
+}
+
+/** One agent's own settings, merged in beside whatever else it has there. */
+function writeAgentSettings(agent: string, values: Record<string, unknown>): void {
+  const path = join(HERE, "settings.local.json");
+  const held = existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Record<string, any>) : {};
+  held.agents = { ...held.agents, [agent]: { ...held.agents?.[agent], ...values } };
+  writeFileSync(path, `${JSON.stringify(held, null, 2)}\n`);
+  chmodSync(path, 0o600);
 }
 
 /** Where the runs are watched from: a dashboard somewhere else, or this box. */

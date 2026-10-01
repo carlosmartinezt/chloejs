@@ -26,16 +26,18 @@
     "version": "",
     "GA_KEY_FILE": "/path/to/ga-service-account.json"
   },
-  "whatsapp": {
-    "number": "+447700900123"
-  },
   "alerts": {
     "email_to": "you@example.com",
     "email_from": "chloe <info@example.com>"
   },
   "agents": {
     "tempo": {
-      "telegram": "123456789:ABC..."
+      "telegram": "123456789:ABC...",
+      "whatsapp": {
+        "phone_number_id": "123456789012345",
+        "token": "EAA...",
+        "app_secret": "..."
+      }
     }
   },
   "cloud": {

@@ -849,7 +849,7 @@ export function serve(options: {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     try {
-      const channel = request.method === "POST" ? options.channels().find((one) => one.path === path) : undefined;
+      const channel = options.channels().find((one) => one.path === path && (one.methods ?? ["POST"]).includes(request.method as "GET" | "POST"));
       if (channel) return await channel.handle(request, response);
       if (path === "/api" || path.startsWith("/api/")) return await api(request, response, path, url, context);
       if (path.startsWith("/memory/") && request.method === "GET") return await framed(request, response, url, context);

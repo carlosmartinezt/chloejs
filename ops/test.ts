@@ -577,7 +577,7 @@ about("a model step that never fits");
   {
     const { settings, unclaimed } = await import("@chloejs/core");
     const before = settings.agents;
-    settings.agents = { tempo: { telegram: "t", slack: { bot_token: "", app_token: "" } } };
+    settings.agents = { tempo: { telegram: "t", slack: { bot_token: "", app_token: "" }, whatsapp: { phone_number_id: "", token: "", app_secret: "" } } };
     is("an entry for an agent that exists is claimed", unclaimed(["tempo"]), []);
     is("one left behind by a rename is not", unclaimed(["growth"]), ["tempo"]);
     settings.agents = before;
@@ -1346,7 +1346,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     // own entry, by the name it has when the channel starts.
     const { settings } = await import("@chloejs/core");
     const before = settings.agents;
-    settings.agents = { first: { telegram: "first-bot", slack: { bot_token: "", app_token: "" } } };
+    settings.agents = { first: { telegram: "first-bot", slack: { bot_token: "", app_token: "" }, whatsapp: { phone_number_id: "", token: "", app_secret: "" } } };
     const said: string[] = [];
     const log = console.error;
     console.error = (line: string) => void said.push(line);
@@ -1810,9 +1810,57 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 }
 
 {
+  about("sealing a message to somebody's key");
+  const { newKeys, seal, unseal } = await import("#chloe/core/sealed");
+
+  const them = newKeys();
+  const sealed = seal(them.publicKey, "a message for one pair of eyes");
+  is("what was sealed to a key opens with that key", unseal(them.privateKey, sealed), "a message for one pair of eyes");
+  is("the same words sealed twice look nothing alike", seal(them.publicKey, "x").data === seal(them.publicKey, "x").data, false);
+  is(
+    "another key cannot open it",
+    (() => {
+      try {
+        unseal(newKeys().privateKey, sealed);
+        return "opened";
+      } catch {
+        return "refused";
+      }
+    })(),
+    "refused",
+  );
+  is(
+    "nor can a changed one be opened with the right key",
+    (() => {
+      try {
+        unseal(them.privateKey, { ...sealed, data: `${sealed.data.slice(0, -4)}AAAA` });
+        return "opened";
+      } catch {
+        return "refused";
+      }
+    })(),
+    "refused",
+  );
+
+  // The post box seals; this opens. They are in two repos that do not depend on
+  // each other, so this fixed input and its exact output is what keeps the two
+  // from drifting apart. The same case is in the cloud's own suite.
+  const ephemeral = {
+    publicKey: "MCowBQYDK2VuAyEAPX4sPZIpDbwD1C6QZqx4Wd4rCZqOs0XtMGJR5HqxFzE",
+    privateKey: "MC4CAQAwBQYDK2VuBCIEIHBl5p7wLWcNIPXvxHxkbPAnWVCK1cPkJnY1kSPJM2Nf",
+  };
+  is(
+    "the format is the one the post box writes",
+    seal("MCowBQYDK2VuAyEAJfIjbMfEd2PMU1p3HzQbp8gMeDhqRCKQ3vLsIyFx3hM", "the vector", ephemeral),
+    { ephemeral: ephemeral.publicKey, iv: "AAAAAAAAAAAAAAAA", data: "JZtz_RiKQ5vZiXxcCyf2QO6yoCQug7zzHhE" },
+  );
+}
+
+{
   about("whatsapp");
-  const { whatsappChannel, whatsappText, asNumber, chatOf } = await import("#chloe/channels/whatsapp");
+  const { listen, whatsappText, asNumber } = await import("#chloe/channels/whatsapp");
   const { inPieces } = await import("#chloe/channels/shared");
+  const { createHmac } = await import("node:crypto");
 
   is(
     "markdown arrives as whatsapp's own formatting",
@@ -1823,147 +1871,242 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("a code block keeps its lines", whatsappText("```\na < b\n  c\n```"), "```\na < b\n  c\n```");
   is("a sum is not italics", whatsappText("2 * 3 * 4"), "2 * 3 * 4");
   is("a long reply is cut at a line break", inPieces("aaaa\nbbbb\ncc", 10), ["aaaa\nbbbb", "cc"]);
-  is(
-    "a chat id is read as the number it is, and an alias is left as it is",
-    [asNumber("447700900123:7@s.whatsapp.net"), asNumber("+44 7700 900123"), asNumber("8891234@lid")],
-    ["+447700900123", "+447700900123", "8891234@lid"],
-  );
-  is("and a number as the chat to write to", chatOf("+447700900123"), "447700900123@s.whatsapp.net");
+  is("a number is read however it was typed", [asNumber("+44 7700 900123"), asNumber("447700900123")], ["+447700900123", "+447700900123"]);
 
-  // A stand-in connection: it writes down what was sent, and hands messages to
-  // whatever the channel registered, the way Baileys' socket does.
-  const ME = "447700900123@s.whatsapp.net";
-  const sent: { to: string; text: string; id?: string }[] = [];
-  const handlers = new Map<string, (data: any) => void>();
-  let ended = 0;
-  const socket = {
-    ev: { on: (event: string, handler: (data: any) => void) => void handlers.set(event, handler) },
-    user: { id: "447700900123:7@s.whatsapp.net" },
-    async sendMessage(to: string, content: { text: string }, options?: { messageId?: string }) {
-      sent.push({ to, text: content.text, id: options?.messageId });
-      return { key: { id: options?.messageId } };
-    },
-    async sendPresenceUpdate() {},
-    async groupMetadata(chat: string) {
-      return { subject: chat === "111@g.us" ? "Tempo" : "Family" };
-    },
-    end: () => void ended++,
-  };
-  const connect = async () => ({ socket, registered: true, download: async () => Buffer.from("PNG!") });
 
+  // A stand-in Graph API: it writes down every call, hands back a media
+  // address and its bytes, and refuses the one number that stands for somebody
+  // who has not written in a day.
+  const calls: { path: string; body: any }[] = [];
+  const graph = createServer((request, response) => {
+    let raw = "";
+    request.on("data", (chunk) => (raw += chunk));
+    request.on("end", () => {
+      const path = request.url!;
+      if (request.method === "GET" && path.endsWith("/media-1")) {
+        return void response.end(JSON.stringify({ url: `http://127.0.0.1:${(graph.address() as { port: number }).port}/download/media-1`, file_size: 4 }));
+      }
+      if (request.method === "GET") return void response.end("PNG!");
+      const body = JSON.parse(raw || "{}");
+      calls.push({ path, body });
+      if (body.to === "447700900999") {
+        response.writeHead(400, { "content-type": "application/json" });
+        return void response.end(JSON.stringify({ error: { message: "Message failed to send because more than 24 hours have passed since the customer last replied", code: 131047 } }));
+      }
+      response.end(JSON.stringify({ messages: [{ id: `wamid.${calls.length}` }] }));
+    });
+  });
+  await new Promise<void>((done) => graph.listen(0, "127.0.0.1", done));
+  const api = `http://127.0.0.1:${(graph.address() as { port: number }).port}`;
   const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
   const until = async (done: () => boolean) => {
     for (let i = 0; i < 100 && !done(); i++) await pause(20);
     await pause(50);
   };
-  const settle = (count: number) => until(() => sent.length >= count);
-  let ids = 0;
-  const now = () => Math.floor(Date.now() / 1000);
-  const arrives = (message: object) => handlers.get("messages.upsert")!({ type: "notify", messages: [message] });
-  const privately = (text: string, more: object = {}) => ({
-    key: { remoteJid: ME, fromMe: true, id: `m${++ids}` },
-    messageTimestamp: now(),
-    pushName: "Me",
-    message: { conversation: text },
-    ...more,
-  });
-  const inGroup = (chat: string, text: string, from = ME, fromMe = true) => ({
-    key: { remoteJid: chat, fromMe, id: `m${++ids}`, participant: from },
-    messageTimestamp: now(),
-    pushName: fromMe ? "Me" : "Somebody",
-    message: { conversation: text },
-  });
+  const texts = () => calls.filter((c) => c.body.type === "text").map((c) => `${c.body.to}: ${c.body.text.body}`);
 
+  const SECRET = "app-secret";
+  const agent = agentFor(codeJob("unused", async () => ({})));
+  const running = listen({
+    name: "test",
+    phoneNumberId: "55501",
+    token: "permanent",
+    appSecret: SECRET,
+    verifyToken: "the-word",
+    allowFrom: ["+447700900123"],
+    api,
+    postBox: "",
+    agent: () => agent,
+  });
+  const route = running.routes![0];
+  is("it answers one path, on both methods, so the address can be checked before it is used", [route.path, route.methods], ["/chloe/v1/test/whatsapp", ["GET", "POST"]]);
+
+  /** A call to one of these channels' routes, with whatever signature is given. */
+  const hit = async (which: typeof route, method: string, url: string, body = "", signature?: string) => {
+    let status = 0;
+    let said = "";
+    const request = Object.assign(
+      (async function* () {
+        if (body) yield body;
+      })(),
+      { method, url, headers: signature === undefined ? {} : { "x-hub-signature-256": signature } },
+    );
+    await which.handle(request as any, {
+      writeHead: (code: number) => ((status = code), { end: (text?: string) => void (said = text ?? "") }),
+    } as any);
+    return { status, said };
+  };
+  const call = (method: string, url: string, body = "", signature?: string) => hit(route, method, url, body, signature);
+  const signed = (body: string) => `sha256=${createHmac("sha256", SECRET).update(body, "utf8").digest("hex")}`;
+  const posted = (message: object, who = "Carlos", wa = "447700900123") =>
+    JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{ changes: [{ field: "messages", value: { metadata: { phone_number_id: "55501" }, contacts: [{ wa_id: wa, profile: { name: who } }], messages: [message] } }] }],
+    });
+  const text = (body: string, from = "447700900123", id = "wamid.in1") => ({ from, id, timestamp: "1", type: "text", text: { body } });
+
+  is("the word WhatsApp was given gets the challenge back", await call("GET", "/x?hub.mode=subscribe&hub.verify_token=the-word&hub.challenge=12345"), { status: 200, said: "12345" });
+  is("any other word gets nothing", (await call("GET", "/x?hub.mode=subscribe&hub.verify_token=guess&hub.challenge=12345")).status, 403);
+
+  const unsigned = await call("POST", "/x", posted(text("let me in")));
+  await pause(50);
+  is("a message nobody signed is refused, and nothing is answered", [unsigned.status, calls.length], [401, 0]);
+  const wrong = await call("POST", "/x", posted(text("let me in")), "sha256=00");
+  is("so is one signed with the wrong secret", wrong.status, 401);
+
+  answers.push("hello from the agent");
+  const first = posted(text("are you there"));
+  is("a signed one is taken, and answered with a 200 before the work starts", (await call("POST", "/x", first, signed(first))).status, 200);
+  await until(() => texts().length > 0);
+  is("and the reply goes back to the number that wrote", texts(), ["447700900123: hello from the agent"]);
+  is("the message is marked read and typing is shown while it works", calls.some((c) => c.body.status === "read" && c.body.typing_indicator), true);
+  const ran = db.prepare("select agent, prompt from runs where source = 'whatsapp' order by started").all() as { agent: string; prompt: string }[];
+  is("the run is filed under the channel it came in on", ran.length, 1);
+  is("and the agent is told who wrote", ran[0].prompt.includes("Carlos"), true);
+
+  const stranger = posted(text("hello", "447700900999"), "Stranger", "447700900999");
+  await call("POST", "/x", stranger, signed(stranger));
+  await pause(100);
+  is("somebody not allowed is answered by nobody", texts().length, 1);
+
+  // A file comes in two calls: the id becomes an address, and the address
+  // holds the bytes.
+  answers.push("a red square");
+  const withFile = posted({ from: "447700900123", id: "wamid.in2", type: "image", image: { id: "media-1", mime_type: "image/jpeg", caption: "what is this?" } });
+  await call("POST", "/x", withFile, signed(withFile));
+  await until(() => texts().length > 1);
+  const lastRun = db.prepare("select prompt from runs where source = 'whatsapp' order by started desc limit 1").get() as { prompt: string };
+  is("a photo arrives with the message", lastRun.prompt.includes("(Attached: image.jpeg)"), true);
+  running.stop();
+
+  // A job's question: three answers or fewer are buttons, and pressing one is
+  // the same as writing it.
+  calls.length = 0;
+  const asking = codeJob("buttons", async ({ ask }) => ({ go: await ask("go?", { question: "Go?", answer: z.boolean(), who: "whatsapp:+447700900123" }) }));
+  const withJob = agentFor(asking);
+  const second = listen({ name: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900123"], api, postBox: "", agent: () => withJob });
+  const parked = await work({ agent: withJob, job: asking });
+  const question = calls.find((c) => c.body.type === "interactive");
+  is("a yes or no question comes with two buttons", question?.body.interactive.action.buttons.map((b: any) => b.reply.title), ["yes", "no"]);
+  const pressed = posted({ from: "447700900123", id: "wamid.in3", type: "interactive", interactive: { button_reply: { id: "b0:yes", title: "yes" } } });
+  await hit(second.routes![0], "POST", "/x", pressed, signed(pressed));
+  await until(() => !!row(parked.runId).reply);
+  is("pressing one answers the waiting job", JSON.parse(row(parked.runId).reply), { go: true });
+
+  // WhatsApp's own refusals are worth reading out loud, and the 24 hour rule
+  // is the one that catches people.
+  const said: string[] = [];
+  const log = console.error;
+  console.error = (...line: unknown[]) => void said.push(line.join(" "));
+  const stale = posted(text("hello", "447700900999"), "Carlos", "447700900999");
+  const third = listen({ name: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900999"], api, postBox: "", agent: () => agent });
+  answers.push("an answer nobody will see");
+  await hit(third.routes![0], "POST", "/x", stale, signed(stale));
+  await until(() => said.some((l) => l.includes("131047")));
+  console.error = log;
+  third.stop();
+  second.stop();
+  is("a reply WhatsApp refuses says which rule refused it", said.some((l) => l.includes("24 hours") && l.includes("131047")), true);
+
+
+  // Collecting from a post box: Meta posts to a service somewhere else, which
+  // holds the delivery sealed until chloe asks for it. Nothing here listens.
   {
-    // No number and nothing linked: it says what to put in settings rather
-    // than connecting to nothing.
-    const said: string[] = [];
-    const log = console.error;
-    console.error = (line: string) => void said.push(line);
-    whatsappChannel({ session: `${process.env.AGENTS_STATE}/unlinked` }).start(() => ({ name: "nobody" }) as any).stop();
-    console.error = log;
-    is("with no number and no link, it says which setting is missing", said.some((l) => l.includes('"whatsapp": { "number"')), true);
+    const { seal } = await import("#chloe/core/sealed");
+    const held: { id: string; body: string; signature: string }[] = [];
+    const collected: string[] = [];
+    let boxKey = "";
+    let asked = 0;
+    const box = createServer((request, response) => {
+      let raw = "";
+      request.on("data", (chunk) => (raw += chunk));
+      request.on("end", async () => {
+        const url = new URL(request.url!, "http://box");
+        if (url.pathname === "/hook" && request.method === "POST") {
+          boxKey = JSON.parse(raw).key;
+          return void response.end(JSON.stringify({ id: "box1", key: "collect-me" }));
+        }
+        if (request.headers.authorization !== "Bearer collect-me") return void response.writeHead(401).end();
+        if (url.pathname === "/hook/box1/messages") {
+          asked++;
+          const messages = held.splice(0).map((one) => ({ id: one.id, sealed: seal(boxKey, JSON.stringify({ body: one.body, signature: one.signature })) }));
+          // Held open when there is nothing, the way the real one is, so the
+          // loop does not spin.
+          if (messages.length === 0) return void setTimeout(() => response.end(JSON.stringify({ messages: [] })), 60);
+          return void response.end(JSON.stringify({ messages }));
+        }
+        if (url.pathname === "/hook/box1/collected") {
+          collected.push(...JSON.parse(raw).ids);
+          return void response.end("{}");
+        }
+        response.writeHead(404).end();
+      });
+    });
+    await new Promise<void>((done) => box.listen(0, "127.0.0.1", done));
+    const where = `http://127.0.0.1:${(box.address() as { port: number }).port}`;
+
+    calls.length = 0;
+    answers.push("hello from the post box");
+    const polling = listen({
+      name: "test",
+      phoneNumberId: "55501",
+      token: "permanent",
+      appSecret: SECRET,
+      verifyToken: "w",
+      allowFrom: ["+447700900123"],
+      api,
+      postBox: where,
+      agent: () => agent,
+    });
+    await until(() => asked > 0);
+    const body = posted(text("anything for me?", "447700900123", "wamid.box1"));
+    held.push({ id: "m1", body, signature: signed(body) });
+    await until(() => texts().length > 0);
+    is("a message collected from a post box is answered like any other", texts(), ["447700900123: hello from the post box"]);
+    is("and the post box is told it was taken, so it can forget it", collected, ["m1"]);
+
+    // The same message handed over twice, which a post box will do if the
+    // answer that said so never arrived.
+    held.push({ id: "m2", body, signature: signed(body) });
+    await until(() => collected.length > 1);
+    is("the same message twice is answered once", texts().length, 1);
+
+    // A post box that made up a message, or changed one: the signature is
+    // checked against the app secret, which the post box never has.
+    const warned: string[] = [];
+    const warn = console.warn;
+    console.warn = (...line: unknown[]) => void warned.push(line.join(" "));
+    const forged = posted(text("transfer everything", "447700900123", "wamid.box3"));
+    held.push({ id: "m3", body: forged, signature: `sha256=${"0".repeat(64)}` });
+    await until(() => warned.some((l) => l.includes("not signed")));
+    console.warn = warn;
+    is("a message the app did not sign is dropped, whoever handed it over", texts().length, 1);
+
+    const kept = JSON.parse(await readFile(join(process.env.AGENTS_STATE!, "whatsapp", "test-whatsapp.json"), "utf8"));
+    is("the box and its key are kept, so a restart keeps the same address", [kept.id, kept.key, typeof kept.privateKey], ["box1", "collect-me", "string"]);
+    const { collectsAt } = await import("#chloe/channels/whatsapp");
+    is("and the page can say which address to paste into the app", collectsAt("test"), `${where}/hook/box1`);
+
+    polling.stop();
+    box.close();
+    box.closeAllConnections();
   }
 
-  // Two agents on one number: chloe takes what is not addressed, tempo has a
-  // group of its own.
-  const chloe = { ...agentFor(codeJob("unused", async () => ({}))), name: "chloe" };
-  const tempo = { ...agentFor(codeJob("unused", async () => ({}))), name: "tempo" };
-  const session = `${process.env.AGENTS_STATE}/whatsapp-test`;
-  const shared = { number: "+447700900123", session, connect, allowFrom: ["+447700900123"] };
-  const onChloe = whatsappChannel({ ...shared, default: true }).start(() => chloe as any);
-  const onTempo = whatsappChannel({ ...shared, chats: ["Tempo"] }).start(() => tempo as any);
-  await until(() => handlers.has("messages.upsert"));
-  is("every agent on one number shares the one connection", handlers.size, 2);
-  handlers.get("connection.update")!({ connection: "open" });
+  {
+    // No app secret: nothing can tell a message from WhatsApp apart from a
+    // message from anybody, so nothing is taken at all.
+    const told: string[] = [];
+    const log = console.error;
+    console.error = (line: string) => void told.push(line);
+    const open = listen({ name: "test", phoneNumberId: "55501", token: "permanent", appSecret: "", api, postBox: "", agent: () => agent });
+    console.error = log;
+    const body = posted(text("hello"));
+    const { status } = await hit(open.routes![0], "POST", "/x", body, signed(body));
+    open.stop();
+    is("without an app secret it says so, and refuses every message", [told.some((l) => l.includes("app_secret")), status], [true, 401]);
+  }
 
-  answers.push("hello from chloe", "the tests pass", "the deploy went fine");
-  arrives(privately("what is up"));
-  await settle(1);
-  arrives(privately("tempo, how are the tests"));
-  await settle(2);
-  arrives(inGroup("111@g.us", "and the deploy?"));
-  await settle(3);
-  is(
-    "an unaddressed message goes to the agent that takes the rest, a named one to the agent it names, and a bound group to the agent whose it is",
-    sent.map((one) => `${one.to}: ${one.text}`),
-    [`${ME}: hello from chloe`, `${ME}: the tests pass`, "111@g.us: the deploy went fine"],
-  );
-  const ran = db.prepare("select agent, prompt from runs where source = 'whatsapp' order by started").all() as { agent: string; prompt: string }[];
-  is("so each run is filed under the agent that answered", ran.map((one) => one.agent), ["chloe", "tempo", "tempo"]);
-  is("the agent's name is taken off the message it was named in", ran[1].prompt.includes("how are the tests"), true);
-  is("and it is not handed the name again", ran[1].prompt.includes("tempo, how are the tests"), false);
-  is("the agent is told where the message came from", ran[0].prompt.includes("<whatsapp_context>"), true);
-  is("and that the chat with yourself is nobody else's", ran[0].prompt.includes("chat_type: self"), true);
-
-  // The guard that matters on a personal number: a reply arrives back as a
-  // message this account sent, and answering it would never stop.
-  const mine = sent[0];
-  arrives({ key: { remoteJid: ME, fromMe: true, id: mine.id }, messageTimestamp: now(), message: { conversation: mine.text } });
-  await pause(100);
-  is("an answer coming back as an incoming message is not answered again", sent.length, 3);
-
-  arrives({ key: { remoteJid: "999@s.whatsapp.net", fromMe: true, id: `m${++ids}` }, messageTimestamp: now(), message: { conversation: "see you at six" } });
-  arrives(inGroup("222@g.us", "anyone home", "447700900999@s.whatsapp.net", false));
-  arrives({ ...privately("old news"), messageTimestamp: now() - 7200 });
-  await pause(100);
-  is(
-    "a message of mine to somebody else, a stranger in a group, and anything older than this process are all left alone",
-    sent.length,
-    3,
-  );
-
-  // A file on a message is fetched and named to the agent.
-  answers.push("a red square");
-  arrives(
-    privately("", {
-      message: { imageMessage: { mimetype: "image/jpeg", fileLength: 4, caption: "what is this?" } },
-    }),
-  );
-  await settle(4);
-  const withFile = db.prepare("select prompt from runs where source = 'whatsapp' order by started desc limit 1").get() as { prompt: string };
-  is("a photo arrives with the message", withFile.prompt.includes("(Attached: image.jpeg)"), true);
-
-  onTempo.stop();
-  is("one agent leaving the number does not close the connection", ended, 0);
-  onChloe.stop();
-  is("the last one does", ended, 1);
-
-  // Nobody named and nobody taking the rest: it says who is there instead of
-  // picking one.
-  sent.length = 0;
-  handlers.clear();
-  const second = `${process.env.AGENTS_STATE}/whatsapp-two`;
-  const bothOn = [
-    whatsappChannel({ ...shared, session: second }).start(() => chloe as any),
-    whatsappChannel({ ...shared, session: second }).start(() => tempo as any),
-  ];
-  await until(() => handlers.has("messages.upsert"));
-  handlers.get("connection.update")!({ connection: "open" });
-  arrives(privately("who is there"));
-  await settle(1);
-  for (const one of bothOn) one.stop();
-  is("with nobody named and nobody taking the rest, it says which names there are", sent[0]?.text, "Say which of us you mean first: chloe, tempo.");
+  graph.close();
 }
 
 {
@@ -3227,7 +3370,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("the files npx chloe setup writes");
 
-  const { identifier, nameProblem, starterFiles } = await import("#chloe/ops/starter");
+  const { identifier, nameProblem, starterFiles, withChannel } = await import("#chloe/ops/starter");
   const { resolveAgent, jobsOf, markdownJob } = await import("#chloe/load/load");
   const { ROOT, settings } = await import("@chloejs/core");
 
@@ -3294,6 +3437,16 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   const summary = await jobsOf("watcher", folder, [markdownJob("jobs/summary.md")]);
   is("the prompt job's description is read from its frontmatter", summary[0].description?.includes("asks a model"), true);
+
+  // The channel setup adds for somebody who says yes to WhatsApp: written into
+  // the file it just wrote, and loaded here, so a renamed export fails this.
+  const body = files.find((one) => one.path.endsWith("agent.ts"))!.body;
+  const added = withChannel(body, 'import { whatsappChannel } from "@chloejs/core/channels";', 'whatsappChannel({ allowFrom: ["+447700900123"] })');
+  is("a channel setup adds is imported and listed", [added.includes('from "@chloejs/core/channels"'), added.includes("channels: [whatsappChannel(")], [true, true]);
+  is("a file that already says channels is somebody's own, and is left alone", withChannel(added, "x", "y"), "");
+  await writeFile(join(folder, "with-channel.ts"), added);
+  const onWhatsApp = await resolveAgent((await import(pathToFileURL(join(folder, "with-channel.ts")).href)).default);
+  is("and the agent it wrote is on that channel", onWhatsApp.channels.map((one) => one.name), ["whatsapp"]);
 
   settings.model.default = was;
   await rm(folder, { recursive: true, force: true });

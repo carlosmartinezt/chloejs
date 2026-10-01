@@ -35,6 +35,21 @@ export function nameProblem(agent: string): string {
   return "";
 }
 
+/**
+ * The same agent.ts with one channel added: the import, and the entry in
+ * `channels`. Returns "" for a file that already has a `channels` list, which
+ * is somebody's own and is told rather than edited.
+ *
+ *   withChannel(body, 'import { whatsappChannel } from "@chloejs/core/channels";', 'whatsappChannel({ allowFrom: ["+447700900123"] })')
+ */
+export function withChannel(file: string, importLine: string, entry: string): string {
+  if (!file || file.includes("channels:")) return "";
+  const imported = file.replace(/^(import .*from "@chloejs\/core";\n)/m, `$1${importLine}\n`);
+  if (imported === file) return "";
+  const placed = imported.replace(/\n\}\);\s*$/, `\n  channels: [${entry}],\n});\n`);
+  return placed === imported ? "" : placed;
+}
+
 /** Every file a new project starts with. `agent` is the name it chose. */
 export function starterFiles(agent: string): Starter[] {
   return [

@@ -330,8 +330,13 @@ export interface Running {
 
 /** A path a running channel answers on the one port, outside the login. */
 export interface ChannelRoute {
-  /** Always a POST. */
   path: string;
+  /**
+   * Which methods it answers. A POST unless it says otherwise: a webhook that
+   * is checked with a GET before it is used says both, and answers that GET
+   * only when the caller knows its secret.
+   */
+  methods?: ("GET" | "POST")[];
   handle(request: IncomingMessage, response: ServerResponse): Promise<void>;
 }
 

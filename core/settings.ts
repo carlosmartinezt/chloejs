@@ -115,18 +115,6 @@ const schema = z.object({
       GA_KEY_FILE: z.string().default(""),
     })
     .prefault({}),
-  /**
-   * The WhatsApp account an agent's whatsapp channel answers as. There is no
-   * bot account on WhatsApp: chloe links to this number as one of its linked
-   * devices, so it can be a number already in use, and the link itself lives
-   * in `whatsapp/` inside the state folder rather than here.
-   */
-  whatsapp: z
-    .object({
-      /** The number to link, in full international form, like "+447700900123". Empty links nothing. */
-      number: z.string().default(""),
-    })
-    .prefault({}),
   /** Mail sent when somebody signs in from an address this copy has not seen. */
   alerts: z
     .object({
@@ -151,6 +139,15 @@ const schema = z.object({
           telegram: z.string().default(""),
           /** Its Slack app's two tokens: the bot token (xoxb-...) and the app token (xapp-...). */
           slack: z.object({ bot_token: z.string().default(""), app_token: z.string().default("") }).strict().prefault({}),
+          /**
+           * Its WhatsApp number: the number's id, a permanent token, and the
+           * app secret that signs what Meta posts in. All three are on the
+           * app's pages at developers.facebook.com.
+           */
+          whatsapp: z
+            .object({ phone_number_id: z.string().default(""), token: z.string().default(""), app_secret: z.string().default("") })
+            .strict()
+            .prefault({}),
         })
         .strict(),
     )

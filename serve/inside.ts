@@ -7,6 +7,7 @@
 import { settings } from "#chloe/core/settings";
 import { modelFor } from "#chloe/model/choices";
 import type { Agent } from "#chloe/load/load";
+import { collectsAt } from "#chloe/channels/whatsapp";
 
 /** One way in or one way out, said the same way so one page draws both. */
 export interface Way {
@@ -135,11 +136,15 @@ export function channelsOf(agent: Agent): Way[] {
         };
       }
       if (channel.name === "whatsapp") {
+        const whatsapp = settings.agents[agent.name]?.whatsapp;
+        const box = collectsAt(agent.name, channel.name);
         return {
           name: "whatsapp",
-          does: "A linked device on a WhatsApp account. It answers in the chat that number has with itself, and wherever else it is allowed.",
-          needs: "whatsapp.number",
-          ready: filled(settings.whatsapp.number),
+          does:
+            "A number on WhatsApp's own API. It answers one-to-one messages, and WhatsApp allows no groups on it." +
+            (box ? ` Paste ${box} into the app's WhatsApp page: that is the post box it collects from.` : ""),
+          needs: `agents.${agent.name}.whatsapp`,
+          ready: filled(whatsapp?.phone_number_id) && filled(whatsapp?.token) && filled(whatsapp?.app_secret),
           settings: how,
         };
       }
