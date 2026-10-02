@@ -4,12 +4,15 @@ import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 
 import { STATE } from "./paths.ts";
+import { settings } from "./settings.ts";
 
 /**
  * The run history and the conversations, in one file inside the state folder.
- * The tests set AGENTS_DB to ":memory:" so they never write into the real one.
+ * Read as this file loads, which is before any config is, so `db` is read from
+ * the environment as CHLOE_DB. The tests set it to ":memory:" so they never
+ * write into the real one.
  */
-export const DATABASE = process.env.AGENTS_DB || `${STATE}/agents.db`;
+export const DATABASE = settings.db || `${STATE}/agents.db`;
 if (DATABASE !== ":memory:") mkdirSync(STATE, { recursive: true });
 
 /** The SQLite handle every run, step and conversation is written to. */

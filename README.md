@@ -238,8 +238,10 @@ CHLOE_CLOUD_REMOTE_WRITE=false
 
 A variable beats the config, a list is written with commas, and a switch that
 is neither `true` nor `false` is refused at startup rather than read as off.
-`state`, `memory` and `node` are read before the config is, so those three are
-only read from here.
+`state`, `memory`, `db` and `node` are read before the config is, so those four
+are only read from here. Everything else may be declared instead, and a config
+that says where a credential comes from names the variable:
+`api_key: process.env.CHLOE_API_KEY`.
 
 ```sh
 npx chloe account                # set the one password

@@ -76,9 +76,9 @@ cannot hold a dash.
 exported `settings` is filled in at import from the defaults and the environment,
 and `loadAll()` calls `declareSettings` before it resolves an agent. So nothing
 in `core/` has to know what an agent or a config is, and the one consequence is
-that `state`, `memory` and `node` are read inside that window, at the top of
-`core/paths.ts`, so those three are read from the environment and declaring them
-does nothing.
+that `state`, `memory`, `db` and `node` are read inside that window, at the top
+of `core/paths.ts` and `core/db.ts`, so those four are read from the environment
+and declaring them does nothing.
 
 **Every setting has a name in the environment**, `CHLOE_` and its path in
 capitals: `CHLOE_CLOUD_URL`, `CHLOE_RESEND_API_KEY`,
@@ -95,12 +95,15 @@ so the words cannot disagree with the type. The ten older names
 the name from `nameInEnv` wins over them. Nothing new goes in that map.
 
 A setting is read from `settings`, never from `process.env`: the environment is
-already merged in. `settingInEnv` is for the one place that cares where a value
-came from, a route meant for one run beating a provider's own. The
-workspace key for a Chloe Cloud is only ever there, as `CHLOE_API_KEY`: a
-config that names `cloud.key` is refused rather than passed over,
-because a key that silently stops being read is a runtime that silently leaves
-its dashboard. The server reads both again when either changes, so a
+already merged in, and every variable the runtime reads is a setting, so there
+is no other name to look for. `settingInEnv` is for the one place that cares
+where a value came from, a route meant for one run beating a provider's own. A
+config may hand a setting the variable itself, `api_key:
+process.env.CHLOE_API_KEY`, which is how it says where a credential comes from
+without holding one, and a setting given `undefined` is one it did not say. The
+workspace key for a Chloe Cloud is `api_key`, and a config that names
+`cloud.key` is refused rather than passed over, because a key that silently
+stops being read is a runtime that silently leaves its dashboard. The server reads both again when either changes, so a
 setting is read when it is needed, never copied at import.
 
 **Plug and play.** Adding a capability should be writing a file and naming it
@@ -552,7 +555,7 @@ the notes, or touch the tokens.
 
 **A cloud is something this runtime connects out to, never something that
 reaches in.** `cloud/connect.ts` opens one WebSocket to `cloud.url` in
-settings, says which workspace it is with `cloud.key` inside the first
+settings, says which workspace it is with `api_key` inside the first
 message, and answers requests the dashboard sends down it by making them
 against the one port with `RELAY_SECRET` from `serve/login.ts`, a secret made
 when the process starts and never written anywhere. That makes the caller kind

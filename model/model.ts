@@ -18,7 +18,7 @@ import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";
 
 import type { Agent } from "#chloe/load/load";
-import { nameInEnv, setting, settingInEnv, settings } from "#chloe/core/settings";
+import { nameInEnv, settingInEnv, settings } from "#chloe/core/settings";
 
 import { viaClaude } from "./claude.ts";
 import { viaCodex } from "./codex.ts";
@@ -75,11 +75,9 @@ function gatewayKey(): string {
   return settings.model.key;
 }
 
-/** The program a CLI route runs, as the environment may rename it. */
+/** The program a CLI route runs, which `model.program` may rename. */
 function programOf(route: Exclude<Route, "gateway">): string {
-  if (route === "claude") return setting("claude", "CLAUDE_BIN");
-  if (route === "codex") return setting("codex", "CODEX_BIN");
-  return setting("opencode", "OPENCODE_BIN");
+  return settings.model.program[route];
 }
 
 function onPath(program: string): boolean {

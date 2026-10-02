@@ -130,8 +130,7 @@ export function startCloud(options: CloudOptions): Cloud {
   function where(): { url: string; key: string } {
     return {
       url: settings.cloud.url.trim().replace(/\/+$/, ""),
-      // The key is never a setting: it belongs to the box, not to the project.
-      key: (process.env.CHLOE_API_KEY ?? "").trim(),
+      key: settings.api_key.trim(),
     };
   }
 
@@ -181,7 +180,7 @@ export function startCloud(options: CloudOptions): Cloud {
     if (stopped) return;
     const want = where();
     using = want;
-    if (!want.key) return say("not connected: no CHLOE_API_KEY. Make a workspace on the dashboard and put its key in .env.");
+    if (!want.key) return say("not connected: no api_key. Make a workspace on the dashboard and put its key in .env, as CHLOE_API_KEY.");
     if (!want.url) return say("not connected: cloud.url in settings is empty.");
 
     const address = `${want.url.replace(/^http/, "ws")}/connect`;

@@ -11,12 +11,12 @@
 // a box whose chloe.config.ts prefers "claude" would otherwise run every
 // case against a real subscription, slowly, and score differently from the
 // next box.
-process.env.AGENTS_DB = ":memory:";
+process.env.CHLOE_DB = ":memory:";
 // Folders of their own, so a case that writes state (an account) or a note
 // cannot land in the real ones. Set before any import, like the database above.
 process.env.AGENTS_STATE = (await import("node:fs")).mkdtempSync(`${(await import("node:os")).tmpdir()}/chloe-test-`);
 process.env.AGENTS_MEMORY = `${process.env.AGENTS_STATE}/memory`;
-process.env.OWNER = "test:somebody";
+process.env.CHLOE_OWNER = "test:somebody";
 process.env.AI_GATEWAY_API_KEY = "test";
 process.env.MODEL_VIA = "gateway";
 // Signing in and getting locked out both mail, and the addresses used here are
@@ -26,7 +26,7 @@ process.env.EMAIL_PROVIDER = "none";
 // What opencode can run is read by asking it, so an opencode on the path would
 // put somebody's own models into what the cases expect. The routing cases point
 // this at a stand-in of their own.
-process.env.OPENCODE_BIN = "/nowhere/opencode";
+process.env.CHLOE_MODEL_PROGRAM_OPENCODE = "/nowhere/opencode";
 
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -68,12 +68,18 @@ process.env.AI_GATEWAY_URL = `http://127.0.0.1:${(gateway.address() as { port: n
 
 // Imported after the environment is set, and by hand rather than with a plain
 // import, because those are hoisted above the lines above: core/db.ts would
-// read AGENTS_DB before it was set and every case would write into the real
+// read CHLOE_DB before it was set and every case would write into the real
 // run history. That is not hypothetical, it happened while this was written.
 const { reachBy } = await import("@chloejs/core");
 const { answer, db, sweep, waitingFor, waitingOn, work } = await import("@chloejs/core");
 type Agent = import("@chloejs/core").Agent;
 type Job = import("@chloejs/core").Job;
+
+// The runtime's own site, so whether a page package happens to be installed in
+// this repo decides nothing here. A setting, so it is written rather than put in
+// the environment, which is only read when the settings are.
+const { settings: live } = await import("@chloejs/core");
+const ownPage = (yes: boolean): void => void (live.page = yes ? "builtin" : "");
 
 const sent: string[] = [];
 reachBy("test", async (to, text) => void sent.push(`${to}: ${text}`));
@@ -558,7 +564,7 @@ about("a model step that never fits");
 
 {
   about("settings, and what wins");
-  const { declareSettings, nameInEnv, readSettings, setting } = await import("@chloejs/core");
+  const { declareSettings, nameInEnv, readSettings } = await import("@chloejs/core");
 
   const base = { model: { prefer: ["gateway" as const], judge: "a" } };
   is("a default fills in what the config does not mention", readSettings(base, {}).model.gateway, "https://ai-gateway.vercel.sh/v1/chat/completions");
@@ -582,9 +588,15 @@ about("a model step that never fits");
     is("one left behind by a rename is not", unclaimed(["growth"]), ["tempo"]);
     settings.agents = before;
   }
-  is("something that is not a setting takes the value it was given", setting("fromfile", "TEST_SETTING_WINS"), "fromfile");
-  process.env.TEST_SETTING_WINS = "fromenv";
-  is("until an environment variable says otherwise", setting("fromfile", "TEST_SETTING_WINS"), "fromenv");
+  // A config may hand a setting the variable itself, which is how it says where
+  // a credential comes from without holding one.
+  is(
+    "a setting handed a variable nothing set is one the config did not say",
+    readSettings({ cloud: { url: process.env.NOTHING_SETS_THIS } }, {}).cloud.url,
+    "https://dashboard.chloejs.org",
+  );
+  is("and the workspace key is a setting like any other", readSettings({ api_key: "chl_workspace_x" }, {}).api_key, "chl_workspace_x");
+  is("read from the name it has always had", readSettings({}, { CHLOE_API_KEY: "chl_from_env" }).api_key, "chl_from_env");
 
   // The config is type checked, so these are for a value out of the environment
   // and for a config that is not TypeScript. Each one says what to set instead
@@ -619,7 +631,7 @@ about("a model step that never fits");
   } catch (error) {
     moved = error instanceof Error ? error.message : "";
   }
-  is("cloud.key in the config is refused, and says where it went", moved.includes("CHLOE_API_KEY in .env"), true);
+  is("cloud.key in the config is refused, and names the setting instead", moved.includes("api_key, not cloud.key"), true);
   is("and the dashboard's address is what it is unless somebody says", readSettings({}, {}).cloud.url, "https://dashboard.chloejs.org");
 
   {
@@ -768,7 +780,6 @@ about("a model step that never fits");
 
   about("where Google is told to send its answer");
   const cloudWas = settings.google.callback;
-  const keyWas = process.env.CHLOE_API_KEY;
   const urlWas = settings.cloud.url;
 
   // Set outright, not left to whatever ran before this: the client decides the
@@ -816,8 +827,6 @@ about("a model step that never fits");
   is("with the switch off, the same address needs a paste", callback().relayed, false);
   settings.cloud.remote.google = true;
 
-  if (keyWas === undefined) delete process.env.CHLOE_API_KEY;
-  else process.env.CHLOE_API_KEY = keyWas;
   settings.google.callback = cloudWas;
   settings.cloud.url = urlWas;
 
@@ -1082,7 +1091,7 @@ about("a model step that never fits");
   const { settings } = await import("@chloejs/core");
   const forced = process.env.MODEL_VIA;
   const key = process.env.AI_GATEWAY_API_KEY;
-  const before = { ...settings.model };
+  const before = structuredClone(settings.model);
   delete process.env.MODEL_VIA;
   delete process.env.AI_GATEWAY_API_KEY;
 
@@ -1099,9 +1108,7 @@ about("a model step that never fits");
   const opencodeCli = await fake("opencode", 'if [ "$1" = "models" ]; then printf "deepseek/deepseek-v4-pro\\nopenai/gpt-5.5\\n"; fi');
 
   const pin = (claude: string, codex: string, opencode: string) => {
-    process.env.CLAUDE_BIN = claude;
-    process.env.CODEX_BIN = codex;
-    process.env.OPENCODE_BIN = opencode;
+    Object.assign(settings.model.program, { claude, codex, opencode });
     forgetOpencodeModels();
   };
 
@@ -1218,12 +1225,9 @@ about("a model step that never fits");
     pin("/nowhere/claude", "/nowhere/codex", opencodeCli);
     settings.model.models = [];
     is("with no shortlist, a route is asked what it has", models().map((one) => one.model), ["deepseek/deepseek-v4-pro", "openai/gpt-5.5"]);
-    delete process.env.CLAUDE_BIN;
-    delete process.env.CODEX_BIN;
-    // Back to the stand-in the top of this file set, not deleted: deleting it
-    // puts the real opencode on the path back in reach of every case below.
-    process.env.OPENCODE_BIN = "/nowhere/opencode";
-    forgetOpencodeModels();
+    // Back to the stand-in the top of this file set, rather than to "opencode":
+    // the real one on the path would be in reach of every case below.
+    pin("claude", "codex", "/nowhere/opencode");
     await rm(bin, { recursive: true, force: true });
   } finally {
     Object.assign(settings.model, before);
@@ -2936,7 +2940,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // About the runtime on its own, so the runtime's own site is the one being
   // asked. Whether a page package happens to be installed in this repo is not
   // what these are testing, and letting it decide would make them drift.
-  process.env.CHLOE_PAGE = "builtin";
+  ownPage(true);
   const { serve } = await import("#chloe/serve/http");
   const server = serve({
     host: "127.0.0.1",
@@ -2992,7 +2996,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("a channel's own path, through the server");
 
-  process.env.CHLOE_PAGE = "builtin";
+  ownPage(true);
   const { serve } = await import("#chloe/serve/http");
 
   // A channel that is sent its messages, as telegram's webhook mode is, gets
@@ -3090,7 +3094,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const { apiChannel } = await import("#chloe/channels/api");
   const { makeToken, forgetTokens } = await import("#chloe/serve/tokens");
 
-  process.env.CHLOE_PAGE = "builtin";
+  ownPage(true);
   let started: unknown;
   const agent = agentFor({
     ...codeJob("reading", async (w) => {
@@ -3150,7 +3154,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   is("a job that agent does not have is still a 404", (await start("").then(() => fetch(`${at}/api/agents/test/job/nope`, { method: "POST", headers: { authorization: `Bearer ${secret}` } }))).status, 404);
 
-  delete process.env.CHLOE_PAGE;
+  ownPage(false);
   server.close();
 }
 
@@ -3198,7 +3202,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // An agent's own state folder can hold its credentials, and one here does.
   await makeDir(`${folder}/secrets`, { recursive: true });
   await put(`${folder}/secrets/key.txt`, "never shown");
-  process.env.CHLOE_PAGE = "builtin";
+  ownPage(true);
 
   // Every agent has a memory. Unsaid, it is memory/ in the agent's own folder.
   is("unsaid, an agent's memory is its own folder in memory/", memoryFolder("tempo"), `${MEMORIES}/tempo`);
@@ -3341,7 +3345,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: `${outer}/data/tempo`, stdio: "ignore" });
   is("a memory that is the top of its own repo is one", (await memoryGit(inside)).repo, true);
 
-  delete process.env.CHLOE_PAGE;
+  ownPage(false);
   server.close();
 }
 
@@ -3365,9 +3369,9 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and serves the folder that package named", found?.dir.endsWith("/dist"), true);
   is("a folder with no packages offers nothing", pageIn(`${modules}/nowhere`), null);
 
-  process.env.CHLOE_PAGE = "builtin";
+  ownPage(true);
   is("and it can be told to use the runtime's own instead", installedPage(), null);
-  delete process.env.CHLOE_PAGE;
+  ownPage(false);
 
   // What it serves. A file that is there is the file. Everything else is one of
   // the page's own addresses, including one with a dot in it: an address inside
@@ -3416,7 +3420,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await writeFile(`${folder}/note.md`, "# Kept\n");
   await writeFile(`${folder}/note.html`, '<!doctype html><link rel="stylesheet" href="/static/style.css">\n');
   const keeper: Agent = { ...agentFor(codeJob("relayed", async () => "done")), memory: { folder } };
-  process.env.CHLOE_PAGE = "builtin";
+  ownPage(true);
   const cameIn: string[] = [];
   const server = serve({
     host: "127.0.0.1",
@@ -3472,16 +3476,16 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   live.cloud.remote = { read: true, chat: true, run: true, memory: false, write: false, google: false };
 
   // Nothing named: nothing opened.
-  delete process.env.CHLOE_API_KEY;
+  live.api_key = "";
   const idle = startCloud({ agents: () => new Map([["test", keeper]]), self: at, socket: fake, backoff: { first: 10, most: 20 } });
   await tick();
   is("with no key nothing is opened", opened.length, 0);
   idle.stop();
 
-  // The address is a setting, so it is set as one. The key never is: it is the
-  // box's, and it is only ever in the environment.
+  // Both are settings, so both are set as settings. The key's value is still
+  // the box's: a config names CHLOE_API_KEY rather than holding the key.
   live.cloud.url = "https://cloud.example/";
-  process.env.CHLOE_API_KEY = "chl_install_test";
+  live.api_key = "chl_install_test";
   const cloud = startCloud({ agents: () => new Map([["test", keeper]]), self: at, socket: fake, backoff: { first: 10, most: 20 }, version: "9.9.9" });
   await tick();
   is("the address is the cloud's, on /connect, over a socket", last().address, "wss://cloud.example/connect");
@@ -3559,7 +3563,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await tick();
   is("a reload with the same settings sends the agents up", said("agents").length, 1);
   is("and opens nothing new", opened.length, again);
-  process.env.CHLOE_API_KEY = "chl_install_other";
+  live.api_key = "chl_install_other";
   cloud.reload();
   await tick();
   is("a new key is a new socket", opened.length, again + 1);
@@ -3572,8 +3576,8 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and the log says it came from the cloud, not from a token", cameIn.at(-1), "cloud");
 
   cloud.stop();
-  delete process.env.CHLOE_API_KEY;
-  delete process.env.CHLOE_PAGE;
+  live.api_key = "";
+  ownPage(false);
   server.close();
 }
 

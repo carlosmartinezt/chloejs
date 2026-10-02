@@ -6,7 +6,7 @@
 // agents through here instead. The route "claude" in settings picks it.
 //
 // The CLI's own tools and loop are switched off: see cli.ts for why and how.
-import { setting } from "#chloe/core/settings";
+import { settings } from "#chloe/core/settings";
 
 import { asText, invoke, readReply } from "./cli.ts";
 import type { Answer, Ask } from "./model.ts";
@@ -80,7 +80,7 @@ export async function viaClaude({ model, messages, tools, signal }: Ask): Promis
     args.splice(args.indexOf("--output-format"), 2, "--input-format", "stream-json", "--output-format", "stream-json", "--verbose");
   }
 
-  const cli = setting("claude", "CLAUDE_BIN");
+  const cli = settings.model.program.claude;
   const { code, out, err } = await invoke(cli, args, input, {
     signal,
     missing: `The claude route needs ${JSON.stringify(cli)} on the path. Install Claude Code, or put it on the path.`,

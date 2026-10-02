@@ -17,6 +17,7 @@ import { readFile } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 
 import { ROOT } from "#chloe/core/paths";
+import { settings } from "#chloe/core/settings";
 
 export interface Page {
   /** The package that offered it, for saying so at startup. */
@@ -46,12 +47,12 @@ let scanned: Page | null | undefined;
  * The installed page, or null when there is none. node_modules is walked once
  * and the answer kept.
  *
- * CHLOE_PAGE=builtin ignores whatever is installed and serves the runtime's
+ * `page: "builtin"` ignores whatever is installed and serves the runtime's
  * own site instead. That is how you tell a broken dashboard from a broken
  * runtime without uninstalling anything.
  */
 export function installedPage(): Page | null {
-  if (process.env.CHLOE_PAGE === "builtin") return null;
+  if (settings.page === "builtin") return null;
   if (scanned === undefined) scanned = pageIn(`${ROOT}/node_modules`);
   return scanned;
 }

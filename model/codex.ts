@@ -11,7 +11,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { setting } from "#chloe/core/settings";
+import { settings } from "#chloe/core/settings";
 
 import { asText, invoke, readReply } from "./cli.ts";
 import type { Answer, Ask } from "./model.ts";
@@ -111,7 +111,7 @@ export async function viaCodex({ model, messages, tools, signal }: Ask): Promise
       "-",
     ];
 
-    const cli = setting("codex", "CODEX_BIN");
+    const cli = settings.model.program.codex;
     const { code, out, err } = await invoke(cli, args, [transcript, ...notes].join("\n\n"), {
       signal,
       cwd: folder,

@@ -16,7 +16,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { setting } from "#chloe/core/settings";
+import { settings } from "#chloe/core/settings";
 
 import { asText, invoke, readReply } from "./cli.ts";
 import type { Answer, Ask } from "./model.ts";
@@ -126,7 +126,7 @@ export async function viaOpencode({ model, messages, tools, signal }: Ask): Prom
       }
     }
 
-    const cli = setting("opencode", "OPENCODE_BIN");
+    const cli = settings.model.program.opencode;
     const { code, out, err } = await invoke(
       cli,
       [
@@ -181,7 +181,7 @@ let known: string[] | undefined;
  */
 export function opencodeModels(): string[] {
   if (known) return known;
-  const cli = setting("opencode", "OPENCODE_BIN");
+  const cli = settings.model.program.opencode;
   const done = spawnSync(cli, ["models"], { encoding: "utf8", timeout: 20_000 });
   known =
     done.status === 0
