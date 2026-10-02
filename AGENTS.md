@@ -44,9 +44,12 @@ home directory or a machine. An agent is somebody's own, so a folder outside
 the repo that it uses is a full path written in the agent file that uses it,
 like `const BACKUPS = "/home/you/backups"` in the job that uses it.
 
-Setting chloe up is `npx chloe setup`, which asks, writes the files, checks that
-the model it was given actually answers, and runs a job. `ops/setup.ts` is that,
-`ops/starter.ts` is the files it writes, and neither is imported by the service.
+Setting chloe up is `npm install @chloejs/core` and then `npx chloe setup`,
+always the two together: in a folder without the package, `npx chloe` fetches
+an unrelated npm package that has the name. Setup asks, writes the files,
+checks that the model it was given actually answers, and runs a job.
+`ops/setup.ts` is that, `ops/starter.ts` is the files it writes, and neither is
+imported by the service.
 
 **Two places, and which one a value goes in is the question to ask.** A choice
 about how the runtime behaves goes in `settings` in `chloe.config.ts`, beside the
