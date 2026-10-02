@@ -14,7 +14,8 @@
 //   3. In a group, a message that is not for the agent is left alone, unless
 //      the channel's inGroups is "always".
 //   4. "/<job id> ..." runs that job. "_" stands for "-", because some
-//      platforms allow no hyphens in a command. "/models" and "/model" are
+//      platforms allow no hyphens in a command. The words after it fill the
+//      job's `args` in order, the last field taking the rest of the line. "/models" and "/model" are
 //      the agent's own, and pick which model answers.
 //   5. Anything else is a turn, shown the chat's recent conversation. A turn
 //      whose reply is "/<job id> ..." runs that job the same way, with the
@@ -23,6 +24,8 @@
 //
 // What a job said in a chat is kept in that chat's conversation, so the next
 // turn knows it happened.
+import { z } from "zod";
+
 import type { Agent, ChatHistory, Job } from "#chloe/load/load";
 import type { Attachment } from "#chloe/model/model";
 import { choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices";
@@ -308,6 +311,35 @@ function kept(message: Incoming, reply: string): void {
   remember(message.thread, "assistant", reply);
 }
 
+/** The fields of a job's `args`, in the order they are written, or none when its shape is not an object. */
+function fields(job: Job): string[] {
+  return job.args instanceof z.ZodObject ? Object.keys(job.args.shape) : [];
+}
+
+/**
+ * The words after a command, as the job's `args`: a word to each field in
+ * order, and the rest of the line to the last field, so `/check-weather New
+ * York` is one location. Every value is a string, so a field that wants a
+ * number says `z.coerce.number()`.
+ */
+export function argsFrom(job: Job, text: string): Record<string, string> {
+  const keys = fields(job);
+  const args: Record<string, string> = {};
+  let rest = text.trim();
+  keys.forEach((key, i) => {
+    if (!rest) return;
+    const word = i === keys.length - 1 ? rest : rest.split(/\s+/, 1)[0];
+    args[key] = word;
+    rest = rest.slice(word.length).trim();
+  });
+  return args;
+}
+
+/** How to write the command for a job: `/check-weather <location>`. */
+function usage(job: Job): string {
+  return `Write it as /${job.id}${fields(job).map((key) => ` <${key}>`).join("")}.`;
+}
+
 /**
  * A message that is for a job: start that job and hand back what to say.
  *
@@ -322,6 +354,7 @@ function kept(message: Incoming, reply: string): void {
  */
 async function started(agent: Agent, message: Incoming, job: Job, text: string): Promise<Handled> {
   const input = {
+    ...argsFrom(job, text),
     text,
     from: message.channel,
     chat: message.chat,
@@ -343,7 +376,7 @@ async function started(agent: Agent, message: Incoming, job: Job, text: string):
   } catch (error) {
     // What was sent did not fit the job, which is worth saying where it was
     // sent: it is the message that has to change.
-    const why = error instanceof WrongArgs ? error.message : "It is in the logs on the box.";
+    const why = error instanceof WrongArgs ? `${error.message}\n${usage(job)}` : "It is in the logs on the box.";
     if (!(error instanceof WrongArgs)) console.error(`${agent.name}/${job.id}: failed`, error);
     return { text: `I could not run ${job.id}. ${why}`, steps: 0, cost: 0, job: job.id };
   }

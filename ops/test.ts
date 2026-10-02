@@ -1931,6 +1931,24 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("the text after a replied command is what the job gets", handed, ["only the quote"]);
   is("and a reply that names no job is sent as it is", said().at(-1), "-100: /nothing-here");
 
+  // The words after a command fill the job's args in order, the last field
+  // taking the rest of the line.
+  {
+    const { receive: received, argsFrom } = await import("#chloe/channels/shared");
+    const weather = { ...codeJob("check-weather", async ({ args }) => `${args.location} in ${args.unit}`), args: z.object({ unit: z.string(), location: z.string() }) } as Job;
+    delete weather.cron;
+    is("a word to each field, the rest to the last", argsFrom(weather, "  metric New  York "), { unit: "metric", location: "New  York" });
+    is("and fewer words fill fewer fields", argsFrom(weather, "metric"), { unit: "metric" });
+    is("a job with no args takes none from the words", argsFrom(codeJob("plain", async () => ""), "a b"), {});
+    const forecaster = agentFor(weather);
+    const going = startClock(() => new Map([["test", forecaster]]));
+    const asked = (text: string) =>
+      received(forecaster, { channel: "test", chat: "w", thread: "", from: { id: "1", name: "Me" }, text, private: true }).then((done) => done?.text);
+    is("so a command reads like one", await asked("/check-weather metric New York"), "New York in metric");
+    is("and one missing a field says how to write it", (await asked("/check_weather metric"))?.endsWith("Write it as /check-weather <unit> <location>."), true);
+    going.stop();
+  }
+
   // A run that failed says so. Saying it is already running would send
   // somebody looking for a run that is not there.
   calls.length = 0;

@@ -550,7 +550,9 @@ than dropping it.
 shape from every channel, so a job written against it works from all of them,
 and it declares nothing to read it. A message beginning with
 `/<job id>` runs that job and nothing asks a model what was meant, because that
-is a rule somebody can write down. A plain message reaches a job only through
+is a rule somebody can write down. The words after it fill the job's `args`
+in order, the last field taking the rest of the line, so `/check-weather New
+York` is one location. A plain message reaches a job only through
 the model: a skill says which messages are that job's, and a turn whose reply
 is `/<job id>` runs it, with the message itself when nothing follows the
 command. Do not invent a second envelope for a new channel.
