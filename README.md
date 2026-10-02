@@ -147,21 +147,22 @@ if (approved) await work.step("issue refund", () => refund(order));
 
 The answer is checked against the shape the ask named. No model is involved.
 
-## Jobs survive the real world
+## Runs are written down as they go
 
-Steps, model calls, agent loops and human pauses are all part of one durable
-run, and you can open any of them.
+Every step, model call and tool use of a run is written down, and you can open
+any of them.
 
 - A finished step replays from the record.
-- A job resumes after a restart.
-- An approval can wait for days.
+- A run cut off by a restart is closed as failed, and starts again next time.
+- A job waiting on a person survives the restart.
 - Every tool call an agent made is recorded.
 - Cost is tracked per step and per run.
 - Two runs of the same job never overlap.
 
 One rule makes the replay safe: **work happens inside a step, and code outside a
-step only decides.** A step is written down, so it never runs twice. A line
-outside one runs again on every resume, so it must not send, write or spend.
+step only decides.** A finished step is written down and replayed, not run again,
+when a run that was waiting carries on. A line outside one runs again on every
+resume, so it must not send, write or spend.
 
 ## What comes with it
 

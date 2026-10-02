@@ -1526,6 +1526,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   about("what a request may send");
 
   const { body, BadRequest } = await import("#chloe/serve/http");
+  const { request: httpRequest } = await import("node:http");
   const shape = z.object({ text: z.string().trim().min(1) });
   // A stand-in caller: whatever it is handed is the body of one request.
   const server = createServer(async (request, response) => {
@@ -1545,6 +1546,22 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     why: "text Invalid input: expected string, received number",
   });
   is("so is one that is not JSON", await send("not json"), { refused: true, why: "Body is not valid JSON." });
+
+  // 200,000 é is 400,000 bytes: written in odd pieces, so a character
+  // straddles a chunk boundary many times over, and has to survive it.
+  const words = "é".repeat(200_000);
+  const raw = Buffer.from(JSON.stringify({ text: words }), "utf8");
+  const pieces = await new Promise<string>((done, fail) => {
+    const req = httpRequest({ host: "127.0.0.1", port: (server.address() as { port: number }).port, method: "POST" }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => done(Buffer.concat(chunks).toString("utf8")));
+    });
+    req.on("error", fail);
+    for (let at = 0; at < raw.length; at += 1013) req.write(raw.subarray(at, Math.min(at + 1013, raw.length)));
+    req.end();
+  });
+  is("a body whose characters straddle chunks comes back whole", (JSON.parse(pieces) as { value: { text: string } }).value.text, words);
   server.close();
 }
 
@@ -2995,6 +3012,41 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 }
 
 {
+  about("an address the server cannot read");
+
+  const { serve } = await import("#chloe/serve/http");
+  const server = serve({
+    host: "127.0.0.1",
+    port: 0,
+    agents: () => new Map(),
+    clock: { fire() {} } as unknown as import("#chloe/core/clock").Clock,
+    channels: () => [],
+  });
+  await new Promise<void>((done) => server.once("listening", done));
+  const port = (server.address() as { port: number }).port;
+
+  // fetch cannot send a request line or Host the server would refuse, so
+  // these go through the client, which sends what it is told.
+  const { request: httpRequest } = await import("node:http");
+  const statusOf = (path: string, host: string) =>
+    new Promise<number>((done) => {
+      const req = httpRequest({ host: "127.0.0.1", port, path, headers: { host } }, (res) => {
+        res.resume();
+        done(res.statusCode ?? 0);
+      });
+      req.on("error", () => done(0));
+      req.end();
+    });
+
+  is("a path the URL parser cannot read is a 400", await statusOf("//", "127.0.0.1"), 400);
+  is("and a Host it cannot read is a 400", await statusOf("/api", "%"), 400);
+  const ordinary = await fetch(`http://127.0.0.1:${port}/api/account`);
+  is("and the server still answers", ordinary.status, 200);
+
+  server.close();
+}
+
+{
   about("a channel's own path, through the server");
 
   ownPage(true);
@@ -3575,6 +3627,11 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const started = await answer("13", "POST", "/api/agents/test/job/relayed", { "content-type": "application/json" }, "{}");
   is("a job can be started through the cloud", started.status, 200);
   is("and the log says it came from the cloud, not from a token", cameIn.at(-1), "cloud");
+
+  // A path the client cannot put on the wire used to throw out of the relay
+  // and end the process. It must come back as a 502 instead.
+  const badPath = await answer("14", "GET", "/api/agents/c c/threads");
+  is("a path with a space in it is a 502, not a dead process", [badPath.status, badPath.text.includes("could not be sent")], [502, true]);
 
   cloud.stop();
   live.cloud.api_key = "";

@@ -22,6 +22,12 @@ import { hasAccount } from "#chloe/serve/login";
 
 let agents: Map<string, Agent> = await loadAll();
 
+// The last resort: a throw nobody held must not take down every job and
+// every run in flight. Say it and keep going; whatever caused it is still
+// broken, but the box stays up until the next reload or restart.
+process.on("unhandledRejection", (reason) => console.error("unhandled rejection:", reason));
+process.on("uncaughtException", (error) => console.error("uncaught exception:", error));
+
 /** An entry under `agents` in settings that no agent claims is usually one that was renamed. */
 function sayUnclaimed(): void {
   for (const name of unclaimed([...agents.keys()])) {

@@ -356,8 +356,9 @@ the file answers it, which is the point.
 
 **Work happens inside a step. Code outside a step only decides.** A job is an
 async function, so to carry on after a pause it is run again from the top and
-every finished step hands back what it returned last time. A `step` is written
-down and never runs twice. A line outside one runs again on every resume, so if
+every finished step hands back what it returned last time. A finished `step` is
+written down and replayed, not run again, when a run that was waiting carries
+on. A line outside one runs again on every resume, so if
 it sends, writes or spends, it does so twice. This is the price of `if` and
 `for` instead of a builder API, and it was worth paying, but it is the trap.
 

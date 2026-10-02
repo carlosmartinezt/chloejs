@@ -156,14 +156,19 @@ export function invoke(
 ): Promise<{ code: number; out: string; err: string }> {
   return new Promise((done, fail) => {
     const child = spawn(cli, args, { stdio: ["pipe", "pipe", "pipe"], signal: options.signal, cwd: options.cwd });
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
-    child.stderr.on("data", (d: Buffer) => (err += d.toString()));
+    // Buffers until the child ends, then decoded once: decoding chunk by
+    // chunk turns a character that straddles two chunks into two replacement
+    // marks, and the words are the one thing a model's answer must keep.
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    child.stdout.on("data", (d: Buffer) => out.push(d));
+    child.stderr.on("data", (d: Buffer) => err.push(d));
     child.on("error", (error: NodeJS.ErrnoException) => {
       fail(error.code === "ENOENT" ? new Error(options.missing) : error);
     });
-    child.on("close", (code) => done({ code: code ?? 0, out, err }));
+    child.on("close", (code) =>
+      done({ code: code ?? 0, out: Buffer.concat(out).toString("utf8"), err: Buffer.concat(err).toString("utf8") }),
+    );
     child.stdin.end(input);
   });
 }

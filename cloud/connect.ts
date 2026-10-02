@@ -205,7 +205,13 @@ export function startCloud(options: CloudOptions): Cloud {
       }, WELCOME_WITHIN);
       waiting.unref();
     };
-    one.onmessage = (event) => void receive(one, String(event.data));
+    one.onmessage = (event) =>
+      void receive(one, String(event.data)).catch((error) => {
+        // One message from the cloud must not end the process: a line is
+        // enough. The request it was carrying is left unanswered, and the
+        // cloud times it out and shows the error.
+        say(`a message failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
     // An error is always followed by a close, which is where it is dealt with.
     one.onerror = () => {};
     one.onclose = (event) => {
@@ -290,29 +296,36 @@ export function startCloud(options: CloudOptions): Cloud {
           body: Buffer.from(JSON.stringify({ error: `The runtime did not answer: ${why}` })).toString("base64"),
         });
 
-      const sent = httpRequest(
-        { host: self.hostname, port: self.port, method: asked.method, path: asked.path, headers },
-        (response) => {
-          const chunks: Buffer[] = [];
-          response.on("data", (chunk: Buffer) => chunks.push(chunk));
-          response.on("error", (error) => failed(error.message));
-          response.on("end", () => {
-            const whole = Buffer.concat(chunks);
-            if (whole.length > LARGEST) {
-              return failed(`that answer is ${Math.round(whole.length / 1e6)}MB, which is too large to send through the cloud`);
-            }
-            const back: Record<string, string> = {};
-            for (const [name, value] of Object.entries(response.headers)) {
-              if (value === undefined || KEPT_BACK.has(name)) continue;
-              back[name] = Array.isArray(value) ? value.join(", ") : value;
-            }
-            done({ status: response.statusCode ?? 502, headers: back, body: whole.toString("base64") });
-          });
-        },
-      );
-      sent.on("error", (error) => failed(error.message));
-      if (body) sent.write(body);
-      sent.end();
+      try {
+        const sent = httpRequest(
+          { host: self.hostname, port: self.port, method: asked.method, path: asked.path, headers },
+          (response) => {
+            const chunks: Buffer[] = [];
+            response.on("data", (chunk: Buffer) => chunks.push(chunk));
+            response.on("error", (error) => failed(error.message));
+            response.on("end", () => {
+              const whole = Buffer.concat(chunks);
+              if (whole.length > LARGEST) {
+                return failed(`that answer is ${Math.round(whole.length / 1e6)}MB, which is too large to send through the cloud`);
+              }
+              const back: Record<string, string> = {};
+              for (const [name, value] of Object.entries(response.headers)) {
+                if (value === undefined || KEPT_BACK.has(name)) continue;
+                back[name] = Array.isArray(value) ? value.join(", ") : value;
+              }
+              done({ status: response.statusCode ?? 502, headers: back, body: whole.toString("base64") });
+            });
+          },
+        );
+        sent.on("error", (error) => failed(error.message));
+        if (body) sent.write(body);
+        sent.end();
+      } catch (error) {
+        // A path or a header Node's client will not send throws here, before
+        // anything is on the wire. That must be a 502 and never a dead
+        // process: the cloud gets the answer it knows what to do with.
+        return failed(`a path or a header could not be sent: ${error instanceof Error ? error.message : String(error)}`);
+      }
     });
   }
 

@@ -829,8 +829,16 @@ export function serve(options: {
   };
 
   const server = createServer(async (request, response) => {
-    const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-    const path = url.pathname.replace(/\/+$/, "") || "/";
+    let url: URL;
+    let path: string;
+    try {
+      // Parsed inside the try on purpose: a path or Host the parser cannot
+      // read throws here, and that must be a 400 and never a dead process.
+      url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+      path = url.pathname.replace(/\/+$/, "") || "/";
+    } catch {
+      return void json(response, { error: "That address cannot be read." }, 400);
+    }
     try {
       const channel = options.channels().find((one) => one.path === path && (one.methods ?? ["POST"]).includes(request.method as "GET" | "POST"));
       if (channel) return await channel.handle(request, response);
@@ -981,19 +989,24 @@ export function html(response: ServerResponse, value: string, status = 200): voi
 
 /**
  * A request's JSON, in the shape the route says it takes, or a 400 saying
- * what did not fit. Capped, so a bad caller cannot fill memory.
+ * what did not fit. Capped by bytes, so a bad caller cannot fill memory, and
+ * decoded once at the end: decoding chunk by chunk turns a character that
+ * straddles two chunks into two replacement marks.
  */
 export async function body<Shape extends z.ZodType>(request: IncomingMessage, shape: Shape): Promise<z.infer<Shape>> {
   const text = await new Promise<string>((done, fail) => {
-    let text = "";
+    const chunks: Buffer[] = [];
+    let size = 0;
     request.on("data", (chunk: Buffer) => {
-      text += chunk;
-      if (text.length > 1_000_000) {
+      size += chunk.length;
+      if (size > 1_000_000) {
         fail(new BadRequest("Body too large."));
         request.destroy();
+        return;
       }
+      chunks.push(chunk);
     });
-    request.on("end", () => done(text));
+    request.on("end", () => done(Buffer.concat(chunks).toString("utf8")));
     request.on("error", fail);
   });
   let value: unknown;

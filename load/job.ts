@@ -28,8 +28,9 @@ export interface Definition<
   markdown?: string | Prompt;
   /**
    * The job, when it is code. Branch with `if`, loop with `for`, and put every
-   * piece of work inside a `step`: a step is written down so it never runs
-   * twice, and a line outside one runs again every time the job resumes.
+   * piece of work inside a `step`: a finished step is replayed, not run again,
+   * when a run that was waiting carries on, and a line outside one runs again
+   * every time the job resumes.
    */
   run?: (work: Work<z.infer<State>, z.infer<Input>>) => Promise<Result>;
   /**

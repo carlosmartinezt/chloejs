@@ -116,8 +116,9 @@ your agent is actually for.
 const DAILY_NOTE = `// A job with no model in it: three steps, each one written down, and nothing to
 // pay. This is where most work belongs. jobs/summary.md is the other kind.
 //
-// Work happens inside a step. A step is written down and never runs twice, so a
-// run that stops halfway and carries on later does not write the day twice.
+// Work happens inside a step. A finished step is written down and replayed, not
+// run again, so a run that stops halfway and carries on later does not write the
+// day twice.
 import { appendFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 

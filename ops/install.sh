@@ -31,23 +31,34 @@ node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)
 # Two shapes of install, and they are started differently. A normal install runs
 # the built copy in dist/. An install by path is a symlink to a clone of the
 # chloejs repo, which has the source and may have no dist/ at all, so it is run
-# with the condition that picks the source.
+# with the condition that picks the source. The same test decides where the
+# settings are read from: with the condition on a packed install, node looks
+# for the source it does not ship and the read fails.
 CORE="$ROOT/node_modules/@chloejs/core"
 if [ -L "$CORE" ]; then
   START="--conditions=chloe-source $(cd "$CORE" && pwd -P)/server.ts"
+  CONDITION="--conditions=chloe-source"
 else
   START="$CORE/dist/server.js"
+  CONDITION=""
   [ -f "$CORE/dist/server.js" ] || {
     echo "No $CORE/dist. Reinstall @chloejs/core." >&2
     exit 1
   }
 fi
 
+# This installer writes a systemd user unit, so it is Linux with systemd only:
+# fail before writing it, not after.
+command -v systemctl >/dev/null 2>&1 || {
+  echo "This installer needs systemd. On another system, run npx chloe under any supervisor that restarts it." >&2
+  exit 1
+}
+
 # A setting is declared in chloe.config.ts, which is TypeScript, so it is read by
 # node rather than sourced. Asking the same module the runtime asks means this
 # script cannot disagree with it about a default. An empty setting comes back as
 # "-" so that read gets two fields either way.
-SETTINGS=$(cd "$ROOT" && node --conditions=chloe-source --input-type=module -e '
+SETTINGS=$(cd "$ROOT" && node $CONDITION --input-type=module -e '
   const { loadSettings, settings } = await import("@chloejs/core");
   await loadSettings();
   console.log(settings.node || "-", settings.model.prefer.join(",") || "-");
@@ -113,6 +124,7 @@ systemctl --user enable chloe.service
 systemctl --user restart chloe.service
 
 echo "Installed chloe.service, node at $NODEBIN."
+echo "It starts at boot only for a user with lingering on: loginctl enable-linger $(id -un)"
 echo "Model calls try ${PREFER:-whichever this box can}, in that order."
 echo "The site and the API are on http://127.0.0.1:3067, loopback only."
 echo "Make the one account with: npx chloe account"
