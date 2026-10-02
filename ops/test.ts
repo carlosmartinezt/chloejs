@@ -84,8 +84,8 @@ const ownPage = (yes: boolean): void => void (live.page = yes ? "builtin" : "");
 const sent: string[] = [];
 reachBy("test", async (to, text) => void sent.push(`${to}: ${text}`));
 
-function codeJob(id: string, run: Job["run"], state?: z.ZodType, summary?: Job["summary"]): Job {
-  return { agent: "test", id, cron: "* * * * *", timezone: "UTC", prompt: "", run, state, summary, files: [] };
+function codeJob(id: string, run: Job["run"], state?: z.ZodType, response?: Job["response"]): Job {
+  return { agent: "test", id, cron: "* * * * *", timezone: "UTC", prompt: "", run, state, response, files: [] };
 }
 
 function agentFor(job: Job): Agent {
@@ -143,7 +143,7 @@ about("what a run did, in one line");
 
   const quiet = codeJob("quiet", async () => ({ checked: 15 }));
   const unsaid = await work({ agent: agentFor(quiet), job: quiet });
-  is("a job with no summary says nothing, rather than a guess", row(unsaid.runId).summary, null);
+  is("a job with no response says nothing, rather than a guess", row(unsaid.runId).summary, null);
 
   const words = codeJob("words", async () => "**Done.**\n\n- three things\n- all fine");
   const worded = await work({ agent: agentFor(words), job: words });
@@ -153,8 +153,8 @@ about("what a run did, in one line");
     throw new Error("no such field");
   });
   const done = await work({ agent: agentFor(broken), job: broken });
-  is("a summary that throws does not fail the run", row(done.runId).error, null);
-  is("and it says so", row(done.runId).summary, "(its summary failed: no such field)");
+  is("a response that throws does not fail the run", row(done.runId).error, null);
+  is("and it says so", row(done.runId).summary, "(its response failed: no such field)");
 
   const { recentWork } = await import("#chloe/serve/recentWork");
   const agent = { ...agentFor(counted), name: "recent" };
@@ -180,6 +180,57 @@ about("what a run did, in one line");
   ]);
   is("a folded line keeps count of what failed and what it cost", [recent[1].failed, recent[1].cost], [1, 0.75]);
   is("and stops at the count it is given", recentWork(agent, 2).length, 2);
+}
+
+about("what started a run, and what to say about it");
+{
+  const hearing = codeJob("hearing", async (work) => `heard ${work.input.text} from ${work.input.user}`);
+  const heard = await work({
+    agent: agentFor(hearing),
+    job: hearing,
+    input: { text: "hi", from: "telegram", chat: "1", user: "Carlos" },
+  });
+  is("the message arrives with no schema declared", heard.text, "heard hi from Carlos");
+
+  const extra = await work({ agent: agentFor(hearing), job: hearing, input: { customer: "c-12" } }).then(
+    () => "",
+    (error: Error) => error.message,
+  );
+  is("anything outside the envelope is still refused", extra.includes("cannot be started with customer"), true);
+
+  const saying = codeJob(
+    "saying",
+    async () => ({ bought: ["po-1"], checked: 4 }),
+    undefined,
+    () => "Bought po-1.\nTwo lines checked, all filed.",
+  );
+  const said = await work({ agent: agentFor(saying), job: saying });
+  is("a chat is sent the whole of its response", said.reply, "Bought po-1.\nTwo lines checked, all filed.");
+  is("and the overview shows its first line", said.summary, "Bought po-1. Two lines checked, all filed.");
+
+  const worded = await work({ agent: agentFor(saying), job: codeJob("worded", async () => "Two things.\nAll handled.") });
+  is("a string needs no response: the chat gets it whole", worded.reply, "Two things.\nAll handled.");
+  is("and the overview its first line", worded.summary, "Two things. All handled.");
+
+  const typed = await work({
+    agent: agentFor(saying),
+    job: { ...codeJob("typed", async (work) => work.args), args: z.object({ text: z.string().optional(), n: z.coerce.number() }) },
+    input: { text: "hi", n: "3" },
+  });
+  is("the message is kept out of a job's input", JSON.parse(typed.text), { n: 3 });
+
+  const memorable = codeJob("memorable", async (work) => {
+    const go = await work.ask("file it?", { question: `File ${work.input.text}?`, answer: z.boolean() });
+    return go ? `filed ${work.input.text}` : "left it";
+  });
+  const before = sent.length;
+  const waiter = agentFor(memorable);
+  const first = await work({ agent: waiter, job: memorable, input: { text: "a highlight", from: "telegram" } });
+  is("it parked", first.parked, true);
+  is("the question names the message", sent.slice(before), ["somebody: File a highlight?\n(yes or no)"]);
+  const done = await answer(first.runId, "yes", new Map([[waiter.name, waiter]]));
+  is("the message survived the pause", done.text, "filed a highlight");
+  sent.splice(before);
 }
 
 about("an agent step: the goal is yours, the order is the model's");
@@ -1308,13 +1359,23 @@ about("a model step that never fits");
   is("every agent loads", all instanceof Error ? all.message : null, null);
   for (const agent of all instanceof Error ? [] : all.values()) {
     // A job is only on the clock if the agent imports it, so one written and
-    // never named would sit there looking like a job and never run.
-    const named = new Set(agent.jobs.flatMap((one) => one.files));
+    // never named would sit there looking like a job and never run. A .ts file
+    // may hold any number of jobs under any name, so its exports are read; a
+    // .md file is a job's words, so it has to be one of a named job's files.
+    const ids = new Set(agent.jobs.map((one) => one.id));
+    const files = new Set(agent.jobs.flatMap((one) => one.files));
     const inJobs = await readdir(join(agent.folder, "jobs")).catch(() => [] as string[]);
-    const unnamed = inJobs
-      .filter((file) => /\.(ts|md)$/.test(file) && !file.endsWith(".test.ts"))
-      .map((file) => `jobs/${file}`)
-      .filter((file) => !named.has(file));
+    const unnamed: string[] = [];
+    for (const file of inJobs) {
+      if (file.endsWith(".md") && !files.has(`jobs/${file}`)) unnamed.push(`jobs/${file}`);
+      if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
+      const exported = await import(pathToFileURL(join(agent.folder, "jobs", file)).href);
+      for (const value of Object.values(exported as Record<string, unknown>)) {
+        const job = value as { id?: unknown; run?: unknown; markdown?: unknown } | null;
+        const isJob = typeof job === "object" && job !== null && typeof job.id === "string" && Boolean(job.run || job.markdown);
+        if (isJob && !ids.has(job.id as string)) unnamed.push(`jobs/${file}: ${job.id}`);
+      }
+    }
     is(`every job in ${agent.name}'s jobs folder is named in its agent.ts`, unnamed, []);
   }
 }
@@ -1421,9 +1482,17 @@ about("a model step that never fits");
     .then(() => "", (error: Error) => error.message);
   is("two jobs with one id are refused", twice, "test: two jobs are called by-hand.");
 
-  const both = await jobsOf("test", folder, [{ id: "both", run: async () => "", markdown: "Say hello." }])
+  const both = await jobsOf("test", folder, [{ id: "both", description: "Both.", run: async () => "", markdown: "Say hello." }])
     .then(() => "", (error: Error) => error.message);
   is("a job that is code and a prompt is refused", both, "test job both has both run and markdown. A job is code or a prompt, never both.");
+
+  const old = await jobsOf("test", folder, [{ id: "old", description: "Old.", run: async () => "", summary: () => "" } as never])
+    .then(() => "", (error: Error) => error.message);
+  is("a job with a summary is told to use response", old, "test job old has summary, which nothing reads. Say it with `response`.");
+
+  const claims = await jobsOf("test", folder, [{ id: "claims", description: "Claims.", run: async () => "", answers: () => true } as never])
+    .then(() => "", (error: Error) => error.message);
+  is("a job that claims plain messages itself is refused", claims.startsWith("test job claims has answers, which nothing reads."), true);
   await rm(folder, { recursive: true, force: true });
 }
 
@@ -1800,16 +1869,15 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and answered the same way", said(), ["7: sent to me"]);
   is("it never polls in webhook mode", calls.some((c) => c.token === "w" && c.method === "getUpdates"), false);
 
-  // A plain message a job answers goes to that job, not to the chat, and with
-  // inGroups "always" a group message needs no mention.
+  // A plain message goes to a job when the model replies with that job's
+  // command, and with inGroups "always" a group message needs no mention.
   calls.length = 0;
+  answers.length = 0;
+  answers.push("/highlights");
   const { startClock } = await import("#chloe/core/clock");
   const handed: string[] = [];
   const highlights = {
-    ...codeJob("highlights", async ({ input }) => (handed.push(String(input.text)), { ok: true }), undefined, () => "Filed."),
-    input: z.object({ text: z.string() }),
-    reply: () => "Filed. " + "A reply that is longer than one line. ".repeat(8).trim(),
-    answers: (text: string) => text.startsWith("\u201c"),
+    ...codeJob("highlights", async ({ input }) => (handed.push(input.text), { ok: true }), undefined, () => "Filed. " + "A reply that is longer than one line. ".repeat(8).trim()),
   } as Job;
   delete highlights.cron;
   const reader = agentFor(highlights);
@@ -1820,11 +1888,11 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   fifth.stop();
   ticking.stop();
   await pause(100);
-  is("a message a job answers goes to that job, whole", handed, ["\u201cA line from a book.\u201d \u2014 A Book"]);
+  is("a reply that is a command hands the message to that job, whole", handed, ["\u201cA line from a book.\u201d \u2014 A Book"]);
   const whole = "Filed. " + "A reply that is longer than one line. ".repeat(8).trim();
   is("and its own reply is what the chat is sent, whole", said(), [`-100: ${whole}`]);
   const { recall: recalled } = await import("#chloe/model/memory");
-  is("and the exchange is kept in that chat's conversation", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["\u201cA line from a book.\u201d \u2014 A Book", whole]);
+  is("and the exchange is kept in that chat's conversation, once", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["/highlights", whole]);
   is("the / menu is the agent's jobs, then /models and /clear", calls.find((c) => c.method === "setMyCommands")?.body.commands, [
     { command: "highlights", description: "highlights" },
     { command: "models", description: "Which model answers here, and the ones to pick from" },
@@ -1835,6 +1903,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // first of them. A share that arrives as a quote and then a comment is why.
   calls.length = 0;
   handed.length = 0;
+  answers.push("/highlights");
   const sixth = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", stackWithin: 1, agent: () => reader });
   inbox.push(inGroup(41, me, "\u201cA line.\u201d \u2014 A Book"));
   await pause(200);
@@ -1845,15 +1914,31 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("messages sent close together are handled as one", handed, ["\u201cA line.\u201d \u2014 A Book\n\nand what I thought of it"]);
   is("and the answer replies to the first of them", calls.find((c) => c.method === "sendMessage")?.body.reply_parameters, { message_id: 41 });
 
+  // What the model writes after the command is what the job is started with,
+  // and a reply naming no job is only a reply.
+  calls.length = 0;
+  handed.length = 0;
+  answers.push("/highlights only the quote", "/nothing-here");
+  const again = startClock(() => new Map([["test", reader]]));
+  const replied = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => reader });
+  inbox.push(inGroup(44, me, "\u201cA line.\u201d and a comment"));
+  await settle(1);
+  inbox.push(inGroup(45, me, "anything"));
+  await settle(1);
+  replied.stop();
+  again.stop();
+  await pause(100);
+  is("the text after a replied command is what the job gets", handed, ["only the quote"]);
+  is("and a reply that names no job is sent as it is", said().at(-1), "-100: /nothing-here");
+
   // A run that failed says so. Saying it is already running would send
   // somebody looking for a run that is not there.
   calls.length = 0;
+  answers.push("/highlights");
   const breaks = {
     ...codeJob("highlights", async () => {
       throw new Error("the page would not write");
     }),
-    input: z.object({ text: z.string() }),
-    answers: (text: string) => text.startsWith("\u201c"),
   } as Job;
   delete breaks.cron;
   const broken = agentFor(breaks);
@@ -2030,7 +2115,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   socket = undefined;
   const { startClock } = await import("#chloe/core/clock");
   const handed: string[] = [];
-  const noted = { ...codeJob("note-it", async ({ input }) => (handed.push(String(input.text)), { ok: true })), input: z.object({ text: z.string() }), reply: () => "Noted." } as Job;
+  const noted = codeJob("note-it", async ({ input }) => (handed.push(input.text), { ok: true }), undefined, () => "Noted.");
   delete noted.cron;
   const noter = agentFor(noted);
   const ticking = startClock(() => new Map([["test", noter]]));
@@ -3087,57 +3172,64 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("what a job is started with");
 
-  const { work: runJob, checkInput, WrongInput } = await import("#chloe/core/steps");
+  const { work: runJob, checkArgs, WrongArgs } = await import("#chloe/core/steps");
 
   const takes = z.object({
-    text: z.string().min(1),
-    from: z.string().default("somewhere"),
+    customer: z.string().min(1),
+    source: z.string().default("somewhere"),
     times: z.coerce.number().default(1),
   });
 
   let saw: unknown;
   const reader = agentFor({
     ...codeJob("reading", async (w) => {
-      saw = w.input;
-      return { got: (w.input as { text: string }).text };
+      saw = w.args;
+      return { got: (w.args as { customer: string }).customer };
     }),
-    input: takes,
+    args: takes,
   } as Job);
 
-  await runJob({ agent: reader, job: reader.jobs[0], input: { text: "a highlight" } });
-  is("the job is handed what it was started with", saw, { text: "a highlight", from: "somewhere", times: 1 });
+  await runJob({ agent: reader, job: reader.jobs[0], input: { customer: "c-12" } });
+  is("the job is handed what it was started with", saw, { customer: "c-12", source: "somewhere", times: 1 });
 
-  await runJob({ agent: reader, job: reader.jobs[0], input: { text: "x", from: "telegram", times: "3" } });
-  is("a query string's strings are coerced by the shape", saw, { text: "x", from: "telegram", times: 3 });
+  await runJob({ agent: reader, job: reader.jobs[0], input: { customer: "x", source: "shop", times: "3" } });
+  is("a query string's strings are coerced by the shape", saw, { customer: "x", source: "shop", times: 3 });
 
   // The point of checking before the run exists: the caller is told, rather
   // than left to read a failed run to find out.
   const refused = (sent: unknown) => {
     try {
-      checkInput(reader.jobs[0], sent);
+      checkArgs(reader.jobs[0], sent);
       return "allowed";
     } catch (error) {
-      return error instanceof WrongInput ? "refused" : "wrong error";
+      return error instanceof WrongArgs ? "refused" : "wrong error";
     }
   };
   is("a missing required field is refused", refused({}), "refused");
-  is("and so is the wrong type", refused({ text: 5 }), "refused");
-  is("what fits is allowed", refused({ text: "fine" }), "allowed");
+  is("and so is the wrong type", refused({ customer: 5 }), "refused");
+  is("what fits is allowed", refused({ customer: "fine" }), "allowed");
+  is("and a message beside it does not stand in for a field", refused({ text: "c-12" }), "refused");
 
-  // A job that declares nothing takes nothing. Quietly dropping what somebody
-  // sent would read as the job ignoring them.
+  // A job that declares nothing still reads the message: the envelope rides
+  // along outside args, so sending it is never a mistake. Anything else is,
+  // because quietly dropping it would read as the job ignoring them.
   const plain = agentFor(codeJob("plain", async () => ({})));
-  const sentAnyway = await runJob({ agent: plain, job: plain.jobs[0], input: { text: "hello" } })
+  const saidHello = await runJob({ agent: plain, job: plain.jobs[0], input: { text: "hello" } })
     .then(() => "allowed")
-    .catch((error: unknown) => (error instanceof WrongInput ? "refused" : "wrong error"));
-  is("a job with no input shape is not started with one", sentAnyway, "refused");
+    .catch((error: unknown) => (error instanceof WrongArgs ? "refused" : "wrong error"));
+  is("a message on its own is not args", saidHello, "allowed");
+  const sentAnyway = await runJob({ agent: plain, job: plain.jobs[0], input: { customer: "c-12" } })
+    .then(() => "allowed")
+    .catch((error: unknown) => (error instanceof WrongArgs ? "refused" : "wrong error"));
+  is("a job with no args shape is not started with anything else", sentAnyway, "refused");
   is("and starting it with nothing is fine", (await runJob({ agent: plain, job: plain.jobs[0] })).steps >= 0, true);
 
   // Written on the run row rather than held in memory, which is what lets a
   // run that stopped to ask somebody come back to the same input.
-  const kept = await runJob({ agent: reader, job: reader.jobs[0], input: { text: "kept" } });
-  is("the run records what it was started with", JSON.parse(row(kept.runId).input), { text: "kept", from: "somewhere", times: 1 });
-  is("and a run the clock started records nothing", row((await runJob({ agent: plain, job: plain.jobs[0] })).runId).input, "{}");
+  const kept = await runJob({ agent: reader, job: reader.jobs[0], input: { customer: "kept", text: "a message" } });
+  is("the run records what it was started with", JSON.parse(row(kept.runId).args), { customer: "kept", source: "somewhere", times: 1 });
+  is("and the message beside it", JSON.parse(row(kept.runId).input).text, "a message");
+  is("and a run the clock started records nothing", row((await runJob({ agent: plain, job: plain.jobs[0] })).runId).args, "{}");
 }
 
 {
@@ -3151,10 +3243,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   let started: unknown;
   const agent = agentFor({
     ...codeJob("reading", async (w) => {
-      started = w.input;
+      started = w.args;
       return {};
     }),
-    input: z.object({ text: z.string().min(1), source: z.string().default("") }),
+    args: z.object({ customer: z.string().min(1), source: z.string().default("") }),
   } as Job);
   agent.channels = [apiChannel()];
 
@@ -3184,14 +3276,14 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
       ...(body === undefined ? {} : { body }),
     });
 
-  is("a query string starts it", (await start("?text=a+highlight&source=myapp")).status, 200);
-  is("and is what the job is handed", fired.at(-1)?.input, { text: "a highlight", source: "myapp" });
+  is("a query string starts it", (await start("?customer=c-12&source=myapp")).status, 200);
+  is("and is what the job is handed", fired.at(-1)?.input, { customer: "c-12", source: "myapp" });
   is("on the api channel", fired.at(-1)?.channel, "api");
 
-  is("a JSON body does too", (await start("", '{"text":"from a body"}')).status, 200);
-  is("and wins where they overlap", (await start("?text=query", '{"text":"body"}')).status, 200);
-  is("the body being the one that counts", (fired.at(-1)?.input as { text: string }).text, "body");
-  const byHand = await fetch(`${at}/api/agents/test/job/reading?text=x`, {
+  is("a JSON body does too", (await start("", '{"customer":"from a body"}')).status, 200);
+  is("and wins where they overlap", (await start("?customer=query", '{"customer":"body"}')).status, 200);
+  is("the body being the one that counts", (fired.at(-1)?.input as { customer: string }).customer, "body");
+  const byHand = await fetch(`${at}/api/agents/test/job/reading?customer=x`, {
     method: "POST",
     headers: { authorization: `Bearer ${secret}`, "x-chloe-channel": "terminal" },
   });
@@ -3202,7 +3294,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // told now or it never finds out.
   const wrong = await start("?source=myapp");
   is("input that does not fit is refused before anything runs", wrong.status, 400);
-  is("with the reason", ((await wrong.json()) as { error: string }).error.includes("text"), true);
+  is("with the reason", ((await wrong.json()) as { error: string }).error.includes("customer"), true);
   is("and nothing was started", fired.length, 3);
 
   is("a job that agent does not have is still a 404", (await start("").then(() => fetch(`${at}/api/agents/test/job/nope`, { method: "POST", headers: { authorization: `Bearer ${secret}` } }))).status, 404);

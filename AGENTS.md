@@ -275,8 +275,9 @@ what that agent does without asking, the address it sends from and the mail
 search it is bound to, and `agents/<name>/tools/` is the wrappers. Nothing in
 an agent's folder is found by looking except `skills/`: a job, a tool or a
 channel exists because `agent.ts` names it, a markdown job as
-`markdownJob("jobs/<id>.md")`. A job file in `jobs/` that its agent does not
-name fails `npm run test`, because it would look like a job and never run, and
+`markdownJob("jobs/<id>.md")`. A job exported from a file in `jobs/` that its
+agent does not name fails `npm run test`, because it would look like a job and
+never run, and
 `write_own_file` refuses to make a new one for the same reason.
 
 A job that imports a tool, chloe's or its own agent's, fails `npm run test`:
@@ -457,9 +458,10 @@ will not rewrite on the way out), and `../` is the thing not to do. A relative
 import inside one folder keeps its `.ts`.
 
 **A job may be markdown or TypeScript, and a prompt is markdown either
-way.** A `.md` beside a `.ts` of the same name is that job's words. A `.ts`
-job has an `id`, which is what the run history is filed under, so it does not
-change once the job has run, and the file is named after it. Paths given to
+way.** A `.ts` job has an `id`, which is what the run history is filed under,
+so it does not change once the job has run. Its file can have any name and hold
+several jobs; one named `jobs/<id>.ts` is listed as the job's file on the page,
+and a `jobs/<id>.md` beside it as its words. Paths given to
 `prompt()` and `markdownJob()` are inside the agent's folder.
 
 **An agent that names no model asks `model.default` in settings.** That is what
@@ -535,18 +537,23 @@ agent: without it a token gets a 403 and only the account can. It never carries
 a question out, because HTTP cannot push, and a job that stops to ask still
 waits in `GET /api/parked`.
 
-**A job that is started by hand declares what it takes**, as `input`, a zod
-schema, read back as `work.input`. It is checked before the run exists, so the
-caller is told rather than handed a run id that fails later. A job with no
-`input` takes nothing and refuses what it is sent rather than dropping it.
-`state` moves and `input` does not, which is why there is no `setInput`.
+**A job that is started by hand declares what it takes**, as `args`, a zod
+schema, read back as `work.args`. It is checked before the run exists, so the
+caller is told rather than handed a run id that fails later. The message keys
+below are taken off first and go to `work.input`, never to `args`. A job
+with no `args` takes nothing else, and refuses anything else it is sent rather
+than dropping it.
+`state` moves and `args` does not, which is why there is no `setArgs`.
 
 **A channel starts a job with a fixed envelope**: `text`, `from`, `chat`,
-`chatTitle`, `user`, `thread`, `replyTo`. One shape from every channel, so a
-job written against it works from all of them. A message beginning with
+`chatTitle`, `user`, `thread`, `replyTo`, read back as `work.input`. One
+shape from every channel, so a job written against it works from all of them,
+and it declares nothing to read it. A message beginning with
 `/<job id>` runs that job and nothing asks a model what was meant, because that
-is a rule somebody can write down. Do not invent a second envelope for a new
-channel.
+is a rule somebody can write down. A plain message reaches a job only through
+the model: a skill says which messages are that job's, and a turn whose reply
+is `/<job id>` runs it, with the message itself when nothing follows the
+command. Do not invent a second envelope for a new channel.
 
 **Every route is one entry in the list in `serve/http.ts`**, carrying its
 own one-line description, and `GET /api` is generated from that list. Adding a
@@ -729,7 +736,7 @@ put on a channel by adding one entry to `channels` in its `agent.ts`.
 
 **What happens to a message is `channels/shared.ts`, and no channel decides it
 for itself.** allowFrom, an answer to a job waiting on the chat, whether a group
-message is for the agent, `/commands`, a job that `answers` a plain message, and
+message is for the agent, `/commands` (typed, or replied by the model), and
 the turn with the chat's recent conversation are all `receive()`. A channel
 turns its platform's message into an `Incoming`, calls `receive()`, and sends
 back the text. If a new channel needs a rule the others would want too, the rule

@@ -15,19 +15,19 @@
 // The server itself is `server.ts`, and it is run rather than imported.
 
 // An agent, and the jobs it runs.
-export { defineAgent, defineConfig, markdownJob, load, loadAll, loadSettings, names, type Agent, type Channel, type ChannelRoute, type Running, type Job, type Skill, type Binding, type Home, type Features, type SelfImprovement, type Memory, type ChatHistory } from "./load/load.ts";
-export { defineJob } from "./load/job.ts";
+export { defineAgent, defineConfig, markdownJob, load, loadAll, runJob, loadSettings, names, type Agent, type AgentConfig, type Channel, type ChannelRoute, type Config, type Defined, type Running, type Job, type MarkdownJob, type Skill, type Binding, type Home, type Features, type SelfImprovement, type Memory, type ChatHistory } from "./load/load.ts";
+export { defineJob, type JobConfig } from "./load/job.ts";
 export { prompt, isPrompt, oneLineSummary, type Prompt } from "./core/markdown.ts";
 
 // A job: code first, with a model where a step needs judgement and an agent
 // where the order of the work cannot be known in advance.
-export { work, resume, answer, sweep, parkedRuns, waitingFor, waitingOn, checkInput, WrongInput, type AgentStep, type AskStep, type Line, type ModelStep, type ParkedRun, type Result as RunResult, type Work } from "./core/steps.ts";
+export { work, resume, answer, sweep, parkedRuns, waitingFor, waitingOn, checkArgs, WrongArgs, type AgentStep, type AskStep, type Data, type Envelope, type Line, type ModelStep, type ParkedRun, type Result as RunResult, type Work } from "./core/steps.ts";
 
 // A prompt: ask a model, run the tools it asked for, ask again.
 export { turn, type Result as TurnResult } from "./core/turn.ts";
 
 // What a model can be asked to do, and how it is asked.
-export { tool, type Approve, type Call, type Tool, type Tools } from "./model/tool.ts";
+export { tool, type Approve, type Call, type Tool, type ToolConfig, type Tools } from "./model/tool.ts";
 export { ask, learnModels, type Attachment, type Message } from "./model/model.ts";
 
 // Reaching a person, and being reached back.

@@ -135,8 +135,32 @@ export interface AskStep<S extends z.ZodType> {
   otherwise?: z.infer<S>;
 }
 
+/**
+ * What a job's `state` and `args` are when a job names no schema: an object of
+ * named things. Named so a signature can say it.
+ */
+export type Data = Record<string, unknown>;
+
+/**
+ * Where a run was started from, in the words every channel shares. The clock
+ * leaves it empty. Always there, so reading what started the job needs no schema.
+ */
+export interface Envelope {
+  /** What was said or sent. */
+  text: string;
+  /** The channel it came in on, like "telegram". */
+  from: string;
+  /** Where it was said, as the channel names it. */
+  chat: string;
+  chatTitle: string;
+  /** Who said it. */
+  user: string;
+  thread: string;
+  replyTo: string;
+}
+
 /** What a job's `run` is handed. */
-export interface Work<State = Record<string, unknown>, Input = Record<string, unknown>> {
+export interface Work<State = Data, Args = Data> {
   /** Do something, once, and write down what it returned. */
   step<T>(name: string, fn: () => Promise<T> | T): Promise<T>;
   /** Ask a model one question and get an answer in the shape you asked for. */
@@ -150,11 +174,17 @@ export interface Work<State = Record<string, unknown>, Input = Record<string, un
   readonly state: State;
   setState(next: Partial<State>): Promise<void>;
   /**
-   * What this run was started with, already checked against the job's `input`
+   * What this run was started with, already checked against the job's `args`
    * shape. Empty for a run the clock started. It does not change, so there is
    * nothing to set: the store above is the part that moves.
    */
-  readonly input: Input;
+  readonly args: Args;
+  /**
+   * Where this run was started from and what was said. The clock leaves it
+   * empty, a channel fills it, and the API fills what it was sent. It rides
+   * along outside `args`, so a job that only reads the text declares nothing.
+   */
+  readonly input: Envelope;
   readonly owner: string;
   /** Whose job this is. Notes, scripts and folders are filed under it. */
   readonly agentName: string;
@@ -199,9 +229,11 @@ interface Ctx {
   lines: Line[];
   seq: number;
   cost: number;
-  state: Record<string, unknown>;
+  state: Data;
   /** What the run was started with. Checked once, then never changed. */
-  input: Record<string, unknown>;
+  args: Data;
+  /** Where the run was started from. Never changed, so it is kept, not checked. */
+  input: Envelope;
   parked?: Parked;
   owner: string;
   /** "code" until a model step runs, then whichever model it used. */
@@ -217,7 +249,7 @@ export async function work(options: {
   job: Job;
   /** The channel it came in on, like "telegram" or "api". Left out, it is "unknown". */
   source?: string;
-  /** What to start it with. Checked against the job's `input` shape first. */
+  /** What to start it with: the envelope keys, and the rest checked against the job's `args` shape. */
   input?: unknown;
   signal?: AbortSignal;
 }): Promise<Result> {
@@ -226,14 +258,15 @@ export async function work(options: {
 
   // Before the run exists, so a caller that sent the wrong thing is told so
   // rather than left reading a failed run to find out.
-  const input = checkInput(job, options.input);
+  const args = checkArgs(job, options.input);
+  const input = envelopeOf(options.input);
 
   const runId = randomUUID();
   const owner = whoOwns(agent.name);
   const state = starting(job);
   db.prepare(
-    `insert into runs (id, agent, started, source, job, model, prompt, kind, owner, state, input)
-     values (?, ?, ?, ?, ?, 'code', '', 'job', ?, ?, ?)`,
+    `insert into runs (id, agent, started, source, job, model, prompt, kind, owner, state, args, input)
+     values (?, ?, ?, ?, ?, 'code', '', 'job', ?, ?, ?, ?)`,
   ).run(
     runId,
     agent.name,
@@ -242,6 +275,7 @@ export async function work(options: {
     job.id,
     owner || null,
     JSON.stringify(state),
+    JSON.stringify(args),
     JSON.stringify(input),
   );
   runChanged(runId);
@@ -254,6 +288,7 @@ export async function work(options: {
     seq: 0,
     cost: 0,
     state,
+    args,
     input,
     owner,
     model: "code",
@@ -261,15 +296,38 @@ export async function work(options: {
   });
 }
 
+/**
+ * The keys a channel always sends with a message. They are read into
+ * `work.input` and kept out of `args`, so a job that declares no shape is
+ * never refused for being sent a message.
+ */
+const ENVELOPE_KEYS = ["text", "from", "chat", "chatTitle", "user", "thread", "replyTo"] as const satisfies (keyof Envelope)[];
+
+/** Where a run was started from, read off what started it. */
+function envelopeOf(sent: unknown): Envelope {
+  const given = sent && typeof sent === "object" ? (sent as Data) : {};
+  return Object.fromEntries(
+    ENVELOPE_KEYS.map((key) => [key, typeof given[key] === "string" ? given[key] : ""]),
+  ) as unknown as Envelope;
+}
+
+/** What was sent, less the envelope: what a job's `args` shape is checked against. */
+function withoutEnvelope(sent: unknown): Data {
+  const given = sent && typeof sent === "object" ? (sent as Data) : {};
+  return Object.fromEntries(Object.entries(given).filter(([key]) => !(ENVELOPE_KEYS as readonly string[]).includes(key)));
+}
+
 /** What was sent to start a job does not fit the shape that job declares. */
-export class WrongInput extends Error {}
+export class WrongArgs extends Error {}
 
 /**
- * Checks what a job is being started with against its `input` shape, and hands
- * back the parsed values. Throws `WrongInput` when they do not fit.
+ * Checks what a job is being started with against its `args` shape, and hands
+ * back the parsed values. Throws `WrongArgs` when they do not fit.
  *
- * A job that declares no shape takes nothing, so sending it something is a
- * mistake worth saying out loud rather than quietly dropping. A job that does
+ * The message keys (`text`, `from`, `chat` and the rest) are taken off first:
+ * they go to `work.input`, never to `args`. A job that declares no shape
+ * takes nothing else, so sending it more is a mistake worth saying out loud
+ * rather than quietly dropping. A job that does
  * declare one and is started by the clock gets `{}` put through the same
  * check, which is what makes a required field and a cron line an error at the
  * first tick rather than a puzzle later.
@@ -277,20 +335,21 @@ export class WrongInput extends Error {}
  * Called before a run exists, so whoever started it is told rather than left
  * reading a failed run to find out.
  */
-export function checkInput(job: Job, sent: unknown): Record<string, unknown> {
-  if (!job.input) {
-    const keys = sent && typeof sent === "object" ? Object.keys(sent as object) : [];
+export function checkArgs(job: Job, sent: unknown): Data {
+  const rest = withoutEnvelope(sent);
+  if (!job.args) {
+    const keys = Object.keys(rest);
     if (keys.length) {
-      throw new WrongInput(
+      throw new WrongArgs(
         `${job.agent}/${job.id} does not take anything, so it cannot be started with ${keys.join(", ")}. ` +
-          "Give the job an `input` shape if it should.",
+          "Give the job an `args` shape if it should.",
       );
     }
     return {};
   }
-  const checked = job.input.safeParse(sent ?? {});
-  if (!checked.success) throw new WrongInput(`${job.agent}/${job.id}: ${z.prettifyError(checked.error)}`);
-  return checked.data as Record<string, unknown>;
+  const checked = job.args.safeParse(rest);
+  if (!checked.success) throw new WrongArgs(`${job.agent}/${job.id}: ${z.prettifyError(checked.error)}`);
+  return checked.data as Data;
 }
 
 /** Carry on a job that was waiting for a person. */
@@ -308,11 +367,12 @@ export async function resume(runId: string, agents: Map<string, Agent>, signal?:
     runId,
     agent,
     job,
-    input: (row.input ? JSON.parse(row.input) : {}) as Record<string, unknown>,
+    args: (row.args ? JSON.parse(row.args) : {}) as Data,
+    input: row.input ? (JSON.parse(row.input) as Envelope) : envelopeOf(row.args ? JSON.parse(row.args) : {}),
     lines: JSON.parse(row.trace) as Line[],
     seq: 0,
     cost: row.cost,
-    state: row.state ? (JSON.parse(row.state) as Record<string, unknown>) : starting(job),
+    state: row.state ? (JSON.parse(row.state) as Data) : starting(job),
     parked: JSON.parse(row.parked) as Parked,
     owner: row.owner ?? whoOwns(agent.name),
     model: row.model,
@@ -333,6 +393,7 @@ async function drive(ctx: Ctx): Promise<Result> {
       ctx.state = { ...ctx.state, ...next };
       save(ctx);
     },
+    args: ctx.args,
     input: ctx.input,
     owner: ctx.owner,
     agentName: ctx.agent.name,
@@ -350,10 +411,10 @@ async function drive(ctx: Ctx): Promise<Result> {
     const value = await duringRun(ctx.runId, () => ctx.job.run!(api));
     ctx.parked = undefined;
     const reply = typeof value === "string" ? value : JSON.stringify(value ?? { ok: true }, null, 2);
-    const summary = summarise(ctx.job, value);
+    const { words, summary } = said(ctx.job, value);
     finish(ctx, reply, summary);
     await committed({ summary });
-    return { runId: ctx.runId, text: reply, summary, reply: chatReply(ctx.job, value) ?? summary ?? undefined, steps: ctx.lines.length, cost: ctx.cost, parked: false };
+    return { runId: ctx.runId, text: reply, summary, reply: words ?? summary ?? undefined, steps: ctx.lines.length, cost: ctx.cost, parked: false };
   } catch (error) {
     if (error instanceof Waiting) {
       save(ctx);
@@ -769,10 +830,10 @@ function minutes(within: string): number {
   return match[2].toLowerCase() === "m" ? size : match[2].toLowerCase() === "h" ? size * 60 : size * 1440;
 }
 
-function starting(job: Job): Record<string, unknown> {
+function starting(job: Job): Data {
   if (!job.state) return {};
   const empty = job.state.safeParse({});
-  return empty.success ? (empty.data as Record<string, unknown>) : {};
+  return empty.success ? (empty.data as Data) : {};
 }
 
 /**
@@ -862,6 +923,7 @@ interface Row {
   cost: number;
   trace: string;
   state?: string;
+  args?: string;
   input?: string;
   parked?: string;
   owner?: string;
@@ -887,26 +949,17 @@ function finish(ctx: Ctx, reply: string, summary: string | null): void {
 }
 
 /**
- * The job's own line, or the start of the string it returned. A summary that
- * throws costs the run its line and nothing else: the work is already done.
+ * What the job's `response` made of what `run` returned, or the string it returned.
+ * A `response` that throws costs the run its words and nothing else: the work is
+ * already done, so the overview shows why and the chat gets the summary.
  */
-/** The job's own reply for a chat, or nothing when it has none or it throws. */
-function chatReply(job: Job, value: unknown): string | undefined {
+function said(job: Job, value: unknown): { words?: string; summary: string | null } {
   try {
-    return job.reply?.(value) || undefined;
+    const words = job.response?.(value) || (typeof value === "string" ? value : undefined);
+    return { words, summary: words === undefined ? null : oneLineSummary(words) };
   } catch (error) {
-    console.error(`${job.agent}/${job.id}: its reply failed`, error);
-    return undefined;
+    return { summary: `(its response failed: ${error instanceof Error ? error.message : String(error)})` };
   }
-}
-
-function summarise(job: Job, value: unknown): string | null {
-  try {
-    if (job.summary) return oneLineSummary(job.summary(value));
-  } catch (error) {
-    return `(its summary failed: ${error instanceof Error ? error.message : String(error)})`;
-  }
-  return typeof value === "string" ? oneLineSummary(value) : null;
 }
 
 function fail(ctx: Ctx, why: string): void {

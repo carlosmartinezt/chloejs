@@ -7,23 +7,35 @@
 import type { z } from "zod";
 
 import type { Prompt } from "#chloe/core/markdown";
-import type { Work } from "#chloe/core/steps";
+import type { Data, Work } from "#chloe/core/steps";
 
-export interface Definition<
-  State extends z.ZodType = z.ZodType<Record<string, unknown>>,
+/**
+ * What defineJob is given, and what a job file is checked against as it is
+ * written: an id and a description always, a zod schema wherever there is a
+ * shape, and one of `run` or `markdown` (the loader refuses both or neither,
+ * the editor cannot).
+ */
+export interface JobConfig<
+  State = Data,
   Result = unknown,
-  Input extends z.ZodType = z.ZodType<Record<string, unknown>>,
+  Args = Data,
 > {
   /**
    * What the run history files it under, and what `npm run agent` and the
-   * evals call it. Name the file after it: jobs/<id>.ts.
+   * evals call it. A file named jobs/<id>.ts is listed as the job's file on the
+   * page; any other name works, and a file may hold several jobs.
    */
   id: string;
+  /** One line on what it does, shown beside the id. */
+  description: string;
   /**
    * When it runs by itself. Five fields: minute, hour, day of month, month,
    * day of week. Without one it runs only when somebody starts it.
    */
   cron?: string;
+  timezone?: string;
+  /** When this job should not run on the agent's own model. */
+  model?: string;
   /** The prompt: a string for a one-liner, or `prompt("./name.md")`. */
   markdown?: string | Prompt;
   /**
@@ -32,54 +44,70 @@ export interface Definition<
    * when a run that was waiting carries on, and a line outside one runs again
    * every time the job resumes.
    */
-  run?: (work: Work<z.infer<State>, z.infer<Input>>) => Promise<Result>;
+  run?: (work: Work<State, Args>) => Promise<Result>;
   /**
-   * What this job is started with, when it is started by hand rather than by
-   * its cron line: a channel command, the API, or `npm run agent`. The shape is
-   * the contract, and a caller that does not fit it is refused before the run
-   * begins rather than halfway through it.
+   * A zod schema for the extra things this job is started with by hand, beyond
+   * the message: the API's JSON, or `npm run agent`. The shape is the
+   * contract, and a caller that does not fit it is refused before the run
+   * begins rather than halfway through it. `work.args` is what it parsed.
    *
-   * A channel sends a fixed envelope, so a job meant to be reachable from one
-   * takes `text` and whichever of `from`, `chat`, `user`, `thread` and
-   * `replyTo` it cares about. See https://chloejs.org/docs/jobs.
+   * Most jobs declare nothing: the message arrives as `work.input` either
+   * way, and a job with no `args` still reads it. A channel sends a fixed
+   * envelope, so a job meant to be reachable from one finds `text` and
+   * whichever of `from`, `chat`, `user`, `thread` and `replyTo` it cares about
+   * there. See https://chloejs.org/docs/jobs.
    *
    * A job with a cron line and a required field cannot run on that line, so
    * give those fields a default.
    */
-  input?: Input;
+  args?: z.ZodType<Args>;
   /**
-   * Plain messages, with no command, that this job answers instead of the
-   * agent's chat: `answers: (text) => text.includes("https://a.co/")`. A
-   * channel that sees one starts the job with the whole message as `text`.
-   * Code, not a model: it is asked of every message, so it has to be quick and
-   * certain. The first job that says yes gets the message.
+   * A zod schema for the shared store every step can read and write. `work.state`
+   * starts as what it parses `{}` into, so a field with a default starts filled.
+   * It survives a pause.
    */
-  answers?: (text: string) => boolean;
+  state?: z.ZodType<State>;
   /**
-   * What a finished run did, in one line, from what `run` returned: "15 sites,
-   * all up". It is what the overview shows. A job without one shows nothing
-   * there, unless it returned a string.
+   * What to say about what `run` returned, in full: a chat is sent it whole,
+   * and the overview shows its first line. A job without one says what it
+   * returned when that is a string, and shows no line otherwise.
    */
-  summary?: (result: Result) => string;
-  /**
-   * What a chat is sent when this job was started from one, from what `run`
-   * returned. Whole, not cut to one line. The summary when unsaid.
-   */
-  reply?: (result: Result) => string;
-  /** The shared store every step can read and write. It survives a pause. */
-  state?: State;
-  timezone?: string;
-  /** When this job should not run on the agent's own model. */
-  model?: string;
-  /** One line on what it does, shown beside the id. */
-  description?: string;
+  response?: (result: Result) => string;
 }
 
-/** Only here so a job file is type checked as it is written. */
+/**
+ * Only here so a job file is type checked as it is written.
+ *
+ * What to send is an `id` and a `description`, and then one of `run` or
+ * `markdown`, never both:
+ *
+ * ```ts
+ * export default defineJob({
+ *   id: "hello",
+ *   description: "Says hello.",
+ *   run: async (work) => work.step("say hello", () => "hello"),
+ * });
+ * ```
+ *
+ * A job that returns facts instead of words says what they mean in `response`,
+ * once for the chat and the overview both:
+ *
+ * ```ts
+ * export default defineJob({
+ *   id: "site-check",
+ *   description: "Asks every site and says which are down.",
+ *   run: async (work) => ({ checked: 12, down: ["a.co"] }),
+ *   response: (r) => (r.down.length === 0 ? `All ${r.checked} sites up.` : `${r.down.join(", ")} down.`),
+ * });
+ * ```
+ *
+ * Every key is on `JobConfig`, a line each saying what it does, and the editor
+ * lists them and checks them as the object is written.
+ */
 export function defineJob<
-  State extends z.ZodType = z.ZodType<Record<string, unknown>>,
+  State = Data,
   Result = unknown,
-  Input extends z.ZodType = z.ZodType<Record<string, unknown>>,
->(definition: Definition<State, Result, Input>): Definition<State, Result, Input> {
+  Args = Data,
+>(definition: JobConfig<State, Result, Args>): JobConfig<State, Result, Args> {
   return definition;
 }

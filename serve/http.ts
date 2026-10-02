@@ -43,7 +43,7 @@ import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "./alerts.ts";
 import { docsPage, type RouteDoc, sitePage } from "./site.ts";
 import { receive } from "#chloe/channels/shared";
-import { answer, checkInput, parkedRuns } from "#chloe/core/steps";
+import { answer, checkArgs, parkedRuns } from "#chloe/core/steps";
 
 /**
  * Where this server listens. Loopback, and one port for the agents, the API
@@ -425,8 +425,8 @@ export const routes: Route[] = [
       // callers cannot land in each other's conversation.
       const token = who?.kind === "token";
       const under = token && thread ? `${agent.name}/api-${thread}` : (thread ?? "");
-      // The same path as every channel's message, so a /command or a message a
-      // job answers goes to that job here too. Who may call this is already
+      // The same path as every channel's message, so a /command, or a reply
+      // that is one, goes to that job here too. Who may call this is already
       // settled by the login or the token, so there is no allowFrom.
       // Somebody signed in with a thread is the page's own chat, which the api
       // channel's settings are not for.
@@ -491,7 +491,7 @@ export const routes: Route[] = [
       // and not awaited: a caller that sent the wrong thing would otherwise get
       // "started" and have to go and read a failed run to find out it was not.
       try {
-        checkInput(job, sent);
+        checkArgs(job, sent);
       } catch (error) {
         return json(response, { error: (error as Error).message }, 400);
       }

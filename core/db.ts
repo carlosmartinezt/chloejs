@@ -58,8 +58,16 @@ added("runs", "state", "text");
 added("runs", "parked", "text");
 // One line saying what the run did, for the overview. A job writes its own.
 added("runs", "summary", "text");
-// What the run was started with, when it was started by hand. Kept whole so a
-// run that parks for a person comes back to the same input it began with.
+// A job's `args` and `work.input` were once columns called input and message.
+if (!has("runs", "args") && has("runs", "input")) {
+  db.exec("alter table runs rename column input to args");
+  if (has("runs", "message")) db.exec("alter table runs rename column message to input");
+}
+// What the run was started with, as checked against the job's `args` shape.
+// Kept whole so a run that parks for a person comes back to the same args.
+added("runs", "args", "text");
+// Where the run was started from and what was said, as JSON: `work.input`.
+// Kept for the same reason, even when the job declares no `args` shape.
 added("runs", "input", "text");
 // The job this run was, or null for a turn somebody started by talking to it.
 // `source` is then only the channel it came in on.
@@ -69,9 +77,9 @@ if (added("runs", "job", "text")) {
   db.exec(`
     update runs set job = source,
       source = case
-        when json_valid(input) and json_extract(input, '$.from') = 'telegram' then 'telegram'
-        when json_valid(input) and json_extract(input, '$.from') = 'terminal' then 'terminal'
-        when json_valid(input) and coalesce(json_extract(input, '$.from'), '') != '' then 'api'
+        when json_valid(args) and json_extract(args, '$.from') = 'telegram' then 'telegram'
+        when json_valid(args) and json_extract(args, '$.from') = 'terminal' then 'terminal'
+        when json_valid(args) and coalesce(json_extract(args, '$.from'), '') != '' then 'api'
         else 'schedule'
       end
     where kind = 'job' and source != 'eval'
@@ -112,9 +120,14 @@ export function addCommit(runId: string, commit: RunCommit): void {
   );
 }
 
+/** Whether the table has the column. */
+function has(table: string, column: string): boolean {
+  return Boolean(db.prepare("select 1 from pragma_table_info(?) where name = ?").get(table, column));
+}
+
 /** Adds the column when it is missing, and says whether it did. */
 function added(table: string, column: string, declaration: string): boolean {
-  const there = db.prepare("select 1 from pragma_table_info(?) where name = ?").get(table, column);
+  const there = has(table, column);
   if (!there) db.exec(`alter table ${table} add column ${column} ${declaration}`);
   return !there;
 }

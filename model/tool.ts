@@ -13,14 +13,17 @@ export interface Tool<Input = any> {
   execute: (input: Input) => Promise<unknown> | unknown;
 }
 
-/** The type of `execute`'s argument comes from the schema. */
-export function tool<Schema extends z.ZodType>(definition: {
+/** What tool() is given: a schema for its arguments, and the one call it makes. */
+export interface ToolConfig<Input = any> {
   id: string;
   description: string;
-  inputSchema: Schema;
-  execute: (input: z.infer<Schema>) => Promise<unknown> | unknown;
-}): Tool<z.infer<Schema>> {
-  return definition as Tool<z.infer<Schema>>;
+  inputSchema: z.ZodType<Input>;
+  execute: (input: Input) => Promise<unknown> | unknown;
+}
+
+/** The type of `execute`'s argument comes from the schema. */
+export function tool<Input = any>(definition: ToolConfig<Input>): Tool<Input> {
+  return definition;
 }
 
 /** Keyed by the name the model calls them by. */

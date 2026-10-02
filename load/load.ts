@@ -16,13 +16,13 @@ import { MEMORIES, ROOT, setAgentDirs } from "#chloe/core/paths";
 import { declareSettings, settings as configured, type Declared } from "#chloe/core/settings";
 import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown";
 import { parse } from "#chloe/timer/cron";
-import type { Definition as JobFile } from "./job.ts";
+import type { JobConfig } from "./job.ts";
 import type { Tool, Tools } from "#chloe/model/tool";
 import { memoryTools } from "#chloe/model/tools/memory";
 import { ownFiles } from "#chloe/model/tools/own_files";
 import { runScripts } from "#chloe/model/tools/run_script";
 import { makeRepo } from "#chloe/services/historyService";
-import type { Work } from "#chloe/core/steps";
+import { work, type Data, type Result as RunResult, type Work } from "#chloe/core/steps";
 
 export const CONFIG = `${ROOT}/chloe.config.ts`;
 
@@ -54,7 +54,7 @@ export interface Home {
 export type Binding = (agent: Home) => Tools;
 
 /** What defineAgent is given. */
-export interface Definition {
+export interface AgentConfig {
   /** What the run history, its memory and its pages are filed under. Do not change it once it has run. */
   name: string;
   /** What the page calls it, when that is not its name: "C.C.". Free to change. */
@@ -94,19 +94,20 @@ export interface Definition {
    */
   tools?: (Tool | Tools | Binding)[];
   /** Each job: one imported, or markdownJob("jobs/<id>.md") for one that is only a prompt. */
-  jobs?: (JobFile<any, any> | MarkdownJob)[];
+  jobs?: (JobConfig<any, any, any> | MarkdownJob)[];
   /** Each way in: `[telegramChannel({ ... }), apiChannel()]`. Each one carries its own name. */
   channels?: Channel[];
   /** Times round the tool loop before a turn is stopped. */
   maxSteps?: number;
 }
 
-export interface Defined extends Definition {
+/** An agent config with its folder worked out: what defineAgent returns and the loader reads. */
+export interface Defined extends AgentConfig {
   folder: string;
 }
 
 /** Declares an agent. List it in chloe.config.ts for it to run. */
-export function defineAgent(definition: Definition): Defined {
+export function defineAgent(definition: AgentConfig): Defined {
   if (definition.folder) return { ...definition, folder: definition.folder };
   // [0] is this function, [1] is whoever called it.
   const caller = getCallSites()[1]?.scriptName ?? "";
@@ -211,22 +212,19 @@ export interface Job {
   /** A job is one of these two and never both. */
   prompt: string;
   /** The job, when it is code rather than a prompt. */
-  run?: (work: Work<Record<string, unknown>>) => Promise<unknown>;
-  /** One line from what `run` returned. See defineJob. */
-  summary?: (result: unknown) => string;
-  /** What a chat is sent, from what `run` returned. See defineJob. */
-  reply?: (result: unknown) => string;
-  /** Plain messages this job answers instead of the agent's chat. See defineJob. */
-  answers?: (text: string) => boolean;
+  run?: (work: Work<Data>) => Promise<unknown>;
+  /** What to say about what `run` returned. See defineJob. */
+  response?: (result: unknown) => string;
   /**
    * The files it is written in, inside the agent's folder, words first. A
-   * job imported from code is found by its id: jobs/<id>.ts and jobs/<id>.md.
+   * job imported from code is found by its id, jobs/<id>.ts and jobs/<id>.md,
+   * and has none listed when its file is named anything else.
    */
   files: string[];
   /** The shape of that job's state, when it keeps any. */
   state?: z.ZodType;
   /** The shape of what starting it by hand may send. See job.ts. */
-  input?: z.ZodType;
+  args?: z.ZodType;
 }
 
 /** Tools the runtime brings, switched on per agent: `features: { selfImprovement: true }`. */
@@ -345,7 +343,7 @@ export interface ChannelRoute {
  * One agent as the runtime holds it: the definition with its instructions
  * read, its tools bound, its skills loaded and its jobs resolved.
  */
-export interface Agent extends Omit<Definition, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model"> {
+export interface Agent extends Omit<AgentConfig, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model"> {
   folder: string;
   /** Its own, or `model.default` in settings. Always there once loaded. */
   model: string;
@@ -449,6 +447,38 @@ export async function load(name: string): Promise<Agent> {
   const one = all.get(name);
   if (!one) throw new Error(`chloe.config.ts has no agent called ${JSON.stringify(name)}. It has: ${[...all.keys()].join(", ")}.`);
   return one;
+}
+
+/**
+ * Runs one of an agent's code jobs in this process and waits for it to finish.
+ * `agent` is its name or what `defineAgent` returned, `job` its id or what
+ * `defineJob` returned:
+ *
+ * ```ts
+ * import chloe from "./agent.ts";
+ * import checkWeather from "./jobs/check-weather.ts";
+ * await runJob({ agent: chloe, job: checkWeather, input: { location: "London" } });
+ * ```
+ *
+ * `input` is what the job is started with, as the API would send it: the
+ * message keys go to `work.input` and the rest is checked against the job's
+ * `args`. `source` is "terminal" unless it says. The run is written to the run
+ * history like any other. Loads every agent first, so it is for a script, not
+ * for a loop.
+ */
+export async function runJob(options: {
+  agent: string | { name: string };
+  job: string | { id: string };
+  input?: Record<string, unknown>;
+  source?: string;
+  signal?: AbortSignal;
+}): Promise<RunResult> {
+  const agentName = typeof options.agent === "string" ? options.agent : options.agent.name;
+  const jobId = typeof options.job === "string" ? options.job : options.job.id;
+  const agent = await load(agentName);
+  const job = agent.jobs.find((one) => one.id === jobId);
+  if (!job) throw new Error(`${agentName} has no job called ${JSON.stringify(jobId)}. It has: ${agent.jobs.map((one) => one.id).join(", ")}.`);
+  return work({ agent, job, input: options.input, source: options.source ?? "terminal", signal: options.signal });
 }
 
 /**
@@ -571,7 +601,7 @@ async function skillsIn(dir: string): Promise<Skill[]> {
  * The jobs an agent names, in the order it names them, then every markdown
  * file in its jobs/ that is not already one of those or the words of one.
  */
-export async function jobsOf(agent: string, dir: string, list: (JobFile<any, any> | MarkdownJob)[]): Promise<Job[]> {
+export async function jobsOf(agent: string, dir: string, list: (JobConfig<any, any, any> | MarkdownJob)[]): Promise<Job[]> {
   const jobs: Job[] = [];
   const add = (job: Job) => {
     if (jobs.some((other) => other.id === job.id)) throw new Error(`${agent}: two jobs are called ${job.id}.`);
@@ -618,7 +648,7 @@ async function fromMarkdown(agent: string, dir: string, file: string): Promise<J
   };
 }
 
-async function fromCode(agent: string, dir: string, definition: JobFile<any, any>): Promise<Job> {
+async function fromCode(agent: string, dir: string, definition: JobConfig<any, any, any>): Promise<Job> {
   if (!definition?.id) throw new Error(`${agent} names a job with no id.`);
   const { id } = definition;
   const where = `${agent} job ${id}`;
@@ -627,6 +657,11 @@ async function fromCode(agent: string, dir: string, definition: JobFile<any, any
   }
   if (!definition.run && !definition.markdown) {
     throw new Error(`${where} has neither run nor markdown, so nothing happens when it runs.`);
+  }
+  const unread = ["summary", "reply"].filter((key) => key in definition);
+  if (unread.length) throw new Error(`${where} has ${unread.join(" and ")}, which nothing reads. Say it with \`response\`.`);
+  if ("answers" in definition) {
+    throw new Error(`${where} has answers, which nothing reads. A skill that tells the agent to reply /${id} is what sends it a plain message.`);
   }
 
   const common = {
@@ -651,10 +686,8 @@ async function fromCode(agent: string, dir: string, definition: JobFile<any, any
       prompt: "",
       run: definition.run,
       state: definition.state,
-      input: definition.input,
-      summary: definition.summary,
-      reply: definition.reply,
-      answers: definition.answers,
+      args: definition.args,
+      response: definition.response,
     };
   }
 

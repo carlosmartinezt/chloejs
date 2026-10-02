@@ -28,7 +28,7 @@
 // Slack answers "/something" itself unless the app declares it, so a job is
 // run by a slash command only once it is added under Slash Commands in the
 // app's settings, named like the job with "_" for "-" (commands() in
-// shared.ts lists them). A job that `answers` plain messages needs nothing.
+// shared.ts lists them). A plain message a skill hands to a job needs nothing.
 //
 // A message in a Slack thread is answered in that thread, and each thread is
 // its own conversation. Buttons for a job's question need Interactivity on,

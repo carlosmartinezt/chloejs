@@ -16,19 +16,20 @@
 //   4. "/<job id> ..." runs that job. "_" stands for "-", because some
 //      platforms allow no hyphens in a command. "/models" and "/model" are
 //      the agent's own, and pick which model answers.
-//   5. A message one of the agent's jobs `answers` runs that job.
-//   6. Anything else is a turn, shown the chat's recent conversation.
+//   5. Anything else is a turn, shown the chat's recent conversation. A turn
+//      whose reply is "/<job id> ..." runs that job the same way, with the
+//      text after the command or, when there is none, the message itself.
+//      That is how a skill hands a plain message to a job.
 //
-// Rules 4 and 5 are code, never a model: which job gets a message is a rule
-// somebody can write down. What a job said in a chat is kept in that chat's
-// conversation, so the next turn knows it happened.
+// What a job said in a chat is kept in that chat's conversation, so the next
+// turn knows it happened.
 import type { Agent, ChatHistory, Job } from "#chloe/load/load";
 import type { Attachment } from "#chloe/model/model";
 import { choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices";
 import { forget, remember } from "#chloe/model/memory";
 import { models, UsageLimit } from "#chloe/model/model";
 import { clock, type Fired, ran } from "#chloe/core/clock";
-import { answer, waitingOn, WrongInput } from "#chloe/core/steps";
+import { answer, waitingOn, WrongArgs } from "#chloe/core/steps";
 import { turn } from "#chloe/core/turn";
 
 /** One message, in the words every channel shares. */
@@ -140,7 +141,13 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
   if (!isForAgent(message, rules)) return undefined;
 
   const job = text ? jobFor(agent, text) : undefined;
-  if (job && clock()) return during(working, () => started(agent, message, job.job, job.text));
+  if (job && clock()) {
+    return during(working, async () => {
+      const done = await started(agent, message, job.job, job.text);
+      if (done.runId) kept(message, done.text);
+      return done;
+    });
+  }
 
   return during(working, () => chatted(agent, message, rules, whileWorking.send));
 }
@@ -275,25 +282,17 @@ async function during(working: () => () => void, work: () => Promise<Handled>): 
   }
 }
 
-/** The job a message is for, by command or by a job that answers it, and the text it is started with. */
+/**
+ * The job a command names, and the text after it. Undefined when the text is
+ * not a command, or names no job of this agent's: a message that starts with a
+ * slash then goes on to the model like any other.
+ */
 function jobFor(agent: Agent, text: string): { job: Job; text: string } | undefined {
-  if (text.startsWith("/")) {
-    const [word, ...rest] = text.trim().split(/\s+/);
-    const asked = word.slice(1).split("@")[0].toLowerCase();
-    const job = agent.jobs.find((one) => one.id === asked || one.id === asked.replace(/_/g, "-"));
-    // Not one of this agent's jobs, so it is a message that starts with a
-    // slash, and goes on to be asked of the model like any other.
-    if (job) return { job, text: text.slice(word.length).trim() || rest.join(" ") };
-  }
-  const job = agent.jobs.find((one) => {
-    try {
-      return one.answers?.(text) === true;
-    } catch (error) {
-      console.error(`${agent.name}/${one.id}: its answers check failed:`, (error as Error).message);
-      return false;
-    }
-  });
-  return job && { job, text };
+  if (!text.startsWith("/")) return undefined;
+  const [word] = text.trim().split(/\s+/);
+  const asked = word.slice(1).split("@")[0].toLowerCase();
+  const job = agent.jobs.find((one) => one.id === asked || one.id === asked.replace(/_/g, "-"));
+  return job && { job, text: text.trim().slice(word.length).trim() };
 }
 
 /** What a job said, as a reply: its own reply, its summary line, or what it returned. */
@@ -312,8 +311,8 @@ function kept(message: Incoming, reply: string): void {
 /**
  * A message that is for a job: start that job and hand back what to say.
  *
- * The message becomes the job's input (the text, and who said it and where, so
- * the job can write back to the same chat), the clock runs it, and the reply is
+ * The message becomes the job's message (and its input, for a job that
+ * declares an `input` shape), the clock runs it, and the reply is
  * the job's own words. Three things can come back and each is said plainly: the
  * job ran, the job was already running, or the job failed.
  *
@@ -340,13 +339,12 @@ async function started(agent: Agent, message: Incoming, job: Job, text: string):
       return { text, steps: 0, cost: 0, job: job.id };
     }
     const reply = replyOf(result, job);
-    kept(message, reply);
     return { text: reply, runId: result.runId, steps: result.steps, cost: result.cost, job: job.id };
   } catch (error) {
     // What was sent did not fit the job, which is worth saying where it was
     // sent: it is the message that has to change.
-    const why = error instanceof WrongInput ? error.message : "It is in the logs on the box.";
-    if (!(error instanceof WrongInput)) console.error(`${agent.name}/${job.id}: failed`, error);
+    const why = error instanceof WrongArgs ? error.message : "It is in the logs on the box.";
+    if (!(error instanceof WrongArgs)) console.error(`${agent.name}/${job.id}: failed`, error);
     return { text: `I could not run ${job.id}. ${why}`, steps: 0, cost: 0, job: job.id };
   }
 }
@@ -392,6 +390,13 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, send?: (te
       owner: `${message.channel}:${message.from.id}`,
     });
     await sending;
+    const handed = clock() ? jobFor(agent, result.text.trim()) : undefined;
+    if (handed) {
+      const done = await started(agent, message, handed.job, handed.text || message.text);
+      // The turn already kept the message and the command it replied with.
+      if (message.thread && done.runId) remember(message.thread, "assistant", done.text);
+      return { ...done, steps: result.steps + done.steps, cost: result.cost + done.cost };
+    }
     return { text: result.text || "(no reply)", runId: result.runId, steps: result.steps, cost: result.cost };
   } catch (error) {
     console.error(`${message.channel}: turn failed`, error);

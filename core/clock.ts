@@ -5,7 +5,7 @@ import type { Agent, Job } from "#chloe/load/load";
 import { due, parse } from "#chloe/timer/cron";
 import { turn } from "#chloe/core/turn";
 import { modelFor } from "#chloe/model/choices";
-import { sweep, waitingFor, work, WrongInput } from "#chloe/core/steps";
+import { sweep, waitingFor, work, WrongArgs } from "#chloe/core/steps";
 
 /**
  * What a run came to, in the part both kinds of job have: a job made of code
@@ -103,7 +103,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
       console.log(`${key}: ${how} in ${seconds}s, ${result.steps} steps, $${result.cost.toFixed(4)}`);
       return result;
     } catch (error) {
-      if (error instanceof WrongInput) throw error;
+      if (error instanceof WrongArgs) throw error;
       console.error(`${key}: failed`, error);
       return { failed: (error as Error).message };
     } finally {
