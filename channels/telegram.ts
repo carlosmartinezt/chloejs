@@ -322,7 +322,7 @@ export function listen(
     // reasons, and the first is the one that matters: joining an unaddressed
     // group message onto the mention that follows it would hand the agent a
     // message nobody sent it, so stacking would quietly widen what it sees.
-    // The second is that a stranger's message must not ride in on Carlos's.
+    // The second is that a stranger's message must not ride in on an allowed one's.
     const known = !rules.allowFrom?.length || rules.allowFrom.map(String).includes(String(message.from.id));
     const mine = known && isForAgent(incoming(message, message.from, text), rules);
     if (wait > 0 && text && mine && !message.photo && !message.document) {
