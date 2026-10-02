@@ -1,241 +1,269 @@
 // Every setting, and what it is when nobody says.
 //
-// Three files, read in this order, each one winning over the one before:
+// Two places, read in this order, each one winning over the one before:
 //
-//   the schema below     the default, and the documentation
-//   settings.json        in source control: true for everyone who clones this
-//   settings.local.json  not in source control: true for this box only
+//   the types below    the default, and the documentation
+//   chloe.config.ts    `settings: { ... }` in defineConfig, in source control
+//   the environment    .env beside chloe.config.ts, and the real environment
 //
-// Both are optional. `settings.example.json` beside them is every section at a
-// stand-in value, to copy to `settings.local.json` and fill in, and the suite
-// checks it against this schema so a renamed setting cannot leave it stale.
+// A choice about how the runtime behaves goes in the config, where it is typed
+// and committed. A value that is this box's goes in .env, mode 600: every
+// credential, and anything naming a home directory, a machine or a person.
+// Nothing in source control may hold one of those.
 //
-// An environment variable beats all three, and .env beside chloe.config.ts is
-// read into the environment before any of this. Every setting has one, named
-// CHLOE_ and its path in capitals: CHLOE_CLOUD_URL, CHLOE_RESEND_API_KEY,
-// CHLOE_AGENTS_<agent>_TELEGRAM. So anything that can be set in a file can be
-// set in .env instead, and a box can be configured with no settings file at
-// all. Which of the two a value goes in is a choice: .env is for what belongs
-// to the box rather than to the project, and the workspace key for a Chloe
-// Cloud is only ever there.
+// Every setting also has a name in the environment, CHLOE_ and its path in
+// capitals: CHLOE_CLOUD_URL, CHLOE_RESEND_API_KEY, CHLOE_AGENTS_<agent>_TELEGRAM.
+// So anything the config can say, .env can say instead, and a box can run with
+// nothing declared at all. The workspace key for a Chloe Cloud is only ever
+// there, as CHLOE_API_KEY.
 //
-// A value that names a home directory, a machine, a person, or is a
-// credential (a bot token, a chat id) belongs in settings.local.json or .env,
-// so setting chloe up is filling in one file. Nothing in source control may
-// hold any of them.
-import { readFileSync } from "node:fs";
-import { z } from "zod";
-
+// `state`, `memory` and `node` are read before any config is loaded, at the top
+// of core/paths.ts, so those three are read from the environment and declaring
+// them does nothing. Where things are kept needs a restart either way.
+//
+// The config reaches this file and not the other way round: `loadAll()` calls
+// `declareSettings` before it resolves an agent, so nothing in core/ has to
+// know what an agent or a config is.
 // First, so .env is in the environment before anything reads a setting.
 import { loadEnv } from "./env.ts";
-import { ROOT } from "./root.ts";
 
-const schema = z.object({
-  model: z
-    .object({
-      /**
-       * The model an agent asks when its own `agent.ts` names none. Empty means
-       * every agent names its own, and one that does not is refused as it loads.
-       * Written by `npx chloe setup`, so a new project has the model it chose in
-       * one place rather than in every agent.
-       */
-      default: z.string().default(""),
-      /**
-       * The route for a model whose provider has no entry in `routes`:
-       * "gateway" over HTTP on a key, "claude" through the Claude Code CLI on
-       * a subscription, "codex" through the Codex CLI on a ChatGPT plan. Empty
-       * picks by what the machine has. A route that cannot carry a provider
-       * (claude for an OpenAI model) is passed over for one that can.
-       */
-      via: z.enum(["gateway", "claude", "codex", ""]).default(""),
-      /** The route for one provider's models, like `{ "openai": "codex" }`. */
-      routes: z.record(z.string(), z.enum(["gateway", "claude", "codex"])).default({}),
-      /**
-       * The models somebody may pick for a chat, an agent or a job, on top of
-       * the ones the agents already name. Only those this box can run are
-       * offered.
-       */
-      models: z.array(z.string()).default([]),
-      /** Any gateway that speaks the OpenAI chat-completions shape. */
-      gateway: z.string().default("https://ai-gateway.vercel.sh/v1/chat/completions"),
-      /** The gateway's key. Empty means no gateway, so via "" picks the CLI. */
-      key: z.string().default(""),
-      /** Who marks an eval. Cheaper than the agent being marked, on purpose. */
-      judge: z.string().default("anthropic/claude-sonnet-5"),
-    })
-    .prefault({}),
-  email: z
-    .object({
-      /**
-       * Who carries an agent's mail. Its key is in that provider's own
-       * section. "none" writes the message to the log and sends nothing, which
-       * is what a test run and a box with no mail account use. EMAIL_PROVIDER
-       * overrides it for one run.
-       */
-      provider: z.enum(["resend", "gmail", "none"]).default("resend"),
-    })
-    .prefault({}),
-  /** Sending mail through Resend. */
-  resend: z
-    .object({
-      /** The key an agent's mail is sent with. Without one, nothing is sent. */
-      api_key: z.string().default(""),
-    })
-    .prefault({}),
-  google: z
-    .object({
-      /** The account that gets signed in, and the one a mail tool reads from. */
-      account: z.string().default(""),
-      /**
-       * What this copy signs in with, in whichever of the three forms is in
-       * front of you: the client Google's console downloads, pasted in here as
-       * it is, the path to that file, or its contents as one string.
-       *
-       * It keeps the console's own shape, a `web` or an `installed` section,
-       * because which of the two it is decides where Google will agree to send
-       * its answer and nothing else says which it is.
-       *
-       * There is no passphrase setting beside it: the runtime makes that
-       * itself, in the state folder. Two copies of one passphrase is how a
-       * sign-in that works comes to look like one that has expired.
-       */
-      client: z.union([z.string(), z.looseObject({})]).default(""),
-      /**
-       * Where Google sends its answer. Empty and connected to a dashboard, the
-       * dashboard catches it and the sign-in finishes on its own. Empty and not
-       * connected, the answer goes to a port on this machine that the person's
-       * browser cannot reach, so they paste the address back instead.
-       */
-      callback: z.string().default(""),
-      /** The gog program to use. Empty means find one, or fetch one into the state folder. */
-      gog: z.string().default(""),
-      /** Which gog release to fetch when this machine has none new enough. */
-      version: z.string().default(""),
-      /** The Analytics service account's key, handed to scripts as GA_KEY_FILE. */
-      GA_KEY_FILE: z.string().default(""),
-    })
-    .prefault({}),
-  /** Mail sent when somebody signs in from an address this copy has not seen. */
-  alerts: z
-    .object({
-      /** Where it goes. Empty means nothing is sent, and the sign-in is still recorded. */
-      email_to: z.string().default(""),
-      /** The From line, e.g. "Chloe <info@example.com>". */
-      email_from: z.string().default(""),
-    })
-    .prefault({}),
+/**
+ * How a model is reached. "gateway" over HTTP on a key, "claude" through the
+ * Claude Code CLI on a subscription, "codex" through the Codex CLI on a ChatGPT
+ * plan. The list is also what a value out of the environment is checked against,
+ * so the words and the type cannot disagree.
+ */
+export const ROUTES = ["gateway", "claude", "codex"] as const;
+export type Route = (typeof ROUTES)[number];
+
+/** Who carries an agent's mail. */
+export const EMAIL_PROVIDERS = ["resend", "gmail", "none"] as const;
+export type EmailProvider = (typeof EMAIL_PROVIDERS)[number];
+
+/** One agent's own settings: its channels' tokens, and nothing else. */
+export interface AgentSettings {
+  /** Its Telegram bot's token, from @BotFather. */
+  telegram: string;
+  /** Its Slack app's two tokens: the bot token (xoxb-...) and the app token (xapp-...). */
+  slack: { bot_token: string; app_token: string };
   /**
-   * Each agent's own settings, under the name in its `agent.ts`: its channels'
-   * tokens. Read by that name when the channel starts, so renaming an agent
-   * means renaming its entry here, and the server says so when an entry names
-   * no agent.
+   * Its WhatsApp number: the number's id, a permanent token, and the app secret
+   * that signs what Meta posts in. All three are on the app's pages at
+   * developers.facebook.com.
    */
-  agents: z
-    .record(
-      z.string(),
-      z
-        .object({
-          /** Its Telegram bot's token, from @BotFather. */
-          telegram: z.string().default(""),
-          /** Its Slack app's two tokens: the bot token (xoxb-...) and the app token (xapp-...). */
-          slack: z.object({ bot_token: z.string().default(""), app_token: z.string().default("") }).strict().prefault({}),
-          /**
-           * Its WhatsApp number: the number's id, a permanent token, and the
-           * app secret that signs what Meta posts in. All three are on the
-           * app's pages at developers.facebook.com.
-           */
-          whatsapp: z
-            .object({ phone_number_id: z.string().default(""), token: z.string().default(""), app_secret: z.string().default("") })
-            .strict()
-            .prefault({}),
-        })
-        .strict(),
-    )
-    .default({}),
+  whatsapp: { phone_number_id: string; token: string; app_secret: string };
+}
+
+/** Every setting there is, with every one of them answered. */
+export interface Settings {
+  /** Which model is asked, and how this box reaches it. */
+  model: {
+    /**
+     * The model an agent asks when its own `agent.ts` names none. Empty means
+     * every agent names its own, and one that does not is refused as it loads.
+     * Written by `npx chloe setup`, so a new project has the model it chose in
+     * one place rather than in every agent.
+     */
+    default: string;
+    /**
+     * The route for a model whose provider has no entry in `routes`. Empty
+     * picks by what the machine has. A route that cannot carry a provider
+     * (claude for an OpenAI model) is passed over for one that can.
+     */
+    via: Route | "";
+    /** The route for one provider's models, like `{ openai: "codex" }`. */
+    routes: Record<string, Route>;
+    /**
+     * The models somebody may pick for a chat, an agent or a job, on top of
+     * the ones the agents already name. Only those this box can run are
+     * offered.
+     */
+    models: string[];
+    /** Any gateway that speaks the OpenAI chat-completions shape. */
+    gateway: string;
+    /** The gateway's key. Empty means no gateway, so via "" picks the CLI. */
+    key: string;
+    /** Who marks an eval. Cheaper than the agent being marked, on purpose. */
+    judge: string;
+  };
+  /** How an agent's mail goes out. */
+  email: {
+    /**
+     * Who carries an agent's mail. Its key is in that provider's own
+     * section. "none" writes the message to the log and sends nothing, which
+     * is what a test run and a box with no mail account use. EMAIL_PROVIDER
+     * overrides it for one run.
+     */
+    provider: EmailProvider;
+  };
+  /** Sending mail through Resend. */
+  resend: {
+    /** The key an agent's mail is sent with. Without one, nothing is sent. */
+    api_key: string;
+  };
+  /** Signing in to Google, for the tools that read mail, a calendar or a sheet. */
+  google: {
+    /** The account that gets signed in, and the one a mail tool reads from. */
+    account: string;
+    /**
+     * What this copy signs in with, in whichever of the three forms is in
+     * front of you: the client Google's console downloads, pasted in here as
+     * it is, the path to that file, or its contents as one string.
+     *
+     * It keeps the console's own shape, a `web` or an `installed` section,
+     * because which of the two it is decides where Google will agree to send
+     * its answer and nothing else says which it is.
+     *
+     * There is no passphrase setting beside it: the runtime makes that
+     * itself, in the state folder. Two copies of one passphrase is how a
+     * sign-in that works comes to look like one that has expired.
+     */
+    client: string | Record<string, unknown>;
+    /**
+     * Where Google sends its answer. Empty and connected to a dashboard, the
+     * dashboard catches it and the sign-in finishes on its own. Empty and not
+     * connected, the answer goes to a port on this machine that the person's
+     * browser cannot reach, so they paste the address back instead.
+     */
+    callback: string;
+    /** The gog program to use. Empty means find one, or fetch one into the state folder. */
+    gog: string;
+    /** Which gog release to fetch when this machine has none new enough. */
+    version: string;
+    /** The Analytics service account's key, handed to scripts as GA_KEY_FILE. */
+    GA_KEY_FILE: string;
+  };
+  /** Mail sent when somebody signs in from an address this copy has not seen. */
+  alerts: {
+    /** Where it goes. Empty means nothing is sent, and the sign-in is still recorded. */
+    email_to: string;
+    /** The From line, e.g. "Chloe <info@example.com>". */
+    email_from: string;
+  };
+  /**
+   * Each agent's own settings, under the name in its `agent.ts`. Read by that
+   * name when the channel starts, so renaming an agent means renaming its entry
+   * here, and the server says so when an entry names no agent.
+   */
+  agents: Record<string, AgentSettings>;
   /**
    * Chloe Cloud: a dashboard somewhere else that this runtime connects out to
    * and is shown on. Nothing about how a job runs depends on it. The workspace
    * key is CHLOE_API_KEY in .env and is not a setting: without it there is no
    * connection, and taking it out leaves everything running as it was.
    */
-  cloud: z
-    .object({
-      /** Where the cloud is. CHLOE_CLOUD_URL beats it. Point it at your own by setting this. */
-      url: z.string().default("https://dashboard.chloejs.org"),
-      /** What is sent up as it happens, so the dashboard can show it when this runtime is offline. */
-      sync: z
-        .object({
-          /** Each run's row, as GET /api/runs shows it, when it starts and when it ends. */
-          runs: z.boolean().default(true),
-          /** Every agent's configuration, as GET /api/agents shows it, on connect and on each reload. */
-          agents: z.boolean().default(true),
-        })
-        .prefault({}),
-      /** What the dashboard may ask over the connection. Each is a switch, and a request that needs one that is off is refused. */
-      remote: z
-        .object({
-          /** Read: the agents, the runs, the files, the conversations. */
-          read: z.boolean().default(true),
-          /** Talk to an agent. */
-          chat: z.boolean().default(true),
-          /** Run a job now. */
-          run: z.boolean().default(true),
-          /** Read a memory. Every file is still written to the audit log first, saying it came through the cloud. */
-          memory: z.boolean().default(false),
-          /** Write: a file, a memory file, an answer to a parked job, a model pick. */
-          write: z.boolean().default(false),
-          /**
-           * Let the dashboard hand back the answer to a Google sign-in this
-           * runtime started, so nobody has to paste a code. Nothing else about
-           * Google comes through it, and a code that does not match the sign-in
-           * this runtime is waiting for is refused.
-           */
-          google: z.boolean().default(false),
-        })
-        .prefault({}),
-    })
-    .prefault({}),
+  cloud: {
+    /** Where the cloud is. CHLOE_CLOUD_URL beats it. Point it at your own by setting this. */
+    url: string;
+    /** What is sent up as it happens, so the dashboard can show it when this runtime is offline. */
+    sync: {
+      /** Each run's row, as GET /api/runs shows it, when it starts and when it ends. */
+      runs: boolean;
+      /** Every agent's configuration, as GET /api/agents shows it, on connect and on each reload. */
+      agents: boolean;
+    };
+    /** What the dashboard may ask over the connection. Each is a switch, and a request that needs one that is off is refused. */
+    remote: {
+      /** Read: the agents, the runs, the files, the conversations. */
+      read: boolean;
+      /** Talk to an agent. */
+      chat: boolean;
+      /** Run a job now. */
+      run: boolean;
+      /** Read a memory. Every file is still written to the audit log first, saying it came through the cloud. */
+      memory: boolean;
+      /** Write: a file, a memory file, an answer to a parked job, a model pick. */
+      write: boolean;
+      /**
+       * Let the dashboard hand back the answer to a Google sign-in this
+       * runtime started, so nobody has to paste a code. Nothing else about
+       * Google comes through it, and a code that does not match the sign-in
+       * this runtime is waiting for is refused.
+       */
+      google: boolean;
+    };
+  };
   /** Everything the agents keep: their folders and the run history. Empty means data/ inside the repo. */
-  state: z.string().default(""),
+  state: string;
   /** Where the memories are, one folder per agent. Empty means memory/ inside the state folder. */
-  memory: z.string().default(""),
+  memory: string;
   /** Which node the unit runs. Empty means whichever is on the path at install. */
-  node: z.string().default(""),
-});
-
-/** Every setting there is, as the schema defines it. */
-export type Settings = z.infer<typeof schema>;
-
-function read(name: string): unknown {
-  try {
-    return JSON.parse(readFileSync(`${ROOT}/${name}`, "utf8"));
-  } catch (error) {
-    // Missing is normal: the whole file is optional. Malformed is not, because
-    // silently falling back to the defaults is how a box runs for a week on
-    // settings nobody chose.
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-    throw new Error(`${name} could not be read: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  node: string;
 }
 
-/** One level down, so a file can set model.via without restating model.gateway. */
-function merge(base: Record<string, unknown>, over: Record<string, unknown>): Record<string, unknown> {
-  const out = { ...base };
-  for (const [key, value] of Object.entries(over)) {
-    const mine = out[key];
-    out[key] =
-      value && typeof value === "object" && !Array.isArray(value) && mine && typeof mine === "object" && !Array.isArray(mine)
-        ? { ...(mine as object), ...(value as object) }
-        : value;
-  }
-  return out;
-}
+/**
+ * What every setting is when nobody says. Typed as `Settings`, so a setting
+ * added above without one here does not compile, which is what keeps the two
+ * from drifting.
+ */
+export const DEFAULTS: Settings = {
+  model: {
+    default: "",
+    via: "",
+    routes: {},
+    models: [],
+    gateway: "https://ai-gateway.vercel.sh/v1/chat/completions",
+    key: "",
+    judge: "anthropic/claude-sonnet-5",
+  },
+  email: { provider: "resend" },
+  resend: { api_key: "" },
+  google: { account: "", client: "", callback: "", gog: "", version: "", GA_KEY_FILE: "" },
+  alerts: { email_to: "", email_from: "" },
+  agents: {},
+  cloud: {
+    url: "https://dashboard.chloejs.org",
+    sync: { runs: true, agents: true },
+    remote: { read: true, chat: true, run: true, memory: false, write: false, google: false },
+  },
+  state: "",
+  memory: "",
+  node: "",
+};
+
+/** One entry of an agent's own settings, when nobody says. */
+const AGENT_DEFAULTS: AgentSettings = {
+  telegram: "",
+  slack: { bot_token: "", app_token: "" },
+  whatsapp: { phone_number_id: "", token: "", app_secret: "" },
+};
+
+/**
+ * A setting holding entries whose names somebody chose, and what one entry is
+ * when nobody says. A variable's name is split on these fields, and an entry is
+ * filled in from this, so `CHLOE_AGENTS_TEMPO_TELEGRAM` leaves tempo's Slack
+ * tokens empty rather than missing. `*` means an entry is one plain value.
+ */
+const RECORDS: Record<string, unknown> = {
+  agents: AGENT_DEFAULTS,
+  "model.routes": "*",
+};
+
+/**
+ * The values a setting is allowed to take, where it is not any string. Read off
+ * the same lists the types come from. `*` stands for a record's entries.
+ */
+const ONE_OF: Record<string, readonly string[]> = {
+  "model.via": [...ROUTES, ""],
+  "model.routes.*": ROUTES,
+  "email.provider": EMAIL_PROVIDERS,
+};
+
+/** A value, or the same shape with every part of it optional. */
+type Deep<T> = T extends string | number | boolean | unknown[] ? T : { [K in keyof T]?: Deep<T[K]> };
+
+/**
+ * What `chloe.config.ts` may declare: any part of the shape above, as deep as
+ * it goes. What it leaves out is the default, and the environment beats
+ * whatever it says.
+ */
+export type Declared = { [K in keyof Settings]?: Deep<Settings[K]> };
 
 /**
  * Every setting can also be set in the environment, under `CHLOE_` and its
  * path in capitals: `CHLOE_CLOUD_URL` for `cloud.url`, `CHLOE_RESEND_API_KEY`
  * for `resend.api_key`, `CHLOE_AGENTS_CHLOE_TELEGRAM` for that agent's token.
- * The name is worked out from the schema, so a setting added below has one
+ * The name is worked out from the shape above, so a setting added there has one
  * without anybody writing it down.
  */
 export function nameInEnv(path: string[]): string {
@@ -278,11 +306,80 @@ export function settingInEnv(env: Env, path: string[]): string | undefined {
 const isGroup = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 
+/** Whether a path holds entries somebody named, like `agents` or `model.routes`. */
+function recordAt(path: string[]): unknown {
+  return RECORDS[path.join(".")];
+}
+
 /**
- * The text as the type the setting already has, because the environment only
- * ever holds text. A boolean that is neither true nor false is refused rather
- * than read as false, which is the reading that silently opens a switch.
+ * The defaults with what was said written over them, one setting at a time, so
+ * declaring `model.via` leaves `model.gateway` alone. A record's entry is filled
+ * in from the shape of one entry, so what an entry does not say is empty rather
+ * than missing.
  */
+function fill(defaults: unknown, said: unknown, path: string[] = []): unknown {
+  const entry = recordAt(path);
+  if (entry !== undefined) {
+    if (!isGroup(said)) return isGroup(defaults) ? { ...defaults } : {};
+    const out: Record<string, unknown> = { ...(isGroup(defaults) ? defaults : {}) };
+    for (const [name, value] of Object.entries(said)) {
+      out[name] = entry === "*" ? value : fill(entry, value, [...path, "*"]);
+    }
+    return out;
+  }
+  if (!isGroup(defaults)) return said === undefined ? defaults : said;
+  const out: Record<string, unknown> = {};
+  for (const [key, was] of Object.entries(defaults)) {
+    out[key] = fill(was, isGroup(said) ? said[key] : undefined, [...path, key]);
+  }
+  return out;
+}
+
+/**
+ * What is wrong with a value, or "" when nothing is. Checks three things: a key
+ * that names no setting, a value of the wrong kind, and one outside the list of
+ * what that setting may be. `chloe.config.ts` is type checked, so this is for a
+ * value out of the environment and for a config that is not TypeScript.
+ */
+function wrong(defaults: unknown, said: unknown, path: string[] = []): string {
+  const where = path.join(".") || "settings";
+  const allowed = ONE_OF[path.join(".")];
+  if (allowed && !(typeof said === "string" && allowed.includes(said))) {
+    return `${where} is ${JSON.stringify(said)}, and it is one of ${allowed.map((one) => JSON.stringify(one)).join(", ")}.`;
+  }
+  const entry = recordAt(path);
+  if (entry !== undefined) {
+    if (!isGroup(said)) return `${where} holds an entry per name, so it is an object.`;
+    for (const [name, value] of Object.entries(said)) {
+      const found = entry === "*" ? wrong("", value, [...path, "*"]) : wrong(entry, value, [...path, "*"]);
+      // Every mention of it, because the message names the entry twice: what is
+      // wrong, and what there was to set.
+      if (found) return found.split(`${path.join(".")}.*`).join(`${path.join(".")}.${name}`);
+    }
+    return "";
+  }
+  if (isGroup(defaults)) {
+    if (!isGroup(said)) return `${where} holds more settings, so it is an object.`;
+    for (const [key, value] of Object.entries(said)) {
+      if (!(key in defaults)) {
+        return `${where}.${key} is not a setting. Under ${where} there is ${Object.keys(defaults).join(", ")}.`;
+      }
+      const found = wrong(defaults[key], value, [...path, key]);
+      if (found) return found;
+    }
+    return "";
+  }
+  if (said === undefined) return "";
+  // google.client is the one setting that is a string or the file's own shape.
+  if (path.join(".") === "google.client") {
+    return typeof said === "string" || isGroup(said) ? "" : `${where} is the client file, its path, or its contents as one string.`;
+  }
+  if (Array.isArray(defaults)) {
+    return Array.isArray(said) && said.every((one) => typeof one === "string") ? "" : `${where} is a list of words.`;
+  }
+  return typeof said === typeof defaults ? "" : `${where} is ${typeof defaults === "boolean" ? "true or false" : `a ${typeof defaults}`}.`;
+}
+
 function asTyped(name: string, was: unknown, text: string): unknown {
   if (typeof was === "boolean") {
     if (["true", "yes", "on", "1"].includes(text.trim().toLowerCase())) return true;
@@ -321,26 +418,23 @@ function leaves(group: Record<string, unknown>, path: string[] = []): string[][]
 
 /**
  * The fields one entry of a record has, like an agent's `telegram` and
- * `slack.bot_token`, found by asking the schema to fill an entry in. A record
- * whose entries are plain values, like `model.routes`, has none, and then
- * everything after the prefix is the key.
+ * `slack.bot_token`, read off the shape of one entry in RECORDS. A record whose
+ * entries are plain values, like `model.routes`, has none, and then everything
+ * after the prefix is the key.
  */
 function fieldsOf(path: string[]): string[][] {
-  const found = schema.safeParse(setIn({}, [...path, "probe"], {}));
-  if (!found.success) return [];
-  let at: unknown = found.data;
-  for (const key of [...path, "probe"]) at = (at as Record<string, unknown>)[key];
-  return isGroup(at) ? leaves(at) : [];
+  const entry = recordAt(path);
+  return isGroup(entry) ? leaves(entry) : [];
 }
 
 /**
  * A record's entries out of the environment: `CHLOE_AGENTS_<name>_TELEGRAM`.
  * The field is matched off the end, longest first, so an agent whose name has
  * an underscore in it still reads as one name. The key is lower case, which is
- * what an agent folder and a provider are, unless a settings file already
- * spells it another way.
+ * what an agent folder and a provider are, unless something already spells it
+ * another way.
  */
-function entries(env: Env, path: string[], already: Record<string, unknown>): [string[], unknown][] {
+function entries(env: Env, path: string[], already: Record<string, unknown>, spellings: string[]): [string[], unknown][] {
   const prefix = `${nameInEnv(path)}_`;
   const fields = fieldsOf(path)
     .map((field) => ({ field, tail: `_${field.join("_").toUpperCase()}` }))
@@ -350,21 +444,21 @@ function entries(env: Env, path: string[], already: Record<string, unknown>): [s
     if (!name.startsWith(prefix) || text === undefined) continue;
     const rest = name.slice(prefix.length);
     if (fields.length === 0) {
-      out.push([[...path, named(rest, already)], text]);
+      out.push([[...path, named(rest, already, spellings)], text]);
       continue;
     }
     const one = fields.find(({ tail }) => rest.endsWith(tail) && rest.length > tail.length);
     if (!one) {
       throw new Error(`${name} names no setting. Under ${path.join(".")} a name ends in ${fields.map(({ tail }) => tail).join(", ")}.`);
     }
-    out.push([[...path, named(rest.slice(0, -one.tail.length), already), ...one.field], text]);
+    out.push([[...path, named(rest.slice(0, -one.tail.length), already, spellings), ...one.field], text]);
   }
   return out;
 }
 
-/** The group at a path in the settings files, or nothing there. */
-function groupIn(files: Record<string, unknown>, path: string[]): Record<string, unknown> {
-  let at: unknown = files;
+/** The group at a path in what was declared, or nothing there. */
+function groupIn(declared: Record<string, unknown>, path: string[]): Record<string, unknown> {
+  let at: unknown = declared;
   for (const key of path) {
     if (!isGroup(at)) return {};
     at = at[key];
@@ -373,15 +467,16 @@ function groupIn(files: Record<string, unknown>, path: string[]): Record<string,
 }
 
 /**
- * The key as a settings file spells it when one does, matching on capitals and
+ * The key as something that already knows it spells it, matching on capitals and
  * treating a dash as an underscore, because a variable's name can hold neither.
- * Otherwise it is what was written, in lower case: an agent whose folder has a
- * dash in it and is in no settings file is named in the environment with an
- * underscore instead, and the server says the entry names no agent.
+ * Two places know: the config, where the key may already be written out, and the
+ * `spellings` handed in, which is how an agent called `test-agent` is found by
+ * CHLOE_AGENTS_TEST_AGENT_TELEGRAM. Otherwise it is what was written, in lower
+ * case, and the server says the entry names no agent.
  */
-function named(from: string, already: Record<string, unknown>): string {
+function named(from: string, already: Record<string, unknown>, spellings: string[]): string {
   const same = (key: string) => key.toUpperCase().replace(/-/g, "_") === from;
-  return Object.keys(already).find(same) ?? from.toLowerCase();
+  return Object.keys(already).find(same) ?? spellings.find(same) ?? from.toLowerCase();
 }
 
 /**
@@ -389,7 +484,7 @@ function named(from: string, already: Record<string, unknown>): string {
  * shape comes from the schema's own defaults, so every setting is here and the
  * text is read as the type that setting has.
  */
-export function fromEnv(env: Env, files: Record<string, unknown>): [string[], unknown][] {
+export function fromEnv(env: Env, declared: Record<string, unknown>, spellings: string[] = []): [string[], unknown][] {
   const out: [string[], unknown][] = [];
   const walk = (group: Record<string, unknown>, path: string[]): void => {
     for (const [key, was] of Object.entries(group)) {
@@ -397,7 +492,7 @@ export function fromEnv(env: Env, files: Record<string, unknown>): [string[], un
       // A group the schema fills nothing into is a record: its keys are names
       // somebody chose, like an agent's, so they are read off the variables.
       if (isGroup(was) && Object.keys(was).length === 0) {
-        out.push(...entries(env, here, groupIn(files, here)));
+        out.push(...entries(env, here, groupIn(declared, here), spellings));
         continue;
       }
       if (isGroup(was)) {
@@ -408,46 +503,72 @@ export function fromEnv(env: Env, files: Record<string, unknown>): [string[], un
       if (text !== undefined) out.push([here, asTyped(nameInEnv(here), was, text)]);
     }
   };
-  walk(schema.parse({}) as Record<string, unknown>, []);
+  walk(DEFAULTS as unknown as Record<string, unknown>, []);
   return out;
 }
 
 /**
- * The two files merged, the environment over the top, and the lot checked.
- * Separate from reading them so it can be tested without a disk, and so the
- * order that wins is one readable line.
+ * What was declared, the environment over the top, and the lot checked. Takes
+ * the declaration rather than reading it, so it can be tested without a disk
+ * and so the order that wins is one readable line.
  */
-export function readSettings(tracked: unknown, local: unknown, env: Env = process.env): Settings {
-  const merged = merge(tracked as Record<string, unknown>, local as Record<string, unknown>);
-  // Last, so a variable beats both files, and one setting at a time: setting
+export function readSettings(declared: unknown, env: Env = process.env, spellings: string[] = []): Settings {
+  // Cloned, because the declaration belongs to whoever wrote chloe.config.ts
+  // and the environment is written in on top of it.
+  const merged = structuredClone(declared ?? {}) as Record<string, unknown>;
+  // Last, so a variable beats the config, and one setting at a time: setting
   // cloud.url in the environment leaves the rest of cloud alone.
-  for (const [path, value] of fromEnv(env, merged)) setIn(merged, path, value);
+  for (const [path, value] of fromEnv(env, merged, spellings)) setIn(merged, path, value);
   // Said rather than passed over, because a key that silently stops being read
   // is a runtime that silently leaves its dashboard.
   if ((merged.cloud as Record<string, unknown> | undefined)?.key !== undefined) {
-    throw new Error("settings: cloud.key is now CHLOE_API_KEY in .env, beside chloe.config.ts. Move it and take it out of the settings file.");
+    throw new Error("settings: cloud.key is CHLOE_API_KEY in .env, beside chloe.config.ts. Move it and take it out of the config.");
   }
-  const found = schema.safeParse(merged);
-  if (!found.success) throw new Error(`settings are not valid:\n${z.prettifyError(found.error)}`);
-  return found.data;
+  const problem = wrong(DEFAULTS, merged);
+  if (problem) throw new Error(`settings are not valid:\n${problem}`);
+  return fill(DEFAULTS, merged) as Settings;
+}
+
+/** What `chloe.config.ts` declared, kept so the environment can be read again over it. */
+let declared: Declared = {};
+
+/** The agent names of the last declaration, so a variable can find one with a dash in it. */
+let spellings: string[] = [];
+
+/**
+ * The settings in force: the schema's defaults, then what `chloe.config.ts`
+ * declares, then the environment. Read a value when it is needed rather than
+ * keeping a copy, because `declareSettings` and `reloadSettings` both write
+ * into this same object.
+ *
+ * Until the first `declareSettings`, which is the first `loadAll()`, this is the
+ * defaults and the environment. `state`, `memory` and `node` are read in that
+ * window, which is why those three are environment only.
+ */
+export const settings: Settings = readSettings({});
+
+/**
+ * The settings `chloe.config.ts` declares, read with the environment over them
+ * into the same `settings` everything already holds. Called by `loadAll()`
+ * before any agent is resolved. `agents` is their names, so a variable can find
+ * one with a dash in it, which a variable's name cannot hold. Throws, and
+ * changes nothing, when what it is given is not valid.
+ */
+export function declareSettings(said: Declared | undefined, agents: string[] = []): void {
+  const found = readSettings(said ?? {}, process.env, agents);
+  declared = said ?? {};
+  spellings = agents;
+  Object.assign(settings, found);
 }
 
 /**
- * The settings in force: the schema's defaults, then `settings.json`, then
- * `settings.local.json`. One value can still be beaten by an environment
- * variable, through `setting()`. The server calls `reloadSettings` when either
- * file changes, so read a value when it is needed rather than keeping a copy.
- * `state` and `memory` are the exceptions: where things are kept needs a restart.
- */
-export const settings: Settings = readSettings(read("settings.json"), read("settings.local.json"));
-
-/**
- * Read both files again, into the same `settings` everything already holds.
- * Throws, and changes nothing, when the files are not valid.
+ * Read .env again, and the declared settings with it, into the same `settings`.
+ * The server calls this when .env changes. Throws, and changes nothing, when
+ * what comes out is not valid.
  */
 export function reloadSettings(): void {
   loadEnv();
-  Object.assign(settings, readSettings(read("settings.json"), read("settings.local.json")));
+  Object.assign(settings, readSettings(declared, process.env, spellings));
 }
 
 /** The entries in `agents` that name none of these agents: usually one that was renamed. */

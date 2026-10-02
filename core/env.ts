@@ -1,9 +1,11 @@
 // The .env file beside chloe.config.ts, read into the environment.
 //
-// This is where a credential that belongs to the box rather than to the project
-// goes: the workspace key from a Chloe Cloud, a gateway key, whatever a script
-// needs. It is not in source control, and the settings files never hold any of
-// them.
+// This is where a value that belongs to the box rather than to the project goes:
+// every credential, and anything naming a home directory, a machine or a person.
+// It is not in source control, and chloe.config.ts never holds one of them.
+//
+// Every setting can be set here, under CHLOE_ and its path in capitals, and what
+// is here beats what the config declares.
 //
 // A variable that was already in the real environment wins, so
 // `CHLOE_API_KEY=... npx chloe` still beats the file. Read again when the file

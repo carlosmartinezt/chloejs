@@ -43,15 +43,16 @@ else
   }
 fi
 
-# The settings are JSON, so they are read by node rather than sourced. Asking
-# the same module the runtime asks means this script cannot disagree with it
-# about a default. An empty setting comes back as "-" so that read gets two
-# fields either way.
+# A setting is declared in chloe.config.ts, which is TypeScript, so it is read by
+# node rather than sourced. Asking the same module the runtime asks means this
+# script cannot disagree with it about a default. An empty setting comes back as
+# "-" so that read gets two fields either way.
 SETTINGS=$(cd "$ROOT" && node --conditions=chloe-source --input-type=module -e '
-  const { settings } = await import("@chloejs/core");
+  const { loadSettings, settings } = await import("@chloejs/core");
+  await loadSettings();
   console.log(settings.node || "-", settings.model.via || "-");
 ') || {
-  echo "settings.json could not be read. The error is above." >&2
+  echo "the settings could not be read. The error is above." >&2
   exit 1
 }
 read -r NODEBIN MODELVIA <<<"$SETTINGS"
@@ -70,8 +71,8 @@ if command -v claude >/dev/null 2>&1; then CLAUDEBIN=":$(dirname "$(command -v c
   exit 1
 }
 
-# Credentials live in settings.local.json, so nobody else on the box reads it.
-[ ! -e "$ROOT/settings.local.json" ] || chmod 600 "$ROOT/settings.local.json"
+# Credentials live in .env, so nobody else on the box reads it.
+[ ! -e "$ROOT/.env" ] || chmod 600 "$ROOT/.env"
 
 mkdir -p ~/.config/systemd/user
 

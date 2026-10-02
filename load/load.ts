@@ -13,7 +13,7 @@ import { getCallSites } from "node:util";
 import type { z } from "zod";
 
 import { MEMORIES, ROOT, setAgentDirs } from "#chloe/core/paths";
-import { settings as configured } from "#chloe/core/settings";
+import { declareSettings, settings as configured, type Declared } from "#chloe/core/settings";
 import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown";
 import { parse } from "#chloe/timer/cron";
 import type { Definition as JobFile } from "./job.ts";
@@ -117,12 +117,22 @@ export function defineAgent(definition: Definition): Defined {
   return { ...definition, folder: dirname(file) };
 }
 
-/** What chloe.config.ts exports: every agent this box runs. */
+/** What chloe.config.ts exports: every agent this box runs, and how it behaves. */
 export interface Config {
+  /** Every agent to run. One that is not on this list does not exist. */
   agents: Defined[];
+  /**
+   * Any setting, as deep as it goes: the model to ask, who carries the mail,
+   * what a dashboard may do. Everything it leaves out is the default, and an
+   * environment variable beats whatever it says.
+   *
+   * This file is in source control, so a credential goes in .env instead, as
+   * CHLOE_ and the setting's path in capitals.
+   */
+  settings?: Declared;
 }
 
-/** The default export of chloe.config.ts: every agent to run. */
+/** The default export of chloe.config.ts: every agent to run, and the settings. */
 export function defineConfig(config: Config): Config {
   return config;
 }
@@ -382,15 +392,8 @@ function shown(folder: string): string {
 
 /** Every agent chloe.config.ts lists, by name. */
 export async function loadAll(): Promise<Map<string, Agent>> {
-  generation++;
-  if (!existsSync(CONFIG)) throw new Error(`There is no chloe.config.ts in ${ROOT}. It lists the agents to run.`);
-  const module = (await import(pathToFileURL(CONFIG).href).catch((error: unknown) => {
-    // A job file runs as it is imported, so a mistake in one (an
-    // every(7).minutes) is thrown from here.
-    throw new Error(`chloe.config.ts: ${error instanceof Error ? error.message : String(error)}`);
-  })) as { default?: Config };
-  const listed = module.default?.agents;
-  if (!Array.isArray(listed)) throw new Error("chloe.config.ts does not export defineConfig({ agents: [...] }) as its default.");
+  const { config, listed } = await readConfig();
+  declareSettings(config.settings, listed.map((one) => one?.name).filter(Boolean));
 
   const folders = new Map<string, string>();
   const memories = new Map<string, string>();
@@ -406,6 +409,33 @@ export async function loadAll(): Promise<Map<string, Agent>> {
   const all = new Map<string, Agent>();
   for (const one of listed) all.set(one.name, await resolveAgent(one));
   return all;
+}
+
+/**
+ * `chloe.config.ts`, imported fresh, and the agents it lists. Everything outside
+ * the runtime is imported again each time, so an edit is read.
+ */
+async function readConfig(): Promise<{ config: Config; listed: Defined[] }> {
+  generation++;
+  if (!existsSync(CONFIG)) throw new Error(`There is no chloe.config.ts in ${ROOT}. It lists the agents to run.`);
+  const module = (await import(pathToFileURL(CONFIG).href).catch((error: unknown) => {
+    // A job file runs as it is imported, so a mistake in one (an
+    // every(7).minutes) is thrown from here.
+    throw new Error(`chloe.config.ts: ${error instanceof Error ? error.message : String(error)}`);
+  })) as { default?: Config };
+  const listed = module.default?.agents;
+  if (!Array.isArray(listed)) throw new Error("chloe.config.ts does not export defineConfig({ agents: [...] }) as its default.");
+  return { config: module.default!, listed };
+}
+
+/**
+ * Only the settings `chloe.config.ts` declares, into the `settings` everything
+ * reads. For a script that needs one before the service is running and has no
+ * reason to load an agent. `loadAll` does this itself.
+ */
+export async function loadSettings(): Promise<void> {
+  const { config, listed } = await readConfig();
+  declareSettings(config.settings, listed.map((one) => one?.name).filter(Boolean));
 }
 
 /** Every agent's name, in the order `chloe.config.ts` lists them. */

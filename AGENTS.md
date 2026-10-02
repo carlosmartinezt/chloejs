@@ -38,8 +38,8 @@ asks is named in the file, it answers in a shape rather than in free text, and
 it shows up as a line with a cost on it. If you cannot point at the line, it
 does not happen.
 
-**Shareable.** Someone should be able to install this, set one line in
-`settings.local.json`, and have it run. Nothing in the runtime names a person, a
+**Shareable.** Someone should be able to install this, put one line in `.env`,
+and have it run. Nothing in the runtime names a person, a
 home directory or a machine. An agent is somebody's own, so a folder outside
 the repo that it uses is a full path written in the agent file that uses it,
 like `const BACKUPS = "/home/you/backups"` in the job that uses it.
@@ -47,41 +47,60 @@ like `const BACKUPS = "/home/you/backups"` in the job that uses it.
 Setting chloe up is `npx chloe setup`, which asks, writes the files, checks that
 the model it was given actually answers, and runs a job. `ops/setup.ts` is that,
 `ops/starter.ts` is the files it writes, and neither is imported by the service.
-By hand it is copying `settings.example.json`, which holds every
-section at a stand-in value, to `settings.local.json` and filling it in.
-Settings are JSON in `settings.json` (in source control) and
-`settings.local.json` (one machine only, mode 600), with every default and its
-one-line explanation in the schema in `core/settings.ts`. A copy with nothing
-worth committing keeps only the local file. The example is checked against the
-schema by the suite, so a renamed setting cannot leave it stale. A credential, a chat id or anything else naming a
-person goes in `settings.local.json`, in a section named for the service it
-belongs to (`resend`, `google`). What belongs to one agent, its channels'
-tokens, goes under `agents` and that agent's name:
-`"agents": { "tempo": { "telegram": "..." } }`, read by the name the agent has
-when the channel starts.
 
-`.env` beside `chloe.config.ts` is the other file, and it holds what belongs to
-the box rather than to the project. `core/env.ts` reads it into the
-environment before any setting is read, and a variable already in the real
-environment wins, so `CHLOE_MODEL_VIA=gateway npx chloe` still beats the file.
+**Two places, and which one a value goes in is the question to ask.** A choice
+about how the runtime behaves goes in `settings` in `chloe.config.ts`, beside the
+agents, where it is typed by `Declared` and in source control. A value that is
+this box's goes in `.env` beside it, mode 600: every credential, and anything
+naming a home directory, a machine or a person. Nothing in source control may
+hold one of those. Every setting is the `Settings` interface in
+`core/settings.ts`, with its one-line explanation on it, and `DEFAULTS` beside it
+is what each one is when nobody says. `DEFAULTS` is typed as `Settings`, so a
+setting added without a default does not compile, which is what keeps the two
+from drifting. Plain types and not a zod schema, because the config half is
+already checked by tsc and the comments then reach the editor of whoever is
+writing the config: zod's inference keeps a comment on a leaf and drops it on a
+group.
+
+`core/env.ts` reads `.env` into the environment before any setting is read, and a
+variable already in the real environment wins, so
+`CHLOE_MODEL_VIA=gateway npx chloe` still beats the file.
+
+What belongs to one agent, its channels' tokens, is under `agents` and that
+agent's name, read by the name the agent has when the channel starts:
+`CHLOE_AGENTS_TEMPO_TELEGRAM`. A name with a dash in it still works, because
+`loadAll` hands the agent names over with the declaration and a variable's name
+cannot hold a dash.
+
+**The config reaches `core/settings.ts` and not the other way round.** The
+exported `settings` is filled in at import from the defaults and the environment,
+and `loadAll()` calls `declareSettings` before it resolves an agent. So nothing
+in `core/` has to know what an agent or a config is, and the one consequence is
+that `state`, `memory` and `node` are read inside that window, at the top of
+`core/paths.ts`, so those three are read from the environment and declaring them
+does nothing.
 
 **Every setting has a name in the environment**, `CHLOE_` and its path in
 capitals: `CHLOE_CLOUD_URL`, `CHLOE_RESEND_API_KEY`,
 `CHLOE_AGENTS_<agent>_TELEGRAM`, `CHLOE_CLOUD_REMOTE_WRITE`. `nameInEnv` works
-it out from the schema, so a setting added below has one without anybody
-writing it down, and `readSettings` merges them over the files, one setting at
-a time. Text is read as the type the setting has: a list on commas, a switch as
-`true` or `false` and refused when it is neither. The ten older names
+it out from `DEFAULTS`, so a setting added there has one without anybody
+writing it down, and `readSettings` merges them over the config, one setting at
+a time. Text is read as the type the default has: a list on commas, a switch as
+`true` or `false` and refused when it is neither. What is left over from a zod
+schema is `wrong()`, which refuses a key that names no setting, a value of the
+wrong kind, and one outside `ONE_OF`, and says what there was to set instead.
+Each enum is one `as const` list that both the type and that check are read off,
+so the words cannot disagree with the type. The ten older names
 (`MODEL_VIA`, `AGENTS_STATE` and the rest) are a map in `core/settings.ts` and
-the name from the schema wins over them. Nothing new goes in that map.
+the name from `nameInEnv` wins over them. Nothing new goes in that map.
 
 A setting is read from `settings`, never from `process.env`: the environment is
 already merged in. `settingInEnv` is for the one place that cares where a value
 came from, a route meant for one run beating a provider's own. The
 workspace key for a Chloe Cloud is only ever there, as `CHLOE_API_KEY`: a
-settings file that names `cloud.key` is refused rather than passed over,
+config that names `cloud.key` is refused rather than passed over,
 because a key that silently stops being read is a runtime that silently leaves
-its dashboard. The server re-reads all three when any of them changes, so a
+its dashboard. The server reads both again when either changes, so a
 setting is read when it is needed, never copied at import.
 
 **Plug and play.** Adding a capability should be writing a file and naming it
@@ -703,7 +722,7 @@ says what a function or file does, takes and returns, and what would surprise
 someone using it. It never says what other product or framework the code
 resembles or came from, never tells the story of how it got this way (that is
 git's job), and never names anybody's accounts, bot names or handles: those
-are read at run time or live in `settings.local.json`.
+are read at run time or live in `.env`.
 
 Comment only where the code cannot say it. A comment that explains a decision,
 a trap, or something that cost someone an hour earns its place. One that

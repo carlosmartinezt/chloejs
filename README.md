@@ -198,35 +198,48 @@ Your code, your models, your machine. One process serves the page, keeps every
 cron line and answers the channels. The runtime's only dependency is zod and its
 state is one SQLite file, so moving machine is copying a folder.
 
-Four files, and you have an agent:
+Three files, and you have an agent:
 
 ```
 package.json           with "type": "module", so node reads your .ts files
-chloe.config.ts        the agents this copy runs
-settings.json          which model, and how to reach it
+chloe.config.ts        the agents this copy runs, and every setting
 your-agent/agent.ts    what the agent is: its jobs, tools and channels
 ```
 
-Settings in source control go in `settings.json`, and anything naming this box
-or anybody, every credential included, goes in `settings.local.json`, mode 600
-and never committed. `settings.example.json` in this repo is every section at a
-stand-in value: copy it and fill it in. Each setting's default and its one line
-of explanation are the schema in `core/settings.ts`, and the table on
-chloejs.org is read out of that file.
+A setting is a choice about how the runtime behaves, so it goes in the config
+with the agents, where it is typed and committed:
 
-Plus `.env` for what belongs to the box rather than the project: the workspace
-key for a dashboard, a gateway key, whatever a script needs. Every setting can
-go there too, under `CHLOE_` and its path in capitals, so a box can be set up
-with no settings file at all:
+```ts
+export default defineConfig({
+  agents: [tempo],
+  settings: {
+    model: { default: "anthropic/claude-sonnet-5", via: "claude" },
+    email: { provider: "resend" },
+  },
+})
+```
+
+What it leaves out is the default. Every setting is the `Settings` interface in
+`core/settings.ts`, with its one line of explanation on it, so your editor tells
+you what each one is as you write it. `DEFAULTS` beside it is what each one is
+when nobody says, and the table on chloejs.org is read out of both.
+
+A value that is this box's goes in `.env` beside the config instead, mode 600 and
+never committed: every credential, and anything naming a home directory, a
+machine or a person. Every setting has a name there, `CHLOE_` and its path in
+capitals, so a box can run with nothing declared at all:
 
 ```
+CHLOE_MODEL_KEY=...
 CHLOE_RESEND_API_KEY=re_...
 CHLOE_AGENTS_TEMPO_TELEGRAM=123456789:ABC...
 CHLOE_CLOUD_REMOTE_WRITE=false
 ```
 
-A variable beats both files, a list is written with commas, and a switch that
+A variable beats the config, a list is written with commas, and a switch that
 is neither `true` nor `false` is refused at startup rather than read as off.
+`state`, `memory` and `node` are read before the config is, so those three are
+only read from here.
 
 ```sh
 npx chloe account                # set the one password

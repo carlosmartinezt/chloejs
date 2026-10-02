@@ -16,7 +16,7 @@ export interface Way {
   /** What it is, in one line. */
   does: string;
   /**
-   * Which setting carries its credentials, as a path into settings.json, or
+   * Which setting carries its credentials, as a path into the settings, or
    * empty when it needs none. Never the value.
    */
   needs: string;
@@ -27,8 +27,8 @@ export interface Way {
 }
 
 /**
- * Every string the settings hold, however deep. This box keeps its credentials
- * in settings.json, so a value that is in there is a credential whatever the
+ * Every string the settings hold, however deep. A credential reaches the
+ * settings from .env, so a value that is in there is a credential whatever the
  * option it was handed to is called.
  */
 function inSettings(value: unknown, found = new Set<string>()): Set<string> {

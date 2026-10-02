@@ -946,7 +946,7 @@ async function api(
     if (off.length) {
       return json(
         response,
-        { error: `This workspace does not allow ${off.join(" and ")} through the cloud. cloud.remote in its settings.json switches it on.` },
+        { error: `This workspace does not allow ${off.join(" and ")} through the cloud. cloud.remote in its chloe.config.ts switches it on.` },
         403,
       );
     }

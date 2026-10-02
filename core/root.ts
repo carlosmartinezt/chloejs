@@ -1,6 +1,6 @@
 // Where the repo is. Its own file so that paths.ts can read settings: settings
-// needs ROOT to find the two settings files, and would otherwise import the
-// file that imports it.
+// reads .env, which needs ROOT to find it, and would otherwise import the file
+// that imports it.
 import { findConfig, NO_CONFIG } from "./find.ts";
 
 /**

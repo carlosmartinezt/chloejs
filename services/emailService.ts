@@ -2,7 +2,7 @@
 //
 // The caller supplies who it is from and who it is to. Which provider carries
 // it is email.provider in settings, and each provider reads its own section
-// of settings.local.json for its key (resend.api_key for Resend).
+// of .env for its key (CHLOE_RESEND_API_KEY for Resend).
 //
 // The tool a model reaches is model/tools/send_email.ts, which calls
 // this. A job calls this directly, from a step.
@@ -51,7 +51,7 @@ export interface EmailProvider {
 const resend: EmailProvider = {
   async send({ from, to, replyTo, subject, body, html }) {
     const key = settings.resend.api_key;
-    if (!key) throw new Error("No Resend key. Put it in settings.local.json as resend.api_key.");
+    if (!key) throw new Error("No Resend key. Put it in .env as CHLOE_RESEND_API_KEY.");
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },

@@ -1,7 +1,11 @@
 // The paths the runtime itself needs. Nothing here names a person, a home
 // directory or a machine: the repo finds itself, and everything else is either
-// relative to that or said in settings.local.json, which is not in source
-// control. What one agent writes is in its memory, and never here.
+// relative to that or said in .env, which is not in source control. What one
+// agent writes is in its memory, and never here.
+//
+// STATE and MEMORIES are read as this file loads, which is before any config is,
+// so CHLOE_STATE and CHLOE_MEMORY are environment only. Where things are kept
+// needs a restart either way.
 import { join } from "node:path";
 
 import { ROOT } from "./root.ts";

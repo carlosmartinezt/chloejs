@@ -15,7 +15,7 @@
 // The server itself is `server.ts`, and it is run rather than imported.
 
 // An agent, and the jobs it runs.
-export { defineAgent, defineConfig, markdownJob, load, loadAll, names, type Agent, type Channel, type ChannelRoute, type Running, type Job, type Skill, type Binding, type Home, type Features, type SelfImprovement, type Memory, type ChatHistory } from "./load/load.ts";
+export { defineAgent, defineConfig, markdownJob, load, loadAll, loadSettings, names, type Agent, type Channel, type ChannelRoute, type Running, type Job, type Skill, type Binding, type Home, type Features, type SelfImprovement, type Memory, type ChatHistory } from "./load/load.ts";
 export { defineJob } from "./load/job.ts";
 export { prompt, isPrompt, oneLineSummary, type Prompt } from "./core/markdown.ts";
 
@@ -36,7 +36,7 @@ export { canReach, deliver, owner, reachBy, split, type Send } from "./model/ask
 // The floor: where things are, what the box was told, staying inside a
 // folder, a small file an agent keeps, the history.
 export { agentDir, MEMORIES, ROOT, STATE } from "./core/paths.ts";
-export { nameInEnv, readSettings, reloadSettings, setting, settingInEnv, settings, unclaimed, type Settings } from "./core/settings.ts";
+export { declareSettings, nameInEnv, readSettings, reloadSettings, setting, settingInEnv, settings, unclaimed, type Declared, type Settings } from "./core/settings.ts";
 export { confine } from "./core/confine.ts";
 export { note, type Note } from "./core/notes.ts";
 export { copyDatabase, DATABASE, db, trim } from "./core/db.ts";

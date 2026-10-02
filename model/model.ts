@@ -208,7 +208,7 @@ async function viaGateway({ model, messages, tools, maxTokens, signal }: Ask): P
   const key = gatewayKey();
   if (!key) {
     throw new Error(
-      "No gateway key. Put it in settings.local.json as model.key. " +
+      "No gateway key. Put it in .env as CHLOE_MODEL_KEY. " +
         'To run on a subscription instead, set model.via to "claude" or "codex", or route the provider in model.routes.',
     );
   }

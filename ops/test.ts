@@ -7,8 +7,8 @@
 // answers whatever the case says, so a model step is exercised without
 // spending anything, and mail goes to the log.
 //
-// These are set rather than left to settings.json, because a setting in a file
-// applies here too: a box with model.via "claude" would otherwise run every
+// These are set rather than declared, because the environment beats the config:
+// a box whose chloe.config.ts says model.via "claude" would otherwise run every
 // case against a real subscription, slowly, and score differently from the
 // next box.
 process.env.AGENTS_DB = ":memory:";
@@ -554,22 +554,18 @@ about("a model step that never fits");
 
 {
   about("settings, and what wins");
-  const { readSettings, setting } = await import("@chloejs/core");
+  const { declareSettings, nameInEnv, readSettings, setting } = await import("@chloejs/core");
 
-  const base = { model: { via: "gateway", judge: "a" } };
-  is("a default fills in what no file mentions", readSettings(base, {}, {}).model.gateway, "https://ai-gateway.vercel.sh/v1/chat/completions");
-  is("a local file wins over the tracked one", readSettings(base, { model: { via: "claude" } }, {}).model.via, "claude");
-  is(
-    "and wins one key without clearing its neighbours",
-    readSettings(base, { model: { via: "claude" } }, {}).model.judge,
-    "a",
-  );
-  is("a setting nobody set is empty rather than missing", readSettings({}, {}, {}).node, "");
-  is("each agent's own settings are under its name", readSettings({}, { agents: { tempo: { telegram: "t" } } }, {}).agents.tempo.telegram, "t");
-  is("and what it does not say is empty", readSettings({}, { agents: { tempo: { telegram: "t" } } }, {}).agents.tempo.slack.app_token, "");
+  const base = { model: { via: "gateway" as const, judge: "a" } };
+  is("a default fills in what the config does not mention", readSettings(base, {}).model.gateway, "https://ai-gateway.vercel.sh/v1/chat/completions");
+  is("what the config says is what it says", readSettings(base, {}).model.via, "gateway");
+  is("and one key declared leaves its neighbours alone", readSettings(base, {}).model.judge, "a");
+  is("a setting nobody set is empty rather than missing", readSettings({}, {}).node, "");
+  is("each agent's own settings are under its name", readSettings({ agents: { tempo: { telegram: "t" } } }, {}).agents.tempo.telegram, "t");
+  is("and what it does not say is empty", readSettings({ agents: { tempo: { telegram: "t" } } }, {}).agents.tempo.slack.app_token, "");
   let misspelt = "";
   try {
-    readSettings({}, { agents: { tempo: { telegarm: "t" } } }, {});
+    readSettings({ agents: { tempo: { telegarm: "t" } } } as never, {});
   } catch (error) {
     misspelt = error instanceof Error ? error.message : "";
   }
@@ -586,22 +582,67 @@ about("a model step that never fits");
   process.env.TEST_SETTING_WINS = "fromenv";
   is("until an environment variable says otherwise", setting("fromfile", "TEST_SETTING_WINS"), "fromenv");
 
-  let refused = "";
-  try {
-    readSettings({ model: { via: "telepathy" } }, {}, {});
-  } catch (error) {
-    refused = error instanceof Error ? error.message.split("\n")[0] : "";
-  }
-  is("a setting that is not a choice is refused, not ignored", refused, "settings are not valid:");
+  // The config is type checked, so these are for a value out of the environment
+  // and for a config that is not TypeScript. Each one says what to set instead
+  // of what shape failed, which is the whole reason this is not a parser.
+  const said = (declared: unknown, env: Record<string, string> = {}) => {
+    try {
+      readSettings(declared as never, env);
+      return "";
+    } catch (error) {
+      return error instanceof Error ? error.message.split("\n").slice(1).join(" ") : "";
+    }
+  };
+  is("a setting that is not a choice is refused, and the choices are named",
+    said({ model: { via: "telepathy" } }),
+    'model.via is "telepathy", and it is one of "gateway", "claude", "codex", "".');
+  is("a key that is no setting is refused, and says what there is",
+    said({ modle: {} }).startsWith("settings.modle is not a setting. Under settings there is model,"), true);
+  is("a misspelt key under an agent names the agent, not a star",
+    said({ agents: { tempo: { telegarm: "t" } } }),
+    "agents.tempo.telegarm is not a setting. Under agents.tempo there is telegram, slack, whatsapp.");
+  is("a switch given a word is refused", said({ cloud: { remote: { write: "yes" } } }), "cloud.remote.write is true or false.");
+  is("a list given a word is refused", said({ model: { models: "a,b" } }), "model.models is a list of words.");
+  is("a group given a word is refused", said({ model: "claude" }), "model holds more settings, so it is an object.");
+  is("a route is checked like the setting it is", said({ model: { routes: { openai: "telepathy" } } }).startsWith("model.routes.openai is"), true);
+  is("google.client takes the file's own shape", said({ google: { client: { web: { client_id: "x" } } } }), "");
+  is("and refuses what is neither that nor a path", said({ google: { client: 7 } }), "google.client is the client file, its path, or its contents as one string.");
+  is("a switch out of the environment is checked the same way", said({}, { CHLOE_CLOUD_REMOTE_WRITE: "true" }), "");
 
   let moved = "";
   try {
-    readSettings({}, { cloud: { key: "chl_workspace_x" } }, {});
+    readSettings({ cloud: { key: "chl_workspace_x" } } as never, {});
   } catch (error) {
     moved = error instanceof Error ? error.message : "";
   }
-  is("cloud.key in a settings file is refused, and says where it went", moved.includes("CHLOE_API_KEY in .env"), true);
-  is("and the dashboard's address is what it is unless somebody says", readSettings({}, {}, {}).cloud.url, "https://dashboard.chloejs.org");
+  is("cloud.key in the config is refused, and says where it went", moved.includes("CHLOE_API_KEY in .env"), true);
+  is("and the dashboard's address is what it is unless somebody says", readSettings({}, {}).cloud.url, "https://dashboard.chloejs.org");
+
+  {
+    // What loadAll does with the config's settings: into the same object
+    // everything already holds, and the environment still over the top.
+    //
+    // The variable is taken out first, because this suite runs from whichever
+    // project installed the runtime and that project's .env may well set it. A
+    // declaration it beats is a declaration this cannot see.
+    const { settings } = await import("@chloejs/core");
+    const name = nameInEnv(["alerts", "email_from"]);
+    const inEnv = process.env[name];
+    delete process.env[name];
+    declareSettings({ alerts: { email_from: "chloe <x@example.com>" } });
+    is("what the config declares reaches the settings everything reads", settings.alerts.email_from, "chloe <x@example.com>");
+    is("and a setting it says nothing about is left at its default", settings.cloud.url, "https://dashboard.chloejs.org");
+    declareSettings({ model: { via: "gateway" } });
+    is("declaring again drops what the last one said", settings.alerts.email_from, "");
+    if (inEnv !== undefined) process.env[name] = inEnv;
+  }
+  {
+    // AI_GATEWAY_URL is set at the top of this file, for the stand-in gateway.
+    const { settings } = await import("@chloejs/core");
+    declareSettings({ model: { gateway: "https://declared" } });
+    is("the environment beats what the config declares", settings.model.gateway, process.env.AI_GATEWAY_URL);
+    declareSettings({});
+  }
 }
 
 {
@@ -610,40 +651,50 @@ about("a model step that never fits");
 
   is("a setting is CHLOE_ and its path, in capitals", nameInEnv(["resend", "api_key"]), "CHLOE_RESEND_API_KEY");
   is(
-    "the environment beats both files",
-    readSettings({ cloud: { url: "https://tracked" } }, { cloud: { url: "https://local" } }, { CHLOE_CLOUD_URL: "https://env" }).cloud.url,
+    "the environment beats the config",
+    readSettings({ cloud: { url: "https://declared" } }, { CHLOE_CLOUD_URL: "https://env" }).cloud.url,
     "https://env",
   );
   is(
     "and beats one key without clearing its neighbours",
-    readSettings({}, { cloud: { sync: { runs: false } } }, { CHLOE_CLOUD_URL: "https://env" }).cloud.sync.runs,
+    readSettings({ cloud: { sync: { runs: false } } }, { CHLOE_CLOUD_URL: "https://env" }).cloud.sync.runs,
     false,
   );
-  is("a switch reads as a switch", readSettings({}, {}, { CHLOE_CLOUD_REMOTE_WRITE: "true" }).cloud.remote.write, true);
-  is("and the switches beside it are left alone", readSettings({}, {}, { CHLOE_CLOUD_REMOTE_WRITE: "true" }).cloud.remote.memory, false);
-  is("a list is written with commas", readSettings({}, {}, { CHLOE_MODEL_MODELS: "one/a, one/b" }).model.models, ["one/a", "one/b"]);
-  is("a route is named after its provider", readSettings({}, {}, { CHLOE_MODEL_ROUTES_OPENAI: "codex" }).model.routes.openai, "codex");
+  is("a switch reads as a switch", readSettings({}, { CHLOE_CLOUD_REMOTE_WRITE: "true" }).cloud.remote.write, true);
+  is("and the switches beside it are left alone", readSettings({}, { CHLOE_CLOUD_REMOTE_WRITE: "true" }).cloud.remote.memory, false);
+  is("a list is written with commas", readSettings({}, { CHLOE_MODEL_MODELS: "one/a, one/b" }).model.models, ["one/a", "one/b"]);
+  is("a route is named after its provider", readSettings({}, { CHLOE_MODEL_ROUTES_OPENAI: "codex" }).model.routes.openai, "codex");
   is(
     "an agent's token is under its name",
-    readSettings({}, {}, { CHLOE_AGENTS_TEMPO_TELEGRAM: "t" }).agents.tempo.telegram,
+    readSettings({}, { CHLOE_AGENTS_TEMPO_TELEGRAM: "t" }).agents.tempo.telegram,
     "t",
   );
   is(
     "and so is a token two deep",
-    readSettings({}, {}, { CHLOE_AGENTS_TEMPO_SLACK_BOT_TOKEN: "xoxb" }).agents.tempo.slack.bot_token,
+    readSettings({}, { CHLOE_AGENTS_TEMPO_SLACK_BOT_TOKEN: "xoxb" }).agents.tempo.slack.bot_token,
     "xoxb",
   );
   is(
-    "an agent a settings file spells with a dash is the same agent",
-    Object.keys(readSettings({}, { agents: { "test-agent": {} } }, { CHLOE_AGENTS_TEST_AGENT_TELEGRAM: "t" }).agents),
+    "an agent the config spells with a dash is the same agent",
+    Object.keys(readSettings({ agents: { "test-agent": {} } }, { CHLOE_AGENTS_TEST_AGENT_TELEGRAM: "t" }).agents),
     ["test-agent"],
   );
-  is("the older name a setting had still works", readSettings({}, {}, { MODEL_VIA: "codex" }).model.via, "codex");
-  is("and the name from the schema wins over it", readSettings({}, {}, { MODEL_VIA: "codex", CHLOE_MODEL_VIA: "claude" }).model.via, "claude");
+  is(
+    "and so is one the config says nothing about, because loadAll hands the names over",
+    Object.keys(readSettings({}, { CHLOE_AGENTS_TEST_AGENT_TELEGRAM: "t" }, ["test-agent"]).agents),
+    ["test-agent"],
+  );
+  is(
+    "an agent nothing knows about is named as the variable spells it",
+    Object.keys(readSettings({}, { CHLOE_AGENTS_TEST_AGENT_TELEGRAM: "t" }).agents),
+    ["test_agent"],
+  );
+  is("the older name a setting had still works", readSettings({}, { MODEL_VIA: "codex" }).model.via, "codex");
+  is("and the name from the schema wins over it", readSettings({}, { MODEL_VIA: "codex", CHLOE_MODEL_VIA: "claude" }).model.via, "claude");
 
   let switched = "";
   try {
-    readSettings({}, {}, { CHLOE_CLOUD_REMOTE_WRITE: "please" });
+    readSettings({}, { CHLOE_CLOUD_REMOTE_WRITE: "please" });
   } catch (error) {
     switched = error instanceof Error ? error.message : "";
   }
@@ -651,24 +702,12 @@ about("a model step that never fits");
 
   let misspelt = "";
   try {
-    readSettings({}, {}, { CHLOE_AGENTS_TEMPO_TELEGARM: "t" });
+    readSettings({}, { CHLOE_AGENTS_TEMPO_TELEGARM: "t" });
   } catch (error) {
     misspelt = error instanceof Error ? error.message : "";
   }
   is("a misspelt variable under an agent is refused rather than ignored", misspelt.includes("names no setting"), true);
 
-  // The file somebody copies to start. It is checked here because a template
-  // that no longer parses is found by the person setting chloe up, once, and
-  // a renamed setting is exactly what makes it stop parsing.
-  const example = JSON.parse(await readFile(new URL("../settings.example.json", import.meta.url), "utf8"));
-  let template = "";
-  try {
-    readSettings({}, example, {});
-  } catch (error) {
-    template = error instanceof Error ? error.message : "";
-  }
-  is("settings.example.json is every setting the schema has", template, "");
-  is("and shows each one, so the file says what there is to set", Object.keys(example).length, Object.keys(readSettings({}, {}, {})).length);
 }
 
 {
@@ -707,7 +746,7 @@ about("a model step that never fits");
   settings.google.account = "";
   is(
     "no account is the one thing a sign-in cannot fix, so it asks for the setting",
-    explain("missing --account").includes("settings.local.json"),
+    explain("missing --account").includes("CHLOE_GOOGLE_ACCOUNT"),
     true,
   );
   const nobody = await signInState();
@@ -3315,7 +3354,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     await (await fetch(`${at}${path}`, { method, headers })).text();
 
   // Set rather than assumed: this suite runs from whichever repo installed the
-  // runtime, and that repo's settings.json may well name a cloud of its own.
+  // runtime, and that repo's config may well name a cloud of its own.
   live.cloud.url = "";
   live.cloud.sync = { runs: true, agents: true };
   live.cloud.remote = { read: true, chat: true, run: true, memory: false, write: false, google: false };
@@ -3466,16 +3505,16 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   const definition = (await import(pathToFileURL(join(folder, "agent.ts")).href)).default;
 
-  // Set here rather than left to the settings file, because the project this
-  // suite runs in may have one, and both halves of this are about what happens
-  // when it does and when it does not.
+  // Set here rather than left to the config, because the project this suite runs
+  // in may declare one, and both halves of this are about what happens when it
+  // does and when it does not.
   const was = settings.model.default;
   settings.model.default = "";
   const refused = await resolveAgent(definition).then(() => "", (error: Error) => error.message);
   is("with no model.default set, an agent that names none is refused", refused.includes("does not say which model"), true);
 
-  // What setup writes into settings.json, which is where the model a new
-  // project chose is written down once for every agent.
+  // model.default, which is where the model a new project chose is written down
+  // once for every agent.
   settings.model.default = "anthropic/claude-haiku-4.5";
   const agent = await resolveAgent(definition);
   is("the agent it wrote loads", agent.name, "watcher");

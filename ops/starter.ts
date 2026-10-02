@@ -62,15 +62,27 @@ export function starterFiles(agent: string): Starter[] {
   ];
 }
 
-const config = (agent: string) => `// Every agent this box runs.
+const config = (agent: string) => `// Every agent this box runs, and how the runtime behaves.
 //
 // An agent is declared, never found: one that is not on this list does not
 // exist, however finished its folder looks.
+//
+// \`settings\` is every choice, as deep as it goes, and what it leaves out is the
+// default. This file is in source control, so a credential goes in .env beside
+// it instead, as CHLOE_ and the setting's path in capitals:
+// CHLOE_MODEL_KEY, CHLOE_RESEND_API_KEY, CHLOE_AGENTS_${identifier(agent).toUpperCase()}_TELEGRAM.
 import { defineConfig } from "@chloejs/core";
 
 import ${identifier(agent)} from "./agents/${agent}/agent.ts";
 
-export default defineConfig({ agents: [${identifier(agent)}] });
+export default defineConfig({
+  agents: [${identifier(agent)}],
+  settings: {
+    // Which model an agent asks when its own agent.ts names none. npx chloe
+    // setup put the one it checked in .env, which beats whatever is here.
+    // model: { default: "anthropic/claude-sonnet-5" },
+  },
+});
 `;
 
 const definition = (agent: string) => `// What this agent is, in one file: its words, its jobs, its tools, and every
@@ -84,7 +96,7 @@ export default defineAgent({
   name: "${agent}",
   description: "The agent npx chloe setup wrote. Make it yours.",
   instructions: prompt("instructions.md"),
-  // Which model it asks is model.default in settings.json, so it is written
+  // Which model it asks is model.default in chloe.config.ts, so it is written
   // once for every agent. Name one here to give this agent its own.
   jobs: [dailyNote, markdownJob("jobs/summary.md")],
 });
@@ -146,6 +158,5 @@ line, so it runs when you start it and not before.
 
 const IGNORE = `node_modules
 data
-settings.local.json
 .env
 `;

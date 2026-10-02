@@ -8,9 +8,10 @@
 // If this process is not running, nothing fires.
 import { readdirSync, readFileSync, watch, type FSWatcher } from "node:fs";
 
+import { loadEnv } from "#chloe/core/env";
 import { ROOT } from "#chloe/core/paths";
 import { bold, dim } from "#chloe/core/style";
-import { reloadSettings, settings, unclaimed } from "#chloe/core/settings";
+import { settings, unclaimed } from "#chloe/core/settings";
 import { closeCutOff, trim } from "#chloe/core/db";
 import { loadAll, type Agent, type Running } from "#chloe/load/load";
 import { runnable, via } from "#chloe/model/model";
@@ -178,7 +179,9 @@ function startup(): string[] {
 
 let pending: NodeJS.Timeout | undefined;
 const changedChannels = new Set<string>();
-const SETTINGS = ["settings.json", "settings.local.json", ".env"];
+// A change to either means every setting is read again, and a channel reads its
+// token as it starts, so the channels go round with them.
+const SETTINGS = [".env", "chloe.config.ts"];
 let settingsChanged = false;
 
 function changed(path: string): void {
@@ -201,10 +204,11 @@ async function reload(): Promise<void> {
     do {
       again = false;
       try {
-        // A channel reads its token as it starts, so new settings restart them all.
+        // .env first, so loadAll reads the config with the new environment over
+        // it. loadAll is what declares the settings, so nothing reloads them here.
         if (settingsChanged) {
           settingsChanged = false;
-          reloadSettings();
+          loadEnv();
           for (const name of agents.keys()) changedChannels.add(name);
         }
         agents = await loadAll();
@@ -227,8 +231,7 @@ async function reload(): Promise<void> {
 }
 
 /**
- * Reload when chloe.config.ts, either settings file, or anything in an
- * agent's folder changes.
+ * Reload when chloe.config.ts, .env, or anything in an agent's folder changes.
  *
  * Every folder is watched on its own, not recursively. Node's recursive watch
  * on Linux keeps a watch per file, and a file replaced rather than edited in
@@ -267,7 +270,7 @@ function watchFolders(): void {
     if (watching.has(folder)) continue;
     const top = folder === ROOT;
     const watcher = watch(folder, (_event, file) => {
-      if (file && (!top || file === "chloe.config.ts" || SETTINGS.includes(file))) changed(`${folder}/${file}`);
+      if (file && (!top || SETTINGS.includes(file))) changed(`${folder}/${file}`);
     });
     // A folder that is deleted ends its watch with an error, which would otherwise stop the service.
     watcher.on("error", () => {

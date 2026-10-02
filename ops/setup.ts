@@ -48,8 +48,8 @@ if (!process.stdin.isTTY) {
       "",
       "By hand, in this folder:",
       '  1  package.json needs "type": "module"',
-      "  2  chloe.config.ts lists your agents, and one agent folder holds an agent.ts",
-      "  3  settings.json says model.default, and settings.local.json holds model.key",
+      "  2  chloe.config.ts lists your agents and declares the settings, and one agent folder holds an agent.ts",
+      "  3  .env beside it holds CHLOE_MODEL_KEY and every other credential",
       "  4  npx chloe account sets the one password",
       "",
       "All of it is at https://chloejs.org/docs/start",
@@ -132,7 +132,7 @@ async function theAgent(): Promise<string> {
     const path = join(HERE, file.path);
     if (file.add) {
       // .gitignore: only the lines it does not have, so a project with its own
-      // keeps it. data/, the settings file and .env are secrets and state.
+      // keeps it. data/ and .env are state and secrets.
       const held = existsSync(path) ? readFileSync(path, "utf8") : "";
       const lines = file.body.trim().split("\n").filter((line) => !held.split("\n").includes(line));
       if (lines.length === 0) continue;
@@ -156,8 +156,9 @@ async function theAgent(): Promise<string> {
 }
 
 /**
- * Which model, and whether it answers. Written to settings.json, except the key,
- * which goes in settings.local.json, mode 600 and out of source control.
+ * Which model, and whether it answers. Written to .env, because the config this
+ * wrote is somebody's own from the moment it exists and this is a choice about
+ * one box. A project-wide choice goes in that config's `settings` instead.
  *
  * Returns the model an agent asks here, or "" when there is none yet.
  */
@@ -215,14 +216,12 @@ async function theModel(): Promise<string> {
  * been retired all look the same until something asks.
  */
 async function settle(model: Record<string, string>, key?: string): Promise<string> {
-  writeSettings("settings.json", { model });
-  written("settings.json", Object.keys(model).map((one) => `model.${one}`).join(", "));
-  if (key) {
-    writeSettings("settings.local.json", { model: { key } }, 0o600);
-    written("settings.local.json", "model.key, mode 600");
+  const { nameInEnv, reloadSettings } = await import("#chloe/core/settings");
+  for (const [one, value] of Object.entries({ ...model, ...(key ? { key } : {}) })) {
+    putInEnv(nameInEnv(["model", one]), value);
   }
+  written(".env", `${Object.keys(model).map((one) => nameInEnv(["model", one])).join(", ")}${key ? ", CHLOE_MODEL_KEY" : ""}, mode 600`);
 
-  const { reloadSettings } = await import("#chloe/core/settings");
   reloadSettings();
 
   // Asked of the runtime rather than worked out here, so this cannot disagree
@@ -231,14 +230,14 @@ async function settle(model: Record<string, string>, key?: string): Promise<stri
   const asking = model.default;
   if (!runnable(routeFor(asking))) {
     console.log(`\nNothing here can run ${asking} yet, so nothing was asked.`);
-    console.log("Paste a key into settings.local.json as model.key when you have one, and it can.");
+    console.log("Put a key in .env as CHLOE_MODEL_KEY when you have one, and it can.");
     return "";
   }
 
   process.stdout.write(`\nAsking ${asking} one thing to make sure it answers... `);
   const trouble = await tryIt(asking);
   console.log(trouble || "it answered, and it can call a tool.");
-  if (trouble) console.log("Fix that whenever you like: model.default and model.key in the settings files are all of it.");
+  if (trouble) console.log("Fix that whenever you like: CHLOE_MODEL_DEFAULT and CHLOE_MODEL_KEY in .env are all of it.");
   return asking;
 }
 
@@ -318,14 +317,18 @@ async function onWhatsApp(agent: string): Promise<void> {
   console.log("The token on that page lasts a day. A permanent one comes from a system user with whatsapp_business_messaging.");
   // What is already there, so a second run can be held through without
   // blanking a token: an empty answer keeps the one in the file.
-  const had = agentSettings(agent).whatsapp ?? {};
-  const keep = (what: string) => (had[what] ? " (or Enter to keep the one there)" : "");
-  const phoneNumberId = (await ask(`The number's id, called phone_number_id there${keep("phone_number_id") || " (or Enter to skip)"}: `)).trim() || had.phone_number_id || "";
-  if (!phoneNumberId) return void console.log(`  Nothing written. Add agents.${agent}.whatsapp to settings.local.json when you want it.`);
-  const token = (await askHidden(`Paste a token for it${keep("token")}: `)).trim() || had.token || "";
-  const appSecret = (await askHidden(`Paste the app's secret, which signs everything WhatsApp posts in${keep("app_secret")}: `)).trim() || had.app_secret || "";
-  writeAgentSettings(agent, { whatsapp: { phone_number_id: phoneNumberId, token, app_secret: appSecret } });
-  written("settings.local.json", `agents.${agent}.whatsapp, mode 600`);
+  const { nameInEnv } = await import("#chloe/core/settings");
+  const name = (what: string) => nameInEnv(["agents", agent, "whatsapp", what]);
+  const had = (what: string) => process.env[name(what)] ?? "";
+  const keep = (what: string) => (had(what) ? " (or Enter to keep the one there)" : "");
+  const phoneNumberId = (await ask(`The number's id, called phone_number_id there${keep("phone_number_id") || " (or Enter to skip)"}: `)).trim() || had("phone_number_id");
+  if (!phoneNumberId) return void console.log(`  Nothing written. Put ${name("phone_number_id")} in .env when you want it.`);
+  const token = (await askHidden(`Paste a token for it${keep("token")}: `)).trim() || had("token");
+  const appSecret = (await askHidden(`Paste the app's secret, which signs everything WhatsApp posts in${keep("app_secret")}: `)).trim() || had("app_secret");
+  for (const [what, value] of Object.entries({ phone_number_id: phoneNumberId, token, app_secret: appSecret })) {
+    putInEnv(name(what), value);
+  }
+  written(".env", `${name("phone_number_id")} and the two beside it, mode 600`);
   channelIn(agent, 'import { whatsappChannel } from "@chloejs/core/channels";', "whatsappChannel({ allowFrom: [] })");
   console.log("\nStart chloe and it writes one address to the log, its own post box. Paste that into the app's WhatsApp");
   console.log("page, subscribed to messages, and WhatsApp posts there while chloe collects from it. Nothing is opened here.");
@@ -353,23 +356,6 @@ function channelIn(agent: string, importLine: string, entry: string): void {
   }
   writeFileSync(path, added);
   written(where, "the channel added");
-}
-
-/** One agent's own settings as the local file has them, for a question that offers to keep what is there. */
-function agentSettings(agent: string): Record<string, Record<string, string>> {
-  const path = join(HERE, "settings.local.json");
-  if (!existsSync(path)) return {};
-  const held = JSON.parse(readFileSync(path, "utf8")) as { agents?: Record<string, Record<string, Record<string, string>>> };
-  return held.agents?.[agent] ?? {};
-}
-
-/** One agent's own settings, merged in beside whatever else it has there. */
-function writeAgentSettings(agent: string, values: Record<string, unknown>): void {
-  const path = join(HERE, "settings.local.json");
-  const held = existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Record<string, any>) : {};
-  held.agents = { ...held.agents, [agent]: { ...held.agents?.[agent], ...values } };
-  writeFileSync(path, `${JSON.stringify(held, null, 2)}\n`);
-  chmodSync(path, 0o600);
 }
 
 /** Where the runs are watched from: a dashboard somewhere else, or this box. */
@@ -424,18 +410,6 @@ function sayWhatNext(name: string, model: string): void {
     ])}`,
   );
   console.log("\nWhat to write next, and every setting there is: https://chloejs.org/docs/start");
-}
-
-/**
- * Merges into one of the settings files, one level down, so a file that already
- * holds other sections keeps them. Written with a mode when it holds a secret.
- */
-function writeSettings(file: string, change: Record<string, Record<string, string>>, mode?: number): void {
-  const path = join(HERE, file);
-  const held = existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Record<string, Record<string, string>>) : {};
-  for (const [section, values] of Object.entries(change)) held[section] = { ...held[section], ...values };
-  writeFileSync(path, `${JSON.stringify(held, null, 2)}\n`);
-  if (mode) chmodSync(path, mode);
 }
 
 /**

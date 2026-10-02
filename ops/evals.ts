@@ -50,8 +50,12 @@ const NOTHING = "Nothing here. This is an eval, and the case does not answer thi
 /** What the marks have to be for a case to pass. */
 const PASS = { calls: 1, expectations: 0.8 } as const;
 
-/** Who marks the writing. Cheaper than the agent being marked, on purpose. */
-const JUDGE = settings.model.judge;
+/**
+ * Who marks the writing. Cheaper than the agent being marked, on purpose. Read
+ * when it is needed, because the config declares it and `loadAll` below is what
+ * reads the config.
+ */
+const judge = () => settings.model.judge;
 
 /**
  * Answer one tool call from the case.
@@ -159,7 +163,7 @@ async function runFile(loaded: Agent, file: string): Promise<{ passed: number; f
     }
 
     const fact = calls(result, one);
-    const judged = await expectations(prompt, result, one, JUDGE);
+    const judged = await expectations(prompt, result, one, judge());
     const ok = fact.score >= PASS.calls && judged.score >= PASS.expectations;
     ok ? passed++ : failed++;
 

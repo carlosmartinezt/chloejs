@@ -405,7 +405,7 @@ export async function start({
 }: { services?: string; again?: boolean } = {}): Promise<Started> {
   const account = settings.google.account;
   if (!account) {
-    throw new Error("google.account is not set, so there is nobody to sign in. Put the address in settings.local.json.");
+    throw new Error("google.account is not set, so there is nobody to sign in. Put the address in .env as CHLOE_GOOGLE_ACCOUNT.");
   }
   const program = await ensureGog();
   await client(program);
@@ -640,7 +640,7 @@ export function setupSteps(): { steps: string[]; addresses: string[]; why: strin
       "Go to Credentials, create an OAuth client, and choose Web application as the type.",
       "Add the redirect addresses listed here, exactly as they are written, one per line in that form.",
       "The chloejs.org one is optional and worth it: with that registered, the page you land on shows you a short code to send back, instead of a browser error with the answer hidden in its address bar.",
-      "Download the client file it gives you, and put either its path or the whole of its contents in settings.local.json as google.client.",
+      "Download the client file it gives you, and put either its path or the whole of its contents in .env as CHLOE_GOOGLE_CLIENT.",
       "Tell me when that is done and I will send you the link to approve.",
     ],
   };
@@ -668,13 +668,13 @@ export function explain(text: string): string {
   if (/missing --account|GOG_ACCOUNT/i.test(text)) {
     return (
       "Google cannot be reached: google.account is not set, so there is no account to read. " +
-      "A person has to put the address in settings.local.json. Do not retry."
+      "A person has to put the address in .env as CHLOE_GOOGLE_ACCOUNT. Do not retry."
     );
   }
   if (/credentials|client/i.test(text) && /no|missing|not found/i.test(text)) {
     return (
       "Google cannot be reached: this copy has no client to sign in with. One person makes one once in Google's " +
-      "console and puts it in settings.local.json as google.client. Do not retry."
+      "console and puts it in .env as CHLOE_GOOGLE_CLIENT. Do not retry."
     );
   }
   return `Google could not be reached: ${text.trim().slice(0, 300)}`;
