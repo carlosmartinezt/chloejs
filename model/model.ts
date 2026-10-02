@@ -204,6 +204,12 @@ export interface Answer {
   tokensOut: number;
 }
 
+/**
+ * The plan behind a route has run out for now, so every call fails until it
+ * resets. The message is written to be shown to whoever is waiting on a reply.
+ */
+export class UsageLimit extends Error {}
+
 export interface Ask {
   model: string;
   messages: Message[];

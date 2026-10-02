@@ -26,7 +26,7 @@ import type { Agent, ChatHistory, Job } from "#chloe/load/load";
 import type { Attachment } from "#chloe/model/model";
 import { choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices";
 import { forget, remember } from "#chloe/model/memory";
-import { models } from "#chloe/model/model";
+import { models, UsageLimit } from "#chloe/model/model";
 import { clock, type Fired, ran } from "#chloe/core/clock";
 import { answer, waitingOn, WrongInput } from "#chloe/core/steps";
 import { turn } from "#chloe/core/turn";
@@ -395,6 +395,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, send?: (te
     return { text: result.text || "(no reply)", runId: result.runId, steps: result.steps, cost: result.cost };
   } catch (error) {
     console.error(`${message.channel}: turn failed`, error);
+    if (error instanceof UsageLimit) return { text: error.message, steps: 0, cost: 0 };
     return { text: "Something went wrong on my end. It is in the logs on the box.", steps: 0, cost: 0 };
   }
 }

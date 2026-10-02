@@ -9,7 +9,7 @@
 import { settings } from "#chloe/core/settings";
 
 import { asText, invoke, readReply } from "./cli.ts";
-import type { Answer, Ask } from "./model.ts";
+import { type Answer, type Ask, UsageLimit } from "./model.ts";
 
 /**
  * The CLI names a model without a provider in front of it, and writes a version
@@ -35,6 +35,13 @@ interface CliAnswer {
   subtype?: string;
   total_cost_usd?: number;
   usage?: { input_tokens?: number; output_tokens?: number };
+  api_error_status?: number | null;
+}
+
+/** A plan that has run out answers 429, or says "limit" in place of a reply. */
+function isLimit(answer: CliAnswer): boolean {
+  if (answer.api_error_status === 429) return true;
+  return answer.is_error === true && /usage limit|hit your limit|limit reached|rate limit/i.test(answer.result ?? "");
 }
 
 export async function viaClaude({ model, messages, tools, signal }: Ask): Promise<Answer> {
@@ -85,18 +92,23 @@ export async function viaClaude({ model, messages, tools, signal }: Ask): Promis
     signal,
     missing: `The claude route needs ${JSON.stringify(cli)} on the path. Install Claude Code, or put it on the path.`,
   });
-  if (code !== 0) {
-    throw new Error(`Model call refused: claude exited ${code}: ${(err || out).slice(0, 500)}`);
-  }
-
-  let answer: CliAnswer;
+  let answer: CliAnswer | undefined;
   try {
     answer = JSON.parse(files.length ? out.trim().split("\n").pop()! : out) as CliAnswer;
   } catch {
-    throw new Error(`Model call refused: claude did not answer with JSON: ${out.slice(0, 500)}`);
+    if (code === 0) throw new Error(`Model call refused: claude did not answer with JSON: ${out.slice(0, 500)}`);
   }
-  if (answer.is_error || typeof answer.result !== "string") {
-    throw new Error(`Model call refused: ${answer.subtype ?? "no result"}: ${String(answer.result ?? "").slice(0, 500)}`);
+  if (answer && isLimit(answer)) {
+    const said = answer.result?.trim() ? ` It says: ${answer.result.trim()}` : "";
+    throw new UsageLimit(`I have hit the usage limit on the Claude plan, so I cannot answer until it resets.${said}`);
+  }
+  // On a failure the CLI still prints its JSON, and the reason is in result,
+  // after a long run of counters that a cut at 500 characters loses.
+  if (code !== 0) {
+    throw new Error(`Model call refused: claude exited ${code}: ${(answer?.result || err || out).slice(0, 500)}`);
+  }
+  if (!answer || answer.is_error || typeof answer.result !== "string") {
+    throw new Error(`Model call refused: ${answer?.subtype ?? "no result"}: ${String(answer?.result ?? "").slice(0, 500)}`);
   }
 
   const { said, call } = tools?.length ? readReply(answer.result, tools) : { said: answer.result, call: undefined };
