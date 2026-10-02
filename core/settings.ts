@@ -14,12 +14,15 @@
 // Every setting also has a name in the environment, CHLOE_ and its path in
 // capitals: CHLOE_CLOUD_URL, CHLOE_RESEND_API_KEY, CHLOE_AGENTS_<agent>_TELEGRAM.
 // So anything the config can say, .env can say instead, and a box can run with
-// nothing declared at all. The workspace key for a Chloe Cloud is only ever
-// there, as CHLOE_API_KEY.
+// nothing declared at all. Every variable the runtime reads is one of these
+// settings, and there is no other name it looks for, so a config may hand a
+// setting the variable itself: `api_key: process.env.CHLOE_API_KEY`. A setting
+// the config says is undefined is one it did not say.
 //
-// `state`, `memory` and `node` are read before any config is loaded, at the top
-// of core/paths.ts, so those three are read from the environment and declaring
-// them does nothing. Where things are kept needs a restart either way.
+// `state`, `memory`, `db` and `node` are read before any config is loaded, at
+// the top of core/paths.ts and core/db.ts, so those four are read from the
+// environment and declaring them does nothing. Where things are kept needs a
+// restart either way.
 //
 // The config reaches this file and not the other way round: `loadAll()` calls
 // `declareSettings` before it resolves an agent, so nothing in core/ has to
@@ -37,6 +40,10 @@ import { loadEnv } from "./env.ts";
  */
 export const ROUTES = ["claude", "codex", "opencode", "gateway"] as const;
 export type Route = (typeof ROUTES)[number];
+
+/** Which page the one port serves: whichever is installed, or the runtime's own. */
+export const PAGES = ["", "builtin"] as const;
+export type Page = (typeof PAGES)[number];
 
 /** Who carries an agent's mail. */
 export const EMAIL_PROVIDERS = ["resend", "gmail", "none"] as const;
@@ -94,6 +101,11 @@ export interface Settings {
     key: string;
     /** Who marks an eval. Cheaper than the agent being marked, on purpose. */
     judge: string;
+    /**
+     * The program each CLI route runs, for one installed under another name or
+     * somewhere off the path. A route whose program is not there is skipped.
+     */
+    program: { claude: string; codex: string; opencode: string };
   };
   /** How an agent's mail goes out. */
   email: {
@@ -157,9 +169,8 @@ export interface Settings {
   agents: Record<string, AgentSettings>;
   /**
    * Chloe Cloud: a dashboard somewhere else that this runtime connects out to
-   * and is shown on. Nothing about how a job runs depends on it. The workspace
-   * key is CHLOE_API_KEY in .env and is not a setting: without it there is no
-   * connection, and taking it out leaves everything running as it was.
+   * and is shown on. Nothing about how a job runs depends on it. Which
+   * workspace it is, is `api_key`.
    */
   cloud: {
     /** Where the cloud is. CHLOE_CLOUD_URL beats it. Point it at your own by setting this. */
@@ -192,8 +203,25 @@ export interface Settings {
       google: boolean;
     };
   };
+  /**
+   * The workspace key for a Chloe Cloud. Without one there is no connection,
+   * and taking it out leaves everything running as it was. It is a credential,
+   * so the key itself goes in .env as CHLOE_API_KEY, and a config that wants
+   * to say where it comes from names that variable rather than the key.
+   */
+  api_key: string;
+  /** Who a run belongs to when no channel has said, as `channel:who`. */
+  owner: string;
+  /**
+   * Which page the one port serves. Empty is whichever page package is
+   * installed, and "builtin" is the runtime's own whatever is installed, which
+   * is how a broken dashboard is told from a broken runtime.
+   */
+  page: Page;
   /** Everything the agents keep: their folders and the run history. Empty means data/ inside the repo. */
   state: string;
+  /** The run history and the conversations. Empty means agents.db inside the state folder. */
+  db: string;
   /** Where the memories are, one folder per agent. Empty means memory/ inside the state folder. */
   memory: string;
   /** Which node the unit runs. Empty means whichever is on the path at install. */
@@ -216,6 +244,7 @@ export const DEFAULTS: Settings = {
     gateway: "https://ai-gateway.vercel.sh/v1/chat/completions",
     key: "",
     judge: "anthropic/claude-sonnet-5",
+    program: { claude: "claude", codex: "codex", opencode: "opencode" },
   },
   email: { provider: "resend" },
   resend: { api_key: "" },
@@ -227,7 +256,11 @@ export const DEFAULTS: Settings = {
     sync: { runs: true, agents: true },
     remote: { read: true, chat: true, run: true, memory: false, write: false, google: false },
   },
+  api_key: "",
+  owner: "",
+  page: "",
   state: "",
+  db: "",
   memory: "",
   node: "",
 };
@@ -258,10 +291,11 @@ const ONE_OF: Record<string, readonly string[]> = {
   "model.prefer.*": ROUTES,
   "model.routes.*": ROUTES,
   "email.provider": EMAIL_PROVIDERS,
+  page: PAGES,
 };
 
 /** A value, or the same shape with every part of it optional. */
-type Deep<T> = T extends string | number | boolean | unknown[] ? T : { [K in keyof T]?: Deep<T[K]> };
+type Deep<T> = T extends string | number | boolean | unknown[] ? T | undefined : { [K in keyof T]?: Deep<T[K]> };
 
 /**
  * What `chloe.config.ts` may declare: any part of the shape above, as deep as
@@ -353,6 +387,9 @@ function fill(defaults: unknown, said: unknown, path: string[] = []): unknown {
  * value out of the environment and for a config that is not TypeScript.
  */
 function wrong(defaults: unknown, said: unknown, path: string[] = []): string {
+  // A setting handed `process.env.SOMETHING` that nothing set is one the config
+  // did not say, so it is the default rather than a value of the wrong kind.
+  if (said === undefined) return "";
   const where = path.join(".") || "settings";
   const allowed = ONE_OF[path.join(".")];
   if (allowed && !(typeof said === "string" && allowed.includes(said))) {
@@ -538,7 +575,7 @@ export function readSettings(declared: unknown, env: Env = process.env, spelling
   // Said rather than passed over, because a key that silently stops being read
   // is a runtime that silently leaves its dashboard.
   if ((merged.cloud as Record<string, unknown> | undefined)?.key !== undefined) {
-    throw new Error("settings: cloud.key is CHLOE_API_KEY in .env, beside chloe.config.ts. Move it and take it out of the config.");
+    throw new Error("settings: the workspace key is api_key, not cloud.key. The key itself belongs in .env, as CHLOE_API_KEY.");
   }
   const problem = wrong(DEFAULTS, merged);
   if (problem) throw new Error(`settings are not valid:\n${problem}`);
@@ -592,12 +629,3 @@ export function unclaimed(names: string[]): string[] {
   return Object.keys(settings.agents).filter((name) => !names.includes(name));
 }
 
-/**
- * A value an environment variable may replace, for the few that are not
- * settings: which program a CLI route runs, who a run is for. A setting does
- * not come through here, because the environment is already merged into
- * `settings` under the name `nameInEnv` gives it.
- */
-export function setting(value: string, fromEnv: string): string {
-  return process.env[fromEnv] || value;
-}

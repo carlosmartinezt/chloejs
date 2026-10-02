@@ -767,26 +767,22 @@ about("a model step that never fits");
   settings.google.account = was;
 
   about("where Google is told to send its answer");
-  const { workspaceIs, workspaceName } = await import("#chloe/cloud/workspace");
   const cloudWas = settings.google.callback;
   const keyWas = process.env.CHLOE_API_KEY;
   const urlWas = settings.cloud.url;
-  const wasWorkspace = workspaceName();
 
   // Set outright, not left to whatever ran before this: the client decides the
   // address when nobody says one, so a case about the address has to pin it.
   const clientWas = settings.google.client;
   settings.google.callback = "";
   settings.google.client = "";
-  workspaceIs("");
-  is("with no cloud, no client and nothing set, the answer goes to this machine", callback().url, "");
+  is("with no client and nothing set, the answer goes to this machine", callback().url, "");
   is("so somebody pastes it back", callback().relayed, false);
 
   // A cloud is never the default, because which way a sign-in finishes is the
   // owner's choice and the one with a code in it needs nothing registered.
   settings.cloud.url = "https://cloud.example";
   settings.cloud.remote.google = true;
-  workspaceIs("personal");
 
   // With nothing said, the kind of client decides, because that is what decides
   // which addresses Google will take.
@@ -805,9 +801,15 @@ about("a model step that never fits");
   is("and it is not relayed, because the person carries the code", callback().relayed, false);
 
   // The one address that does come back on its own, written out by hand, which is
-  // how somebody opts into it.
+  // how somebody opts into it. Recognised by the route's shape, so whatever the
+  // workspace is called it is still that route.
   settings.google.callback = "https://cloud.example/oauth/google/callback/personal";
-  is("a cloud's own route for this workspace is relayed", callback().relayed, true);
+  is("a cloud's own route is relayed", callback().relayed, true);
+  settings.google.callback = "https://cloud.example/oauth/google/callback/anything-else";
+  is("whatever the workspace is called", callback().relayed, true);
+  settings.google.callback = "https://cloud.example/something/else";
+  is("and another address on the same cloud is not", callback().relayed, false);
+  settings.google.callback = "https://cloud.example/oauth/google/callback/personal";
 
   // Switched off, the cloud would refuse the handing back, so it is a paste again.
   settings.cloud.remote.google = false;
@@ -818,7 +820,6 @@ about("a model step that never fits");
   else process.env.CHLOE_API_KEY = keyWas;
   settings.google.callback = cloudWas;
   settings.cloud.url = urlWas;
-  workspaceIs(wasWorkspace);
 
   about("whose sign-in came back");
   const { addressesIn } = await import("#chloe/services/googleService");

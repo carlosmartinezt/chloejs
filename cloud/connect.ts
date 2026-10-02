@@ -34,8 +34,6 @@ import type { Agent } from "#chloe/load/load";
 import { HOST, PORT, routeList, summary } from "#chloe/serve/http";
 import { RELAY, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login";
 
-import { workspaceIs } from "./workspace.ts";
-
 /** The version of what is said on the socket. The cloud refuses one it does not speak. */
 export const PROTOCOL = 1;
 
@@ -247,7 +245,6 @@ export function startCloud(options: CloudOptions): Cloud {
       welcomed = true;
       wait = backoff.first;
       const said = (message as { workspace?: { name?: string; label?: string } }).workspace;
-      workspaceIs(said?.name ?? "");
       say(`connected to ${using.url} as ${said?.label ?? said?.name ?? "a workspace"}`);
       if (settings.cloud.sync.runs) send(one, { type: "runs", runs: recentRuns() });
       return;

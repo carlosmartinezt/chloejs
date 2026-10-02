@@ -23,7 +23,6 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { join } from "node:path";
 
 import { settings } from "#chloe/core/settings";
-import { workspaceName } from "#chloe/cloud/workspace";
 import { STATE } from "#chloe/core/paths";
 
 import { run } from "./runService.ts";
@@ -332,20 +331,17 @@ function mustBeAClientFile(path: string): void {
 }
 
 /**
- * The one address whose answer comes back on its own: a Chloe Cloud's own route
- * for this workspace. Worked out rather than written down, because the route is
- * the cloud's and the workspace name is what the cloud said on connect, so
- * neither half is a guess. Only used to recognise that address in
- * `google.callback`, never as a default: which way a sign-in finishes is the
- * owner's choice, and the one with a code in it needs nothing registered per
- * copy. Empty until a cloud has answered, and empty when `cloud.remote.google`
- * is off, because then nothing would arrive.
+ * Whether an address is a Chloe Cloud's own route, which is the one kind that
+ * hands the answer back down the connection instead of showing it to somebody.
+ * Matched on the route's shape rather than built, so the workspace name in it is
+ * whatever it is and nothing here has to know. False when
+ * `cloud.remote.google` is off, because then the cloud's handing back is refused
+ * and nothing would arrive.
  */
-function caughtByCloud(): string {
-  const workspace = workspaceName();
-  const url = settings.cloud.url.trim().replace(/\/+$/, "");
-  if (!workspace || !url || !settings.cloud.remote.google) return "";
-  return `${url}/oauth/google/callback/${workspace}`;
+function caughtByCloud(url: string): boolean {
+  const cloud = settings.cloud.url.trim().replace(/\/+$/, "");
+  if (!cloud || !settings.cloud.remote.google) return false;
+  return url.startsWith(`${cloud}/oauth/google/callback/`);
 }
 
 /**
@@ -375,7 +371,7 @@ function caughtByCloud(): string {
  */
 export function callback(): { url: string; relayed: boolean } {
   const said = settings.google.callback.trim();
-  if (said) return { url: said, relayed: said === caughtByCloud() };
+  if (said) return { url: said, relayed: caughtByCloud(said) };
   // A desktop client may answer to any port here and to nothing on the internet,
   // so for one of those the loopback address is the only one Google will take.
   // A web client is the other way round, and then the page that shows a code is
