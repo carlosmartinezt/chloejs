@@ -62,14 +62,33 @@ export function starterFiles(agent: string): Starter[] {
   ];
 }
 
+/**
+ * The line in the starter config that setup replaces with the model it chose.
+ * Somebody's own config does not have it, and is told what to add instead.
+ */
+export const STARTER_MODEL_LINE = '// model: { default: "anthropic/claude-sonnet-5" },';
+
+/**
+ * The model settings setup chose, as the line that goes in chloe.config.ts.
+ * `prefer` arrives comma separated and is written as a list.
+ *
+ *   modelLine({ default: "openai/gpt-6-luna" })  // model: { default: "openai/gpt-6-luna" },
+ */
+export function modelLine(model: Record<string, string>): string {
+  const fields = Object.entries(model).map(([one, value]) =>
+    one === "prefer" ? `prefer: ${JSON.stringify(value.split(","))}` : `${one}: ${JSON.stringify(value)}`,
+  );
+  return `model: { ${fields.join(", ")} },`;
+}
+
 const config = (agent: string) => `// Every agent this box runs, and how the runtime behaves.
 //
 // An agent is declared, never found: one that is not on this list does not
 // exist, however finished its folder looks.
 //
 // \`settings\` is every choice, as deep as it goes, and what it leaves out is the
-// default. This file is in source control, so a credential goes in .env beside
-// it instead, as CHLOE_ and the setting's path in capitals:
+// default. This file is in source control, so a password, key or token goes in
+// .env beside it instead, as CHLOE_ and the setting's path in capitals:
 // CHLOE_MODEL_KEY, CHLOE_RESEND_API_KEY, CHLOE_AGENTS_${identifier(agent).toUpperCase()}_TELEGRAM.
 import { defineConfig } from "@chloejs/core";
 
@@ -78,9 +97,8 @@ import ${identifier(agent)} from "./agents/${agent}/agent.ts";
 export default defineConfig({
   agents: [${identifier(agent)}],
   settings: {
-    // Which model an agent asks when its own agent.ts names none. npx chloe
-    // setup put the one it checked in .env, which beats whatever is here.
-    // model: { default: "anthropic/claude-sonnet-5" },
+    // Which model an agent asks when its own agent.ts names none.
+    ${STARTER_MODEL_LINE}
   },
 });
 `;

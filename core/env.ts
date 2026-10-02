@@ -1,7 +1,6 @@
 // The .env file beside chloe.config.ts, read into the environment.
 //
-// This is where a value that belongs to the box rather than to the project goes:
-// every credential, and anything naming a home directory, a machine or a person.
+// This is where a secret goes: every password, key and token, and nothing else.
 // It is not in source control, and chloe.config.ts never holds one of them.
 //
 // Every setting can be set here, under CHLOE_ and its path in capitals, and what

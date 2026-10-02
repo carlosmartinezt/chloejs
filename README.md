@@ -225,17 +225,18 @@ What it leaves out is the default. Every setting is the `Settings` interface in
 you what each one is as you write it. `DEFAULTS` beside it is what each one is
 when nobody says, and the table on chloejs.org is read out of both.
 
-A value that is this box's goes in `.env` beside the config instead, mode 600 and
-never committed: every credential, and anything naming a home directory, a
-machine or a person. Every setting has a name there, `CHLOE_` and its path in
-capitals, so a box can run with nothing declared at all:
+A secret goes in `.env` beside the config instead, mode 600 and never
+committed: every password, key and token, and nothing else.
 
 ```
 CHLOE_MODEL_KEY=...
 CHLOE_RESEND_API_KEY=re_...
 CHLOE_AGENTS_TEMPO_TELEGRAM=123456789:ABC...
-CHLOE_CLOUD_REMOTE_WRITE=false
 ```
+
+Every setting has a name there, `CHLOE_` and its path in capitals, so one run
+can be changed by hand (`CHLOE_CLOUD_REMOTE_WRITE=false npx chloe`), but a
+choice that should last belongs in the config.
 
 A variable beats the config, a list is written with commas, and a switch that
 is neither `true` nor `false` is refused at startup rather than read as off.

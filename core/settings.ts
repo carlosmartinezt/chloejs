@@ -7,9 +7,8 @@
 //   the environment    .env beside chloe.config.ts, and the real environment
 //
 // A choice about how the runtime behaves goes in the config, where it is typed
-// and committed. A value that is this box's goes in .env, mode 600: every
-// credential, and anything naming a home directory, a machine or a person.
-// Nothing in source control may hold one of those.
+// and committed. A secret goes in .env, mode 600: every password, key and
+// token, and nothing else. Nothing in source control may hold one.
 //
 // Every setting also has a name in the environment, CHLOE_ and its path in
 // capitals: CHLOE_CLOUD_URL, CHLOE_RESEND_API_KEY, CHLOE_AGENTS_<agent>_TELEGRAM.

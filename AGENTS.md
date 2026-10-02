@@ -53,10 +53,10 @@ imported by the service.
 
 **Two places, and which one a value goes in is the question to ask.** A choice
 about how the runtime behaves goes in `settings` in `chloe.config.ts`, beside the
-agents, where it is typed by `Declared` and in source control. A value that is
-this box's goes in `.env` beside it, mode 600: every credential, and anything
-naming a home directory, a machine or a person. Nothing in source control may
-hold one of those. Every setting is the `Settings` interface in
+agents, where it is typed by `Declared` and in source control. A secret goes
+in `.env` beside it, mode 600: every password, key and token, and nothing else.
+Nothing in source control may hold one. An address, a path or a name is not a
+secret and goes in the config. Every setting is the `Settings` interface in
 `core/settings.ts`, with its one-line explanation on it, and `DEFAULTS` beside it
 is what each one is when nobody says. `DEFAULTS` is typed as `Settings`, so a
 setting added without a default does not compile, which is what keeps the two

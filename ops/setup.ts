@@ -15,8 +15,9 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
-import { identifier, nameProblem, starterFiles, withChannel } from "./starter.ts";
+import { identifier, modelLine, nameProblem, STARTER_MODEL_LINE, starterFiles, withChannel } from "./starter.ts";
 import { ask, askHidden, pick, setPassword, yes } from "./terminal.ts";
 
 /** The folder being set up: where the person ran the command. */
@@ -156,9 +157,8 @@ async function theAgent(): Promise<string> {
 }
 
 /**
- * Which model, and whether it answers. Written to .env, because the config this
- * wrote is somebody's own from the moment it exists and this is a choice about
- * one box. A project-wide choice goes in that config's `settings` instead.
+ * Which model, and whether it answers. The choice goes in chloe.config.ts and
+ * only the key goes in .env.
  *
  * Returns the model an agent asks here, or "" when there is none yet.
  */
@@ -229,15 +229,44 @@ async function theModel(): Promise<string> {
  * Writes the model settings, then asks that model one thing to find out whether
  * any of it was true. A wrong key, an unauthorised CLI and a model name that has
  * been retired all look the same until something asks.
+ *
+ * The choice goes in chloe.config.ts and the key in .env. A config this did not
+ * write is somebody's own and is told rather than edited.
  */
 async function settle(model: Record<string, string>, key?: string): Promise<string> {
-  const { nameInEnv, reloadSettings } = await import("#chloe/core/settings");
-  for (const [one, value] of Object.entries({ ...model, ...(key ? { key } : {}) })) {
-    putInEnv(nameInEnv(["model", one]), value);
+  const { declareSettings, nameInEnv, reloadSettings } = await import("#chloe/core/settings");
+  // Left by an earlier run of setup, and .env beats the config, so the old
+  // choice would quietly win over the one just made.
+  dropFromEnv(["default", "gateway", "prefer", "judge"].map((one) => nameInEnv(["model", one])));
+  if (key) {
+    putInEnv("CHLOE_MODEL_KEY", key);
+    written(".env", "CHLOE_MODEL_KEY, mode 600");
   }
-  written(".env", `${Object.keys(model).map((one) => nameInEnv(["model", one])).join(", ")}${key ? ", CHLOE_MODEL_KEY" : ""}, mode 600`);
-
   reloadSettings();
+
+  const line = modelLine(model);
+  const configFile = join(HERE, "chloe.config.ts");
+  const config = readFileSync(configFile, "utf8");
+  if (config.includes(STARTER_MODEL_LINE)) {
+    writeFileSync(configFile, config.replace(STARTER_MODEL_LINE, line));
+    written("chloe.config.ts", line);
+  } else if (!config.includes(line)) {
+    console.log(`\nchloe.config.ts is yours, so put this in its settings:\n  ${line}`);
+  }
+
+  // What the config declares, with the choice on top, so the check below runs on
+  // it whether or not the line went in. A fresh address, because the config may
+  // have been imported before it was written.
+  const declared = (await import(`${pathToFileURL(configFile).href}?setup=${Date.now()}`)).default as {
+    settings?: Record<string, unknown>;
+    agents?: { name?: string }[];
+  };
+  const settings = declared.settings ?? {};
+  const prefer = model.prefer ? { prefer: model.prefer.split(",") } : {};
+  declareSettings(
+    { ...settings, model: { ...(settings.model as object), ...model, ...prefer } } as Parameters<typeof declareSettings>[0],
+    (declared.agents ?? []).map((one) => one?.name ?? "").filter(Boolean),
+  );
 
   // Asked of the runtime rather than worked out here, so this cannot disagree
   // with what the first job will find: a key for the gateway, the program for a CLI.
@@ -252,7 +281,7 @@ async function settle(model: Record<string, string>, key?: string): Promise<stri
   process.stdout.write(`\nAsking ${asking} one thing to make sure it answers... `);
   const trouble = await tryIt(asking);
   console.log(trouble || "it answered, and it can call a tool.");
-  if (trouble) console.log("Fix that whenever you like: CHLOE_MODEL_DEFAULT and CHLOE_MODEL_KEY in .env are all of it.");
+  if (trouble) console.log("Fix that whenever you like: model in chloe.config.ts and CHLOE_MODEL_KEY in .env are all of it.");
   return asking;
 }
 
@@ -428,9 +457,21 @@ function sayWhatNext(name: string, model: string): void {
 }
 
 /**
+ * Takes these names out of .env beside chloe.config.ts, if they are there.
+ */
+function dropFromEnv(names: string[]): void {
+  const path = join(HERE, ".env");
+  if (!existsSync(path)) return;
+  const held = readFileSync(path, "utf8").split("\n");
+  const kept = held.filter((line) => !names.some((name) => line.trim().startsWith(`${name}=`)));
+  if (kept.length === held.length) return;
+  writeFileSync(path, kept.join("\n"));
+  written(".env", `${names.filter((name) => held.some((line) => line.trim().startsWith(`${name}=`))).join(", ")} taken out, now in chloe.config.ts`);
+}
+
+/**
  * One line in .env beside chloe.config.ts, replacing that name if it is already
- * there. .env is for what belongs to the box rather than the project, which is
- * why the workspace key is only ever here.
+ * there. .env is for secrets only: a password, a key or a token.
  */
 function putInEnv(name: string, value: string): void {
   const path = join(HERE, ".env");

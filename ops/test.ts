@@ -3752,7 +3752,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("the files npx chloe setup writes");
 
-  const { identifier, nameProblem, starterFiles, withChannel } = await import("#chloe/ops/starter");
+  const { identifier, modelLine, nameProblem, STARTER_MODEL_LINE, starterFiles, withChannel } = await import("#chloe/ops/starter");
   const { resolveAgent, jobsOf, markdownJob } = await import("#chloe/load/load");
   const { ROOT, settings } = await import("@chloejs/core");
 
@@ -3773,6 +3773,12 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const config = files.find((one) => one.path === "chloe.config.ts")!.body;
   is("chloe.config.ts names the agent it wrote", config.includes('from "./agents/watcher/agent.ts"'), true);
   is("and lists it, because an agent not on the list does not exist", config.includes("agents: [watcher]"), true);
+  is("it has the line setup puts the chosen model in", config.includes(STARTER_MODEL_LINE), true);
+  is(
+    "and the model goes in as a setting, with prefer as a list",
+    modelLine({ default: "anthropic/claude-sonnet-5", prefer: "gateway,claude" }),
+    'model: { default: "anthropic/claude-sonnet-5", prefer: ["gateway","claude"] },',
+  );
 
   // Written inside the repo rather than in tmp, because the agent.ts it writes
   // imports "@chloejs/core" and a package can only import itself from inside
