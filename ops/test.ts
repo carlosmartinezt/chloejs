@@ -729,7 +729,7 @@ about("a model step that never fits");
 
 {
   about("what Google says when a person has to sign in");
-  const { asLink, callback, explain, signInState, start } = await import("#chloe/services/googleService");
+  const { asLink, callback, explain, signInState, SHOWS_THE_CODE, start } = await import("#chloe/services/googleService");
   const { settings } = await import("@chloejs/core");
 
   // Every one of these is fixed by one sign-in, and a sign-in is something the
@@ -767,28 +767,58 @@ about("a model step that never fits");
   settings.google.account = was;
 
   about("where Google is told to send its answer");
+  const { workspaceIs, workspaceName } = await import("#chloe/cloud/workspace");
   const cloudWas = settings.google.callback;
   const keyWas = process.env.CHLOE_API_KEY;
+  const urlWas = settings.cloud.url;
+  const wasWorkspace = workspaceName();
 
-  settings.google.callback = "https://example.com/oauth/google/callback";
-  settings.cloud.remote.google = true;
-  is("the address it was given is the one Google is told", callback().url, "https://example.com/oauth/google/callback");
-  is("and the sign-in finishes on its own", callback().relayed, true);
-
-  // Set but switched off is the trap worth a case: the address would be
-  // registered with Google and nothing would ever come back down, and the
-  // person would be told to wait for something that cannot arrive.
-  settings.cloud.remote.google = false;
-  is("with the switch off, somebody still has to paste it back", callback().relayed, false);
-  settings.cloud.remote.google = true;
-
+  // Set outright, not left to whatever ran before this: the client decides the
+  // address when nobody says one, so a case about the address has to pin it.
+  const clientWas = settings.google.client;
   settings.google.callback = "";
-  is("with no address there is nowhere to catch it", callback().url, "");
+  settings.google.client = "";
+  workspaceIs("");
+  is("with no cloud, no client and nothing set, the answer goes to this machine", callback().url, "");
   is("so somebody pastes it back", callback().relayed, false);
+
+  // A cloud is never the default, because which way a sign-in finishes is the
+  // owner's choice and the one with a code in it needs nothing registered.
+  settings.cloud.url = "https://cloud.example";
+  settings.cloud.remote.google = true;
+  workspaceIs("personal");
+
+  // With nothing said, the kind of client decides, because that is what decides
+  // which addresses Google will take.
+  settings.google.client = { web: { client_id: "a", client_secret: "b" } };
+  is("a web client gets the page that shows a code, unasked", callback().url, SHOWS_THE_CODE);
+  is("and a cloud does not change that", callback().relayed, false);
+  settings.google.client = { installed: { client_id: "a", client_secret: "b" } };
+  is("a desktop client gets the loopback address, the only one Google will take", callback().url, "");
+  settings.google.client = "";
+  is("and with no client there is nothing to go on", callback().url, "");
+  settings.google.client = clientWas;
+
+  // Said outright, for an address somebody opened themselves.
+  settings.google.callback = SHOWS_THE_CODE;
+  is("the page that shows a code is the address Google is told", callback().url, "https://chloejs.org/connected");
+  is("and it is not relayed, because the person carries the code", callback().relayed, false);
+
+  // The one address that does come back on its own, written out by hand, which is
+  // how somebody opts into it.
+  settings.google.callback = "https://cloud.example/oauth/google/callback/personal";
+  is("a cloud's own route for this workspace is relayed", callback().relayed, true);
+
+  // Switched off, the cloud would refuse the handing back, so it is a paste again.
+  settings.cloud.remote.google = false;
+  is("with the switch off, the same address needs a paste", callback().relayed, false);
+  settings.cloud.remote.google = true;
 
   if (keyWas === undefined) delete process.env.CHLOE_API_KEY;
   else process.env.CHLOE_API_KEY = keyWas;
   settings.google.callback = cloudWas;
+  settings.cloud.url = urlWas;
+  workspaceIs(wasWorkspace);
 
   about("whose sign-in came back");
   const { addressesIn } = await import("#chloe/services/googleService");
@@ -2130,7 +2160,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   };
   const call = (method: string, url: string, body = "", signature?: string) => hit(route, method, url, body, signature);
   const signed = (body: string) => `sha256=${createHmac("sha256", SECRET).update(body, "utf8").digest("hex")}`;
-  const posted = (message: object, who = "Carlos", wa = "447700900123") =>
+  const posted = (message: object, who = "Ada", wa = "447700900123") =>
     JSON.stringify({
       object: "whatsapp_business_account",
       entry: [{ changes: [{ field: "messages", value: { metadata: { phone_number_id: "55501" }, contacts: [{ wa_id: wa, profile: { name: who } }], messages: [message] } }] }],
@@ -2154,7 +2184,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("the message is marked read and typing is shown while it works", calls.some((c) => c.body.status === "read" && c.body.typing_indicator), true);
   const ran = db.prepare("select agent, prompt from runs where source = 'whatsapp' order by started").all() as { agent: string; prompt: string }[];
   is("the run is filed under the channel it came in on", ran.length, 1);
-  is("and the agent is told who wrote", ran[0].prompt.includes("Carlos"), true);
+  is("and the agent is told who wrote", ran[0].prompt.includes("Ada"), true);
 
   const stranger = posted(text("hello", "447700900999"), "Stranger", "447700900999");
   await call("POST", "/x", stranger, signed(stranger));
@@ -2190,7 +2220,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const said: string[] = [];
   const log = console.error;
   console.error = (...line: unknown[]) => void said.push(line.join(" "));
-  const stale = posted(text("hello", "447700900999"), "Carlos", "447700900999");
+  const stale = posted(text("hello", "447700900999"), "Ada", "447700900999");
   const third = listen({ name: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900999"], api, postBox: "", agent: () => agent });
   answers.push("an answer nobody will see");
   await hit(third.routes![0], "POST", "/x", stale, signed(stale));

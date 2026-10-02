@@ -23,6 +23,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { join } from "node:path";
 
 import { settings } from "#chloe/core/settings";
+import { workspaceName } from "#chloe/cloud/workspace";
 import { STATE } from "#chloe/core/paths";
 
 import { run } from "./runService.ts";
@@ -67,13 +68,19 @@ export const SERVICES = "gmail,calendar,drive,docs,sheets";
 const PASTE_BACK = "http://127.0.0.1:33067/oauth2/callback";
 
 /**
- * A page that shows the person their code, for `google.callback` to point at
- * when this copy has no dashboard catching the answer.
+ * The page that shows the person their code, and the address `google.callback`
+ * is meant to be. One address for every copy of chloe there is, because the
+ * person carries the code and so nothing here has to know which runtime the
+ * answer belongs to.
  *
- * Not the default, because Google refuses an address like this one for a
- * client made as a desktop app, and that is the kind most people make first.
- * Named here so the walkthrough can offer it, and so there is one spelling of
- * it rather than one per README.
+ * The whole sign-in, as it is meant to go: the agent is asked for mail, says it
+ * needs signing in and sends a link, the person approves on their phone, lands
+ * here, and sends the short code back to the same chat. The agent checks it
+ * against the state it started with and the account it expected, and that is it.
+ *
+ * What `callback()` uses when nobody said otherwise and the client is a web one.
+ * Not for a desktop client, because Google refuses a public address for those, so
+ * one of those falls back to the loopback port and a longer paste.
  */
 export const SHOWS_THE_CODE = "https://chloejs.org/connected";
 
@@ -325,24 +332,84 @@ function mustBeAClientFile(path: string): void {
 }
 
 /**
- * Where Google is told to send its answer.
+ * The one address whose answer comes back on its own: a Chloe Cloud's own route
+ * for this workspace. Worked out rather than written down, because the route is
+ * the cloud's and the workspace name is what the cloud said on connect, so
+ * neither half is a guess. Only used to recognise that address in
+ * `google.callback`, never as a default: which way a sign-in finishes is the
+ * owner's choice, and the one with a code in it needs nothing registered per
+ * copy. Empty until a cloud has answered, and empty when `cloud.remote.google`
+ * is off, because then nothing would arrive.
+ */
+function caughtByCloud(): string {
+  const workspace = workspaceName();
+  const url = settings.cloud.url.trim().replace(/\/+$/, "");
+  if (!workspace || !url || !settings.cloud.remote.google) return "";
+  return `${url}/oauth/google/callback/${workspace}`;
+}
+
+/**
+ * Where Google is told to send its answer, and whether it comes back without
+ * anybody carrying it.
  *
- * `google.callback` is a public address that catches it, and the answer then
- * comes down the connection this runtime already holds open, so the sign-in
- * finishes with nobody pasting anything. It is set by hand rather than worked
- * out, because Google matches the address it was registered with exactly and a
- * guess that is one character out fails at the last step.
+ * **The flow this is built for is the one with a code in it.** `google.callback`
+ * is `SHOWS_THE_CODE`, one address that is the same for everybody: the person
+ * approves on their phone, lands on a page that shows a short code, and sends
+ * that code back to the agent in the chat they started in. The code alone is no
+ * use to anyone who reads it, because gog uses PKCE and the matching secret
+ * never left this machine. Nothing per-copy is registered and no connection has
+ * to be up at the right moment.
  *
- * Unset, the answer goes to a loopback port on this machine, which the
- * person's browser cannot reach, so they paste the address back instead. That
- * way needs nothing set up at all, which is why it is what happens by default.
+ * `relayed` means the answer gets back on its own, and that is true for one
+ * address only: a Chloe Cloud's `/oauth/google/callback/<workspace>`, which
+ * hands the code down the connection the runtime holds open. Every other
+ * address, a page that shows a code included, needs the person to send
+ * something back, and saying otherwise leaves them waiting for a sign-in that
+ * cannot finish.
+ *
+ * Unset, it is the page that shows a code for a web client, which is what the
+ * console's "Web application" makes, and the loopback port on this machine for a
+ * desktop one, because that is the only address Google will take for those. The
+ * loopback one reads as a broken page and the person pastes the whole address
+ * back, so it is the last resort rather than the aim.
  */
 export function callback(): { url: string; relayed: boolean } {
   const said = settings.google.callback.trim();
-  // Set but switched off is worth telling somebody about, so it is not silently
-  // the paste flow while the setting says otherwise.
-  if (said) return { url: said, relayed: settings.cloud.remote.google };
-  return { url: "", relayed: false };
+  if (said) return { url: said, relayed: said === caughtByCloud() };
+  // A desktop client may answer to any port here and to nothing on the internet,
+  // so for one of those the loopback address is the only one Google will take.
+  // A web client is the other way round, and then the page that shows a code is
+  // what somebody actually wants, so it is what they get without asking.
+  return { url: clientKind() === "web" ? SHOWS_THE_CODE : "", relayed: false };
+}
+
+/**
+ * Which kind of client `google.client` holds, "web" or "installed", or "" when
+ * there is nothing readable there. Which it is decides where Google will agree to
+ * send its answer, so it decides the address when nobody has said one.
+ *
+ * Read on each call rather than kept: the setting can change while this runs, and
+ * this is only asked when a sign-in starts or the console walkthrough is printed.
+ */
+export function clientKind(): "web" | "installed" | "" {
+  const said = settings.google.client;
+  let held: Record<string, unknown> | undefined;
+  if (said && typeof said === "object") {
+    held = said as Record<string, unknown>;
+  } else if (typeof said === "string" && said.trim()) {
+    const given = said.trim();
+    try {
+      held = JSON.parse(given.startsWith("{") ? given : readFileSync(given, "utf8")) as Record<string, unknown>;
+    } catch {
+      // Unreadable or not JSON is said properly by `client()` when a sign-in
+      // starts. Here it only means there is nothing to read a kind out of.
+      return "";
+    }
+  }
+  if (!held) return "";
+  if (held.web) return "web";
+  if (held.installed) return "installed";
+  return "";
 }
 
 function pending(): Pending | undefined {
@@ -639,7 +706,11 @@ export function setupSteps(): { steps: string[]; addresses: string[]; why: strin
       "Add your own Google address as a test user. You are the only user this will ever have.",
       "Go to Credentials, create an OAuth client, and choose Web application as the type.",
       "Add the redirect addresses listed here, exactly as they are written, one per line in that form.",
-      "The chloejs.org one is optional and worth it: with that registered, the page you land on shows you a short code to send back, instead of a browser error with the answer hidden in its address bar.",
+      to.relayed
+        ? `The ${new URL(to.url).hostname} one is the one that matters: with that registered the sign-in finishes on its own, because the page you land on hands the answer straight back to me.`
+        : to.url === SHOWS_THE_CODE
+          ? "The chloejs.org one is the one that matters: with that registered, the page you land on shows you a short code to send back. Without it you get a browser error with the answer hidden in its address bar."
+          : "The chloejs.org one is optional and worth it, if you make a Web application client: with that registered, the page you land on shows you a short code to send back, instead of a browser error with the answer hidden in its address bar.",
       "Download the client file it gives you, and put either its path or the whole of its contents in .env as CHLOE_GOOGLE_CLIENT.",
       "Tell me when that is done and I will send you the link to approve.",
     ],
