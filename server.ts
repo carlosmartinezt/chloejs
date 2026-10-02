@@ -14,7 +14,7 @@ import { bold, dim } from "#chloe/core/style";
 import { settings, unclaimed } from "#chloe/core/settings";
 import { closeCutOff, trim } from "#chloe/core/db";
 import { loadAll, type Agent, type Running } from "#chloe/load/load";
-import { runnable, via } from "#chloe/model/model";
+import { learnModels, runnable } from "#chloe/model/model";
 import { HOST, PORT, serve } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
 import { startCloud } from "#chloe/cloud/connect";
@@ -122,7 +122,9 @@ function under(said: string): string {
 /** What the model route is called in words rather than in settings. */
 function byRoute(route: string): string {
   if (route === "gateway") return "the AI gateway, on a key";
-  return route === "claude" ? "Claude, on a subscription" : "Codex, on a ChatGPT plan";
+  if (route === "claude") return "Claude, on a subscription";
+  if (route === "codex") return "Codex, on a ChatGPT plan";
+  return "opencode, on whatever it is signed in to";
 }
 
 /**
@@ -141,14 +143,14 @@ function startup(): string[] {
 
   lines.push(row("Cloud", cloudSays || `connecting to ${settings.cloud.url}`));
 
-  const route = via();
+  // Every route in the order they are tried, those this box is set up for only,
+  // so the line says what will actually be used and not what was asked for.
+  const ready = settings.model.prefer.filter((one) => runnable(one));
   const routed = Object.entries(settings.model.routes).map(([provider, one]) => `${provider} by ${byRoute(one)}`);
-  lines.push(row("AI models", runnable(route) ? [byRoute(route), ...routed].join("; ") : "not set up"));
-  if (!runnable(route)) {
+  lines.push(row("AI models", ready.length ? [...ready.map(byRoute), ...routed].join("; ") : "not set up"));
+  if (!ready.length) {
     lines.push(under(
-      route === "gateway"
-        ? "No gateway key. Set one up: npx chloe setup"
-        : `The ${route} command is not on the path. Install it, or set a key up: npx chloe setup`,
+      `Nothing in model.prefer is set up here (${settings.model.prefer.join(", ")}). Set one up: npx chloe setup`,
     ));
   }
 
@@ -212,6 +214,9 @@ async function reload(): Promise<void> {
           for (const name of agents.keys()) changedChannels.add(name);
         }
         agents = await loadAll();
+        // What each route can run, for the list somebody picks from. Asked here
+        // and never from a request, so a slow gateway cannot hold up a page.
+        await learnModels();
         sayUnclaimed();
         watchFolders();
         startChannels(changedChannels);

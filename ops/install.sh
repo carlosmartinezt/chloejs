@@ -50,26 +50,29 @@ fi
 SETTINGS=$(cd "$ROOT" && node --conditions=chloe-source --input-type=module -e '
   const { loadSettings, settings } = await import("@chloejs/core");
   await loadSettings();
-  console.log(settings.node || "-", settings.model.via || "-");
+  console.log(settings.node || "-", settings.model.prefer.join(",") || "-");
 ') || {
   echo "the settings could not be read. The error is above." >&2
   exit 1
 }
-read -r NODEBIN MODELVIA <<<"$SETTINGS"
+read -r NODEBIN PREFER <<<"$SETTINGS"
 [ "$NODEBIN" != "-" ] || NODEBIN=$(dirname "$(command -v node)")
-[ "$MODELVIA" != "-" ] || MODELVIA=""
+[ "$PREFER" != "-" ] || PREFER=""
 
-# model.via "claude" runs model calls through the Claude Code CLI, so the unit
-# needs it on the path. Found the same way as node, because it usually sits in
-# ~/.local/bin and systemd starts with almost no path at all.
-CLAUDEBIN=""
-if command -v claude >/dev/null 2>&1; then CLAUDEBIN=":$(dirname "$(command -v claude)")"; fi
+# A CLI route runs model calls through that program, so the unit needs it on the
+# path. Each is found the same way as node, because they usually sit somewhere
+# like ~/.local/bin and systemd starts with almost no path at all.
+CLIBIN=""
+for one in claude codex opencode; do
+  if command -v "$one" >/dev/null 2>&1; then CLIBIN="$CLIBIN:$(dirname "$(command -v "$one")")"; fi
+done
 
-[ "$MODELVIA" != "claude" ] || [ -n "$CLAUDEBIN" ] || {
-  echo "model.via is \"claude\", but the claude command is not on the path. Install" >&2
-  echo "Claude Code, or set model.via to \"gateway\" and put credit on the key." >&2
-  exit 1
-}
+[ -n "$CLIBIN" ] || case ",$PREFER," in
+  *,gateway,*) ;;
+  *) echo "model.prefer is \"$PREFER\" and none of those commands is on the path. Install one," >&2
+     echo "or put \"gateway\" in model.prefer and a key in .env as CHLOE_MODEL_KEY." >&2
+     exit 1 ;;
+esac
 
 # Credentials live in .env, so nobody else on the box reads it.
 [ ! -e "$ROOT/.env" ] || chmod 600 "$ROOT/.env"
@@ -89,7 +92,7 @@ Type=simple
 # The process watches each agent folder, so an edit there is live without a
 # restart, including a new agent folder. A change to the runtime or this unit
 # needs one.
-Environment=PATH=$NODEBIN$CLAUDEBIN:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=$NODEBIN$CLIBIN:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=$ROOT
 # The server is what is run. The package's index is only its exports and starts
 # nothing. The port and the loopback bind are in serve/http.ts.
@@ -110,7 +113,7 @@ systemctl --user enable chloe.service
 systemctl --user restart chloe.service
 
 echo "Installed chloe.service, node at $NODEBIN."
-echo "Model calls go via ${MODELVIA:-whichever this box can}."
+echo "Model calls try ${PREFER:-whichever this box can}, in that order."
 echo "The site and the API are on http://127.0.0.1:3067, loopback only."
 echo "Make the one account with: npx chloe account"
 echo "From another machine: ssh -L 3067:127.0.0.1:3067 you@thisbox"

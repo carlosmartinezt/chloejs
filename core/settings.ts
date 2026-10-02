@@ -28,12 +28,14 @@
 import { loadEnv } from "./env.ts";
 
 /**
- * How a model is reached. "gateway" over HTTP on a key, "claude" through the
- * Claude Code CLI on a subscription, "codex" through the Codex CLI on a ChatGPT
- * plan. The list is also what a value out of the environment is checked against,
- * so the words and the type cannot disagree.
+ * How a model is reached, and so which account pays for it. "claude" is the
+ * Claude Code CLI on a Claude subscription, "codex" the Codex CLI on a ChatGPT
+ * plan, "opencode" the opencode CLI on whatever it is signed in to, and
+ * "gateway" is HTTP on a key, charged per call. The list is also what a value
+ * out of the environment is checked against, so the words and the type cannot
+ * disagree.
  */
-export const ROUTES = ["gateway", "claude", "codex"] as const;
+export const ROUTES = ["claude", "codex", "opencode", "gateway"] as const;
 export type Route = (typeof ROUTES)[number];
 
 /** Who carries an agent's mail. */
@@ -66,17 +68,24 @@ export interface Settings {
      */
     default: string;
     /**
-     * The route for a model whose provider has no entry in `routes`. Empty
-     * picks by what the machine has. A route that cannot carry a provider
-     * (claude for an OpenAI model) is passed over for one that can.
+     * Which way of reaching a model to try first, then next. The first one that
+     * can carry the model's provider and is set up here is the one it goes by,
+     * so a Claude subscription is used before a key that charges per call. A
+     * route this box has no credential for is skipped.
      */
-    via: Route | "";
-    /** The route for one provider's models, like `{ openai: "codex" }`. */
+    prefer: Route[];
+    /**
+     * The route one provider's models always go by, like `{ openai: "codex" }`,
+     * whatever `prefer` says. For the rare case where the order is wrong for
+     * one provider only.
+     */
     routes: Record<string, Route>;
     /**
-     * The models somebody may pick for a chat, an agent or a job, on top of
-     * the ones the agents already name. Only those this box can run are
-     * offered.
+     * The shortlist somebody may pick from for a chat, an agent or a job, on top
+     * of the ones the agents already name. Empty asks each route what it has
+     * instead, which is every model this box can reach and usually hundreds, so
+     * this is for cutting that down to the few worth offering. Only models this
+     * box can actually run are offered either way.
      */
     models: string[];
     /** Any gateway that speaks the OpenAI chat-completions shape. */
@@ -199,7 +208,9 @@ export interface Settings {
 export const DEFAULTS: Settings = {
   model: {
     default: "",
-    via: "",
+    // A subscription before a key that charges per call, and the gateway last
+    // because it is the only one that can carry any provider.
+    prefer: [...ROUTES],
     routes: {},
     models: [],
     gateway: "https://ai-gateway.vercel.sh/v1/chat/completions",
@@ -244,7 +255,7 @@ const RECORDS: Record<string, unknown> = {
  * the same lists the types come from. `*` stands for a record's entries.
  */
 const ONE_OF: Record<string, readonly string[]> = {
-  "model.via": [...ROUTES, ""],
+  "model.prefer.*": ROUTES,
   "model.routes.*": ROUTES,
   "email.provider": EMAIL_PROVIDERS,
 };
@@ -276,7 +287,7 @@ export function nameInEnv(path: string[]): string {
  * setting, one name.
  */
 const ALSO = new Map<string, string>([
-  ["model.via", "MODEL_VIA"],
+  ["model.prefer", "MODEL_VIA"],
   ["model.gateway", "AI_GATEWAY_URL"],
   ["model.key", "AI_GATEWAY_API_KEY"],
   ["model.judge", "JUDGE_MODEL"],
@@ -313,7 +324,7 @@ function recordAt(path: string[]): unknown {
 
 /**
  * The defaults with what was said written over them, one setting at a time, so
- * declaring `model.via` leaves `model.gateway` alone. A record's entry is filled
+ * declaring `model.prefer` leaves `model.gateway` alone. A record's entry is filled
  * in from the shape of one entry, so what an entry does not say is empty rather
  * than missing.
  */
@@ -375,7 +386,12 @@ function wrong(defaults: unknown, said: unknown, path: string[] = []): string {
     return typeof said === "string" || isGroup(said) ? "" : `${where} is the client file, its path, or its contents as one string.`;
   }
   if (Array.isArray(defaults)) {
-    return Array.isArray(said) && said.every((one) => typeof one === "string") ? "" : `${where} is a list of words.`;
+    if (!Array.isArray(said) || !said.every((one) => typeof one === "string")) return `${where} is a list of words.`;
+    const each = ONE_OF[`${path.join(".")}.*`];
+    const odd = each && said.find((one) => !each.includes(one as string));
+    return odd === undefined || !each
+      ? ""
+      : `${where} has ${JSON.stringify(odd)} in it, and each one is ${each.map((one) => JSON.stringify(one)).join(", ")}.`;
   }
   return typeof said === typeof defaults ? "" : `${where} is ${typeof defaults === "boolean" ? "true or false" : `a ${typeof defaults}`}.`;
 }

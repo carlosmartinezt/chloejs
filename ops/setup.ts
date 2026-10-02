@@ -171,14 +171,27 @@ async function theModel(): Promise<string> {
   const choice = await pick("\nA model. Only the prompt job asks one, so this can wait: the code job runs either way.", [
     ...(runnable("claude") ? [{ key: "claude" as const, what: "your Claude subscription, through the claude command on this box" }] : []),
     ...(runnable("codex") ? [{ key: "codex" as const, what: "your ChatGPT plan, through the codex command on this box" }] : []),
+    ...(runnable("opencode") ? [{ key: "opencode" as const, what: "whatever opencode is signed in to on this box" }] : []),
     ...(held ? [{ key: "held" as const, what: `the key already in ${held} in your environment` }] : []),
     { key: "free" as const, what: "a free key from OpenRouter: no card, and rate limited to a few runs an hour" },
     { key: "key" as const, what: "a gateway key of your own (Vercel AI Gateway, OpenRouter, anything of that shape)" },
     { key: "later" as const, what: "nothing yet" },
   ]);
 
-  if (choice === "claude") return await settle({ via: "claude", default: "anthropic/claude-sonnet-5" });
-  if (choice === "codex") return await settle({ via: "codex", default: "openai/gpt-6-luna" });
+  // No `prefer` written for these: a subscription is already ahead of a key in
+  // the order, so choosing one is choosing the model it runs.
+  if (choice === "claude") return await settle({ default: "anthropic/claude-sonnet-5" });
+  if (choice === "codex") return await settle({ default: "openai/gpt-6-luna" });
+  if (choice === "opencode") {
+    const { opencodeModels } = await import("#chloe/model/opencode");
+    const [first] = opencodeModels();
+    if (!first) {
+      console.log("\nopencode is here but signed in to nothing. Run: opencode providers");
+      return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free" });
+    }
+    const asked = (await ask(`Which of opencode's models? (${first}) `)).trim();
+    return await settle({ default: asked || first });
+  }
 
   if (choice === "held") {
     const asked = (await ask(`Which model? (${settings.model.default || "openrouter/free"}) `)).trim();
@@ -207,7 +220,9 @@ async function theModel(): Promise<string> {
   const gateway = (await ask(`Which gateway? (${settings.model.gateway}) `)).trim() || settings.model.gateway;
   const model = (await ask("Which model, provider first, like anthropic/claude-sonnet-5? ")).trim();
   const key = (await askHidden("Paste the key: ")).trim();
-  return await settle({ default: model, gateway, via: "gateway" }, key);
+  // The gateway first, because somebody who just pasted a key meant to use it,
+  // and a subscription on this box would otherwise be ahead of it in the order.
+  return await settle({ default: model, gateway, prefer: "gateway,claude,codex,opencode" }, key);
 }
 
 /**

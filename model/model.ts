@@ -1,12 +1,14 @@
-// Asking a model, by one of three routes.
+// Asking a model, by one of four routes.
 //
 // A model is a string like "anthropic/claude-sonnet-5": a provider, then the
-// model's name. The provider decides the route, `routeFor()` below:
+// model's name. Which route it goes by is `routeFor()` below:
 //
-//   gateway  the Vercel AI Gateway over HTTP, any model, on a key. Any gateway
-//            that speaks the same shape works by setting model.gateway.
-//   claude   the Claude Code CLI, Anthropic models, on a Claude subscription.
-//   codex    the Codex CLI, OpenAI models, on a ChatGPT plan.
+//   claude    the Claude Code CLI, Anthropic models, on a Claude subscription.
+//   codex     the Codex CLI, OpenAI models, on a ChatGPT plan.
+//   opencode  the opencode CLI, whatever it is signed in to.
+//   gateway   the Vercel AI Gateway over HTTP, any model, on a key, charged per
+//             call. Any gateway that speaks the same shape works by setting
+//             model.gateway.
 //
 // A CLI is the only way to spend a subscription: it authorises the program,
 // and there is no key to put in a header. Everything above this file is the
@@ -20,9 +22,10 @@ import { nameInEnv, setting, settingInEnv, settings } from "#chloe/core/settings
 
 import { viaClaude } from "./claude.ts";
 import { viaCodex } from "./codex.ts";
+import { forgetOpencodeModels, opencodeModels, viaOpencode } from "./opencode.ts";
 
-/** One way a model call goes. */
-export type Route = "gateway" | "claude" | "codex";
+export type { Route } from "#chloe/core/settings";
+import { ROUTES, type Route } from "#chloe/core/settings";
 
 /** The provider in front of a model's name. A name with none is Anthropic's, the way the CLIs write it. */
 export function providerOf(model: string): string {
@@ -30,50 +33,42 @@ export function providerOf(model: string): string {
   return at < 0 ? "anthropic" : model.slice(0, at);
 }
 
-/** Whether a route can run a provider's models at all. */
+/**
+ * Whether a route can run a provider's models at all. The gateway carries any
+ * provider, each subscription CLI carries its own, and opencode carries whatever
+ * it is signed in to, which it is asked for rather than told.
+ */
 function carries(route: Route, provider: string): boolean {
-  return route === "gateway" || (route === "claude" && provider === "anthropic") || (route === "codex" && provider === "openai");
+  if (route === "gateway") return true;
+  if (route === "claude") return provider === "anthropic";
+  if (route === "codex") return provider === "openai";
+  return opencodeModels().some((model) => providerOf(model) === provider);
 }
 
 /**
- * The route a model goes by. MODEL_VIA in the environment settles it for one
- * run; then `model.routes` for its provider; then `model.via` when that route
- * can carry the provider; then what the box has: the gateway with a key, or
- * the provider's own CLI.
+ * The route a model goes by: `model.routes` for its provider, else the first
+ * entry in `model.prefer` that can carry that provider and is set up here. The
+ * environment settles it for a whole run, so it beats a provider's own route.
+ *
+ * Nothing is left when a box has no credential at all, and then it is the
+ * gateway, which says a key is missing rather than handing a model name to a CLI
+ * that would refuse it for a second reason.
  */
 export function routeFor(model: string): Route {
   const provider = providerOf(model);
-  // A route said in the environment is meant for the whole run, so it beats a
-  // provider's own route as well. One said in a file is only the route for a
-  // provider that names none, which is the line below.
-  const forced = settingInEnv(process.env, ["model", "via"]);
-  if (forced) return checked(forced, nameInEnv(["model", "via"]));
+  const forced = settingInEnv(process.env, ["model", "prefer"]);
+  if (forced) {
+    const first = forced.split(",").map((one) => one.trim()).filter(Boolean)[0] ?? "";
+    return checked(first, nameInEnv(["model", "prefer"]));
+  }
   const byProvider = settings.model.routes[provider];
   if (byProvider) return byProvider;
-  const chosen = settings.model.via;
-  if (chosen && carries(chosen, provider)) return chosen;
-  if (gatewayKey()) return "gateway";
-  // A CLI only for a provider it can carry. Anything else is the gateway, which
-  // says a key is missing rather than handing a model name to a CLI that would
-  // refuse it for a second reason.
-  if (provider === "openai") return "codex";
-  if (provider === "anthropic") return "claude";
-  return "gateway";
-}
-
-/**
- * The route for a model whose provider says nothing, as `model.via` and the
- * environment settle it. What the startup line reports.
- */
-export function via(): Route {
-  const chosen = settings.model.via;
-  if (chosen) return checked(chosen, "model.via");
-  return gatewayKey() ? "gateway" : "claude";
+  return settings.model.prefer.find((route) => carries(route, provider) && runnable(route)) ?? "gateway";
 }
 
 function checked(value: string, where: string): Route {
-  if (value === "gateway" || value === "claude" || value === "codex") return value;
-  throw new Error(`${where} is ${JSON.stringify(value)}. It is "gateway", "claude" or "codex".`);
+  if ((ROUTES as readonly string[]).includes(value)) return value as Route;
+  throw new Error(`${where} is ${JSON.stringify(value)}. It is ${ROUTES.map((one) => JSON.stringify(one)).join(", ")}.`);
 }
 
 function gatewayKey(): string {
@@ -82,7 +77,9 @@ function gatewayKey(): string {
 
 /** The program a CLI route runs, as the environment may rename it. */
 function programOf(route: Exclude<Route, "gateway">): string {
-  return route === "claude" ? setting("claude", "CLAUDE_BIN") : setting("codex", "CODEX_BIN");
+  if (route === "claude") return setting("claude", "CLAUDE_BIN");
+  if (route === "codex") return setting("codex", "CODEX_BIN");
+  return setting("opencode", "OPENCODE_BIN");
 }
 
 function onPath(program: string): boolean {
@@ -104,6 +101,47 @@ export function runnable(route: Route): boolean {
   return route === "gateway" ? Boolean(gatewayKey()) : onPath(programOf(route));
 }
 
+/** The gateway's own list, once it has answered. Empty until then, and it is only an offer. */
+let fromGateway: string[] = [];
+
+/**
+ * What to offer when nobody wrote a shortlist: everything each route this box has
+ * says it can run. Hundreds, usually, which is why `model.models` exists to cut
+ * it down.
+ */
+function shortlist(): string[] {
+  if (settings.model.models.length) return settings.model.models;
+  return [...new Set([...fromGateway, ...(runnable("opencode") ? opencodeModels() : [])])].sort();
+}
+
+/**
+ * Ask the gateway what it carries, for the list somebody picks from. Called at
+ * startup and on each reload, never from a request: a slow gateway must not hold
+ * up a page, and until it answers the offer is the shortlist and the agents' own
+ * models. The address is the chat one with its last part swapped, which is the
+ * same for every gateway that speaks this shape.
+ */
+export async function learnModels(): Promise<void> {
+  forgetOpencodeModels();
+  const key = gatewayKey();
+  if (!key) {
+    fromGateway = [];
+    return;
+  }
+  try {
+    const response = await fetch(settings.model.gateway.replace(/\/chat\/completions\/?$/, "/models"), {
+      headers: { authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) return;
+    const body = (await response.json()) as { data?: { id?: string }[] };
+    fromGateway = (body.data ?? []).map((one) => one.id).filter((id): id is string => typeof id === "string" && id.includes("/"));
+  } catch {
+    // A gateway that cannot be reached is not an error here: it only means the
+    // list somebody picks from is shorter until the next reload.
+  }
+}
+
 /** One model somebody may pick, and the route it would go by here. */
 export interface Offered {
   model: string;
@@ -116,7 +154,7 @@ export interface Offered {
  * Order is the settings' order, then the agent's.
  */
 export function models(agent?: Agent): Offered[] {
-  const named = [...settings.model.models, ...(agent ? [agent.model, ...agent.jobs.flatMap((job) => (job.model ? [job.model] : []))] : [])];
+  const named = [...shortlist(), ...(agent ? [agent.model, ...agent.jobs.flatMap((job) => (job.model ? [job.model] : []))] : [])];
   const out: Offered[] = [];
   for (const model of named) {
     if (out.some((one) => one.model === model)) continue;
@@ -201,6 +239,7 @@ export function ask(request: Ask): Promise<Answer> {
   const route = routeFor(request.model);
   if (route === "claude") return viaClaude(request);
   if (route === "codex") return viaCodex(request);
+  if (route === "opencode") return viaOpencode(request);
   return viaGateway(request);
 }
 
@@ -209,7 +248,7 @@ async function viaGateway({ model, messages, tools, maxTokens, signal }: Ask): P
   if (!key) {
     throw new Error(
       "No gateway key. Put it in .env as CHLOE_MODEL_KEY. " +
-        'To run on a subscription instead, set model.via to "claude" or "codex", or route the provider in model.routes.',
+        "To run on a subscription instead, put that route first in model.prefer, or route the provider in model.routes.",
     );
   }
 

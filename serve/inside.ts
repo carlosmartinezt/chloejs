@@ -6,6 +6,7 @@
 // not, and which setting it is, so somebody knows what to go and put there.
 import { settings } from "#chloe/core/settings";
 import { modelFor } from "#chloe/model/choices";
+import { routeFor } from "#chloe/model/model";
 import type { Agent } from "#chloe/load/load";
 import { collectsAt } from "#chloe/channels/whatsapp";
 
@@ -170,10 +171,9 @@ export function channelsOf(agent: Agent): Way[] {
 export function connectionsOf(agent: Agent): Way[] {
   const has = (tool: string) => Object.keys(agent.tools ?? {}).includes(tool);
   const model = modelFor(agent);
-  const provider = model.split("/")[0];
-  const via = settings.model.routes[provider] || settings.model.via;
+  const route = routeFor(model);
   const out: Way[] = [
-    via === "gateway" || !via
+    route === "gateway"
       ? {
           name: "model gateway",
           does: `Where ${model} is asked. Every run of this agent goes through it.`,
@@ -181,7 +181,7 @@ export function connectionsOf(agent: Agent): Way[] {
           ready: filled(settings.model.key),
         }
       : {
-          name: `${via} CLI`,
+          name: `${route} CLI`,
           does: `Where ${model} is asked, over a subscription rather than a key.`,
           needs: "",
           ready: null,

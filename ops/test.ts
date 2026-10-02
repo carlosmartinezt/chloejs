@@ -8,7 +8,7 @@
 // spending anything, and mail goes to the log.
 //
 // These are set rather than declared, because the environment beats the config:
-// a box whose chloe.config.ts says model.via "claude" would otherwise run every
+// a box whose chloe.config.ts prefers "claude" would otherwise run every
 // case against a real subscription, slowly, and score differently from the
 // next box.
 process.env.AGENTS_DB = ":memory:";
@@ -23,6 +23,10 @@ process.env.MODEL_VIA = "gateway";
 // made up. Without this the suite sends two real emails on a box that has a
 // mail key, because the alert settings are read from the same file.
 process.env.EMAIL_PROVIDER = "none";
+// What opencode can run is read by asking it, so an opencode on the path would
+// put somebody's own models into what the cases expect. The routing cases point
+// this at a stand-in of their own.
+process.env.OPENCODE_BIN = "/nowhere/opencode";
 
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -556,9 +560,9 @@ about("a model step that never fits");
   about("settings, and what wins");
   const { declareSettings, nameInEnv, readSettings, setting } = await import("@chloejs/core");
 
-  const base = { model: { via: "gateway" as const, judge: "a" } };
+  const base = { model: { prefer: ["gateway" as const], judge: "a" } };
   is("a default fills in what the config does not mention", readSettings(base, {}).model.gateway, "https://ai-gateway.vercel.sh/v1/chat/completions");
-  is("what the config says is what it says", readSettings(base, {}).model.via, "gateway");
+  is("what the config says is what it says", readSettings(base, {}).model.prefer, ["gateway"]);
   is("and one key declared leaves its neighbours alone", readSettings(base, {}).model.judge, "a");
   is("a setting nobody set is empty rather than missing", readSettings({}, {}).node, "");
   is("each agent's own settings are under its name", readSettings({ agents: { tempo: { telegram: "t" } } }, {}).agents.tempo.telegram, "t");
@@ -594,8 +598,8 @@ about("a model step that never fits");
     }
   };
   is("a setting that is not a choice is refused, and the choices are named",
-    said({ model: { via: "telepathy" } }),
-    'model.via is "telepathy", and it is one of "gateway", "claude", "codex", "".');
+    said({ model: { prefer: ["telepathy"] } }),
+    'model.prefer has "telepathy" in it, and each one is "claude", "codex", "opencode", "gateway".');
   is("a key that is no setting is refused, and says what there is",
     said({ modle: {} }).startsWith("settings.modle is not a setting. Under settings there is model,"), true);
   is("a misspelt key under an agent names the agent, not a star",
@@ -632,7 +636,7 @@ about("a model step that never fits");
     declareSettings({ alerts: { email_from: "chloe <x@example.com>" } });
     is("what the config declares reaches the settings everything reads", settings.alerts.email_from, "chloe <x@example.com>");
     is("and a setting it says nothing about is left at its default", settings.cloud.url, "https://dashboard.chloejs.org");
-    declareSettings({ model: { via: "gateway" } });
+    declareSettings({ model: { prefer: ["gateway"] } });
     is("declaring again drops what the last one said", settings.alerts.email_from, "");
     if (inEnv !== undefined) process.env[name] = inEnv;
   }
@@ -689,8 +693,8 @@ about("a model step that never fits");
     Object.keys(readSettings({}, { CHLOE_AGENTS_TEST_AGENT_TELEGRAM: "t" }).agents),
     ["test_agent"],
   );
-  is("the older name a setting had still works", readSettings({}, { MODEL_VIA: "codex" }).model.via, "codex");
-  is("and the name from the schema wins over it", readSettings({}, { MODEL_VIA: "codex", CHLOE_MODEL_VIA: "claude" }).model.via, "claude");
+  is("the older name a setting had still works", readSettings({}, { MODEL_VIA: "codex" }).model.prefer, ["codex"]);
+  is("and the name from the schema wins over it", readSettings({}, { MODEL_VIA: "codex", CHLOE_MODEL_PREFER: "claude" }).model.prefer, ["claude"]);
 
   let switched = "";
   try {
@@ -1040,40 +1044,80 @@ about("a model step that never fits");
 
 {
   about("which route a model goes by");
-  const { models, routeFor, via } = await import("#chloe/model/model");
+  const { models, routeFor, runnable } = await import("#chloe/model/model");
   const { codexModel, readCodex } = await import("#chloe/model/codex");
   const { cliModel } = await import("#chloe/model/claude");
+  const { forgetOpencodeModels, readOpencode } = await import("#chloe/model/opencode");
   const { settings } = await import("@chloejs/core");
   const forced = process.env.MODEL_VIA;
   const key = process.env.AI_GATEWAY_API_KEY;
   const before = { ...settings.model };
   delete process.env.MODEL_VIA;
   delete process.env.AI_GATEWAY_API_KEY;
+
+  // Every CLI is a stand-in, so what is on the path decides nothing here. The
+  // opencode one answers `models` with two lines, which is how it says what it
+  // can carry, and is never the real program: that would ask somebody's account.
+  const bin = await mkdtemp(join(tmpdir(), "chloe-bin-"));
+  const fake = async (name: string, body: string) => {
+    const path = join(bin, name);
+    await writeFile(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    return path;
+  };
+  const anyCli = await fake("any", "exit 0");
+  const opencodeCli = await fake("opencode", 'if [ "$1" = "models" ]; then printf "deepseek/deepseek-v4-pro\\nopenai/gpt-5.5\\n"; fi');
+
+  const pin = (claude: string, codex: string, opencode: string) => {
+    process.env.CLAUDE_BIN = claude;
+    process.env.CODEX_BIN = codex;
+    process.env.OPENCODE_BIN = opencode;
+    forgetOpencodeModels();
+  };
+
   try {
-    Object.assign(settings.model, { via: "", routes: {}, key: "", models: [] });
-    is("with nothing set, an anthropic model goes by the claude cli", routeFor("anthropic/claude-sonnet-5"), "claude");
-    is("and an openai model by codex", routeFor("openai/gpt-6-luna"), "codex");
+    Object.assign(settings.model, { prefer: ["claude", "codex", "opencode", "gateway"], routes: {}, key: "", models: [] });
+    pin(anyCli, anyCli, opencodeCli);
+    is("the first route that carries the provider wins, so anthropic is the subscription", routeFor("anthropic/claude-sonnet-5"), "claude");
+    is("and openai is the plan, because claude cannot carry it", routeFor("openai/gpt-6-luna"), "codex");
     is("a name with no provider is anthropic's", routeFor("claude-sonnet-5"), "claude");
-    // No CLI carries it, so it is the gateway that says a key is missing, rather
-    // than a CLI refusing the provider for a second reason.
-    is("a provider neither cli carries goes to the gateway", routeFor("openrouter/free"), "gateway");
+    // opencode says it carries deepseek, and it is ahead of the gateway.
+    is("a provider only opencode is signed in to goes there", routeFor("deepseek/deepseek-v4-pro"), "opencode");
+    // Nothing before the gateway carries it, so it is the gateway that says a key
+    // is missing rather than a CLI refusing the provider for a second reason.
+    is("a provider nothing else carries goes to the gateway", routeFor("openrouter/free"), "gateway");
+
+    pin("/nowhere/claude", anyCli, opencodeCli);
     settings.model.key = "k";
-    is("a key sends everything to the gateway", [routeFor("anthropic/claude-sonnet-5"), routeFor("openai/gpt-6-luna")], ["gateway", "gateway"]);
-    settings.model.via = "claude";
-    is("model.via wins for a provider it can carry", routeFor("anthropic/claude-sonnet-5"), "claude");
-    is("and is passed over for one it cannot", routeFor("openai/gpt-6-luna"), "gateway");
-    settings.model.routes = { openai: "codex" };
-    is("a provider's own route wins over both", routeFor("openai/gpt-6-luna"), "codex");
+    is("a route this box is not set up for is skipped", routeFor("anthropic/claude-sonnet-5"), "gateway");
+
+    pin(anyCli, anyCli, opencodeCli);
+    is("and with it set up again the key is not reached for", routeFor("anthropic/claude-sonnet-5"), "claude");
+
+    // Claude or Codex on an API key rather than a subscription: put the gateway
+    // first, for everything, or in model.routes for one provider.
+    settings.model.prefer = ["gateway", "claude", "codex", "opencode"];
+    is("the gateway first sends anthropic over the key", routeFor("anthropic/claude-sonnet-5"), "gateway");
+    is("and openai too", routeFor("openai/gpt-6-luna"), "gateway");
+    settings.model.prefer = ["claude", "codex", "opencode", "gateway"];
+    settings.model.routes = { anthropic: "gateway" };
+    is("one provider over the key, the rest on their subscription", [routeFor("anthropic/claude-sonnet-5"), routeFor("openai/gpt-6-luna")], ["gateway", "codex"]);
+
+    settings.model.routes = { openai: "gateway" };
+    is("a provider's own route wins over the order", routeFor("openai/gpt-6-luna"), "gateway");
+    settings.model.routes = {};
     process.env.MODEL_VIA = "gateway";
-    is("and the environment wins over everything, for one run", routeFor("openai/gpt-6-luna"), "gateway");
-    is("which the newer name does too", routeFor("openai/gpt-6-luna"), "gateway");
+    is("and the environment wins over everything, for one run", routeFor("anthropic/claude-sonnet-5"), "gateway");
     delete process.env.MODEL_VIA;
-    process.env.CHLOE_MODEL_VIA = "gateway";
-    is("under either name", routeFor("openai/gpt-6-luna"), "gateway");
-    delete process.env.CHLOE_MODEL_VIA;
-    settings.model.via = "gateway";
-    is("via() is the route for a provider that says nothing", via(), "gateway");
-    settings.model.via = "claude";
+    process.env.CHLOE_MODEL_PREFER = "gateway";
+    is("under its newer name too", routeFor("anthropic/claude-sonnet-5"), "gateway");
+    process.env.CHLOE_MODEL_PREFER = "opencode,gateway";
+    is("and the first of a list is the one it forces", routeFor("anthropic/claude-sonnet-5"), "opencode");
+    delete process.env.CHLOE_MODEL_PREFER;
+
+    pin("/nowhere/claude", "/nowhere/codex", "/nowhere/opencode");
+    is("a route with no program is not set up, and a key is still the gateway", settings.model.prefer.filter(runnable), ["gateway"]);
+    pin(anyCli, anyCli, opencodeCli);
+    is("and the order is what the startup line reports", settings.model.prefer.filter(runnable), ["claude", "codex", "opencode", "gateway"]);
 
     is("the codex cli is handed the name alone", codexModel("openai/gpt-6-luna"), "gpt-6-luna");
     let refused = "";
@@ -1100,19 +1144,56 @@ about("a model step that never fits");
     }
     is("and a failed turn is the error, in its words", failed, "Model call refused: codex: The model is not supported");
 
+    is(
+      "opencode's lines are read for the words, the cost and the tokens",
+      readOpencode(
+        [
+          '{"type":"step_start"}',
+          '{"type":"text","part":{"type":"text","text":"Five."}}',
+          '{"type":"step_finish","part":{"tokens":{"input":58,"output":5},"cost":0.004}}',
+        ].join("\n"),
+      ),
+      { text: "Five.", cost: 0.004, tokensIn: 58, tokensOut: 5 },
+    );
+    let wrongAgent = "";
+    try {
+      readOpencode('{"type":"tool","part":{"type":"tool"}}\n{"type":"step_finish","part":{}}');
+    } catch (error) {
+      wrongAgent = (error as Error).message;
+    }
+    // An --agent it does not know is passed over in silence, so a tool call is
+    // the only sign that its own tools were in force.
+    is("a tool call of its own is refused rather than used", wrongAgent.includes("was not in force"), true);
+    let broke = "";
+    try {
+      readOpencode('{"type":"error","error":{"name":"UnknownError","data":{"message":"no model"}}}');
+    } catch (error) {
+      broke = (error as Error).message;
+    }
+    is("and an error line is the error, in its words", broke, "Model call refused: opencode: no model");
+
     // What is on offer is what this box can run: a route with no program is left out.
     process.env.MODEL_VIA = "";
-    Object.assign(settings.model, { via: "", routes: {}, key: "", models: ["openai/gpt-6-luna", "anthropic/claude-sonnet-5", "openai/gpt-6-luna"] });
-    process.env.CLAUDE_BIN = "/nowhere/claude";
-    process.env.CODEX_BIN = "/nowhere/codex";
-    is("nothing is offered when neither cli is on the path", models(), []);
-    process.env.CODEX_BIN = process.execPath;
+    Object.assign(settings.model, { prefer: ["claude", "codex", "opencode", "gateway"], routes: {}, key: "", models: ["openai/gpt-6-luna", "anthropic/claude-sonnet-5", "openai/gpt-6-luna"] });
+    pin("/nowhere/claude", "/nowhere/codex", "/nowhere/opencode");
+    is("nothing is offered when no route is set up", models(), []);
+    pin("/nowhere/claude", anyCli, "/nowhere/opencode");
     is("a model is offered once its program is there, and once only", models(), [{ model: "openai/gpt-6-luna", route: "codex" }]);
     const agent = agentFor(codeJob("nightly", async () => ({})));
     agent.model = "openai/gpt-5.5";
     is("an agent's own model is offered after the list", models(agent).map((one) => one.model), ["openai/gpt-6-luna", "openai/gpt-5.5"]);
+
+    // With no shortlist, what each route says it carries is the offer.
+    pin("/nowhere/claude", "/nowhere/codex", opencodeCli);
+    settings.model.models = [];
+    is("with no shortlist, a route is asked what it has", models().map((one) => one.model), ["deepseek/deepseek-v4-pro", "openai/gpt-5.5"]);
     delete process.env.CLAUDE_BIN;
     delete process.env.CODEX_BIN;
+    // Back to the stand-in the top of this file set, not deleted: deleting it
+    // puts the real opencode on the path back in reach of every case below.
+    process.env.OPENCODE_BIN = "/nowhere/opencode";
+    forgetOpencodeModels();
+    await rm(bin, { recursive: true, force: true });
   } finally {
     Object.assign(settings.model, before);
     process.env.MODEL_VIA = forced;

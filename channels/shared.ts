@@ -191,6 +191,9 @@ function modelCommand(text: string): { pick?: string; target?: string } | undefi
   return { pick: split[1], target: split[2]?.trim() };
 }
 
+/** How many models a chat lists. More than this is a wall of text and too many buttons. */
+const SHOWN = 20;
+
 /** What a model command comes back with: the list, or the pick made. */
 function picked(agent: Agent, message: Incoming, asked: { pick?: string; target?: string }): { text: string; buttons?: Button[] } {
   const offered = models(agent);
@@ -199,16 +202,23 @@ function picked(agent: Agent, message: Incoming, asked: { pick?: string; target?
 
   if (!asked.pick) {
     const made = choices(agent.name).filter((one) => !one.scope.startsWith("chat:"));
+    // With no shortlist the offer is every model each route carries, which runs
+    // to hundreds. A chat cannot show that, so it shows the first few and says
+    // where to shorten it. Any of them can still be named in full.
+    const some = offered.slice(0, SHOWN);
     const lines = [
       `This chat: ${here ?? modelFor(agent)}${here ? "" : " (the default)"}`,
       ...made.map((one) => `${one.scope === "agent" ? "Everything" : one.scope.slice(4)}: ${one.model}`),
       "",
-      offered.length ? "I can run:" : "There is nothing to pick from: model.models in settings is empty, or nothing on it runs on this box.",
-      ...offered.map((one) => `• ${one.model}`),
+      offered.length ? "I can run:" : "There is nothing to pick from: nothing this box is set up for runs the models on offer.",
+      ...some.map((one) => `• ${one.model}`),
+      ...(offered.length > some.length
+        ? [`...and ${offered.length - some.length} more. Name any of them, or set model.models in chloe.config.ts to choose what shows here.`]
+        : []),
       "",
       "Pick one for this chat, or write /model <name>, /model <name> for everything, /model <name> for <job>, or /model default.",
     ];
-    return { text: lines.join("\n"), buttons: offered.map((one) => ({ label: one.model, sends: `/model ${one.model}` })) };
+    return { text: lines.join("\n"), buttons: some.map((one) => ({ label: one.model, sends: `/model ${one.model}` })) };
   }
 
   let scope: Scope;

@@ -298,12 +298,31 @@ npm run evals <agent>  # the prompts: did the model decide well
 ```
 
 Which route a call goes by is decided in `model/model.ts` from the provider in
-front of the model's name: `model.routes` per provider, else `model.via`, else
-what the box has. Three routes: the gateway on a key, the Claude Code CLI on a
-subscription, the Codex CLI on a ChatGPT plan. Each CLI route is one file the
-shape of `model/claude.ts` with the CLI's own tools switched off, and
-`model/cli.ts` is what they share. `MODEL_VIA=` in front of a command forces one
-route for one run.
+front of the model's name: `model.routes` for that provider if it names one,
+else the first entry in `model.prefer` that can carry the provider and is set up
+here. Four routes: the Claude Code CLI on a Claude subscription, the Codex CLI on
+a ChatGPT plan, the opencode CLI on whatever it is signed in to, and the gateway
+on a key, charged per call. The default order is that one, so a subscription is
+spent before a key is, and the gateway is last because it is the only one that
+can carry any provider.
+
+**A subscription and an API key are both ways to the same model.** Anthropic or
+OpenAI models over a key is the gateway route: put `gateway` first in
+`model.prefer` for all of them, or name it in `model.routes` for one provider.
+Nothing about a model's name decides which account pays for it.
+
+Each CLI route is one file the shape of `model/claude.ts` with the CLI's own
+tools switched off, and `model/cli.ts` is what they share. A CLI that carries one
+provider says so in its own `cliModel`; opencode carries whatever it is signed in
+to, so `opencodeModels()` asks it rather than the runtime deciding, once per
+process because `routeFor` cannot wait two seconds. `MODEL_VIA=` in front of a
+command still forces one route for one run.
+
+What somebody may pick from is `models()`. `model.models` is a shortlist, and
+empty means ask each route what it carries: `opencode models`, and the gateway's
+own `/models`, which `learnModels()` fetches at startup and on each reload and
+never from a request. Do not write a list of model names into this repo: it is
+wrong the week after it ships.
 
 A model picked on the fly (`/models` in a chat, `POST /api/agents/<name>/model`)
 is a row in `model/choices.ts`, and `modelFor()` there is the one place that
