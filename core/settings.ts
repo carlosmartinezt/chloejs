@@ -16,7 +16,7 @@
 // So anything the config can say, .env can say instead, and a box can run with
 // nothing declared at all. Every variable the runtime reads is one of these
 // settings, and there is no other name it looks for, so a config may hand a
-// setting the variable itself: `api_key: process.env.CHLOE_API_KEY`. A setting
+// setting the variable itself: `cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`. A setting
 // the config says is undefined is one it did not say.
 //
 // `state`, `memory`, `db` and `node` are read before any config is loaded, at
@@ -169,10 +169,16 @@ export interface Settings {
   agents: Record<string, AgentSettings>;
   /**
    * Chloe Cloud: a dashboard somewhere else that this runtime connects out to
-   * and is shown on. Nothing about how a job runs depends on it. Which
-   * workspace it is, is `api_key`.
+   * and is shown on. Nothing about how a job runs depends on it.
    */
   cloud: {
+    /**
+     * This workspace's key, from the dashboard. Without one there is no
+     * connection, and taking it out leaves everything running as it was. It is
+     * a credential, so the key itself goes in .env as CHLOE_CLOUD_API_KEY, and a
+     * config that says where it comes from names that variable, not the key.
+     */
+    api_key: string;
     /** Where the cloud is. CHLOE_CLOUD_URL beats it. Point it at your own by setting this. */
     url: string;
     /** What is sent up as it happens, so the dashboard can show it when this runtime is offline. */
@@ -199,17 +205,11 @@ export interface Settings {
        * runtime started, so nobody has to paste a code. Nothing else about
        * Google comes through it, and a code that does not match the sign-in
        * this runtime is waiting for is refused.
+       * Requires a callback set to: https://dashboard.chloejs.org/oauth/google/callback/<workspace>
        */
       google: boolean;
     };
   };
-  /**
-   * The workspace key for a Chloe Cloud. Without one there is no connection,
-   * and taking it out leaves everything running as it was. It is a credential,
-   * so the key itself goes in .env as CHLOE_API_KEY, and a config that wants
-   * to say where it comes from names that variable rather than the key.
-   */
-  api_key: string;
   /** Who a run belongs to when no channel has said, as `channel:who`. */
   owner: string;
   /**
@@ -252,11 +252,11 @@ export const DEFAULTS: Settings = {
   alerts: { email_to: "", email_from: "" },
   agents: {},
   cloud: {
+    api_key: "",
     url: "https://dashboard.chloejs.org",
     sync: { runs: true, agents: true },
     remote: { read: true, chat: true, run: true, memory: false, write: false, google: false },
   },
-  api_key: "",
   owner: "",
   page: "",
   state: "",
@@ -328,6 +328,7 @@ const ALSO = new Map<string, string>([
   ["email.provider", "EMAIL_PROVIDER"],
   ["resend.api_key", "RESEND_API_KEY"],
   ["google.account", "GOG_ACCOUNT"],
+  ["cloud.api_key", "CHLOE_API_KEY"],
   ["state", "AGENTS_STATE"],
   ["memory", "AGENTS_MEMORY"],
 ]);
@@ -575,7 +576,7 @@ export function readSettings(declared: unknown, env: Env = process.env, spelling
   // Said rather than passed over, because a key that silently stops being read
   // is a runtime that silently leaves its dashboard.
   if ((merged.cloud as Record<string, unknown> | undefined)?.key !== undefined) {
-    throw new Error("settings: the workspace key is api_key, not cloud.key. The key itself belongs in .env, as CHLOE_API_KEY.");
+    throw new Error("settings: the workspace key is cloud.api_key, not cloud.key. The key itself belongs in .env, as CHLOE_CLOUD_API_KEY.");
   }
   const problem = wrong(DEFAULTS, merged);
   if (problem) throw new Error(`settings are not valid:\n${problem}`);

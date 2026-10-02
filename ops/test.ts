@@ -595,8 +595,9 @@ about("a model step that never fits");
     readSettings({ cloud: { url: process.env.NOTHING_SETS_THIS } }, {}).cloud.url,
     "https://dashboard.chloejs.org",
   );
-  is("and the workspace key is a setting like any other", readSettings({ api_key: "chl_workspace_x" }, {}).api_key, "chl_workspace_x");
-  is("read from the name it has always had", readSettings({}, { CHLOE_API_KEY: "chl_from_env" }).api_key, "chl_from_env");
+  is("and the workspace key is a setting like any other", readSettings({ cloud: { api_key: "chl_workspace_x" } }, {}).cloud.api_key, "chl_workspace_x");
+  is("read from the environment by its own name", readSettings({}, { CHLOE_CLOUD_API_KEY: "chl_from_env" }).cloud.api_key, "chl_from_env");
+  is("and by the name it had before", readSettings({}, { CHLOE_API_KEY: "chl_from_env" }).cloud.api_key, "chl_from_env");
 
   // The config is type checked, so these are for a value out of the environment
   // and for a config that is not TypeScript. Each one says what to set instead
@@ -631,7 +632,7 @@ about("a model step that never fits");
   } catch (error) {
     moved = error instanceof Error ? error.message : "";
   }
-  is("cloud.key in the config is refused, and names the setting instead", moved.includes("api_key, not cloud.key"), true);
+  is("cloud.key in the config is refused, and names the setting instead", moved.includes("cloud.api_key, not cloud.key"), true);
   is("and the dashboard's address is what it is unless somebody says", readSettings({}, {}).cloud.url, "https://dashboard.chloejs.org");
 
   {
@@ -730,7 +731,7 @@ about("a model step that never fits");
   about("the .env file beside chloe.config.ts");
   const { readEnvFile } = await import("#chloe/core/env");
 
-  is("a plain line", readEnvFile("CHLOE_API_KEY=chl_workspace_x").CHLOE_API_KEY, "chl_workspace_x");
+  is("a plain line", readEnvFile("CHLOE_CLOUD_API_KEY=chl_workspace_x").CHLOE_CLOUD_API_KEY, "chl_workspace_x");
   is("blank lines and comments are passed over", Object.keys(readEnvFile("\n# a note\nA=1\n")), ["A"]);
   is("quotes around a value come off", readEnvFile('A="one two"').A, "one two");
   is("and so does export in front, so a shell reads the same file", readEnvFile("export A=1").A, "1");
@@ -3476,16 +3477,16 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   live.cloud.remote = { read: true, chat: true, run: true, memory: false, write: false, google: false };
 
   // Nothing named: nothing opened.
-  live.api_key = "";
+  live.cloud.api_key = "";
   const idle = startCloud({ agents: () => new Map([["test", keeper]]), self: at, socket: fake, backoff: { first: 10, most: 20 } });
   await tick();
   is("with no key nothing is opened", opened.length, 0);
   idle.stop();
 
   // Both are settings, so both are set as settings. The key's value is still
-  // the box's: a config names CHLOE_API_KEY rather than holding the key.
+  // the box's: a config names CHLOE_CLOUD_API_KEY rather than holding the key.
   live.cloud.url = "https://cloud.example/";
-  live.api_key = "chl_install_test";
+  live.cloud.api_key = "chl_install_test";
   const cloud = startCloud({ agents: () => new Map([["test", keeper]]), self: at, socket: fake, backoff: { first: 10, most: 20 }, version: "9.9.9" });
   await tick();
   is("the address is the cloud's, on /connect, over a socket", last().address, "wss://cloud.example/connect");
@@ -3563,7 +3564,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await tick();
   is("a reload with the same settings sends the agents up", said("agents").length, 1);
   is("and opens nothing new", opened.length, again);
-  live.api_key = "chl_install_other";
+  live.cloud.api_key = "chl_install_other";
   cloud.reload();
   await tick();
   is("a new key is a new socket", opened.length, again + 1);
@@ -3576,7 +3577,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and the log says it came from the cloud, not from a token", cameIn.at(-1), "cloud");
 
   cloud.stop();
-  live.api_key = "";
+  live.cloud.api_key = "";
   ownPage(false);
   server.close();
 }

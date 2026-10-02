@@ -72,7 +72,7 @@ serve({
 });
 
 // The connection to Chloe Cloud, if there is a key for one. It reads the
-// settings and the environment itself, so a change to CHLOE_API_KEY or
+// settings, so a change to cloud.api_key or
 // cloud.url is a reload away like everything else.
 //
 // Its first line is held back so it can be printed in among the rest below

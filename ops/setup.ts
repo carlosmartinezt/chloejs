@@ -386,8 +386,8 @@ async function somewhereToWatch(): Promise<void> {
     console.log("It connects out and stays connected, so there is no port to open and no name to point anywhere.");
     const key = (await askHidden("Paste the workspace key (or Enter to do it later): ")).trim();
     if (key) {
-      putInEnv("CHLOE_API_KEY", key);
-      written(".env", "CHLOE_API_KEY, mode 600");
+      putInEnv("CHLOE_CLOUD_API_KEY", key);
+      written(".env", "CHLOE_CLOUD_API_KEY, mode 600");
     }
     return;
   }

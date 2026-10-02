@@ -17,7 +17,7 @@
 //           decides whether that route, with the switches this workspace
 //           has on, may be answered. The answer goes back with the same id.
 //
-// Nothing here changes how a job runs. With no CHLOE_API_KEY there is no
+// Nothing here changes how a job runs. With no cloud.api_key there is no
 // connection, and the only line this file writes is saying so once.
 import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
@@ -130,7 +130,7 @@ export function startCloud(options: CloudOptions): Cloud {
   function where(): { url: string; key: string } {
     return {
       url: settings.cloud.url.trim().replace(/\/+$/, ""),
-      key: settings.api_key.trim(),
+      key: settings.cloud.api_key.trim(),
     };
   }
 
@@ -180,7 +180,7 @@ export function startCloud(options: CloudOptions): Cloud {
     if (stopped) return;
     const want = where();
     using = want;
-    if (!want.key) return say("not connected: no api_key. Make a workspace on the dashboard and put its key in .env, as CHLOE_API_KEY.");
+    if (!want.key) return say("not connected: no cloud.api_key. Make a workspace on the dashboard and put its key in .env, as CHLOE_CLOUD_API_KEY.");
     if (!want.url) return say("not connected: cloud.url in settings is empty.");
 
     const address = `${want.url.replace(/^http/, "ws")}/connect`;

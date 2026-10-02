@@ -90,18 +90,20 @@ a time. Text is read as the type the default has: a list on commas, a switch as
 schema is `wrong()`, which refuses a key that names no setting, a value of the
 wrong kind, and one outside `ONE_OF`, and says what there was to set instead.
 Each enum is one `as const` list that both the type and that check are read off,
-so the words cannot disagree with the type. The ten older names
-(`MODEL_VIA`, `AGENTS_STATE` and the rest) are a map in `core/settings.ts` and
-the name from `nameInEnv` wins over them. Nothing new goes in that map.
+so the words cannot disagree with the type. The older names
+(`MODEL_VIA`, `AGENTS_STATE`, `CHLOE_API_KEY` and the rest) are a map in
+`core/settings.ts` and the name from `nameInEnv` wins over them. A setting
+that is renamed keeps its old name there, so a box that set it is not left
+reading nothing; no other kind of entry goes in.
 
 A setting is read from `settings`, never from `process.env`: the environment is
 already merged in, and every variable the runtime reads is a setting, so there
 is no other name to look for. `settingInEnv` is for the one place that cares
 where a value came from, a route meant for one run beating a provider's own. A
-config may hand a setting the variable itself, `api_key:
-process.env.CHLOE_API_KEY`, which is how it says where a credential comes from
-without holding one, and a setting given `undefined` is one it did not say. The
-workspace key for a Chloe Cloud is `api_key`, and a config that names
+config may hand a setting the variable itself, `cloud: { api_key:
+process.env.CHLOE_CLOUD_API_KEY }`, which is how it says where a credential
+comes from without holding one, and a setting given `undefined` is one it did
+not say. The workspace key for a Chloe Cloud is `cloud.api_key`, and a config that names
 `cloud.key` is refused rather than passed over, because a key that silently
 stops being read is a runtime that silently leaves its dashboard. The server reads both again when either changes, so a
 setting is read when it is needed, never copied at import.
@@ -555,7 +557,7 @@ the notes, or touch the tokens.
 
 **A cloud is something this runtime connects out to, never something that
 reaches in.** `cloud/connect.ts` opens one WebSocket to `cloud.url` in
-settings, says which workspace it is with `api_key` inside the first
+settings, says which workspace it is with `cloud.api_key` inside the first
 message, and answers requests the dashboard sends down it by making them
 against the one port with `RELAY_SECRET` from `serve/login.ts`, a secret made
 when the process starts and never written anywhere. That makes the caller kind

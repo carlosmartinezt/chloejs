@@ -38,7 +38,7 @@ Make a workspace there, and put the key it shows you once in `.env`, beside
 `chloe.config.ts`, which is one of the questions `npx chloe setup` asks:
 
 ```sh
-CHLOE_API_KEY=chl_workspace_...
+CHLOE_CLOUD_API_KEY=chl_workspace_...
 ```
 
 That is the whole of it: `https://dashboard.chloejs.org` is where it looks
@@ -241,7 +241,7 @@ is neither `true` nor `false` is refused at startup rather than read as off.
 `state`, `memory`, `db` and `node` are read before the config is, so those four
 are only read from here. Everything else may be declared instead, and a config
 that says where a credential comes from names the variable:
-`api_key: process.env.CHLOE_API_KEY`.
+`cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`.
 
 ```sh
 npx chloe account                # set the one password
