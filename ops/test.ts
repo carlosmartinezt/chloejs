@@ -1132,6 +1132,50 @@ about("a model step that never fits");
     readReply('{"tool": "disk_report"}').call?.function.arguments,
     "{}",
   );
+
+  // A Telegram run ended by sending the user `list_notes with {"path":"01_projects"}`:
+  // the transcript showed past calls in another shape, and the model copied it.
+  const { asText } = await import("#chloe/model/cli");
+  const listNotes = [{ name: "list_notes", description: "", parameters: { type: "object", properties: { path: { type: "string" } } } }];
+  const { transcript } = asText({
+    tools: listNotes,
+    messages: [
+      { role: "user", content: "add a note" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "1", type: "function", function: { name: "list_notes", arguments: '{"path":"02_areas"}' } }],
+      },
+      { role: "tool", tool_call_id: "1", content: "[]" },
+    ],
+  });
+  const shown = transcript.split("\n").find((line) => line.includes("list_notes"));
+  is("a past call is shown in the shape the rules ask for", shown, '{"tool":"list_notes","arguments":{"path":"02_areas"}}');
+  is(
+    "and copying it word for word is a request",
+    readReply(shown ?? "", listNotes).call?.function.arguments,
+    '{"path":"02_areas"}',
+  );
+  is(
+    "a call written as a sentence is still a request",
+    readReply('list_notes with {"path":"01_projects"}', listNotes).call?.function.arguments,
+    '{"path":"01_projects"}',
+  );
+  is(
+    "bracketed too, with what came before kept",
+    readReply('Let me look.\n[asked for list_notes with {"path":"01_projects"}]', listNotes).said,
+    "Let me look.",
+  );
+  is(
+    "but only for a tool the agent has",
+    readReply('send_money with {"to":"x"}', listNotes).call,
+    undefined,
+  );
+  is(
+    "and not in the middle of a sentence",
+    readReply('I called list_notes with {"path":"01_projects"} and it was empty.', listNotes).call,
+    undefined,
+  );
 }
 
 {

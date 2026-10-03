@@ -38,12 +38,23 @@ function render(message: Message): string {
     return `[result]\n${message.content}`;
   }
   if (message.role === "assistant") {
+    // Written exactly as protocol() asks for one. A model copies the shape it
+    // sees in the transcript over the shape the rules describe, and a call
+    // copied in any other shape is read as its answer and sent to the user.
     const asked = (message.tool_calls ?? [])
-      .map((c) => `[asked for ${c.function.name} with ${c.function.arguments}]`)
+      .map((c) => JSON.stringify({ tool: c.function.name, arguments: parsedArguments(c.function.arguments) }))
       .join("\n");
     return [`[you]`, message.content, asked].filter(Boolean).join("\n");
   }
   return `[${message.role}]\n${message.content}`;
+}
+
+function parsedArguments(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
 }
 
 /**
@@ -106,7 +117,35 @@ export function readReply(text: string, tools: ToolSpec[] = []): { said: string;
       },
     };
   }
-  return { said: whole };
+  return readWritten(whole, tools) ?? { said: whole };
+}
+
+/**
+ * The same request written as a sentence, `list_notes with {"path": "a"}`,
+ * bracketed or not, as transcripts once showed past calls and models still
+ * copy. Only for a tool this agent has, starting the last line, with arguments
+ * that parse to the end of the reply: anything looser would catch a reply that
+ * talks about a tool.
+ */
+function readWritten(whole: string, tools: ToolSpec[]): { said: string; call: ToolCall } | undefined {
+  const lines = whole.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const opened = lines[i].match(/^\[?(?:asked for )?([\w-]+) with (\{.*)$/);
+    if (!opened || !tools.some((t) => t.name === opened[1])) continue;
+    const body = [opened[2], ...lines.slice(i + 1)].join("\n").trim().replace(/\]$/, "");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return undefined;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    return {
+      said: lines.slice(0, i).join("\n").trim(),
+      call: { id: randomUUID(), type: "function", function: { name: opened[1], arguments: JSON.stringify(parsed) } },
+    };
+  }
+  return undefined;
 }
 
 /**
