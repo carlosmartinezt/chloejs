@@ -2890,6 +2890,77 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 }
 
 {
+  about("a job's prompt the service stopped carries on from where it was");
+
+  const { CUT_OFF } = await import("#chloe/core/db");
+  const { carryOn, stopped } = await import("#chloe/core/turn");
+  const { tool } = await import("@chloejs/core");
+  const looked: string[] = [];
+  const look = tool({
+    id: "look",
+    description: "Look in one place.",
+    inputSchema: z.object({ where: z.string() }),
+    execute: ({ where }) => void looked.push(where),
+  });
+  const job: Job = { agent: "test", id: "morning", timezone: "UTC", prompt: "Look around.", files: [] };
+  const agent = { ...agentFor(job), tools: { look } };
+  // Two answers: one whose call finished, then one cut off while its first of two calls ran.
+  const trace = [
+    { step: 0, at: "", say: "Start with the logs.", wants: ["look"], cost: 0.1 },
+    { step: 0, at: "", tool: "look", args: { where: "logs" }, result: "all quiet" },
+    { step: 1, at: "", say: "Now the site.", wants: ["look", "look"], cost: 0.1 },
+  ];
+  const context = [
+    { role: "system", content: "You are a test." },
+    { role: "user", content: "Look around." },
+  ];
+  const insert = db.prepare(
+    "insert into runs (id, agent, started, finished, source, job, model, prompt, kind, error, context, trace) values (?, 'test', ?, ?, 'schedule', ?, 'anthropic/claude-haiku-4.5', '', ?, ?, ?, ?)",
+  );
+  const now = new Date().toISOString();
+  insert.run("stopped-turn", now, now, "morning", "turn", CUT_OFF, JSON.stringify(context), JSON.stringify(trace));
+  insert.run("failed-turn", now, now, "morning", "turn", "the model said no", JSON.stringify(context), "[]");
+  insert.run("stopped-chat", now, now, null, "turn", CUT_OFF, JSON.stringify(context), "[]");
+
+  let why = "";
+  try {
+    stopped("failed-turn");
+  } catch (error) {
+    why = (error as Error).message;
+  }
+  is("a run that failed on its own does not carry on", why, "Only a run the service stopped in the middle of can carry on.");
+  why = "";
+  try {
+    stopped("stopped-chat");
+  } catch (error) {
+    why = (error as Error).message;
+  }
+  is("nor does a conversation", why, "Only a job's prompt can carry on, and this run is not one.");
+
+  answers.length = 0;
+  answers.push("All done.");
+  const result = await carryOn({ agent, runId: "stopped-turn" });
+  const shown = lastAsked as { role: string; content: string; tool_calls?: { function: { name: string; arguments: string } }[]; tool_call_id?: string }[];
+  is("it is handed what it began with, then what it did", shown.map((one) => one.role), ["system", "user", "assistant", "tool", "assistant", "user"]);
+  is("with the call that finished, as it was made", shown[2].tool_calls?.map((one) => [one.function.name, one.function.arguments]), [["look", '{"where":"logs"}']]);
+  is("and what it said back", shown[3].content, "all quiet");
+  is("the answer cut off keeps its words and no calls", [shown[4].content, shown[4].tool_calls], ["Now the site.", undefined]);
+  is("and it is told what did not finish", shown[5].content.includes("You had asked for look, look, which did not finish"), true);
+  is("the same run finishes", [result.runId, row("stopped-turn").finished !== null, row("stopped-turn").error, row("stopped-turn").reply], ["stopped-turn", true, null, "All done."]);
+  const after = JSON.parse(row("stopped-turn").trace) as { step: number; say?: string; carried?: string }[];
+  is("the record says where it picked up", after.filter((one) => one.carried).map((one) => one.step), [2]);
+  is("its steps and spending count from before", [result.steps, after.at(-1)?.step, after.at(-1)?.say], [3, 2, "All done."]);
+  is("nothing ran again by itself", looked, []);
+  why = "";
+  try {
+    stopped("stopped-turn");
+  } catch (error) {
+    why = (error as Error).message;
+  }
+  is("and once finished it does not carry on twice", why, "Only a run the service stopped in the middle of can carry on.");
+}
+
+{
   about("a conversation remembers which tools a reply used");
 
   const { recall, remember } = await import("#chloe/model/memory");

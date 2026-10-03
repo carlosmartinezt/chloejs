@@ -1,8 +1,8 @@
 {
   "name": "@chloejs/core",
-  "version": "0.9.18",
+  "version": "0.9.19",
   "type": "module",
-  "description": "A job runner where asking a model is one kind of step.",
+  "description": "TypeScript AI agent framework: jobs on a schedule, with AI only where a step needs it.",
   "exports": {
     ".": {
       "chloe-source": "./index.ts",
@@ -70,11 +70,18 @@
   },
   "homepage": "https://chloejs.org",
   "keywords": [
+    "ai-agents",
+    "ai-agent",
+    "agent-framework",
+    "ai-agent-framework",
     "agents",
+    "llm",
+    "typescript",
     "jobs",
     "cron",
-    "llm",
-    "typescript"
+    "scheduler",
+    "workflow",
+    "human-in-the-loop"
   ],
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",

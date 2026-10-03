@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { duringRun } from "#chloe/core/current";
-import { db } from "#chloe/core/db";
+import { CUT_OFF, db } from "#chloe/core/db";
 import { runChanged } from "#chloe/core/events";
 import { oneLineSummary } from "#chloe/core/markdown";
 import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
@@ -80,8 +80,6 @@ const MAX_STEPS = 40;
 export async function turn({ agent, prompt, attachments, model, thread, source, job, history, said, talkingTo, owner, without, instead, signal }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? modelFor(agent);
-  const tools: Tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
-  for (const name of without ?? []) delete tools[name];
 
   const started = new Date().toISOString();
   db.prepare(
@@ -99,34 +97,171 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
   db.prepare("update runs set context = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), runId);
   if (thread) remember(thread, "user", prompt);
 
-  const trace: LoopStep[] = [];
+  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, without, instead, signal });
+}
+
+/**
+ * Picks up a job's run that the service stopped in the middle of, in the same
+ * record, rather than starting the job again from the top.
+ *
+ * What the model is handed is rebuilt from the record: the request it began
+ * with, then each answer it gave and what each tool said back. That is not
+ * quite what it had, because the record keeps a tool's answer only to
+ * `CLIPPED` characters and keeps no call that had not finished, so it is told
+ * both and reads again what it needs. A tool that was running when the service
+ * stopped may have done its work anyway, and it is told that too.
+ *
+ * Only a job's run, because a conversation's reply would come back to nobody.
+ */
+export async function carryOn({ agent, runId, signal }: { agent: Agent; runId: string; signal?: AbortSignal }): Promise<Result> {
+  const row = stopped(runId);
+  if (row.agent !== agent.name) throw new Error(`${agent.name} has no run ${JSON.stringify(runId)}.`);
+
+  const trace = JSON.parse(row.trace) as LoopStep[];
+  const messages = [...(JSON.parse(row.context) as Message[]), ...replay(trace)];
+  const before = answers(trace);
+  trace.push({ step: before, at: new Date().toISOString(), carried: "The service stopped here, and the run carried on from where it was." });
+  db.prepare("update runs set finished = null, error = null, trace = ? where id = ?").run(JSON.stringify(trace), runId);
+  runChanged(runId);
+
+  return go({
+    agent,
+    runId,
+    model: row.model,
+    messages,
+    trace,
+    job: row.job,
+    source: row.source,
+    maxSteps: Math.max(1, (agent.maxSteps ?? MAX_STEPS) - before),
+    // Whatever changed in the memory since it stopped is mostly its own work,
+    // so it goes in this run's commit rather than one of its own.
+    carried: true,
+    signal,
+  });
+}
+
+/** A run that can carry on, as the record has it. */
+export interface Stopped {
+  agent: string;
+  job: string;
+  source: string;
+  model: string;
+  context: string;
+  trace: string;
+}
+
+/**
+ * The run, when it is one that `carryOn` can pick up: a job's prompt that the
+ * service stopped in the middle of. Throws, saying why, when it is not.
+ */
+export function stopped(runId: string): Stopped {
+  const row = db.prepare("select agent, job, source, model, kind, error, context, trace from runs where id = ?").get(runId) as
+    | (Omit<Stopped, "job" | "context"> & { job: string | null; kind: string; error: string | null; context: string | null })
+    | undefined;
+  if (!row) throw new Error(`There is no run ${JSON.stringify(runId)}.`);
+  if (row.kind !== "turn" || !row.job) throw new Error("Only a job's prompt can carry on, and this run is not one.");
+  if (row.error !== CUT_OFF) throw new Error("Only a run the service stopped in the middle of can carry on.");
+  if (!row.context) throw new Error("This run kept no record of what it was asked, so there is nothing to carry on from.");
+  return { agent: row.agent, job: row.job, source: row.source, model: row.model, context: row.context, trace: row.trace };
+}
+
+/** Whether `carryOn` could pick the run up, for a page deciding whether to offer it. */
+export function canCarryOn(runId: string): boolean {
+  try {
+    return Boolean(stopped(runId));
+  } catch {
+    return false;
+  }
+}
+
+/** The model's answers in a record, which is what its steps are counted in. */
+function answers(trace: LoopStep[]): number {
+  return trace.filter((one) => one.say !== undefined).length;
+}
+
+/**
+ * The conversation a record says a loop had, after the request it began with,
+ * ending with a word to the model about what it is missing.
+ */
+function replay(trace: LoopStep[]): Message[] {
+  const messages: Message[] = [];
+  const unfinished: string[] = [];
+  for (let at = 0; at < trace.length; at++) {
+    const answer = trace[at];
+    if (answer.say === undefined) continue;
+    const ran: LoopStep[] = [];
+    while (trace[at + 1] && trace[at + 1].say === undefined && trace[at + 1].tool) ran.push(trace[++at]);
+    const calls = ran.map((line, n) => ({
+      id: `call_${answer.step}_${n}`,
+      type: "function" as const,
+      function: { name: line.tool ?? "", arguments: typeof line.args === "string" ? line.args : JSON.stringify(line.args ?? {}) },
+    }));
+    messages.push({ role: "assistant", content: answer.say, ...(calls.length > 0 && { tool_calls: calls }) });
+    ran.forEach((line, n) =>
+      messages.push({ role: "tool", tool_call_id: calls[n].id, content: typeof line.result === "string" ? line.result : JSON.stringify(line.result) }),
+    );
+    unfinished.push(...(answer.wants ?? []).slice(ran.length));
+  }
+  messages.push({
+    role: "user",
+    content:
+      "The service stopped in the middle of this run, and it is carrying on now from where it was. " +
+      (unfinished.length > 0
+        ? `You had asked for ${unfinished.join(", ")}, which did not finish: it may have done some or all of its work, so check before you run it again. `
+        : "") +
+      `A tool's answer longer than ${CLIPPED} characters was cut short when it was recorded, so read again anything you need in full. Then carry on with the job.`,
+  });
+  return messages;
+}
+
+/** Runs the loop on a run that is already in the record, and writes how it ended. */
+async function go(options: {
+  agent: Agent;
+  runId: string;
+  model: string;
+  messages: Message[];
+  /** What the record already holds, which the loop's lines are added to. */
+  trace: LoopStep[];
+  job?: string;
+  source: string;
+  thread?: string;
+  said?: Ask["said"];
+  without?: string[];
+  instead?: Ask["instead"];
+  maxSteps?: number;
+  carried?: boolean;
+  signal?: AbortSignal;
+}): Promise<Result> {
+  const { agent, runId, trace, job, source, thread, said, instead } = options;
+  const tools: Tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
+  for (const name of options.without ?? []) delete tools[name];
+  const before = answers(trace);
   const calls: Result["calls"] = [];
-  let cost = 0;
-  let steps = 0;
   // An eval answers every tool itself, so nothing it does is written anywhere.
   const committed = (end: { summary?: string; error?: string }) =>
     instead ? Promise.resolve() : afterRun(agent, runId, { job, source, ...end });
-  if (!instead) await beforeRun(agent, runId);
+  if (!instead && !options.carried) await beforeRun(agent, runId);
 
   try {
     const done = await duringRun(runId, () =>
       loop({
-        model: using,
-        messages,
+        model: options.model,
+        messages: options.messages,
         tools,
-        maxSteps: agent.maxSteps ?? MAX_STEPS,
-        signal,
+        maxSteps: options.maxSteps ?? agent.maxSteps ?? MAX_STEPS,
+        signal: options.signal,
         instead,
         onStep: (line) => {
-          trace.push(line);
+          trace.push({ ...line, step: line.step + before });
           if (said && line.say?.trim() && line.wants?.length) said(line.say);
           if (line.tool) calls.push({ tool: line.tool, args: line.args, result: line.result });
-          save(runId, trace.filter((one) => (one as { say?: string }).say !== undefined).length, costOf(trace), trace);
+          save(runId, answers(trace), costOf(trace), trace);
         },
       }),
     );
-    cost = done.cost;
-    steps = done.steps;
+    // A run that carried on has steps and spending from before it stopped.
+    const steps = answers(trace);
+    const cost = costOf(trace);
     if (done.stopped) {
       fail(runId, done.text, steps, cost, trace);
       await committed({ error: done.text });
@@ -138,7 +273,7 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
     return { runId, text: done.text, steps, cost, calls };
   } catch (error) {
     const why = String(error instanceof Error ? error.message : error);
-    fail(runId, why, steps, cost, trace);
+    fail(runId, why, answers(trace), costOf(trace), trace);
     await committed({ error: why });
     throw error;
   }
@@ -166,6 +301,8 @@ export interface LoopStep {
   /** Set on a call the job would not allow. It never ran. */
   refused?: boolean;
   cost?: number;
+  /** Set on the line where a run the service stopped picked up again: what happened, in words. */
+  carried?: string;
 }
 
 /**
@@ -357,8 +494,11 @@ function fail(runId: string, error: string, steps: number, cost: number, trace: 
   runChanged(runId);
 }
 
+/** How much of one tool's answer the record keeps. */
+const CLIPPED = 4000;
+
 /** So one tool answer in the record is not a megabyte of HTML. */
 function clip(output: unknown): unknown {
   const text = typeof output === "string" ? output : JSON.stringify(output) ?? "";
-  return text.length > 4000 ? `${text.slice(0, 4000)}...[${text.length} bytes]` : output;
+  return text.length > CLIPPED ? `${text.slice(0, CLIPPED)}...[${text.length} bytes]` : output;
 }

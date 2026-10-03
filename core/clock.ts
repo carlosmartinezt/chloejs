@@ -3,7 +3,7 @@
 // get out of step with the folder.
 import type { Agent, Job } from "#chloe/load/load";
 import { due, parse } from "#chloe/timer/cron";
-import { turn } from "#chloe/core/turn";
+import { carryOn, turn } from "#chloe/core/turn";
 import { modelFor } from "#chloe/model/choices";
 import { sweep, waitingFor, work, WrongArgs } from "#chloe/core/steps";
 
@@ -46,6 +46,13 @@ export interface Clock {
    * hands back why, so a caller can say which of the two it was.
    */
   fire(agent: Agent, job: Job, input?: unknown, channel?: string): Promise<Fired | NotRun>;
+  /**
+   * Pick up a run of a prompt job that the service stopped in the middle of,
+   * under the same guard as `fire`, so it never overlaps another run of that
+   * job. A run that cannot carry on comes back `failed` and is left as it
+   * was: `stopped` in core/turn.ts says which can, before anything starts.
+   */
+  carryOn(agent: Agent, job: Job, runId: string): Promise<Fired | NotRun>;
   running(): string[];
 }
 
@@ -80,6 +87,14 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
    * the clock has nobody to tell.
    */
   async function fire(agent: Agent, job: Job, input?: unknown, channel = "unknown"): Promise<Fired | NotRun> {
+    return guarded(agent, job, () =>
+      job.run
+        ? work({ agent, job, source: channel, input })
+        : turn({ agent, prompt: job.prompt, model: modelFor(agent, job), source: channel, job: job.id }),
+    );
+  }
+
+  async function guarded(agent: Agent, job: Job, run: () => Promise<Fired>): Promise<Fired | NotRun> {
     const key = `${agent.name}/${job.id}`;
     if (busy.has(key)) {
       console.warn(`${key}: still running from last time, skipping this one`);
@@ -95,9 +110,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
     busy.add(key);
     const began = Date.now();
     try {
-      const result = job.run
-        ? await work({ agent, job, source: channel, input })
-        : await turn({ agent, prompt: job.prompt, model: modelFor(agent, job), source: channel, job: job.id });
+      const result = await run();
       const seconds = Math.round((Date.now() - began) / 1000);
       const how = "parked" in result && result.parked ? "waiting on an answer" : "done";
       console.log(`${key}: ${how} in ${seconds}s, ${result.steps} steps, $${result.cost.toFixed(4)}`);
@@ -138,6 +151,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
   current = {
     stop: () => clearInterval(timer),
     fire,
+    carryOn: (agent, job, runId) => guarded(agent, job, () => carryOn({ agent, runId })),
     running: () => [...busy],
   };
   return current;

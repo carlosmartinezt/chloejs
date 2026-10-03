@@ -4,7 +4,8 @@
 
 **[chloejs.org](https://chloejs.org)**: the docs, the examples and the reference.
 
-Chloe is a TypeScript agent framework that uses AI only when you need it.
+Chloe is a TypeScript AI agent framework that uses AI only when you need it. You
+build agents out of jobs: run them on a schedule, from a chat or by hand.
 
 You write the workflow in code, **and ask AI where a step needs judgement**. You
 decide where deterministic work ends and where non-deterministic work begins.

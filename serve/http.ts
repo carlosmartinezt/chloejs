@@ -47,6 +47,7 @@ import { signedInFrom } from "./alerts.ts";
 import { docsPage, type RouteDoc, sitePage } from "./site.ts";
 import { receive } from "#chloe/channels/shared";
 import { answer, checkArgs, parkedRuns } from "#chloe/core/steps";
+import { canCarryOn, stopped } from "#chloe/core/turn";
 
 /**
  * Where this server listens. Loopback, and one port for the agents, the API
@@ -458,7 +459,7 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/runs/:id",
-    does: "One run in full, with every step it took and the commits it made.",
+    does: "One run in full, with every step it took and the commits it made, and whether it can carry on from where the service stopped it.",
     token: true,
     remote: "read",
     guest: "filtered",
@@ -467,7 +468,7 @@ export const routes: Route[] = [
         | { agent: string; trace: string; commits: string | null }
         | undefined;
       if (!row || !may(who, row.agent, "read")) throw new NotFound("No run with that id.");
-      json(response, { ...row, trace: JSON.parse(row.trace), commits: row.commits ? JSON.parse(row.commits) : [] });
+      json(response, { ...row, trace: JSON.parse(row.trace), commits: row.commits ? JSON.parse(row.commits) : [], carryOn: canCarryOn(params.id) });
     },
   },
   {
@@ -697,6 +698,28 @@ export const routes: Route[] = [
     handle: async ({ request, response, context, params }) => {
       const { text } = await body(request, z.object({ text: z.string().trim().min(1) }));
       json(response, await answer(params.id, text, context.agents()));
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/runs/:id/carry-on",
+    does: "Pick up a job's prompt that the service stopped in the middle of, in the same run, from where it stopped.",
+    remote: "run",
+    handle: ({ response, context, params }) => {
+      let run;
+      try {
+        run = stopped(params.id);
+      } catch (error) {
+        throw new BadRequest((error as Error).message);
+      }
+      const agent = context.agent(run.agent);
+      const job = agent.jobs.find((one: Job) => one.id === run.job);
+      if (!job || job.run) throw new BadRequest(`${agent.name} no longer has a prompt job called ${run.job}, so there is nothing to carry on with.`);
+      if (context.clock.running().includes(`${agent.name}/${job.id}`)) {
+        throw new BadRequest(`${agent.name}/${job.id} is running now. Carry this one on once it has finished.`);
+      }
+      void context.clock.carryOn(agent, job, params.id);
+      json(response, { carrying: params.id, log: `/api/runs/${params.id}` });
     },
   },
   {

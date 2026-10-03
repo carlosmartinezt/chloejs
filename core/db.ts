@@ -160,6 +160,9 @@ export async function copyDatabase(to: string): Promise<{ path: string; bytes: n
   return { path: to, bytes: (await stat(to)).size };
 }
 
+/** What a run the service stopped in the middle of says as its error. */
+export const CUT_OFF = "Cut off: the service stopped while this was running.";
+
 /**
  * Close the runs a stop cut off. Every run happens in the service, so at
  * startup nothing is really running, and one with no end that is not waiting
@@ -169,7 +172,7 @@ export function closeCutOff(): number {
   return Number(
     db
       .prepare("update runs set finished = ?, error = ? where finished is null and parked is null")
-      .run(new Date().toISOString(), "Cut off: the service stopped while this was running.").changes,
+      .run(new Date().toISOString(), CUT_OFF).changes,
   );
 }
 
