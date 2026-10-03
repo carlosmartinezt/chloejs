@@ -28,7 +28,7 @@ export { turn, type Result as TurnResult } from "./core/turn.ts";
 
 // What a model can be asked to do, and how it is asked.
 export { tool, type Approve, type Call, type Tool, type ToolConfig, type Tools } from "./model/tool.ts";
-export { ask, learnModels, type Attachment, type Message } from "./model/model.ts";
+export { ask, learnModels, UsageLimit, type Attachment, type Message } from "./model/model.ts";
 
 // Reaching a person, and being reached back.
 export { canReach, deliver, owner, reachBy, split, type Send } from "./model/ask.ts";
