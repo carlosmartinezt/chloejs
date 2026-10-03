@@ -68,6 +68,11 @@ interface Step {
 
 /** One line of a conversation's record: what the model said, or one tool it ran. */
 interface Line {
+  say?: string;
+  /** What the model wrote as if its tools had answered. None of it ran. */
+  dropped?: string;
+  wants?: string[];
+  cost?: number;
   tool?: string;
   args?: unknown;
   result?: unknown;
@@ -87,7 +92,8 @@ interface Run {
   error?: string | null;
   reply?: string | null;
   parked?: string | null;
-  trace?: Step[];
+  /** A job's steps, or a prompt job's lines, which are a conversation's. */
+  trace?: (Step | Line)[];
 }
 
 /** A conversation's run, whose trace is lines rather than steps. */
@@ -254,11 +260,7 @@ if (job) {
   let shown = 0;
   for (;;) {
     const run = await api<Run>(`/api/runs/${runId}`);
-    for (const step of (run.trace ?? []).slice(shown)) {
-      const price = step.cost > 0 ? `  $${step.cost.toFixed(4)}` : "";
-      const kind = step.kind === "step" ? "" : `  ${step.kind}`;
-      console.log(`  ${step.name}${dim(`  ${(step.ms / 1000).toFixed(1)}s${price}${kind}`)}`);
-    }
+    for (const step of (run.trace ?? []).slice(shown)) console.log(`  ${traced(step)}`);
     shown = (run.trace ?? []).length;
 
     if (run.parked) {
@@ -279,6 +281,23 @@ if (job) {
     await wait(400);
   }
   process.exit(0);
+}
+
+/** A line of a run as it happens: a code step with its time, a tool and what it was given, or what the model said. */
+function traced(step: Step | Line): string {
+  const price = (cost?: number) => (cost && cost > 0 ? `  $${cost.toFixed(4)}` : "");
+  if ("seq" in step) {
+    const kind = step.kind === "step" ? "" : `  ${step.kind}`;
+    return `${step.name}${dim(`  ${(step.ms / 1000).toFixed(1)}s${price(step.cost)}${kind}`)}`;
+  }
+  if (step.tool) {
+    const args = JSON.stringify(step.args ?? {});
+    const state = step.refused ? "  not allowed" : step.failed ? "  failed" : "";
+    return `${step.tool}${dim(`  ${args.length > 100 ? `${args.slice(0, 100)}...` : args}${state}`)}`;
+  }
+  const words = (step.say ?? "").trim().split("\n")[0] || "(asked for tools)";
+  const aside = step.dropped ? `  set aside ${step.dropped.length} characters it wrote as if its tools had answered` : "";
+  return `${words.length > 120 ? `${words.slice(0, 120)}...` : words}${dim(`${price(step.cost)}${aside}`)}`;
 }
 
 // Piped in, or a question on the command line: one turn and out, so it can be
