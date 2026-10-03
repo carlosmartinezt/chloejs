@@ -65,5 +65,7 @@ export function recall(thread: string, { limit = RECALL, days, tools = false }: 
 
 export function forget(thread: string): void {
   db.prepare("delete from messages where thread = ?").run(thread);
-  db.prepare("delete from threads where thread = ?").run(thread);
+  // A guest's keeps its owner, so nobody else can take up its id.
+  db.prepare("delete from threads where thread = ? and owner is null").run(thread);
+  db.prepare("update threads set label = null, archived = null where thread = ?").run(thread);
 }

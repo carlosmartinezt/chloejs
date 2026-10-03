@@ -99,9 +99,20 @@ added("runs", "context", "text");
 added("runs", "archived", "text");
 db.exec("create index if not exists runs_parked on runs (parked) where parked is not null");
 
-// What a person calls a conversation, and when they archived it. A row only
-// for a conversation somebody has named or archived: the rest have none.
+// What a person calls a conversation, when they archived it, and the email of
+// the guest it belongs to. A row only for a conversation somebody has named or
+// archived, or a guest has started: the rest have none, and are the owner's.
 db.exec("create table if not exists threads (thread text primary key, label text, archived text)");
+if (added("threads", "owner", "text")) {
+  // A guest's conversation used to say whose it was in its id,
+  // "<agent>/guest-<email>-<the rest>". Those keep their ids and get an owner.
+  const rows = db.prepare("select distinct thread from messages where thread like '%/guest-%'").all() as { thread: string }[];
+  const own = db.prepare("insert into threads (thread, owner) values (?, ?) on conflict (thread) do update set owner = excluded.owner");
+  for (const { thread } of rows) {
+    const email = /^[^/]+\/guest-(.+@.+?)-web(?:-|$)/.exec(thread)?.[1] ?? /^[^/]+\/guest-(.+@[^-]+)-/.exec(thread)?.[1];
+    if (email) own.run(thread, email);
+  }
+}
 
 // When somebody last looked at an agent's changes. One row per agent.
 db.exec("create table if not exists seen (agent text primary key, at text not null)");

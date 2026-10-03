@@ -3810,38 +3810,48 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   live.cloud.remote.write = false;
   is("and nothing the workspace switched off is theirs", (await answer("g15", "GET", "/api/agents/test/memory", everything)).status, 403);
 
+  // A guest's conversation is theirs because its owner is their email, not
+  // because of anything in its id.
   remember("test/web-owner", "user", "the owner's");
-  remember("test/guest-g@example.com-web-1", "user", "the guest's");
-  remember("test/guest-h@example.com-web-1", "user", "another guest's");
-  const theirs = JSON.parse((await answer("g16", "GET", "/api/agents/test/threads", chatOnly)).text).map((one: { thread: string }) => one.thread);
-  is("a guest lists their own conversations and nobody else's", theirs, ["test/guest-g@example.com-web-1"]);
-  const all = JSON.parse((await answer("g17", "GET", "/api/agents/test/threads")).text).map((one: { thread: string }) => one.thread).sort();
-  is("the owner lists every one, the guests' with them", all.includes("test/guest-g@example.com-web-1") && all.includes("test/web-owner"), true);
-  const read = JSON.parse((await answer("g18", "GET", `/api/threads/${encodeURIComponent("test/web-owner")}`, chatOnly)).text);
-  is("naming the owner's conversation reads the guest's own of that name, which is empty", read, []);
-  const own = JSON.parse((await answer("g19", "GET", `/api/threads/${encodeURIComponent("test/web-1")}`, chatOnly)).text);
-  is("and a name without the prefix is their own", own.map((one: { content: string }) => one.content), ["the guest's"]);
+  remember("test/web-g", "user", "the guest's");
+  remember("test/web-h", "user", "another guest's");
+  db.prepare("insert into threads (thread, owner) values (?, ?), (?, ?)").run("test/web-g", "g@example.com", "test/web-h", "h@example.com");
+  const conversations = (n: string, headers: Record<string, string> = {}) =>
+    answer(n, "GET", "/api/agents/test/threads", headers).then((one) => JSON.parse(one.text) as { thread: string; label: string | null; archived: string | null; owner?: string | null }[]);
+  const theirs = await conversations("g16", chatOnly);
+  is("a guest lists their own conversations and nobody else's", theirs.map((one) => one.thread), ["test/web-g"]);
+  is("without their own email on each", "owner" in theirs[0], false);
+  const all = await conversations("g17");
+  is("the owner lists every one, saying whose a guest's is", [all.find((one) => one.thread === "test/web-g")?.owner, all.find((one) => one.thread === "test/web-owner")?.owner], ["g@example.com", null]);
+  is("a guest cannot read the owner's", (await answer("g18", "GET", `/api/threads/${encodeURIComponent("test/web-owner")}`, chatOnly)).status, 404);
+  is("nor another guest's", (await answer("g19", "GET", `/api/threads/${encodeURIComponent("test/web-h")}`, chatOnly)).status, 404);
+  is("but reads their own", JSON.parse((await answer("g19b", "GET", `/api/threads/${encodeURIComponent("test/web-g")}`, chatOnly)).text).map((one: { content: string }) => one.content), ["the guest's"]);
   is("a guest cannot pick the model from the chat", (await answer("g20", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "/model x for everything" }))).status, 403);
   is("nor run a job by its command without run", (await answer("g21", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "/relayed" }))).status, 403);
-  await answer("g22", "POST", `/api/threads/${encodeURIComponent("test/web-owner")}/forget`, { ...chatOnly, "content-type": "application/json" }, "{}");
-  is("and forgetting a conversation by the owner's name forgets only their own", JSON.parse((await answer("g23", "GET", "/api/agents/test/threads")).text).some((one: { thread: string }) => one.thread === "test/web-owner"), true);
+  is("nor talk in somebody else's conversation", (await answer("g21b", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "hello", thread: "test/web-owner" }))).status, 404);
+  answers.push("Hello.");
+  is("a new one is theirs once they speak in it", (await answer("g21c", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "hello", thread: "test/web-new" }))).status, 200);
+  is("and is listed as theirs", (await conversations("g21d", chatOnly)).map((one) => one.thread).sort(), ["test/web-g", "test/web-new"]);
+  live.cloud.remote.write = true;
+  is("forgetting somebody else's is refused", (await answer("g22", "POST", `/api/threads/${encodeURIComponent("test/web-owner")}/forget`, { ...chatOnly, "content-type": "application/json" }, "{}")).status, 404);
+  is("and leaves it", (await conversations("g23")).some((one) => one.thread === "test/web-owner"), true);
+  await answer("g24", "POST", `/api/threads/${encodeURIComponent("test/web-new")}/forget`, { ...chatOnly, "content-type": "application/json" }, "{}");
+  is("forgetting their own forgets it", (await conversations("g25", chatOnly)).map((one) => one.thread), ["test/web-g"]);
+  is("forgetting their own keeps it theirs, so nobody else can take it up", db.prepare("select owner from threads where thread = ?").get("test/web-new"), { owner: "g@example.com" });
+  live.cloud.remote.write = false;
 
-  // A conversation can be named and archived, by whoever may chat in it. A
-  // guest naming the owner's names their own of that name instead.
-  const thread = (n: string, headers: Record<string, string> = {}) =>
-    answer(n, "GET", "/api/agents/test/threads", headers).then((one) => JSON.parse(one.text) as { thread: string; label: string | null; archived: string | null }[]);
+  // A conversation can be named and archived, by whoever may chat in it.
   const post = (n: string, path: string, value: unknown, headers: Record<string, string> = {}) =>
     answer(n, "POST", path, { ...headers, "content-type": "application/json" }, JSON.stringify(value));
   const owner = `/api/threads/${encodeURIComponent("test/web-owner")}`;
   is("the owner names a conversation", (await post("t1", `${owner}/rename`, { label: "Plans" })).status, 200);
-  is("and the list says so", (await thread("t2")).find((one) => one.thread === "test/web-owner")?.label, "Plans");
-  is("an empty name takes it away", (await post("t3", `${owner}/rename`, { label: " " }), (await thread("t4")).find((one) => one.thread === "test/web-owner")?.label), null);
+  is("and the list says so", (await conversations("t2")).find((one) => one.thread === "test/web-owner")?.label, "Plans");
+  is("an empty name takes it away", (await post("t3", `${owner}/rename`, { label: " " }), (await conversations("t4")).find((one) => one.thread === "test/web-owner")?.label), null);
   await post("t5", `${owner}/archive`, { archived: true });
-  is("archiving keeps it in the list, saying when", typeof (await thread("t6")).find((one) => one.thread === "test/web-owner")?.archived, "string");
-  await post("t7", `${owner}/rename`, { label: "Mine" }, chatOnly);
-  is("a guest naming the owner's names only their own", (await thread("t8")).find((one) => one.thread === "test/web-owner")?.label, null);
-  await post("t9", `/api/threads/${encodeURIComponent("test/web-1")}/rename`, { label: "Mine" }, chatOnly);
-  is("and their own is named", (await thread("t10", chatOnly)).find((one) => one.thread === "test/guest-g@example.com-web-1")?.label, "Mine");
+  is("archiving keeps it in the list, saying when", typeof (await conversations("t6")).find((one) => one.thread === "test/web-owner")?.archived, "string");
+  is("a guest cannot name the owner's", (await post("t7", `${owner}/rename`, { label: "Mine" }, chatOnly)).status, 404);
+  await post("t9", `/api/threads/${encodeURIComponent("test/web-g")}/rename`, { label: "Mine" }, chatOnly);
+  is("but names their own, which stays theirs", (await conversations("t10", chatOnly)).find((one) => one.thread === "test/web-g")?.label, "Mine");
 
   // Archiving a run keeps it, says when, and tells the cloud, so its copy of
   // the log leaves it out too. Only the owner may.

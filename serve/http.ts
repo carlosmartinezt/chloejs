@@ -15,7 +15,7 @@ import { settings } from "#chloe/core/settings";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
 import type { Clock } from "#chloe/core/clock";
 import { choices, choose, modelFor, type Scope } from "#chloe/model/choices";
-import { forget, recall } from "#chloe/model/memory";
+import { forget } from "#chloe/model/memory";
 import { models } from "#chloe/model/model";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
 import { editable, open, save, tree } from "./files.ts";
@@ -120,19 +120,20 @@ function readable(who: Caller): string[] | null {
 }
 
 /**
- * Where a guest's conversation with an agent is kept: under
- * `<agent>/guest-<email>-`, so each person has their own and the agent's list
- * says whose each is. Whatever thread a guest names is moved under that, so
- * one can never land in a conversation that is not theirs. Anybody else's
- * thread is left as it is.
+ * The conversation, when this caller may have it. A guest's are the ones whose
+ * owner is their email, and with `claim` one nobody has said anything in
+ * becomes theirs. Anybody else may have any. One that is not theirs is
+ * answered as if it did not exist.
  */
-function threadFor(who: Caller, thread: string): string {
+function threadFor(who: Caller, thread: string, claim = false): string {
   if (who?.kind !== "cloud" || !who.guest) return thread;
-  const cut = thread.indexOf("/");
-  const agent = cut > 0 ? thread.slice(0, cut) : "";
-  const own = `${agent}/guest-${who.user.toLowerCase().replace(/[^a-z0-9@._-]/g, "-")}-`;
-  if (thread.startsWith(own)) return thread;
-  return own + (thread.slice(cut + 1) || "web");
+  const user = who.user.toLowerCase();
+  if (claim && !db.prepare("select 1 from messages where thread = ? limit 1").get(thread)) {
+    db.prepare("insert into threads (thread, owner) values (?, ?) on conflict (thread) do nothing").run(thread, user);
+  }
+  const row = db.prepare("select owner from threads where thread = ?").get(thread) as { owner: string | null } | undefined;
+  if (row?.owner !== user) throw new NotFound("No such conversation.");
+  return thread;
 }
 
 /** Why a guest may not have this route, or nothing when they may. */
@@ -394,17 +395,17 @@ export const routes: Route[] = [
     guest: "chat",
     handle: ({ response, context, params, who }) => {
       context.agent(params.name);
-      const under = who?.kind === "cloud" && who.guest ? threadFor(who, `${params.name}/`) : `${params.name}/`;
-      json(
-        response,
-        db
-          .prepare(
-            `select m.thread, count(*) as messages, max(m.at) as last, t.label, t.archived
-             from messages m left join threads t on t.thread = m.thread
-             where substr(m.thread, 1, ?) = ? group by m.thread order by last desc limit 50`,
-          )
-          .all(under.length, under),
-      );
+      const guest = who?.kind === "cloud" && who.guest ? who.user.toLowerCase() : null;
+      const under = `${params.name}/`;
+      const rows = db
+        .prepare(
+          `select m.thread, count(*) as messages, max(m.at) as last, t.label, t.archived, t.owner
+           from messages m left join threads t on t.thread = m.thread
+           where substr(m.thread, 1, ?) = ? and (? is null or t.owner = ?) group by m.thread order by last desc limit 50`,
+        )
+        .all(under.length, under, guest, guest) as { owner: string | null }[];
+      // Every one a guest sees is theirs, so whose it is would only be their own email.
+      json(response, guest ? rows.map(({ owner, ...rest }) => rest) : rows);
     },
   },
   {
@@ -461,7 +462,11 @@ export const routes: Route[] = [
     handle: ({ response, params, who }) => {
       const thread = threadFor(who, decodeURIComponent(params.thread));
       if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
-      json(response, recall(thread, { limit: 100 }));
+      // Read here, not through recall(): that is what a model is shown, and it carries no time.
+      const rows = db
+        .prepare("select role, content, at from messages where thread = ? order by id desc limit 100")
+        .all(thread) as { role: string; content: string; at: string }[];
+      json(response, rows.reverse());
     },
   },
   {
@@ -523,7 +528,7 @@ export const routes: Route[] = [
       // other's conversation.
       const token = who?.kind === "token";
       const guest = who?.kind === "cloud" && who.guest ? who : undefined;
-      const under = token && thread ? `${agent.name}/api-${thread}` : guest ? threadFor(guest, `${agent.name}/${thread ? thread.slice(thread.indexOf("/") + 1) : "web"}`) : (thread ?? "");
+      let under = token && thread ? `${agent.name}/api-${thread}` : (thread ?? "");
       if (guest) {
         // Picking a model changes it for everybody, and a /command runs a job.
         if (/^\/models?(?:@\w+)?(?:\s|$)/i.test(prompt)) {
@@ -532,6 +537,8 @@ export const routes: Route[] = [
         if (prompt.startsWith("/") && !/^\/clear(?:@\w+)?\s*$/i.test(prompt) && !may(guest, agent.name, "run")) {
           return json(response, { error: `You have not been given run on ${agent.name}. Its owner can allow it.` }, 403);
         }
+        const named = thread ? thread.slice(thread.indexOf("/") + 1) : `web-${Date.now().toString(36)}`;
+        under = threadFor(guest, `${agent.name}/${named}`, true);
       }
       // The same path as every channel's message, so a /command, or a reply
       // that is one, goes to that job here too. Who may call this is already
