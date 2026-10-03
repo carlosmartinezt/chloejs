@@ -1139,6 +1139,34 @@ about("a model step that never fits");
     "{}",
   );
 
+  const several = readReply(
+    'Reading both.\n{"tool": "read_notes", "arguments": {"path": "a.html"}}\n{"tool": "search_notes", "arguments": {"query": "citi"}}',
+  );
+  is("several requests, one a line, are all read, in order", several.calls.map((c) => c.function.name), ["read_notes", "search_notes"]);
+  is("and what came before them is what it said", several.said, "Reading both.");
+  is("the first is still the one call for a caller that takes one", several.call?.function.name, "read_notes");
+  is(
+    "a request over several lines counts as one of them",
+    readReply('{"tool": "a", "arguments": {}}\n{\n  "tool": "b",\n  "arguments": {"x": 1}\n}').calls.map((c) => c.function.arguments),
+    ["{}", '{"x":1}'],
+  );
+  is(
+    "the same request written twice runs once",
+    readReply('{"tool": "a", "arguments": {"p": 1}}\n{"tool": "a", "arguments": {"p": 1}}').calls.length,
+    1,
+  );
+  is(
+    "several inside one fence are read too",
+    readReply('Checking.\n```json\n{"tool": "a", "arguments": {}}\n{"tool": "b", "arguments": {}}\n```').calls.length,
+    2,
+  );
+  is(
+    "an object in the middle of the words is not a request",
+    readReply('{"tool": "a", "arguments": {}}\nthen I will see.\n{"tool": "b", "arguments": {}}').calls.map((c) => c.function.name),
+    ["b"],
+  );
+  is("plain words ask for nothing", readReply("All fine.").calls, []);
+
   // A Telegram run ended by sending the user `list_notes with {"path":"01_projects"}`:
   // the transcript showed past calls in another shape, and the model copied it.
   const { asText } = await import("#chloe/model/cli");
@@ -1157,6 +1185,27 @@ about("a model step that never fits");
   });
   const shown = transcript.split("\n").find((line) => line.includes("list_notes"));
   is("a past call is shown in the shape the rules ask for", shown, '{"tool":"list_notes","arguments":{"path":"02_areas"}}');
+  is("a single result keeps its plain heading", transcript.includes("[result]\n[]"), true);
+  const both = asText({
+    messages: [
+      { role: "user", content: "look" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          { id: "1", type: "function", function: { name: "list_notes", arguments: "{}" } },
+          { id: "2", type: "function", function: { name: "search_notes", arguments: '{"query":"citi"}' } },
+        ],
+      },
+      { role: "tool", tool_call_id: "1", content: "[a]" },
+      { role: "tool", tool_call_id: "2", content: "[b]" },
+    ],
+  }).transcript;
+  is(
+    "results of several calls say which call each answers",
+    [both.includes("[result of list_notes]\n[a]"), both.includes("[result of search_notes]\n[b]")],
+    [true, true],
+  );
   is(
     "and copying it word for word is a request",
     readReply(shown ?? "", listNotes).call?.function.arguments,

@@ -111,10 +111,10 @@ export async function viaClaude({ model, messages, tools, signal }: Ask): Promis
     throw new Error(`Model call refused: ${answer?.subtype ?? "no result"}: ${String(answer?.result ?? "").slice(0, 500)}`);
   }
 
-  const { said, call } = tools?.length ? readReply(answer.result, tools) : { said: answer.result, call: undefined };
+  const { said, calls } = tools?.length ? readReply(answer.result, tools) : { said: answer.result, calls: [] };
   return {
     text: said,
-    toolCalls: call ? [call] : [],
+    toolCalls: calls,
     // What it would have cost on the API. A subscription is not billed per
     // call, so this prices the run rather than charging it.
     cost: answer.total_cost_usd ?? 0,

@@ -26,16 +26,22 @@ export function protocol(tools: ToolSpec[]): string {
     '{"tool": "<name>", "arguments": { ... }}',
     "",
     "It must start its own line and be the last thing you write. A sentence before it is",
-    "fine. The result comes back and you are asked again, so ask for one tool at a time.",
-    "To answer instead, reply in plain words and end with no such object.",
+    "fine. To use several tools whose results do not depend on each other, such as reading",
+    "three files or running two searches, put one object on each line, all at the end:",
+    "they all run, and every result comes back together. When one call needs another's",
+    "result, ask for the first alone and wait. To answer instead, reply in plain words and",
+    "end with no such object.",
     "",
     list,
   ].join("\n");
 }
 
-function render(message: Message): string {
+function render(message: Message, names: Map<string, string>): string {
   if (message.role === "tool") {
-    return `[result]\n${message.content}`;
+    // Named when the answer asked for several, so each result can be told
+    // apart; a single call keeps the plain heading it always had.
+    const name = names.size > 1 ? names.get(message.tool_call_id ?? "") : undefined;
+    return `${name ? `[result of ${name}]` : "[result]"}\n${message.content}`;
   }
   if (message.role === "assistant") {
     // Written exactly as protocol() asks for one. A model copies the shape it
@@ -66,58 +72,85 @@ export function asText({ messages, tools }: { messages: Message[]; tools?: ToolS
     ...messages.filter((m) => m.role === "system").map((m) => m.content),
     ...(tools?.length ? [protocol(tools)] : []),
   ].join("\n\n");
-  const transcript = messages.filter((m) => m.role !== "system").map(render).join("\n\n");
+  let names = new Map<string, string>();
+  const transcript = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => {
+      if (m.role === "assistant") names = new Map((m.tool_calls ?? []).map((c) => [c.id, c.function.name]));
+      return render(m, names);
+    })
+    .join("\n\n");
   return { system, transcript };
 }
 
 /**
- * Split a reply into what it said and what it asked for.
+ * Split a reply into what it said and what it asked for: `calls` in the order
+ * written, and `call`, the first of them, for a caller that takes one.
  *
- * The object has to be last and has to start its own line. Models narrate
- * before asking ("Let me check the site first."), and telling them not to does
- * not stop it, so the narration is kept and passed on rather than thrown away.
- * Requiring its own line at the end is what keeps a reply that merely writes
- * about JSON from being read as a request.
+ * The objects have to be last and each has to start its own line. Models
+ * narrate before asking ("Let me check the site first."), and telling them not
+ * to does not stop it, so the narration is kept and passed on rather than
+ * thrown away. Requiring their own lines at the end is what keeps a reply that
+ * merely writes about JSON from being read as a request. The same call written
+ * twice runs once.
  */
-export function readReply(text: string, tools: ToolSpec[] = []): { said: string; call?: ToolCall } {
+export function readReply(text: string, tools: ToolSpec[] = []): { said: string; call?: ToolCall; calls: ToolCall[] } {
   const whole = text.trim();
   const tagged = readTagged(whole, tools);
-  if (tagged) return tagged;
+  if (tagged) return { ...tagged, calls: [tagged.call] };
   const fenced = whole.match(/^([\s\S]*?)```(?:json)?\s*\n([\s\S]*?)\n?```\s*$/);
-  const before = fenced ? fenced[1] : whole;
-  const tail = fenced ? fenced[2].trim() : "";
+  if (fenced) {
+    const inside = trailingCalls(fenced[2].trim());
+    if (inside.calls.length && !inside.said) return { said: fenced[1].trim(), call: inside.calls[0], calls: inside.calls };
+  } else {
+    const found = trailingCalls(whole);
+    if (found.calls.length) return { said: found.said, call: found.calls[0], calls: found.calls };
+  }
+  const written = readWritten(whole, tools);
+  return written ? { ...written, calls: [written.call] } : { said: whole, calls: [] };
+}
 
-  const candidates = tail ? [{ body: tail, said: before }] : [];
-  if (!tail) {
-    // Every line that opens an object, latest first: the last one that parses
-    // to the end of the reply is the request.
-    const lines = whole.split("\n");
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].startsWith("{")) {
-        candidates.push({ body: lines.slice(i).join("\n").trim(), said: lines.slice(0, i).join("\n") });
+/**
+ * The requests at the end of a text, read from the bottom up: the lowest line
+ * opening an object that parses to the end is the last request, then the same
+ * again above it, until a line that is not part of one. An object may run over
+ * several lines. What is left above them is what it said.
+ */
+function trailingCalls(text: string): { said: string; calls: ToolCall[] } {
+  const lines = text.split("\n");
+  const found: ToolCall[] = [];
+  let end = lines.length;
+  while (end > 0 && !lines[end - 1].trim()) end--;
+  for (;;) {
+    let start = -1;
+    let asked: { tool?: unknown; arguments?: unknown } | undefined;
+    for (let i = end - 1; i >= 0; i--) {
+      if (!lines[i].startsWith("{")) continue;
+      try {
+        asked = JSON.parse(lines.slice(i, end).join("\n").trim()) as typeof asked;
+      } catch {
+        continue;
+      }
+      if (typeof asked?.tool === "string" && asked.tool) {
+        start = i;
+        break;
       }
     }
+    if (start < 0 || !asked) break;
+    found.unshift({
+      id: randomUUID(),
+      type: "function",
+      function: { name: asked.tool as string, arguments: JSON.stringify(asked.arguments ?? {}) },
+    });
+    end = start;
+    while (end > 0 && !lines[end - 1].trim()) end--;
   }
-
-  for (const { body, said } of candidates) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(body);
-    } catch {
-      continue;
-    }
-    const asked = parsed as { tool?: unknown; arguments?: unknown };
-    if (typeof asked.tool !== "string" || !asked.tool) continue;
-    return {
-      said: said.trim(),
-      call: {
-        id: randomUUID(),
-        type: "function",
-        function: { name: asked.tool, arguments: JSON.stringify(asked.arguments ?? {}) },
-      },
-    };
-  }
-  return readWritten(whole, tools) ?? { said: whole };
+  const seen = new Set<string>();
+  const calls = found.filter((c) => {
+    const key = `${c.function.name} ${c.function.arguments}`;
+    return seen.has(key) ? false : (seen.add(key), true);
+  });
+  return { said: lines.slice(0, end).join("\n").trim(), calls };
 }
 
 /**
