@@ -132,7 +132,7 @@ export function signIn(password: string, from: string): string {
 export type Caller =
   | { kind: "account" }
   | { kind: "token"; token: Token }
-  | { kind: "cloud"; user: string; guest?: Guest }
+  | { kind: "cloud"; user: string; name?: string; guest?: Guest }
   | null;
 
 /**
@@ -146,7 +146,8 @@ export function caller(request: IncomingMessage): Caller {
   const relayed = relayedBy(request);
   if (relayed !== null) {
     const guest = guestOf(request);
-    return guest ? { kind: "cloud", user: relayed, guest } : { kind: "cloud", user: relayed };
+    const name = nameOf(request);
+    return { kind: "cloud", user: relayed, ...(name ? { name } : {}), ...(guest ? { guest } : {}) };
   }
   const held = read();
   const values = carried(request);
@@ -195,6 +196,26 @@ function guestOf(request: IncomingMessage): Guest | undefined {
   } catch {
     return {};
   }
+}
+
+/**
+ * The name the person who asked goes by on the dashboard, URI encoded, and
+ * left out when they have not set one. Only read on a relayed request. It ends
+ * up in what an agent is told, so it is cut to one plain line.
+ */
+export const RELAY_NAME = "x-chloe-relay-name";
+
+function nameOf(request: IncomingMessage): string {
+  const carried = request.headers[RELAY_NAME];
+  const value = Array.isArray(carried) ? carried[0] : carried;
+  if (!value) return "";
+  let name: string;
+  try {
+    name = decodeURIComponent(value);
+  } catch {
+    return "";
+  }
+  return name.replace(/[\p{Cc}<>]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
 /**

@@ -3842,6 +3842,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   answers.push("Again.");
   await answer("g21f", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "and now?", thread: "test/web-g" }));
   is("one that already had something said in it is not named", (await conversations("g21g", chatOnly)).find((one) => one.thread === "test/web-g")?.label, null);
+  answers.push("Hi.");
+  await answer("g21h", "POST", "/api/agents/test/chat", { ...chatOnly, "x-chloe-relay-name": encodeURIComponent("Ana <b>\nÑ"), "content-type": "application/json" }, JSON.stringify({ prompt: "who am I?", thread: "test/web-g" }));
+  const asked = db.prepare("select prompt from runs where prompt like '%who am I?' order by started desc limit 1").get() as { prompt: string };
+  is("the page's chat tells the agent who wrote, by the name they go by, on one plain line", asked.prompt, "<chat_context>\nfrom: Ana b Ñ\naddress: g@example.com\nrole: guest\n</chat_context>\n\nwho am I?");
   live.cloud.remote.write = true;
   is("forgetting somebody else's is refused", (await answer("g22", "POST", `/api/threads/${encodeURIComponent("test/web-owner")}/forget`, { ...chatOnly, "content-type": "application/json" }, "{}")).status, 404);
   is("and leaves it", (await conversations("g23")).some((one) => one.thread === "test/web-owner"), true);

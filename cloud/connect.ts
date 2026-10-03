@@ -32,7 +32,7 @@ import { events } from "#chloe/core/events";
 import { settings } from "#chloe/core/settings";
 import type { Agent } from "#chloe/load/load";
 import { HOST, PORT, routeList, summary } from "#chloe/serve/http";
-import { RELAY, RELAY_GUEST, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login";
+import { RELAY, RELAY_GUEST, RELAY_NAME, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login";
 
 /** The version of what is said on the socket. The cloud refuses one it does not speak. */
 export const PROTOCOL = 1;
@@ -88,7 +88,7 @@ const Request = z.object({
 });
 
 /** The headers a relayed request keeps. Everything else the browser sent stayed with the cloud. */
-const CARRIED = ["accept", "content-type", "host", "x-forwarded-proto", "x-forwarded-for", RELAY_USER, RELAY_UNDER, RELAY_GUEST];
+const CARRIED = ["accept", "content-type", "host", "x-forwarded-proto", "x-forwarded-for", RELAY_USER, RELAY_UNDER, RELAY_GUEST, RELAY_NAME];
 
 /** The headers an answer does not carry back: a session is never set through the cloud, and the rest are the socket's own. */
 const KEPT_BACK = new Set(["set-cookie", "connection", "transfer-encoding", "content-length", "keep-alive"]);

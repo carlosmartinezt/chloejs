@@ -5,6 +5,7 @@
 // The routes are a list rather than a run of ifs, because the docs at GET /api
 // are generated from that list. A route nobody wrote down is a route nobody
 // documented, and a documented route that does not exist is worse than either.
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { z } from "zod";
@@ -135,6 +136,12 @@ function threadFor(who: Caller, thread: string, claim = false): string {
   const row = db.prepare("select owner from threads where thread = ?").get(thread) as { owner: string | null } | undefined;
   if (row?.owner !== user) throw new NotFound("No such conversation.");
   return thread;
+}
+
+/** What the page's chat tells the agent about who wrote, beside their name. */
+function chatContext(who: Caller): Record<string, string> {
+  if (who?.kind !== "cloud") return { role: "owner" };
+  return { address: who.user, role: who.guest ? "guest" : "owner" };
 }
 
 /** Why a guest may not have this route, or nothing when they may. */
@@ -529,6 +536,7 @@ export const routes: Route[] = [
       // other's conversation.
       const token = who?.kind === "token";
       const guest = who?.kind === "cloud" && who.guest ? who : undefined;
+      const relayed = who?.kind === "cloud" ? who : undefined;
       let under = token && thread ? `${agent.name}/api-${thread}` : (thread ?? "");
       if (guest) {
         // Picking a model changes it for everybody, and a /command runs a job.
@@ -538,7 +546,7 @@ export const routes: Route[] = [
         if (prompt.startsWith("/") && !/^\/clear(?:@\w+)?\s*$/i.test(prompt) && !may(guest, agent.name, "run")) {
           return json(response, { error: `You have not been given run on ${agent.name}. Its owner can allow it.` }, 403);
         }
-        const named = thread ? thread.slice(thread.indexOf("/") + 1) : `web-${Date.now().toString(36)}`;
+        const named = thread ? thread.slice(thread.indexOf("/") + 1) : randomUUID();
         under = threadFor(guest, `${agent.name}/${named}`, true);
       }
       // The same path as every channel's message, so a /command, or a reply
@@ -555,7 +563,10 @@ export const routes: Route[] = [
         channel,
         chat: under,
         thread: under,
-        from: token ? { id: who.token.id, name: who.token.name } : guest ? { id: guest.user, name: guest.user } : { id: "account", name: "the account" },
+        from: token ? { id: who.token.id, name: who.token.name } : guest ? { id: guest.user, name: guest.name || guest.user } : { id: "account", name: relayed?.name || "the account" },
+        // The page's chat says who wrote, the way a channel's message does, so
+        // the agent and whoever reads the run can see it.
+        context: channel === "chat" ? chatContext(who) : undefined,
         text: prompt,
         private: true,
         model: guest ? undefined : model,
