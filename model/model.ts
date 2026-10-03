@@ -198,6 +198,8 @@ export interface ToolSpec {
 export interface Answer {
   text: string;
   toolCalls: ToolCall[];
+  /** What a CLI model wrote after its requests as if they had run. Never acted on. */
+  dropped?: string;
   /** Dollars, when the gateway says. */
   cost: number;
   tokensIn: number;

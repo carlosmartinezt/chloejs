@@ -160,8 +160,8 @@ export async function viaOpencode({ model, messages, tools, signal }: Ask): Prom
       throw new Error(`Model call refused: opencode exited ${code}: ${(err || out).slice(0, 500)}`);
     }
     const { text, cost, tokensIn, tokensOut } = readOpencode(out);
-    const { said, calls } = tools?.length ? readReply(text, tools) : { said: text, calls: [] };
-    return { text: said, toolCalls: calls, cost, tokensIn, tokensOut };
+    const { said, calls, dropped } = tools?.length ? readReply(text, tools) : { said: text, calls: [] };
+    return { text: said, toolCalls: calls, ...(dropped && { dropped }), cost, tokensIn, tokensOut };
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

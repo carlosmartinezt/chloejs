@@ -121,10 +121,10 @@ export async function viaCodex({ model, messages, tools, signal }: Ask): Promise
       throw new Error(`Model call refused: codex exited ${code}: ${(err || out).slice(0, 500)}`);
     }
     const { text, tokensIn, tokensOut } = readCodex(out);
-    const { said, calls } = tools?.length ? readReply(text, tools) : { said: text, calls: [] };
+    const { said, calls, dropped } = tools?.length ? readReply(text, tools) : { said: text, calls: [] };
     // A plan is not billed per call and the CLI names no price, so a run on
     // this route costs 0 in the record.
-    return { text: said, toolCalls: calls, cost: 0, tokensIn, tokensOut };
+    return { text: said, toolCalls: calls, ...(dropped && { dropped }), cost: 0, tokensIn, tokensOut };
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

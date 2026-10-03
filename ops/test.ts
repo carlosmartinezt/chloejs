@@ -1235,6 +1235,47 @@ about("a model step that never fits");
     readReply('I called list_notes with {"path":"01_projects"} and it was empty.', listNotes).call,
     undefined,
   );
+
+  // A morning run ended after one turn: the model asked for a file, then wrote
+  // the file's contents itself and carried on. None of it ran.
+  const readNotes = [{ name: "read_notes", description: "", parameters: { type: "object", properties: { path: { type: "string" } } } }];
+  const ahead = readReply(
+    [
+      "I'll start with the briefing.",
+      "",
+      '{"tool": "read_notes", "arguments": {"path": "BRIEFING.md"}}',
+      "",
+      "[tool_result]",
+      "# BRIEFING.md",
+      "Generated: 2026-10-03T06:45:02Z",
+      "",
+      "Sending the summary.",
+      '{"tool": "read_notes", "arguments": {"path": "STATUS.md"}}',
+    ].join("\n"),
+    readNotes,
+  );
+  is(
+    "a request followed by a result it wrote itself is the first request alone",
+    ahead.calls.map((c) => c.function.arguments),
+    ['{"path":"BRIEFING.md"}'],
+  );
+  is("with the words before it kept", ahead.said, "I'll start with the briefing.");
+  is("and the rest kept aside, not acted on", ahead.dropped?.split("\n")[0], "[tool_result]");
+  is(
+    "a [system] heading is the model writing a result too",
+    readReply('Checking mail.\n{"tool": "read_notes", "arguments": {}}\n[system] {"count":0}', readNotes).dropped,
+    '[system] {"count":0}',
+  );
+  is(
+    "but only for a tool the agent has",
+    readReply('{"tool": "send_money", "arguments": {}}\n[tool_result]\nsent', readNotes).call,
+    undefined,
+  );
+  is(
+    "and a heading with words between it and the request is an answer",
+    readReply('{"tool": "read_notes", "arguments": {}}\nthat is how you ask.\n[note]\nfine', readNotes).call,
+    undefined,
+  );
 }
 
 {

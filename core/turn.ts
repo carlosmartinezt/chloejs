@@ -156,6 +156,8 @@ export interface LoopStep {
   /** When it happened: when the model answered, or when the tool was called. */
   at: string;
   say?: string;
+  /** What the model wrote after its requests as if they had run. None of it ran. */
+  dropped?: string;
   wants?: string[];
   tool?: string;
   args?: unknown;
@@ -199,7 +201,7 @@ export async function loop(options: {
   for (; steps < options.maxSteps; steps++) {
     const answer = await ask({ model: options.model, messages: options.messages, tools: specs, signal: options.signal });
     cost += answer.cost;
-    options.onStep?.({ step: steps, at: new Date().toISOString(), say: answer.text, wants: answer.toolCalls.map((c) => c.function.name), cost: answer.cost });
+    options.onStep?.({ step: steps, at: new Date().toISOString(), say: answer.text, ...(answer.dropped && { dropped: answer.dropped }), wants: answer.toolCalls.map((c) => c.function.name), cost: answer.cost });
 
     if (answer.toolCalls.length === 0) {
       return { text: answer.text, steps: steps + 1, cost, calls, stopped: false };

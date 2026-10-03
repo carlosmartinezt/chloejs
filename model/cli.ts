@@ -91,13 +91,19 @@ export function asText({ messages, tools }: { messages: Message[]; tools?: ToolS
  * narrate before asking ("Let me check the site first."), and telling them not
  * to does not stop it, so the narration is kept and passed on rather than
  * thrown away. Requiring their own lines at the end is what keeps a reply that
- * merely writes about JSON from being read as a request. The same call written
- * twice runs once.
+ * merely writes about JSON from being read as a request. The one exception is
+ * a request followed by a result the model wrote itself, which `readAhead`
+ * reads. The same call written twice runs once.
  */
-export function readReply(text: string, tools: ToolSpec[] = []): { said: string; call?: ToolCall; calls: ToolCall[] } {
+export function readReply(
+  text: string,
+  tools: ToolSpec[] = [],
+): { said: string; call?: ToolCall; calls: ToolCall[]; dropped?: string } {
   const whole = text.trim();
   const tagged = readTagged(whole, tools);
   if (tagged) return { ...tagged, calls: [tagged.call] };
+  const ahead = readAhead(whole, tools);
+  if (ahead) return ahead;
   const fenced = whole.match(/^([\s\S]*?)```(?:json)?\s*\n([\s\S]*?)\n?```\s*$/);
   if (fenced) {
     const inside = trailingCalls(fenced[2].trim());
@@ -108,6 +114,30 @@ export function readReply(text: string, tools: ToolSpec[] = []): { said: string;
   }
   const written = readWritten(whole, tools);
   return written ? { ...written, calls: [written.call] } : { said: whole, calls: [] };
+}
+
+/**
+ * Requests followed by the model writing their results itself. A CLI model
+ * sometimes asks for a tool and carries on as both sides of the conversation:
+ * a `[tool_result]` or `[system]` heading, a result it made up, the next call,
+ * and so on to the end. Nothing in that ran, so the requests up to the first
+ * such heading are what it asked for, and everything from the heading on is
+ * `dropped`: kept for the record, never acted on and never sent as an answer.
+ *
+ * Only for tools this agent has, on their own lines, with nothing between the
+ * last of them and the heading. A reply that writes about a call in passing is
+ * still an answer.
+ */
+function readAhead(whole: string, tools: ToolSpec[]): { said: string; call: ToolCall; calls: ToolCall[]; dropped: string } | undefined {
+  if (!tools.length) return undefined;
+  const lines = whole.split("\n");
+  for (let at = 1; at < lines.length; at++) {
+    if (!/^\[[\w ]+\]/.test(lines[at])) continue;
+    const found = trailingCalls(lines.slice(0, at).join("\n"));
+    if (!found.calls.length || !found.calls.every((c) => tools.some((t) => t.name === c.function.name))) continue;
+    return { said: found.said, call: found.calls[0], calls: found.calls, dropped: lines.slice(at).join("\n").trim() };
+  }
+  return undefined;
 }
 
 /**
