@@ -101,6 +101,12 @@ export interface Settings {
     /** Who marks an eval. Cheaper than the agent being marked, on purpose. */
     judge: string;
     /**
+     * Who names a conversation started on the page, from the first thing said
+     * in it, while the agent answers. Small and quick on purpose. Empty leaves
+     * them unnamed, and the list calls each by when it last moved.
+     */
+    naming: string;
+    /**
      * The program each CLI route runs, for one installed under another name or
      * somewhere off the path. A route whose program is not there is skipped.
      */
@@ -243,6 +249,7 @@ export const DEFAULTS: Settings = {
     gateway: "https://ai-gateway.vercel.sh/v1/chat/completions",
     key: "",
     judge: "anthropic/claude-sonnet-5",
+    naming: "anthropic/claude-haiku-4.5",
     program: { claude: "claude", codex: "codex", opencode: "opencode" },
   },
   email: { provider: "resend" },

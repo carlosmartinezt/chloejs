@@ -17,6 +17,7 @@ import type { Clock } from "#chloe/core/clock";
 import { choices, choose, modelFor, type Scope } from "#chloe/model/choices";
 import { forget } from "#chloe/model/memory";
 import { models } from "#chloe/model/model";
+import { nameThread } from "#chloe/model/naming";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
 import { editable, open, save, tree } from "./files.ts";
 import {
@@ -546,6 +547,10 @@ export const routes: Route[] = [
       // Somebody signed in with a thread is the page's own chat, which the api
       // channel's settings are not for.
       const channel = !token && thread ? "chat" : channelOf(request);
+      // A new conversation on the page is named while the agent answers, and
+      // the answer waits a little for it, so the list has the name with it.
+      const fresh = channel === "chat" && !prompt.startsWith("/") && !db.prepare("select 1 from messages where thread = ? limit 1").get(under);
+      const naming = fresh ? nameThread(under, prompt) : undefined;
       const handled = await receive(agent, {
         channel,
         chat: under,
@@ -555,6 +560,7 @@ export const routes: Route[] = [
         private: true,
         model: guest ? undefined : model,
       }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory });
+      if (naming) await Promise.race([naming, new Promise((done) => setTimeout(done, 5000))]);
       json(response, handled);
     },
   },

@@ -51,9 +51,15 @@ const gateway = createServer((request, response) => {
   let raw = "";
   request.on("data", (chunk) => (raw += chunk));
   request.on("end", () => {
-    asked++;
-    lastAsked = (JSON.parse(raw || "{}") as { messages?: typeof lastAsked }).messages ?? [];
-    const next = answers.shift() ?? "{}";
+    const messages = (JSON.parse(raw || "{}") as { messages?: typeof lastAsked }).messages ?? [];
+    // Naming a new conversation runs beside the turn, so it is answered here
+    // and never takes an answer a case queued for the agent.
+    const naming = messages[0]?.content.startsWith("Name this conversation");
+    if (!naming) {
+      asked++;
+      lastAsked = messages;
+    }
+    const next = naming ? `"Late orders."` : (answers.shift() ?? "{}");
     response.writeHead(200, { "content-type": "application/json" });
     response.end(
       JSON.stringify({
@@ -3832,6 +3838,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   answers.push("Hello.");
   is("a new one is theirs once they speak in it", (await answer("g21c", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "hello", thread: "test/web-new" }))).status, 200);
   is("and is listed as theirs", (await conversations("g21d", chatOnly)).map((one) => one.thread).sort(), ["test/web-g", "test/web-new"]);
+  is("named from the first thing they said, by the model that names", (await conversations("g21e", chatOnly)).find((one) => one.thread === "test/web-new")?.label, "Late orders");
+  answers.push("Again.");
+  await answer("g21f", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "and now?", thread: "test/web-g" }));
+  is("one that already had something said in it is not named", (await conversations("g21g", chatOnly)).find((one) => one.thread === "test/web-g")?.label, null);
   live.cloud.remote.write = true;
   is("forgetting somebody else's is refused", (await answer("g22", "POST", `/api/threads/${encodeURIComponent("test/web-owner")}/forget`, { ...chatOnly, "content-type": "application/json" }, "{}")).status, 404);
   is("and leaves it", (await conversations("g23")).some((one) => one.thread === "test/web-owner"), true);

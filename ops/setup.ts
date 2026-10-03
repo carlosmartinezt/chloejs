@@ -187,7 +187,7 @@ async function theModel(): Promise<string> {
     const [first] = opencodeModels();
     if (!first) {
       console.log("\nopencode is here but signed in to nothing. Run: opencode providers");
-      return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free" });
+      return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free", naming: "openrouter/free" });
     }
     const asked = (await ask(`Which of opencode's models? (${first}) `)).trim();
     return await settle({ default: asked || first });
@@ -208,13 +208,13 @@ async function theModel(): Promise<string> {
 
   // Something loadable either way: an agent that names no model and has no
   // default is refused as it loads, so a project with no key would not start.
-  if (choice === "later") return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free" });
+  if (choice === "later") return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free", naming: "openrouter/free" });
 
   if (choice === "free") {
     console.log("\nMake a key at https://openrouter.ai/keys. A free account with no card is enough.");
     console.log("openrouter/free is one model id that picks a free model and only ones that can call a tool.");
     const key = (await askHidden("Paste the key (or Enter to do it later): ")).trim();
-    return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free" }, key || undefined);
+    return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free", naming: "openrouter/free" }, key || undefined);
   }
 
   const gateway = (await ask(`Which gateway? (${settings.model.gateway}) `)).trim() || settings.model.gateway;
@@ -237,7 +237,7 @@ async function settle(model: Record<string, string>, key?: string): Promise<stri
   const { declareSettings, nameInEnv, reloadSettings } = await import("#chloe/core/settings");
   // Left by an earlier run of setup, and .env beats the config, so the old
   // choice would quietly win over the one just made.
-  dropFromEnv(["default", "gateway", "prefer", "judge"].map((one) => nameInEnv(["model", one])));
+  dropFromEnv(["default", "gateway", "prefer", "judge", "naming"].map((one) => nameInEnv(["model", one])));
   if (key) {
     putInEnv("CHLOE_MODEL_KEY", key);
     written(".env", "CHLOE_MODEL_KEY, mode 600");
