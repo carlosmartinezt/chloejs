@@ -29,7 +29,9 @@ export interface Email {
   subject: string;
   messageId: string;
   references: string;
-  /** All of the text, as the person's mail program wrote it. */
+  /** The Date line as written, like "Sat, 3 Oct 2026 09:52:10 -0400", or "". */
+  date: string;
+  /** All of the text, as the person's mail program wrote it, quoted history included. */
   text: string;
   /** What they wrote this time: the text with the quoted history and their client's reply header cut off. */
   reply: string;
@@ -183,9 +185,9 @@ function accented(name: string): string | undefined {
   return found ? `${found[1]}${marks[found[2]]}`.normalize("NFC") : undefined;
 }
 
-/** HTML as the text a person would read, with the quoted history cut off first. */
-export function htmlText(html: string): string {
-  const cut = html.search(/<div[^>]+id="?(appendonsend|divRplyFwdMsg|mail-editor-reference-message-container)|<div[^>]+class="?gmail_quote|<blockquote/i);
+/** HTML as the text a person would read, with the quoted history cut off first unless `whole`. */
+export function htmlText(html: string, whole = false): string {
+  const cut = whole ? -1 : html.search(/<div[^>]+id="?(appendonsend|divRplyFwdMsg|mail-editor-reference-message-container)|<div[^>]+class="?gmail_quote|<blockquote/i);
   return (cut >= 0 ? html.slice(0, cut) : html)
     .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, "")
     .replace(/<br\s*\/?>/gi, "\n")
@@ -227,6 +229,21 @@ export function replyOnly(text: string): string {
   return kept.join("\n").trim();
 }
 
+/**
+ * When an email was sent, as a person would say it in the sender's own time:
+ * "Sat, Oct 3, 2026 at 9:52 AM". "" when the Date line cannot be read.
+ */
+export function whenSent(date: string): string {
+  const at = Date.parse(date);
+  if (Number.isNaN(at)) return "";
+  const offset = /([+-])(\d\d)(\d\d)\s*(\(.*\))?$/.exec(date.trim());
+  const shift = offset ? (offset[1] === "-" ? -1 : 1) * (Number(offset[2]) * 60 + Number(offset[3])) * 60_000 : 0;
+  const local = new Date(at + shift);
+  const day = local.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  const time = local.toLocaleTimeString("en-US", { timeZone: "UTC", hour: "numeric", minute: "2-digit" });
+  return `${day} at ${time}`;
+}
+
 /** One email read for a person: who it is from and to, the subject, and the words. */
 export function readEmail(raw: string): Email {
   const { head, body } = split(crlf(raw));
@@ -234,7 +251,7 @@ export function readEmail(raw: string): Email {
   const found: { plain?: string; html?: string; files: string[] } = { files: [] };
   parts(headers, body, found);
   const html = found.html !== undefined ? htmlText(found.html) : undefined;
-  const text = (found.plain ?? html ?? "").replace(/\r\n/g, "\n").trim();
+  const text = (found.plain ?? (found.html !== undefined ? htmlText(found.html, true) : "")).replace(/\r\n/g, "\n").trim();
   // Outlook's plain part keeps the history below a header block, and its HTML
   // marks the same place more reliably, so the HTML wins when there is one.
   const reply = html !== undefined ? replyOnly(html) : replyOnly(text);
@@ -247,6 +264,7 @@ export function readEmail(raw: string): Email {
     subject: words(all(headers, "subject")[0] ?? ""),
     messageId: all(headers, "message-id")[0] ?? "",
     references: all(headers, "references")[0] ?? "",
+    date: all(headers, "date")[0] ?? "",
     text,
     reply,
     files: found.files,

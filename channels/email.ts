@@ -40,7 +40,7 @@ import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
 import { reachBy, unreach } from "#chloe/model/ask";
 import { remember } from "#chloe/model/memory";
 import { db } from "#chloe/core/db";
-import { readEmail, signedBy, type LookUp } from "#chloe/core/mail";
+import { readEmail, signedBy, whenSent, type Email, type LookUp } from "#chloe/core/mail";
 import { settings } from "#chloe/core/settings";
 import { markdownToHtml, markdownToText } from "#chloe/services/emailService";
 import { boxFor, collectFrom, type Box } from "./postbox.ts";
@@ -127,6 +127,26 @@ const lower = (address: string) => address.trim().toLowerCase();
 /** A name safe to put in front of an address in a From line. */
 const displayName = (name: string) => name.replace(/["<>\r\n\\]/g, "").trim().slice(0, 60);
 
+const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/**
+ * The message being answered, to go under the answer the way mail programs
+ * quote one: "On <when> <who> wrote:" and every line of it, the history it
+ * quoted included, so the whole thread travels with each email.
+ */
+export function quoted(mail: Email): { text: string; html: string } {
+  const who = mail.fromName ? `${mail.fromName} <${mail.from[0]}>` : mail.from[0];
+  const when = whenSent(mail.date);
+  const line = `On ${when ? `${when} ` : ""}${who} wrote:`;
+  const lines = mail.text.split("\n").map((one) => (one.startsWith(">") ? `>${one}` : one ? `> ${one}` : ">"));
+  return {
+    text: `\n\n${line}\n\n${lines.join("\n")}`,
+    html:
+      `<div class="gmail_quote"><p>${escape(line)}</p>` +
+      `<blockquote style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">${escape(mail.text).replace(/\n/g, "<br>")}</blockquote></div>`,
+  };
+}
+
 /** An agent on email, as a channel its own `agent.ts` names. */
 export function emailChannel(options: EmailOptions): Channel {
   return {
@@ -173,19 +193,23 @@ export function listen(
     return answer;
   }
 
-  /** Sends Markdown from one of this channel's addresses, threaded under a message when there is one. */
-  async function send(row: Row, subject: string, text: string, answering?: { id: string; refs: string }): Promise<void> {
+  /**
+   * Sends Markdown from one of this channel's addresses. When it answers a
+   * message it is threaded under it, with that message quoted below.
+   */
+  async function send(row: Row, subject: string, text: string, answering?: Email): Promise<void> {
     const label = displayName(options.agent()?.label ?? name);
+    const quote = answering?.text ? quoted(answering) : { text: "", html: "" };
     await call(
       "/mail/send",
       {
         from: row.address,
         name: label,
         subject,
-        text: markdownToText(text),
-        html: markdownToHtml(text),
-        inReplyTo: answering?.id || undefined,
-        references: answering ? `${answering.refs} ${answering.id}`.trim() : undefined,
+        text: markdownToText(text) + quote.text,
+        html: markdownToHtml(text) + quote.html,
+        inReplyTo: answering?.messageId || undefined,
+        references: answering ? `${answering.references} ${answering.messageId}`.trim() : undefined,
       },
       "sending",
     );
@@ -272,7 +296,7 @@ export function listen(
     );
     if (!handled?.text) return;
     const subject = /^re:/i.test(mail.subject) ? mail.subject : `Re: ${mail.subject || row.subject}`;
-    await send(row, subject, handled.text, { id: mail.messageId, refs: mail.references });
+    await send(row, subject, handled.text, mail);
   }
 
   void ourBox()

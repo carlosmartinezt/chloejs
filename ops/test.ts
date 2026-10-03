@@ -2616,6 +2616,9 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     readEmail('From: a@b.com\r\nContent-Type: multipart/mixed; boundary="x"\r\n\r\n--x\r\nContent-Type: text/plain\r\n\r\nSee attached\r\n--x\r\nContent-Type: application/pdf; name="prices.pdf"\r\nContent-Disposition: attachment; filename="prices.pdf"\r\nContent-Transfer-Encoding: base64\r\n\r\nJVBERi0=\r\n--x--\r\n').files,
     ["prices.pdf"],
   );
+  const { whenSent } = await import("#chloe/core/mail");
+  is("a Date line is said in the sender's own time", whenSent("Sat, 3 Oct 2026 13:52:10 -0400"), "Sat, Oct 3, 2026 at 1:52 PM");
+  is("and one that cannot be read is nothing", whenSent("whenever"), "");
   is("two From addresses are both read, so a reader can refuse them", readEmail("From: a@b.com, c@d.com\r\n\r\nhi").from, ["a@b.com", "c@d.com"]);
 
   about("email");
@@ -2709,8 +2712,18 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await until(() => outbox.length > 1);
   is(
     "her signed reply is answered in the same thread",
-    [outbox[1]?.from, outbox[1]?.subject, outbox[1]?.inReplyTo, outbox[1]?.text.trim()],
+    [outbox[1]?.from, outbox[1]?.subject, outbox[1]?.inReplyTo, outbox[1]?.text.split("\n\nOn ")[0].trim()],
     [ADDRESS, "Re: Tennis 🎾", "<abc@example.com>", "Saturdays it is. I will look for clubs with a café."],
+  );
+  is(
+    "and her message is quoted under the answer, history and all, as mail programs do",
+    [
+      outbox[1]?.text.includes("On Jenny  Example <jenny@example.com> wrote:"),
+      outbox[1]?.text.includes("> Saturdays work best"),
+      outbox[1]?.text.includes("> What matters most to you in a club?"),
+      outbox[1]?.html.includes('<blockquote'),
+    ],
+    [true, true, true, true],
   );
   is("the turn had what she wrote this time, not the quoted history", lastAsked.at(-1)?.content.includes("Saturdays work best") && !lastAsked.at(-1)?.content.includes("What matters most to you in a club?"), true);
   is("and was told her address and the subject", lastAsked.at(-1)?.content.includes("address: jenny@example.com") && lastAsked.at(-1)?.content.includes("subject: Re: Tennis"), true);
