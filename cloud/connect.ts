@@ -32,7 +32,7 @@ import { events } from "#chloe/core/events";
 import { settings } from "#chloe/core/settings";
 import type { Agent } from "#chloe/load/load";
 import { HOST, PORT, routeList, summary } from "#chloe/serve/http";
-import { RELAY, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login";
+import { RELAY, RELAY_GUEST, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login";
 
 /** The version of what is said on the socket. The cloud refuses one it does not speak. */
 export const PROTOCOL = 1;
@@ -88,7 +88,7 @@ const Request = z.object({
 });
 
 /** The headers a relayed request keeps. Everything else the browser sent stayed with the cloud. */
-const CARRIED = ["accept", "content-type", "host", "x-forwarded-proto", "x-forwarded-for", RELAY_USER, RELAY_UNDER];
+const CARRIED = ["accept", "content-type", "host", "x-forwarded-proto", "x-forwarded-for", RELAY_USER, RELAY_UNDER, RELAY_GUEST];
 
 /** The headers an answer does not carry back: a session is never set through the cloud, and the rest are the socket's own. */
 const KEPT_BACK = new Set(["set-cookie", "connection", "transfer-encoding", "content-length", "keep-alive"]);
@@ -167,7 +167,9 @@ export function startCloud(options: CloudOptions): Cloud {
       // machine of yours this is. It is whatever the box calls itself, which
       // on a laptop is usually its owner's name.
       machine: hostname(),
-      capabilities: ["relay", "runs", "agents"],
+      // "guests": this runtime checks what an invited person may do itself, so
+      // the dashboard may relay their requests here.
+      capabilities: ["relay", "runs", "agents", "guests"],
       sync: settings.cloud.sync,
       remote: settings.cloud.remote,
       routes: routeList(),

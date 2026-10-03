@@ -3738,6 +3738,50 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("a job can be started through the cloud", started.status, 200);
   is("and the log says it came from the cloud, not from a token", cameIn.at(-1), "cloud");
 
+  // A guest: somebody the owner invited, given switches agent by agent. The
+  // runtime checks them itself, so a dashboard that got it wrong is not the
+  // only thing in the way.
+  is("the hello says this runtime checks guests itself", hello?.capabilities?.includes("guests"), true);
+  const { remember } = await import("#chloe/model/memory");
+  const asGuest = (given: Record<string, string[]>) => ({ "x-chloe-relay-user": "g@example.com", "x-chloe-relay-guest": JSON.stringify(given) });
+  const chatOnly = asGuest({ test: ["chat"] });
+  is("a guest sees the agents they were given", JSON.parse((await answer("g1", "GET", "/api/agents", chatOnly)).text).map((one: { name: string }) => one.name), ["test"]);
+  is("and nothing of an agent they were not", JSON.parse((await answer("g2", "GET", "/api/agents", asGuest({ other: ["chat"] }))).text), []);
+  is("a header that does not read is a guest who may do nothing", JSON.parse((await answer("g3", "GET", "/api/agents", { "x-chloe-relay-guest": "nonsense" })).text), []);
+  is("an agent they were not given is not there", (await answer("g4", "GET", "/api/agents/test/log", asGuest({ other: ["read"] }))).status, 403);
+  is("chat alone does not read its log", (await answer("g5", "GET", "/api/agents/test/log", chatOnly)).status, 403);
+  is("but does say which model answers", (await answer("g6", "GET", "/api/agents/test", chatOnly)).status, 200);
+  is("and its runs are not listed", JSON.parse((await answer("g7", "GET", "/api/runs", chatOnly)).text), []);
+  is("given read, they are", JSON.parse((await answer("g8", "GET", "/api/runs", asGuest({ test: ["read"] }))).text).length > 0, true);
+  is("a job needs run", (await answer("g9", "POST", "/api/agents/test/job/relayed", { ...chatOnly, "content-type": "application/json" }, "{}")).status, 403);
+  is("and with it, starts", (await answer("g10", "POST", "/api/agents/test/job/relayed", { ...asGuest({ test: ["run"] }), "content-type": "application/json" }, "{}")).status, 200);
+  live.cloud.remote.memory = true;
+  live.cloud.remote.write = true;
+  const everything = asGuest({ test: ["read", "chat", "run", "memory", "write"] });
+  is("a guest given memory reads it", (await answer("g11", "GET", "/api/agents/test/memory", everything)).status, 200);
+  is("but never writes, whatever they were given", (await answer("g12", "POST", "/api/agents/test/memory/file", { ...everything, "content-type": "application/json" }, JSON.stringify({ path: "x.md", content: "" }))).status, 403);
+  is("nor picks the model", (await answer("g13", "POST", "/api/agents/test/model", { ...everything, "content-type": "application/json" }, JSON.stringify({ scope: "agent", model: "" }))).status, 403);
+  is("nor reaches what belongs to no agent", (await answer("g14", "GET", "/api/google", everything)).status, 403);
+  live.cloud.remote.memory = false;
+  live.cloud.remote.write = false;
+  is("and nothing the workspace switched off is theirs", (await answer("g15", "GET", "/api/agents/test/memory", everything)).status, 403);
+
+  remember("test/web-owner", "user", "the owner's");
+  remember("test/guest-g@example.com-web-1", "user", "the guest's");
+  remember("test/guest-h@example.com-web-1", "user", "another guest's");
+  const theirs = JSON.parse((await answer("g16", "GET", "/api/agents/test/threads", chatOnly)).text).map((one: { thread: string }) => one.thread);
+  is("a guest lists their own conversations and nobody else's", theirs, ["test/guest-g@example.com-web-1"]);
+  const all = JSON.parse((await answer("g17", "GET", "/api/agents/test/threads")).text).map((one: { thread: string }) => one.thread).sort();
+  is("the owner lists every one, the guests' with them", all.includes("test/guest-g@example.com-web-1") && all.includes("test/web-owner"), true);
+  const read = JSON.parse((await answer("g18", "GET", `/api/threads/${encodeURIComponent("test/web-owner")}`, chatOnly)).text);
+  is("naming the owner's conversation reads the guest's own of that name, which is empty", read, []);
+  const own = JSON.parse((await answer("g19", "GET", `/api/threads/${encodeURIComponent("test/web-1")}`, chatOnly)).text);
+  is("and a name without the prefix is their own", own.map((one: { content: string }) => one.content), ["the guest's"]);
+  is("a guest cannot pick the model from the chat", (await answer("g20", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "/model x for everything" }))).status, 403);
+  is("nor run a job by its command without run", (await answer("g21", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "/relayed" }))).status, 403);
+  await answer("g22", "POST", `/api/threads/${encodeURIComponent("test/web-owner")}/forget`, { ...chatOnly, "content-type": "application/json" }, "{}");
+  is("and forgetting a conversation by the owner's name forgets only their own", JSON.parse((await answer("g23", "GET", "/api/agents/test/threads")).text).some((one: { thread: string }) => one.thread === "test/web-owner"), true);
+
   // A path the client cannot put on the wire used to throw out of the relay
   // and end the process. It must come back as a 502 instead.
   const badPath = await answer("14", "GET", "/api/agents/c c/threads");

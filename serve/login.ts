@@ -129,11 +129,25 @@ export function signIn(password: string, from: string): string {
  * browser sends either the same session value or a token as
  * `Authorization: Bearer`, and which one it is decides what it may do.
  */
-export type Caller = { kind: "account" } | { kind: "token"; token: Token } | { kind: "cloud"; user: string } | null;
+export type Caller =
+  | { kind: "account" }
+  | { kind: "token"; token: Token }
+  | { kind: "cloud"; user: string; guest?: Guest }
+  | null;
+
+/**
+ * What somebody the workspace's owner invited may do, agent by agent: the
+ * switches of `cloud.remote` they were given on it. An agent that is not a key
+ * here is one they cannot see. Never more than `cloud.remote` allows anybody.
+ */
+export type Guest = Record<string, string[]>;
 
 export function caller(request: IncomingMessage): Caller {
   const relayed = relayedBy(request);
-  if (relayed !== null) return { kind: "cloud", user: relayed };
+  if (relayed !== null) {
+    const guest = guestOf(request);
+    return guest ? { kind: "cloud", user: relayed, guest } : { kind: "cloud", user: relayed };
+  }
   const held = read();
   const values = carried(request);
   if (held && values.some((value) => holds(value, held))) return { kind: "account" };
@@ -157,6 +171,31 @@ export const RELAY_SECRET = crypto.randomBytes(32).toString("base64url");
 /** The header that carries the secret, and the one that says who asked. */
 export const RELAY = "x-chloe-relay";
 export const RELAY_USER = "x-chloe-relay-user";
+
+/**
+ * Set by the dashboard when who asked is a guest rather than the workspace's
+ * owner: JSON, each agent they may reach with the switches they were given on
+ * it. Only read on a relayed request. A value that does not read as that is a
+ * guest who may do nothing, never an owner.
+ */
+export const RELAY_GUEST = "x-chloe-relay-guest";
+
+function guestOf(request: IncomingMessage): Guest | undefined {
+  const carried = request.headers[RELAY_GUEST];
+  const value = Array.isArray(carried) ? carried[0] : carried;
+  if (value === undefined) return undefined;
+  try {
+    const said = JSON.parse(value) as unknown;
+    if (!said || typeof said !== "object" || Array.isArray(said)) return {};
+    const guest: Guest = {};
+    for (const [agent, given] of Object.entries(said)) {
+      if (Array.isArray(given)) guest[agent] = given.filter((one): one is string => typeof one === "string");
+    }
+    return guest;
+  } catch {
+    return {};
+  }
+}
 
 /**
  * The path this runtime's addresses sit under on the dashboard, when the

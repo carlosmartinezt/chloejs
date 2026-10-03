@@ -38,7 +38,7 @@ import { recentWork } from "./recentWork.ts";
 import { finish as finishSignIn, signInState, start as startSignIn } from "#chloe/services/googleService";
 import { channelsOf, connectionsOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
-import { type Caller, caller, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, setCookie, signIn } from "./login.ts";
+import { type Caller, type Guest, caller, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "./alerts.ts";
 import { docsPage, type RouteDoc, sitePage } from "./site.ts";
@@ -85,15 +85,67 @@ export interface At {
  *                    through the dashboard needs, all on. Without one, the
  *                    route is never answered through the cloud, whatever the
  *                    settings say: signing in, setting up, and the tokens.
+ *   guest            what a guest needs on the agent the path names, when it is
+ *                    not `remote`. "filtered" on a route with no agent in its
+ *                    path, whose handler answers a guest only what they may
+ *                    see. Without either, a guest needs every `remote` switch
+ *                    on the agent the path names, never "write" or "google",
+ *                    and a route with no agent in its path is refused.
  */
 export interface Route extends RouteDoc {
   method: "GET" | "POST";
   remote?: Remote | Remote[];
+  guest?: Remote | "filtered";
   handle(at: At): Promise<void> | void;
 }
 
 /** The switches in `cloud.remote` in settings, each a thing the dashboard may ask for. */
 export type Remote = "read" | "chat" | "run" | "memory" | "write" | "google";
+
+/** Whether this caller may see that agent at all: anybody but a guest who was not given it. */
+function sees(who: Caller, agent: string): boolean {
+  return who?.kind !== "cloud" || !who.guest || Object.hasOwn(who.guest, agent);
+}
+
+/** Whether this caller may have `what` on that agent: always, unless it is a guest who was not given it. */
+function may(who: Caller, agent: string, what: Remote): boolean {
+  return who?.kind !== "cloud" || !who.guest || (who.guest[agent] ?? []).includes(what);
+}
+
+/** The agents a guest may read the runs of, or null for anybody who is not a guest. */
+function readable(who: Caller): string[] | null {
+  if (who?.kind !== "cloud" || !who.guest) return null;
+  return Object.keys(who.guest).filter((agent) => may(who, agent, "read"));
+}
+
+/**
+ * Where a guest's conversation with an agent is kept: under
+ * `<agent>/guest-<email>-`, so each person has their own and the agent's list
+ * says whose each is. Whatever thread a guest names is moved under that, so
+ * one can never land in a conversation that is not theirs. Anybody else's
+ * thread is left as it is.
+ */
+function threadFor(who: Caller, thread: string): string {
+  if (who?.kind !== "cloud" || !who.guest) return thread;
+  const cut = thread.indexOf("/");
+  const agent = cut > 0 ? thread.slice(0, cut) : "";
+  const own = `${agent}/guest-${who.user.toLowerCase().replace(/[^a-z0-9@._-]/g, "-")}-`;
+  if (thread.startsWith(own)) return thread;
+  return own + (thread.slice(cut + 1) || "web");
+}
+
+/** Why a guest may not have this route, or nothing when they may. */
+function refusedGuest(route: Route, params: Record<string, string>, guest: Guest): string | undefined {
+  if (route.guest === "filtered") return undefined;
+  const needs = route.guest ? [route.guest] : [route.remote ?? []].flat();
+  if (!params.name || needs.length === 0 || needs.some((one) => one === "write" || one === "google")) {
+    return "A guest cannot do that. It is the workspace owner's.";
+  }
+  const given = guest[params.name];
+  if (!given) return `There is no agent called ${JSON.stringify(params.name)}.`;
+  const missing = needs.filter((one) => !given.includes(one));
+  return missing.length ? `You have not been given ${missing.join(" and ")} on ${params.name}. Its owner can allow it.` : undefined;
+}
 
 /** Whether an agent has opted in to being reached by another system. */
 function onTheApi(agent: Agent): boolean {
@@ -154,6 +206,7 @@ export const routes: Route[] = [
     does: "This list: every route, what it does and who may call it.",
     open: true,
     remote: "read",
+    guest: "filtered",
     handle: ({ request, response }) => {
       // A browser gets the page. Anything else gets the same thing as JSON.
       if ((request.headers.accept ?? "").includes("text/html")) return void html(response, docsPage(routes));
@@ -211,7 +264,9 @@ export const routes: Route[] = [
     does: "Every agent that is loaded, with its configuration.",
     token: true,
     remote: "read",
-    handle: ({ response, context }) => json(response, [...context.agents().values()].map(summary)),
+    guest: "filtered",
+    handle: ({ response, context, who }) =>
+      json(response, [...context.agents().values()].filter((one) => sees(who, one.name)).map(summary)),
   },
   {
     method: "GET",
@@ -219,6 +274,8 @@ export const routes: Route[] = [
     does: "One agent's configuration: its model, tools, skills, channels and jobs.",
     token: true,
     remote: "read",
+    // A guest who may only chat still needs to know which model will answer.
+    guest: "chat",
     handle: ({ response, context, params }) => json(response, summary(context.agent(params.name))),
   },
   {
@@ -276,8 +333,10 @@ export const routes: Route[] = [
     does: "The models somebody may pick, each with the route it goes by on this box. ?agent= adds what that agent and its jobs name.",
     token: true,
     remote: "read",
-    handle: ({ response, context, url }) => {
+    guest: "filtered",
+    handle: ({ response, context, url, who }) => {
       const name = url.searchParams.get("agent");
+      if (name && !sees(who, name)) throw new NotFound(`There is no agent called ${JSON.stringify(name)}.`);
       json(response, models(name ? context.agent(name) : undefined));
     },
   },
@@ -330,15 +389,18 @@ export const routes: Route[] = [
     does: "That agent's conversations, newest first, however they were started.",
     token: true,
     remote: "read",
-    handle: ({ response, context, params }) => {
+    // A guest sees their own conversations and nobody else's.
+    guest: "chat",
+    handle: ({ response, context, params, who }) => {
       context.agent(params.name);
+      const under = who?.kind === "cloud" && who.guest ? threadFor(who, `${params.name}/`) : `${params.name}/`;
       json(
         response,
         db
           .prepare(
-            "select thread, count(*) as messages, max(at) as last from messages where thread like ? group by thread order by last desc limit 20",
+            "select thread, count(*) as messages, max(at) as last from messages where substr(thread, 1, ?) = ? group by thread order by last desc limit 20",
           )
-          .all(`${params.name}/%`),
+          .all(under.length, under),
       );
     },
   },
@@ -348,9 +410,21 @@ export const routes: Route[] = [
     does: "Every agent's runs, newest first. Takes ?agent= and ?limit=.",
     token: true,
     remote: "read",
-    handle: ({ response, url }) => {
+    guest: "filtered",
+    handle: ({ response, url, who }) => {
       const agent = url.searchParams.get("agent");
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
+      const only = readable(who);
+      if (only) {
+        const agents = agent ? only.filter((one) => one === agent) : only;
+        if (!agents.length) return json(response, []);
+        return json(
+          response,
+          db
+            .prepare(`select ${RUN_COLUMNS} from runs where agent in (${agents.map(() => "?").join(", ")}) order by started desc limit ?`)
+            .all(...agents, limit),
+        );
+      }
       json(
         response,
         agent
@@ -365,9 +439,12 @@ export const routes: Route[] = [
     does: "One run in full, with every step it took and the commits it made.",
     token: true,
     remote: "read",
-    handle: ({ response, params }) => {
-      const row = db.prepare("select * from runs where id = ?").get(params.id) as { trace: string; commits: string | null } | undefined;
-      if (!row) throw new NotFound("No run with that id.");
+    guest: "filtered",
+    handle: ({ response, params, who }) => {
+      const row = db.prepare("select * from runs where id = ?").get(params.id) as
+        | { agent: string; trace: string; commits: string | null }
+        | undefined;
+      if (!row || !may(who, row.agent, "read")) throw new NotFound("No run with that id.");
       json(response, { ...row, trace: JSON.parse(row.trace), commits: row.commits ? JSON.parse(row.commits) : [] });
     },
   },
@@ -377,7 +454,12 @@ export const routes: Route[] = [
     does: "What was said in one conversation.",
     token: true,
     remote: "read",
-    handle: ({ response, params }) => json(response, recall(decodeURIComponent(params.thread), { limit: 100 })),
+    guest: "filtered",
+    handle: ({ response, params, who }) => {
+      const thread = threadFor(who, decodeURIComponent(params.thread));
+      if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
+      json(response, recall(thread, { limit: 100 }));
+    },
   },
   {
     method: "GET",
@@ -385,7 +467,8 @@ export const routes: Route[] = [
     does: "Every job waiting on an answer. A question nobody answers is a job that never finishes.",
     token: true,
     remote: "read",
-    handle: ({ response }) => json(response, parkedRuns()),
+    guest: "filtered",
+    handle: ({ response, who }) => json(response, parkedRuns().filter((one) => may(who, one.agent, "read"))),
   },
   {
     method: "GET",
@@ -393,8 +476,14 @@ export const routes: Route[] = [
     does: "What each agent has done lately, as its own jobs record it.",
     token: true,
     remote: "read",
-    handle: ({ response, context }) =>
-      json(response, Object.fromEntries([...context.agents().values()].map((a) => [a.name, recentWork(a)]))),
+    guest: "filtered",
+    handle: ({ response, context, who }) =>
+      json(
+        response,
+        Object.fromEntries(
+          [...context.agents().values()].filter((a) => may(who, a.name, "read")).map((a) => [a.name, recentWork(a)]),
+        ),
+      ),
   },
   {
     method: "GET",
@@ -402,8 +491,13 @@ export const routes: Route[] = [
     does: "Which agents are loaded and which jobs are running right now.",
     token: true,
     remote: "read",
-    handle: ({ response, context }) =>
-      json(response, { ok: true, agents: [...context.agents().keys()], running: context.clock.running() }),
+    guest: "filtered",
+    handle: ({ response, context, who }) =>
+      json(response, {
+        ok: true,
+        agents: [...context.agents().keys()].filter((one) => sees(who, one)),
+        running: context.clock.running().filter((one) => may(who, one.split("/")[0], "read")),
+      }),
   },
 
   // Doing. A token may do these, and only to an agent that binds an api channel.
@@ -421,10 +515,21 @@ export const routes: Route[] = [
         request,
         z.object({ prompt: z.string().trim().min(1), thread: z.string().optional(), model: z.string().optional() }),
       );
-      // A token's threads are kept apart from the ones a person started, so two
-      // callers cannot land in each other's conversation.
+      // A token's threads are kept apart from the ones a person started, and
+      // each guest's from everybody else's, so two callers cannot land in each
+      // other's conversation.
       const token = who?.kind === "token";
-      const under = token && thread ? `${agent.name}/api-${thread}` : (thread ?? "");
+      const guest = who?.kind === "cloud" && who.guest ? who : undefined;
+      const under = token && thread ? `${agent.name}/api-${thread}` : guest ? threadFor(guest, `${agent.name}/${thread ? thread.slice(thread.indexOf("/") + 1) : "web"}`) : (thread ?? "");
+      if (guest) {
+        // Picking a model changes it for everybody, and a /command runs a job.
+        if (/^\/models?(?:@\w+)?(?:\s|$)/i.test(prompt)) {
+          return json(response, { error: "A guest cannot pick the model. Its owner can." }, 403);
+        }
+        if (prompt.startsWith("/") && !/^\/clear(?:@\w+)?\s*$/i.test(prompt) && !may(guest, agent.name, "run")) {
+          return json(response, { error: `You have not been given run on ${agent.name}. Its owner can allow it.` }, 403);
+        }
+      }
       // The same path as every channel's message, so a /command, or a reply
       // that is one, goes to that job here too. Who may call this is already
       // settled by the login or the token, so there is no allowFrom.
@@ -435,10 +540,10 @@ export const routes: Route[] = [
         channel,
         chat: under,
         thread: under,
-        from: token ? { id: who.token.id, name: who.token.name } : { id: "account", name: "the account" },
+        from: token ? { id: who.token.id, name: who.token.name } : guest ? { id: guest.user, name: guest.user } : { id: "account", name: "the account" },
         text: prompt,
         private: true,
-        model,
+        model: guest ? undefined : model,
       }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory });
       json(response, handled);
     },
@@ -533,9 +638,13 @@ export const routes: Route[] = [
     path: "/api/threads/:thread/forget",
     does: "Forget one conversation.",
     remote: "write",
-    handle: ({ response, params }) => {
-      forget(decodeURIComponent(params.thread));
-      json(response, { forgotten: decodeURIComponent(params.thread) });
+    // A guest may forget their own conversations, and only those.
+    guest: "filtered",
+    handle: ({ response, params, who }) => {
+      const thread = threadFor(who, decodeURIComponent(params.thread));
+      if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
+      forget(thread);
+      json(response, { forgotten: thread });
     },
   },
   {
@@ -958,6 +1067,8 @@ async function api(
         403,
       );
     }
+    const refused = who.guest && refusedGuest(route, params, who.guest);
+    if (refused) return json(response, { error: refused }, 403);
   }
   if (!route.open) {
     if (!who) return json(response, { error: "Sign in first." }, 401);
