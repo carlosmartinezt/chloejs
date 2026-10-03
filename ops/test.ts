@@ -2928,7 +2928,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   } catch (error) {
     why = (error as Error).message;
   }
-  is("a run that failed on its own does not carry on", why, "Only a run the service stopped in the middle of can carry on.");
+  is("a run that failed on its own does not carry on", why, "Only a run the service stopped in the middle of, or one that ran out of steps, can carry on.");
   why = "";
   try {
     stopped("stopped-chat");
@@ -2957,7 +2957,40 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   } catch (error) {
     why = (error as Error).message;
   }
-  is("and once finished it does not carry on twice", why, "Only a run the service stopped in the middle of can carry on.");
+  is("and once finished it does not carry on twice", why, "Only a run the service stopped in the middle of, or one that ran out of steps, can carry on.");
+}
+
+{
+  about("a job's prompt that ran out of steps carries on with as many again");
+
+  const { carryOn, canCarryOn } = await import("#chloe/core/turn");
+  const job: Job = { agent: "test", id: "morning", timezone: "UTC", prompt: "Look around.", files: [] };
+  const agent = { ...agentFor(job), maxSteps: 2 };
+  const trace = [
+    { step: 0, at: "", say: "Start with the logs.", wants: ["skill"], cost: 0.1 },
+    { step: 0, at: "", tool: "skill", args: { name: "none" }, result: "No skill called none." },
+    { step: 1, at: "", say: "Now the site.", wants: ["skill"], cost: 0.1 },
+    { step: 1, at: "", tool: "skill", args: { name: "none" }, result: "No skill called none." },
+  ];
+  const context = [
+    { role: "system", content: "You are a test." },
+    { role: "user", content: "Look around." },
+  ];
+  const now = new Date().toISOString();
+  db.prepare(
+    "insert into runs (id, agent, started, finished, source, job, model, prompt, kind, error, context, trace) values ('tired-turn', 'test', ?, ?, 'schedule', 'morning', 'anthropic/claude-haiku-4.5', '', 'turn', 'Stopped after 2 steps without finishing.', ?, ?)",
+  ).run(now, now, JSON.stringify(context), JSON.stringify(trace));
+  is("the page is told why it can carry on", canCarryOn("tired-turn"), "out of steps");
+
+  answers.length = 0;
+  answers.push({ content: "One more look.", tool_calls: [{ id: "c1", type: "function", function: { name: "skill", arguments: '{"name":"none"}' } }] }, "All done.");
+  const result = await carryOn({ agent, runId: "tired-turn" });
+  const shown = lastAsked as { role: string; content: string }[];
+  is("it is told it ran out of steps", shown.at(-3)?.content.startsWith("You ran out of steps"), true);
+  is("and gets as many steps again, not what was left", [result.text, row("tired-turn").error, row("tired-turn").reply], ["All done.", null, "All done."]);
+  const after = JSON.parse(row("tired-turn").trace) as { step: number; carried?: string }[];
+  is("the record says it was given more", after.find((one) => one.carried)?.carried, "It ran out of steps here, and was given 2 more to carry on.");
+  is("its steps count from before", result.steps, 4);
 }
 
 {

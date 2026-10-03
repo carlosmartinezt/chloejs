@@ -101,8 +101,10 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
 }
 
 /**
- * Picks up a job's run that the service stopped in the middle of, in the same
- * record, rather than starting the job again from the top.
+ * Picks up a job's run that the service stopped in the middle of, or that ran
+ * out of steps, in the same record, rather than starting the job again from
+ * the top. One that ran out of steps is given as many again, so it is only
+ * ever carried on because somebody asked.
  *
  * What the model is handed is rebuilt from the record: the request it began
  * with, then each answer it gave and what each tool said back. That is not
@@ -118,9 +120,17 @@ export async function carryOn({ agent, runId, signal }: { agent: Agent; runId: s
   if (row.agent !== agent.name) throw new Error(`${agent.name} has no run ${JSON.stringify(runId)}.`);
 
   const trace = JSON.parse(row.trace) as LoopStep[];
-  const messages = [...(JSON.parse(row.context) as Message[]), ...replay(trace)];
   const before = answers(trace);
-  trace.push({ step: before, at: new Date().toISOString(), carried: "The service stopped here, and the run carried on from where it was." });
+  const limit = agent.maxSteps ?? MAX_STEPS;
+  const outOfSteps = row.why === "out of steps";
+  const messages = [...(JSON.parse(row.context) as Message[]), ...replay(trace, row.why)];
+  trace.push({
+    step: before,
+    at: new Date().toISOString(),
+    carried: outOfSteps
+      ? `It ran out of steps here, and was given ${limit} more to carry on.`
+      : "The service stopped here, and the run carried on from where it was.",
+  });
   db.prepare("update runs set finished = null, error = null, trace = ? where id = ?").run(JSON.stringify(trace), runId);
   runChanged(runId);
 
@@ -132,7 +142,7 @@ export async function carryOn({ agent, runId, signal }: { agent: Agent; runId: s
     trace,
     job: row.job,
     source: row.source,
-    maxSteps: Math.max(1, (agent.maxSteps ?? MAX_STEPS) - before),
+    maxSteps: outOfSteps ? limit : Math.max(1, limit - before),
     // Whatever changed in the memory since it stopped is mostly its own work,
     // so it goes in this run's commit rather than one of its own.
     carried: true,
@@ -148,11 +158,22 @@ export interface Stopped {
   model: string;
   context: string;
   trace: string;
+  why: CarryOnWhy;
 }
+
+/** Why a run stopped, when it is a way `carryOn` can pick it up from. */
+export type CarryOnWhy = "cut off" | "out of steps";
+
+/** What a run that ran out of steps says, and how carrying on tells it from one that failed. */
+function outOfStepsText(steps: number): string {
+  return `Stopped after ${steps} steps without finishing.`;
+}
+const OUT_OF_STEPS = /^Stopped after \d+ steps without finishing\.$/;
 
 /**
  * The run, when it is one that `carryOn` can pick up: a job's prompt that the
- * service stopped in the middle of. Throws, saying why, when it is not.
+ * service stopped in the middle of, or that ran out of steps. Throws, saying
+ * why, when it is not.
  */
 export function stopped(runId: string): Stopped {
   const row = db.prepare("select agent, job, source, model, kind, error, context, trace from runs where id = ?").get(runId) as
@@ -160,15 +181,16 @@ export function stopped(runId: string): Stopped {
     | undefined;
   if (!row) throw new Error(`There is no run ${JSON.stringify(runId)}.`);
   if (row.kind !== "turn" || !row.job) throw new Error("Only a job's prompt can carry on, and this run is not one.");
-  if (row.error !== CUT_OFF) throw new Error("Only a run the service stopped in the middle of can carry on.");
+  const why: CarryOnWhy | undefined = row.error === CUT_OFF ? "cut off" : OUT_OF_STEPS.test(row.error ?? "") ? "out of steps" : undefined;
+  if (!why) throw new Error("Only a run the service stopped in the middle of, or one that ran out of steps, can carry on.");
   if (!row.context) throw new Error("This run kept no record of what it was asked, so there is nothing to carry on from.");
-  return { agent: row.agent, job: row.job, source: row.source, model: row.model, context: row.context, trace: row.trace };
+  return { agent: row.agent, job: row.job, source: row.source, model: row.model, context: row.context, trace: row.trace, why };
 }
 
-/** Whether `carryOn` could pick the run up, for a page deciding whether to offer it. */
-export function canCarryOn(runId: string): boolean {
+/** Why `carryOn` could pick the run up, or false when it could not, for a page deciding whether to offer it. */
+export function canCarryOn(runId: string): CarryOnWhy | false {
   try {
-    return Boolean(stopped(runId));
+    return stopped(runId).why;
   } catch {
     return false;
   }
@@ -183,7 +205,7 @@ function answers(trace: LoopStep[]): number {
  * The conversation a record says a loop had, after the request it began with,
  * ending with a word to the model about what it is missing.
  */
-function replay(trace: LoopStep[]): Message[] {
+function replay(trace: LoopStep[], why: CarryOnWhy): Message[] {
   const messages: Message[] = [];
   const unfinished: string[] = [];
   for (let at = 0; at < trace.length; at++) {
@@ -205,7 +227,9 @@ function replay(trace: LoopStep[]): Message[] {
   messages.push({
     role: "user",
     content:
-      "The service stopped in the middle of this run, and it is carrying on now from where it was. " +
+      (why === "out of steps"
+        ? "You ran out of steps before finishing this run, and have been given more to carry on from where you were. "
+        : "The service stopped in the middle of this run, and it is carrying on now from where it was. ") +
       (unfinished.length > 0
         ? `You had asked for ${unfinished.join(", ")}, which did not finish: it may have done some or all of its work, so check before you run it again. `
         : "") +
@@ -369,7 +393,7 @@ export async function loop(options: {
 
   // Out of steps is an answer, not a crash: an empty string here would read as
   // nothing being wrong.
-  return { text: `Stopped after ${steps} steps without finishing.`, steps, cost, calls, stopped: "steps" };
+  return { text: outOfStepsText(steps), steps, cost, calls, stopped: "steps" };
 }
 
 /** What the trace says has been spent so far, for the record written as it goes. */

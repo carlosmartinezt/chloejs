@@ -48,7 +48,7 @@ export interface Clock {
   fire(agent: Agent, job: Job, input?: unknown, channel?: string): Promise<Fired | NotRun>;
   /**
    * Pick up a run of a prompt job that the service stopped in the middle of,
-   * under the same guard as `fire`, so it never overlaps another run of that
+   * or that ran out of steps, under the same guard as `fire`, so it never overlaps another run of that
    * job. A run that cannot carry on comes back `failed` and is left as it
    * was: `stopped` in core/turn.ts says which can, before anything starts.
    */

@@ -459,7 +459,7 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/runs/:id",
-    does: "One run in full, with every step it took and the commits it made, and whether it can carry on from where the service stopped it.",
+    does: 'One run in full, with every step it took and the commits it made, and whether it can carry on: "cut off" when the service stopped it, "out of steps" when it ran out, false otherwise.',
     token: true,
     remote: "read",
     guest: "filtered",
@@ -703,7 +703,7 @@ export const routes: Route[] = [
   {
     method: "POST",
     path: "/api/runs/:id/carry-on",
-    does: "Pick up a job's prompt that the service stopped in the middle of, in the same run, from where it stopped.",
+    does: "Pick up a job's prompt that the service stopped in the middle of, or that ran out of steps, in the same run, from where it stopped. One that ran out of steps is given as many again.",
     remote: "run",
     handle: ({ response, context, params }) => {
       let run;
