@@ -51,16 +51,23 @@ export function read_in({ root, what, id = "read_notes", limit = 40_000 }: Folde
   });
 }
 
-/** A tool that searches the text of the files in that folder. */
-export function search_in({ root, what, id = "search_notes" }: Folder) {
+/**
+ * A tool that searches the text of the files in that folder. `around` is how
+ * many lines either side of each match come back with it: 2 unless the
+ * binding says otherwise.
+ */
+export function search_in({ root, what, id = "search_notes", around = 2 }: Folder & { around?: number }) {
   return tool({
     id,
-    description: `Search ${what} for text, and return the matching files and lines. Search before answering anything you are not certain of.`,
+    description:
+      `Search ${what} for text, and return each match with the lines around it and their line numbers. ` +
+      `Search before answering anything you are not certain of. Often the lines around a match are enough; ` +
+      `when they are not, read that part of the file by its line numbers rather than the whole file.`,
     inputSchema: z.object({
       query: z.string().min(2).describe("Text to look for, case-insensitive."),
       folder: z.string().optional().describe("Narrow to one folder. Omit to search everything."),
     }),
-    execute: ({ query, folder }) => searchFiles(root, query, folder),
+    execute: ({ query, folder }) => searchFiles(root, query, folder, { around }),
   });
 }
 

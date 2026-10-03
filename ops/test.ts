@@ -2707,6 +2707,33 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 }
 
 {
+  about("searching notes, with the lines around each match");
+
+  const { searchFiles } = await import("@chloejs/core/services");
+  const { mkdtemp, mkdir: makeDir, writeFile } = await import("node:fs/promises");
+  const folder = await mkdtemp(`${(await import("node:os")).tmpdir()}/chloe-search-`);
+  await makeDir(`${folder}/work`);
+  await makeDir(`${folder}/secrets`);
+  const page = Array.from({ length: 20 }, (_, i) => `row ${i + 1}`);
+  page[9] = "Mercor: waiting";
+  page[11] = "Mercor: second call";
+  await writeFile(`${folder}/work/index.html`, page.join("\n"));
+  await writeFile(`${folder}/secrets/keys.txt`, "mercor key");
+  const plain = await searchFiles(folder, "mercor");
+  is("a plain search gives paths as the other tools take them", plain.results, ["work/index.html:10:Mercor: waiting", "work/index.html:12:Mercor: second call"]);
+  is("and never looks into a folder no tool may open", plain.matches, 2);
+  const near = await searchFiles(folder, "mercor", undefined, { around: 2 });
+  is(
+    "matches close together share one block, with the matching lines marked",
+    near.results,
+    ["work/index.html:8-14\n  8| row 8\n  9| row 9\n> 10| Mercor: waiting\n  11| row 11\n> 12| Mercor: second call\n  13| row 13\n  14| row 14"],
+  );
+  await writeFile(`${folder}/work/long.html`, `start\n${"x".repeat(1000)} mercor\nend`);
+  const long = await searchFiles(folder, "mercor", "work/long.html", { around: 1 });
+  is("a very long line is cut", long.results[0].split("\n")[2].length < 320, true);
+}
+
+{
   about("changing one part of a note");
 
   const { editFiles } = await import("@chloejs/core/services");

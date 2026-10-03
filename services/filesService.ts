@@ -11,9 +11,10 @@
 //
 // What they do enforce is the edge of the folder, through confine().
 import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { realpathSync } from "node:fs";
+import { dirname, relative, sep } from "node:path";
 
-import { confine } from "#chloe/core/confine";
+import { confine, unreachable } from "#chloe/core/confine";
 import { commitPaths, noteCommit, type Place } from "./historyService.ts";
 import { run } from "./runService.ts";
 
@@ -80,31 +81,86 @@ export async function readFiles(
   };
 }
 
-/** Search a folder for text, case-insensitive. `folder` narrows it. */
-export async function searchFiles(root: string, query: string, folder?: string) {
-  const target = folder ? confine(root, folder) : root;
+/**
+ * Search a folder for text, case-insensitive. `folder` narrows it. Paths in
+ * the results are relative to `root`, the way the other functions here take
+ * them. With `around`, each match comes with that many lines either side, and
+ * matches close together in one file share one block, so a match can often be
+ * understood without reading the file. Five matches a file at most, and
+ * `results` stops at 80 matches, or 30 with `around`; `matches` counts what
+ * was found before that.
+ */
+export async function searchFiles(root: string, query: string, folder?: string, { around = 0 }: { around?: number } = {}) {
+  const base = realpathSync(root);
+  const target = folder ? confine(root, folder) : base;
   // ripgrep if the box has it, grep otherwise. An earlier version assumed
   // ripgrep, and when it was not installed every search quietly answered
   // "nothing matched", which reads exactly like a subject he never wrote
   // about. A search that cannot run has to say so.
   const attempts: Array<[string, string[]]> = [
-    ["rg", ["-i", "--no-heading", "--line-number", "--max-count", "5", "--glob", "!.git", "--", query, target]],
-    ["grep", ["-rIin", "--exclude-dir=.git", "--max-count=5", "-e", query, target]],
+    ["rg", ["-i", "--no-heading", "--with-filename", "--line-number", "--max-count", "5", "--glob", "!.git", "--", query, target]],
+    ["grep", ["-rIHin", "--exclude-dir=.git", "--max-count=5", "-e", query, target]],
   ];
   for (const [file, args] of attempts) {
     const r = await run(file, args, { timeoutMs: 60_000 });
     // grep and rg both exit 1 for "no matches", which is an answer. Only a
     // missing binary (127) means try the next one.
     if (r.exitCode === 127) continue;
-    const lines = r.stdout.split("\n").filter(Boolean).slice(0, 80);
+    const found = r.stdout
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const m = /^(.*?):(\d+):(.*)$/s.exec(line);
+        return m ? { path: relative(base, m[1]), line: Number(m[2]), text: m[3] } : undefined;
+      })
+      // The folders no file tool may open are not searched into either.
+      .filter((m): m is { path: string; line: number; text: string } => m !== undefined && !m.path.split(sep).some(unreachable));
+    const kept = found.slice(0, around > 0 ? 30 : 80);
     return {
       searchedWith: file,
-      matches: lines.length,
-      results: lines,
-      note: lines.length === 0 ? "Nothing matched. Try the words he would have written." : undefined,
+      matches: found.length,
+      results: around > 0 ? await withLinesAround(root, kept, around) : kept.map((m) => `${m.path}:${m.line}:${m.text}`),
+      note:
+        found.length === 0
+          ? "Nothing matched. Try the words he would have written."
+          : found.length > kept.length
+            ? `Only the first ${kept.length} of ${found.length} matches. Narrow it with folder or a longer phrase.`
+            : undefined,
     };
   }
   throw new Error("Neither rg nor grep is on this box, so nothing can be searched.");
+}
+
+/**
+ * One block of text per run of nearby matches in a file: the path and line
+ * numbers, then each line numbered, with `>` on the lines that matched. A line
+ * longer than 300 characters is cut, because one line of minified HTML would
+ * otherwise be the whole file again.
+ */
+async function withLinesAround(root: string, found: Array<{ path: string; line: number }>, around: number) {
+  const blocks: string[] = [];
+  const byFile = new Map<string, number[]>();
+  for (const m of found) byFile.set(m.path, [...(byFile.get(m.path) ?? []), m.line]);
+  for (const [path, hits] of byFile) {
+    const all = (await readFile(confine(root, path), "utf8").catch(() => "")).split("\n");
+    const runs: Array<[number, number]> = [];
+    for (const hit of hits.sort((a, b) => a - b)) {
+      const start = Math.max(1, hit - around);
+      const end = Math.min(all.length, hit + around);
+      const last = runs.at(-1);
+      if (last && start <= last[1] + 1) last[1] = Math.max(last[1], end);
+      else runs.push([start, end]);
+    }
+    for (const [start, end] of runs) {
+      const lines = all.slice(start - 1, end).map((text, i) => {
+        const n = start + i;
+        const cut = text.length > 300 ? `${text.slice(0, 300)}...` : text;
+        return `${hits.includes(n) ? ">" : " "} ${n}| ${cut}`;
+      });
+      blocks.push(`${path}:${start}-${end}\n${lines.join("\n")}`);
+    }
+  }
+  return blocks;
 }
 
 /**
