@@ -46,6 +46,8 @@ export interface Ask {
   talkingTo?: string;
   /** Who this run is for, as an address. One column, and the team version reads it. */
   owner?: string;
+  /** Tools this turn is not given, by name, though the agent has them: a channel that should not reach them. */
+  without?: string[];
   /** Answer tools from here instead of running them. For evals. */
   instead?: (name: string, args: unknown) => Promise<unknown> | unknown;
   signal?: AbortSignal;
@@ -75,10 +77,11 @@ const MAX_STEPS = 40;
  * Runs a prompt: ask a model, run the tools it asked for, put the answers
  * back, ask again, until it stops asking.
  */
-export async function turn({ agent, prompt, attachments, model, thread, source, job, history, said, talkingTo, owner, instead, signal }: Ask): Promise<Result> {
+export async function turn({ agent, prompt, attachments, model, thread, source, job, history, said, talkingTo, owner, without, instead, signal }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? modelFor(agent);
-  const tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
+  const tools: Tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
+  for (const name of without ?? []) delete tools[name];
 
   const started = new Date().toISOString();
   db.prepare(

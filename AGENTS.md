@@ -528,6 +528,20 @@ no groups, because the API carries none, and a reply outside 24 hours of the
 last message that person sent is refused by WhatsApp itself, which is what a job
 that stops to ask somebody runs into.
 
+**Email is a conversation per address, through a Chloe Cloud.**
+`emailChannel({ allowFrom: [...] })` needs `cloud.url` and `cloud.api_key`,
+because the cloud owns the mail domain: it hands out `reply-<uuid>@<domain>`
+for one conversation with one person, sends from it, and puts replies in the
+channel's post box, which is collected like WhatsApp's (`channels/postbox.ts`,
+shared by both). A conversation starts with `startEmail()`, the `start_email`
+tool, or a job's `ask("email:<address>")`, and only ever with somebody in
+`allowFrom`. Nothing between the sender and here is trusted: a reply is taken
+only to an open address made here, from the one person it was made for, with a
+DKIM signature that checks out against the key their domain publishes
+(`core/mail.ts`, node's own crypto and DNS). Do not loosen that last check:
+a From line is whatever the sender typed. `withoutTools` keeps tools away from
+every turn on a channel, for when the person writing should not reach them.
+
 **An agent is reachable by another system because its `agent.ts` lists
 `apiChannel()` in `channels`**, imported from `@chloejs/core/channels`.
 It listens to nothing. `POST /api/agents/<name>/chat` and

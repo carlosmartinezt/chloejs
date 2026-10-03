@@ -174,7 +174,7 @@ resume, so it must not send, write or spend.
 | Agents | Tools, approvals and a budget, set where the step is written. |
 | Tools | A description, a schema and one call. Typed at both ends. A tool that needs somebody signed in brings that with it. |
 | Human approvals | A run parks for days and carries on when somebody answers. |
-| Channels | Telegram, Slack and WhatsApp, one file each, and no dependency of their own. A question goes out where the person is. |
+| Channels | Telegram, Slack, WhatsApp and email, one file each, and no dependency of their own. A question goes out where the person is. |
 | Memory | A folder of notes per agent, in one git repository of their own: one commit per run, under the agent's name. |
 | Self-improvement | An agent can rewrite its skills, jobs and instructions if you let it, never its code. Every change can be undone. |
 | Run history | Every step of every run, with its arguments and its answer. |

@@ -10,5 +10,6 @@
 export { telegramChannel, type TelegramOptions } from "./telegram.ts";
 export { slackChannel, type SlackOptions } from "./slack.ts";
 export { whatsappChannel, type WhatsAppOptions } from "./whatsapp.ts";
+export { emailChannel, startEmail, type EmailOptions, type Started } from "./email.ts";
 export { apiChannel } from "./api.ts";
 export { receive, commands, inPieces, type Incoming, type Rules, type While, type Handled, type Button } from "./shared.ts";

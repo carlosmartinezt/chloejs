@@ -70,16 +70,13 @@
 // channels/shared.ts, the same for every channel. This file reads WhatsApp's
 // API, sends to it, and nothing else.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { join } from "node:path";
 
 import type { Agent, Channel, ChannelRoute, ChatHistory, Running } from "#chloe/load/load";
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
 import type { Attachment } from "#chloe/model/model";
 import { nameInEnv, settings } from "#chloe/core/settings";
-import { STATE } from "#chloe/core/paths";
-import { newKeys, unseal, type Sealed } from "#chloe/core/sealed";
+import { boxFor, collectFrom, keptBox } from "./postbox.ts";
 import { inPieces, receive, type Button, type Incoming, type Rules } from "./shared.ts";
 
 const MAX_MESSAGE = 4000; // WhatsApp refuses a text body over 4096.
@@ -170,12 +167,7 @@ interface Posted {
  * point, and collecting from it needs the key kept beside it.
  */
 export function collectsAt(agent: string, channel = "whatsapp"): string {
-  try {
-    const kept = JSON.parse(readFileSync(join(STATE, "whatsapp", `${agent}-${channel}.json`), "utf8")) as { id?: string; at?: string };
-    return kept.at ?? "";
-  } catch {
-    return "";
-  }
+  return keptBox("whatsapp", agent, channel)?.at ?? "";
 }
 
 /** An agent on WhatsApp's own API, as a channel its own `agent.ts` names. */
@@ -490,81 +482,20 @@ export function listen(
     },
   };
 
-  /**
-   * The post box, as this channel knows it: which box is ours and the key that
-   * collects from it, asked for once and kept in the state folder so a restart
-   * keeps the same address. The private half of the sealing key never leaves
-   * this file's reach.
-   */
-  async function box(): Promise<{ id: string; key: string; privateKey: string; at: string }> {
-    const file = join(STATE, "whatsapp", `${name}-${channel}.json`);
-    if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8")) as { id: string; key: string; privateKey: string; at: string };
-    const keys = newKeys();
-    const response = await fetch(`${postBox}/hook`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ key: keys.publicKey }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const given = (await response.json().catch(() => ({}))) as { id?: string; key?: string; error?: string };
-    if (!given.id || !given.key) throw new Error(`${postBox} would not give out a post box: ${given.error ?? response.status}`);
-    const mine = { id: given.id, key: given.key, privateKey: keys.privateKey, at: `${postBox}/hook/${given.id}` };
-    mkdirSync(join(STATE, "whatsapp"), { recursive: true, mode: 0o700 });
-    writeFileSync(file, JSON.stringify(mine, null, 2), { mode: 0o600 });
-    return mine;
-  }
-
-  /**
-   * Asks the post box for messages, over and over, and asks again the moment it
-   * answers. One request is held open for up to half a minute, so a message
-   * arrives about as fast as it would have down a port, and nothing listens
-   * here. A request that fails waits a little and tries again: the post box
-   * being down delays messages and loses none.
-   */
+  /** Collects from this number's post box until stopped. Where it is goes to the log, to be pasted into the app. */
   async function collect(): Promise<void> {
-    const mine = await box();
-    const address = mine.at || `${postBox}/hook/${mine.id}`;
+    const box = await boxFor("whatsapp", name, channel, postBox);
     console.log(
-      `whatsapp: ${name} collects from ${address}. Register that address on the app's WhatsApp page at ` +
+      `whatsapp: ${name} collects from ${box.at}. Register that address on the app's WhatsApp page at ` +
         `developers.facebook.com, subscribed to messages.`,
     );
-    let wait = 0;
-    while (!stopping.signal.aborted) {
-      try {
-        const response = await fetch(`${address}/messages?wait=25`, {
-          headers: { authorization: `Bearer ${mine.key}` },
-          signal: AbortSignal.any([stopping.signal, AbortSignal.timeout(40_000)]),
-        });
-        if (!response.ok) throw new Error(`asking for messages: ${response.status}`);
-        const { messages = [] } = (await response.json()) as { messages?: { id: string; sealed: Sealed }[] };
-        wait = 0;
-        const took: string[] = [];
-        for (const one of messages) {
-          took.push(one.id);
-          try {
-            const { body, signature } = JSON.parse(unseal(mine.privateKey, one.sealed)) as { body: string; signature?: string };
-            if (!(await delivered(body, signature))) console.warn(`whatsapp: a message from the post box was not signed by the app, and was dropped.`);
-          } catch (error) {
-            console.error("whatsapp: a message from the post box could not be opened:", (error as Error).message);
-          }
-        }
-        // Said only once they are dealt with, so a crash halfway leaves them in
-        // the box rather than losing them.
-        if (took.length) {
-          await fetch(`${address}/collected`, {
-            method: "POST",
-            headers: { authorization: `Bearer ${mine.key}`, "content-type": "application/json" },
-            body: JSON.stringify({ ids: took }),
-            signal: AbortSignal.timeout(30_000),
-          });
-        }
-      } catch (error) {
-        if (stopping.signal.aborted) return;
-        wait = Math.min(60_000, wait ? wait * 2 : 2000);
-        console.warn(`whatsapp: ${name} could not collect from the post box, trying again in ${Math.round(wait / 1000)}s:`, (error as Error).message);
-        await new Promise((done) => setTimeout(done, wait));
-      }
-    }
+    await collectFrom(box, {
+      label: `whatsapp: ${name}`,
+      signal: stopping.signal,
+      open: async (body, signature) => {
+        if (!(await delivered(body, signature))) console.warn(`whatsapp: a message from the post box was not signed by the app, and was dropped.`);
+      },
+    });
   }
 }
 

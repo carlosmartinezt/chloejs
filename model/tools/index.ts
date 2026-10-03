@@ -30,6 +30,9 @@ export { edit_in, list_in, read_in, search_in, write_in } from "./files.ts";
 export { read_mail, reply_mail } from "./gmail.ts";
 export { send_email } from "./send_email.ts";
 
+// Starting an email conversation, for an agent on the email channel.
+export { start_email } from "./start_email.ts";
+
 
 // Reading a public web page.
 export { read_web } from "./web.ts";

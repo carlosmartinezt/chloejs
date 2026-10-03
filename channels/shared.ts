@@ -62,6 +62,8 @@ export interface Incoming {
   files?: () => Promise<{ attachments?: Attachment[]; text?: string; notes?: string[] }>;
   /** A model for this one turn, when the channel lets its caller pick. */
   model?: string;
+  /** Tools the turn is not given, by name, though the agent has them. */
+  withoutTools?: string[];
 }
 
 /** Who a channel answers. Each channel takes these as options and hands them over. */
@@ -421,6 +423,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, send?: (te
       model: message.model ?? (message.thread ? chosen(agent.name, `chat:${message.thread}`) : undefined),
       source: message.channel,
       owner: `${message.channel}:${message.from.id}`,
+      without: message.withoutTools,
     });
     await sending;
     const handed = clock() ? jobFor(agent, result.text.trim()) : undefined;
