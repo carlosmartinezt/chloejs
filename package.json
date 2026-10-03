@@ -1,6 +1,6 @@
 {
   "name": "@chloejs/core",
-  "version": "0.9.20",
+  "version": "0.9.21",
   "type": "module",
   "description": "TypeScript AI agent framework: jobs on a schedule, with AI only where a step needs it.",
   "exports": {
