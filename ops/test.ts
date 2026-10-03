@@ -1276,6 +1276,18 @@ about("a model step that never fits");
     readReply('{"tool": "read_notes", "arguments": {}}\nthat is how you ask.\n[note]\nfine', readNotes).call,
     undefined,
   );
+
+  // A Telegram reply said it was filing a comment and sent the request itself
+  // as the answer: the object was one closing brace short, so nothing ran.
+  const short = readReply('Adding it now.\n\n{"tool":"read_notes","arguments":{"path":"a {b}.html"}', readNotes);
+  is("a request short of its closing braces runs", short.call?.function.arguments, '{"path":"a {b}.html"}');
+  is("with the words before it kept", short.said, "Adding it now.");
+  is(
+    "one broken some other way still goes to the tool, which says it is not JSON",
+    readReply('{"tool": "read_notes", "arguments": {"path": "a",,}}', readNotes).call?.function.arguments,
+    '{"tool": "read_notes", "arguments": {"path": "a",,}}',
+  );
+  is("but only for a tool the agent has", readReply('{"tool": "send_money", "arguments": {', readNotes).call, undefined);
 }
 
 {

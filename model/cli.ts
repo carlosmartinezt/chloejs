@@ -113,7 +113,68 @@ export function readReply(
     if (found.calls.length) return { said: found.said, call: found.calls[0], calls: found.calls };
   }
   const written = readWritten(whole, tools);
-  return written ? { ...written, calls: [written.call] } : { said: whole, calls: [] };
+  if (written) return { ...written, calls: [written.call] };
+  const broken = readBroken(whole, tools);
+  return broken ? { ...broken, calls: [broken.call] } : { said: whole, calls: [] };
+}
+
+/**
+ * A request in the JSON shape that does not parse, for a tool this agent has,
+ * from the last line that opens with `{"tool"` to the end. A model most often
+ * leaves off the closing braces, so those are added and it runs. Anything else
+ * goes to the tool as arguments that are not JSON, which tells the model so
+ * and lets it ask again, where reading it as words would send a half written
+ * request to the user as the answer and run nothing. An object that closes and
+ * has words after it is an answer that shows a request, not one.
+ */
+function readBroken(whole: string, tools: ToolSpec[]): { said: string; call: ToolCall } | undefined {
+  const lines = whole.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const opened = lines[i].match(/^\{\s*"tool"\s*:\s*"([\w-]+)"/);
+    if (!opened) continue;
+    if (!tools.some((t) => t.name === opened[1])) return undefined;
+    const body = lines.slice(i).join("\n").trim();
+    const missing = stillOpen(body);
+    if (missing === "closed") return undefined;
+    let asked: { tool?: unknown; arguments?: unknown } | undefined;
+    try {
+      asked = missing === undefined ? undefined : JSON.parse(body + missing);
+    } catch {}
+    return {
+      said: lines.slice(0, i).join("\n").trim(),
+      call: {
+        id: randomUUID(),
+        type: "function",
+        function: { name: opened[1], arguments: asked?.tool === opened[1] ? JSON.stringify(asked.arguments ?? {}) : body },
+      },
+    };
+  }
+  return undefined;
+}
+
+/**
+ * The braces and brackets that would close what `text` leaves open, "closed"
+ * when the first value closes with more text after it, and undefined when it
+ * cannot be closed by adding to the end (a string left open, a mismatched
+ * bracket).
+ */
+function stillOpen(text: string): string | "closed" | undefined {
+  const open: string[] = [];
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === "\\") i++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === "{") open.push("}");
+    else if (c === "[") open.push("]");
+    else if (c === "}" || c === "]") {
+      if (open.pop() !== c) return undefined;
+      if (!open.length) return text.slice(i + 1).trim() ? "closed" : "";
+    }
+  }
+  return inString ? undefined : open.reverse().join("");
 }
 
 /**
