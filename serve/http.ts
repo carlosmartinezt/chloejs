@@ -144,6 +144,16 @@ function chatContext(who: Caller): Record<string, string> {
   return { address: who.user, role: who.guest ? "guest" : "owner" };
 }
 
+/** The most pictures one chat turn takes. */
+const PICTURES = 4;
+
+/** A picture sent with a chat turn, as base64. Only the kinds every model route reads. */
+const Picture = z.object({
+  name: z.string().trim().min(1).max(200),
+  mediaType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+  data: z.string().min(1),
+});
+
 /** Why a guest may not have this route, or nothing when they may. */
 function refusedGuest(route: Route, params: Record<string, string>, guest: Guest): string | undefined {
   if (route.guest === "filtered") return undefined;
@@ -520,17 +530,24 @@ export const routes: Route[] = [
   {
     method: "POST",
     path: "/api/agents/:name/chat",
-    does: "One turn with the agent. Send the same thread again and it remembers what was said.",
-    takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional"}',
+    does: "One turn with the agent. Send the same thread again and it remembers what was said. Pictures are seen in this turn only and never kept.",
+    takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}]}',
     token: true,
     needsApiChannel: true,
     remote: "chat",
     handle: async ({ request, response, context, params, who }) => {
       const agent = context.agent(params.name);
-      const { prompt, thread, model } = await body(
+      const { prompt, thread, model, images } = await body(
         request,
-        z.object({ prompt: z.string().trim().min(1), thread: z.string().optional(), model: z.string().optional() }),
+        z.object({
+          prompt: z.string().trim(),
+          thread: z.string().optional(),
+          model: z.string().optional(),
+          images: z.array(Picture).max(PICTURES).default([]),
+        }),
+        8 << 20,
       );
+      if (!prompt && !images.length) throw new BadRequest("Say something, or send a picture.");
       // A token's threads are kept apart from the ones a person started, and
       // each guest's from everybody else's, so two callers cannot land in each
       // other's conversation.
@@ -557,7 +574,7 @@ export const routes: Route[] = [
       const channel = !token && thread ? "chat" : channelOf(request);
       // A new conversation on the page is named while the agent answers, and
       // the answer waits a little for it, so the list has the name with it.
-      const fresh = channel === "chat" && !prompt.startsWith("/") && !db.prepare("select 1 from messages where thread = ? limit 1").get(under);
+      const fresh = channel === "chat" && prompt && !prompt.startsWith("/") && !db.prepare("select 1 from messages where thread = ? limit 1").get(under);
       const naming = fresh ? nameThread(under, prompt) : undefined;
       const handled = await receive(agent, {
         channel,
@@ -570,6 +587,14 @@ export const routes: Route[] = [
         text: prompt,
         private: true,
         model: guest ? undefined : model,
+        // Handed to the model for this turn and dropped: what is kept is the
+        // line saying they were attached.
+        files: images.length
+          ? async () => ({
+              attachments: images.map(({ name, mediaType, data }) => ({ name, mediaType, data })),
+              notes: images.map((one) => `(Attached: ${one.name})`),
+            })
+          : undefined,
       }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory });
       if (naming) await Promise.race([naming, new Promise((done) => setTimeout(done, 5000))]);
       json(response, handled);
@@ -1178,13 +1203,13 @@ export function html(response: ServerResponse, value: string, status = 200): voi
  * decoded once at the end: decoding chunk by chunk turns a character that
  * straddles two chunks into two replacement marks.
  */
-export async function body<Shape extends z.ZodType>(request: IncomingMessage, shape: Shape): Promise<z.infer<Shape>> {
+export async function body<Shape extends z.ZodType>(request: IncomingMessage, shape: Shape, most = 1_000_000): Promise<z.infer<Shape>> {
   const text = await new Promise<string>((done, fail) => {
     const chunks: Buffer[] = [];
     let size = 0;
     request.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > 1_000_000) {
+      if (size > most) {
         fail(new BadRequest("Body too large."));
         request.destroy();
         return;

@@ -3842,6 +3842,18 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   answers.push("Again.");
   await answer("g21f", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "and now?", thread: "test/web-g" }));
   is("one that already had something said in it is not named", (await conversations("g21g", chatOnly)).find((one) => one.thread === "test/web-g")?.label, null);
+
+  // A picture goes to the model with the turn it came with, and only the line
+  // saying it was attached is kept.
+  answers.push("A cat.");
+  const dot = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  const pictured = await answer("p1", "POST", "/api/agents/test/chat", { "content-type": "application/json" }, JSON.stringify({ prompt: "what is this?", thread: "test/web-pic", images: [{ name: "cat.png", mediaType: "image/png", data: dot }] }));
+  is("a picture is taken with a turn", pictured.status, 200);
+  const shown = lastAsked.at(-1)?.content as unknown as { type: string }[];
+  is("and the model is shown it", Array.isArray(shown) && shown.some((part) => part.type === "image_url"), true);
+  const kept = JSON.parse((await answer("p2", "GET", `/api/threads/${encodeURIComponent("test/web-pic")}`)).text) as { content: string }[];
+  is("what is kept says it was attached, without the picture", [kept[0]?.content.includes("(Attached: cat.png)"), kept.some((one) => one.content.includes(dot))], [true, false]);
+  is("a file that is not a picture is refused", (await answer("p3", "POST", "/api/agents/test/chat", { "content-type": "application/json" }, JSON.stringify({ prompt: "x", images: [{ name: "a.pdf", mediaType: "application/pdf", data: dot }] }))).status, 400);
   answers.push("Hi.");
   await answer("g21h", "POST", "/api/agents/test/chat", { ...chatOnly, "x-chloe-relay-name": encodeURIComponent("Ana <b>\nÑ"), "content-type": "application/json" }, JSON.stringify({ prompt: "who am I?", thread: "test/web-g" }));
   const asked = db.prepare("select prompt from runs where prompt like '%who am I?' order by started desc limit 1").get() as { prompt: string };
