@@ -14,4 +14,4 @@ export { readEmailMessages, readOneEmailMessage, sendGmail, type Message as Mail
 export { NeedsClient, addressesIn, ensureGog, finish, finishArgs, setupSteps, signInState, start, type SignInState, type Started } from "./googleService.ts";
 export { editFiles, listFiles, readFiles, searchFiles, writeFiles } from "./filesService.ts";
 export { listScripts, runScripts } from "./scriptsService.ts";
-export { readPage, htmlToText, isPrivate, type Page } from "./webService.ts";
+export { readPage, htmlToText, feedToText, isPrivate, type Page } from "./webService.ts";

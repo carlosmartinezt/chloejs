@@ -83,6 +83,7 @@ const publicOnly: LookupFunction = (host, options, done) => {
 interface Reply {
   status: number;
   location?: string;
+  retryAfter?: string;
   type: string;
   body: string;
 }
@@ -121,7 +122,13 @@ function get(url: URL): Promise<Reply> {
           } catch {
             decoder = new TextDecoder();
           }
-          resolve({ status: response.statusCode ?? 0, location: response.headers.location, type, body: decoder.decode(Buffer.concat(chunks)) });
+          resolve({
+            status: response.statusCode ?? 0,
+            location: response.headers.location,
+            retryAfter: response.headers["retry-after"],
+            type,
+            body: decoder.decode(Buffer.concat(chunks)),
+          });
         });
         response.on("error", reject);
       },
@@ -174,9 +181,45 @@ export function htmlToText(html: string, base: string): { title?: string; text: 
   };
 }
 
+/** The inside of the first `<name>` element in `xml`, CDATA unwrapped and entities left alone. */
+function element(xml: string, name: string): { inner: string; cdata: boolean } | undefined {
+  const inner = new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}>`, "i").exec(xml)?.[1];
+  if (inner === undefined) return undefined;
+  const cdata = /^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/.exec(inner);
+  return cdata ? { inner: cdata[1], cdata: true } : { inner, cdata: false };
+}
+
+/**
+ * An Atom or RSS feed as text: each entry is its title as a link, who wrote it
+ * and when, then its words. Raw, a feed's words are HTML escaped inside XML,
+ * and a slice of it holds a few entries where this holds a page of them.
+ */
+export function feedToText(xml: string, base: string): { title?: string; text: string } {
+  const words = (name: string, from: string) => {
+    const found = element(from, name);
+    if (!found) return "";
+    return htmlToText(found.cdata ? found.inner : decode(found.inner), base).text;
+  };
+  const entries = xml.match(/<(entry|item)\b[\s\S]*?<\/\1>/gi) ?? [];
+  const first = xml.search(/<(entry|item)\b/i);
+  const head = first < 0 ? xml : xml.slice(0, first);
+  const text = entries.map((entry) => {
+    const title = words("title", entry).replace(/\s+/g, " ");
+    // Atom's link is an empty element with an href, RSS's is the address as text.
+    const link =
+      /<link\b(?![^>]*\brel=["'](?!alternate))[^>]*\bhref=["']([^"']+)["']/i.exec(entry)?.[1] ?? element(entry, "link")?.inner.trim();
+    const by = words("name", entry) || words("dc:creator", entry) || words("author", entry);
+    const when = words("published", entry) || words("pubDate", entry) || words("updated", entry);
+    const body = words("content", entry) || words("description", entry) || words("summary", entry);
+    return [link ? `[${title}](${decode(link)})` : title, [by, when].filter(Boolean).join(", "), body].filter(Boolean).join("\n");
+  });
+  return { title: words("title", head) || undefined, text: text.join("\n\n") };
+}
+
 /** Fetches `address` and returns it as text, a slice at a time starting at `from`. */
 export async function readPage(address: string, from = 0): Promise<Page> {
   let url = new URL(address);
+  let waited = false;
   for (let hop = 0; ; hop++) {
     const reply = await get(url);
     if (reply.status >= 300 && reply.status < 400 && reply.location) {
@@ -184,8 +227,26 @@ export async function readPage(address: string, from = 0): Promise<Page> {
       url = new URL(reply.location, url);
       continue;
     }
-    if (!/text|json|xml/.test(reply.type)) throw new Error(`${url.href} is ${reply.type || "not text"}, which this cannot read.`);
-    const { title, text } = /html/.test(reply.type) ? htmlToText(reply.body, url.href) : { title: undefined, text: reply.body };
+    // A model cannot wait, so a site that limits how often it is read (Reddit
+    // allows about one read in 30 seconds from a server) is waited for here,
+    // once, and the same address asked again.
+    if (reply.status === 429 && !waited) {
+      waited = true;
+      hop--;
+      const seconds = Math.min(Math.max(Number(reply.retryAfter) || 0, 30), 60);
+      await new Promise((done) => setTimeout(done, seconds * 1000));
+      continue;
+    }
+    // A refusal often has no body worth reading, and "not text" would hide why.
+    if (reply.status === 429) throw new Error(`${url.href} answered 429 twice, too many requests. Read something else first.`);
+    if (!/text|json|xml/.test(reply.type)) {
+      throw new Error(reply.status >= 400 ? `${url.href} answered ${reply.status}.` : `${url.href} is ${reply.type || "not text"}, which this cannot read.`);
+    }
+    const { title, text } = /html/.test(reply.type)
+      ? htmlToText(reply.body, url.href)
+      : /xml/.test(reply.type) && /^\s*(<\?xml[^>]*>\s*)?<(feed|rss)\b/i.test(reply.body)
+        ? feedToText(reply.body, url.href)
+        : { title: undefined, text: reply.body };
     const end = from + SLICE;
     return { url: url.href, status: reply.status, title, text: text.slice(from, end), next: end < text.length ? end : undefined };
   }
