@@ -65,4 +65,5 @@ export function recall(thread: string, { limit = RECALL, days, tools = false }: 
 
 export function forget(thread: string): void {
   db.prepare("delete from messages where thread = ?").run(thread);
+  db.prepare("delete from threads where thread = ?").run(thread);
 }

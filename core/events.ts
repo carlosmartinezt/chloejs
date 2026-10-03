@@ -6,7 +6,7 @@ import { EventEmitter } from "node:events";
 /** `run` carries the id of a run whose row was just written: started, finished or failed. */
 export const events = new EventEmitter<{ run: [id: string] }>();
 
-/** Says a run's row changed. Called by the two runners and nothing else. */
+/** Says a run's row changed. Called by the two runners, and when a run is archived. */
 export function runChanged(id: string): void {
   events.emit("run", id);
 }

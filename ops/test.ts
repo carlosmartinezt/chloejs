@@ -3826,6 +3826,43 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await answer("g22", "POST", `/api/threads/${encodeURIComponent("test/web-owner")}/forget`, { ...chatOnly, "content-type": "application/json" }, "{}");
   is("and forgetting a conversation by the owner's name forgets only their own", JSON.parse((await answer("g23", "GET", "/api/agents/test/threads")).text).some((one: { thread: string }) => one.thread === "test/web-owner"), true);
 
+  // A conversation can be named and archived, by whoever may chat in it. A
+  // guest naming the owner's names their own of that name instead.
+  const thread = (n: string, headers: Record<string, string> = {}) =>
+    answer(n, "GET", "/api/agents/test/threads", headers).then((one) => JSON.parse(one.text) as { thread: string; label: string | null; archived: string | null }[]);
+  const post = (n: string, path: string, value: unknown, headers: Record<string, string> = {}) =>
+    answer(n, "POST", path, { ...headers, "content-type": "application/json" }, JSON.stringify(value));
+  const owner = `/api/threads/${encodeURIComponent("test/web-owner")}`;
+  is("the owner names a conversation", (await post("t1", `${owner}/rename`, { label: "Plans" })).status, 200);
+  is("and the list says so", (await thread("t2")).find((one) => one.thread === "test/web-owner")?.label, "Plans");
+  is("an empty name takes it away", (await post("t3", `${owner}/rename`, { label: " " }), (await thread("t4")).find((one) => one.thread === "test/web-owner")?.label), null);
+  await post("t5", `${owner}/archive`, { archived: true });
+  is("archiving keeps it in the list, saying when", typeof (await thread("t6")).find((one) => one.thread === "test/web-owner")?.archived, "string");
+  await post("t7", `${owner}/rename`, { label: "Mine" }, chatOnly);
+  is("a guest naming the owner's names only their own", (await thread("t8")).find((one) => one.thread === "test/web-owner")?.label, null);
+  await post("t9", `/api/threads/${encodeURIComponent("test/web-1")}/rename`, { label: "Mine" }, chatOnly);
+  is("and their own is named", (await thread("t10", chatOnly)).find((one) => one.thread === "test/guest-g@example.com-web-1")?.label, "Mine");
+
+  // Archiving a run keeps it, says when, and tells the cloud, so its copy of
+  // the log leaves it out too. Only the owner may.
+  live.cloud.remote.write = true;
+  const json = { "content-type": "application/json" };
+  last().socket.onmessage?.({ data: JSON.stringify({ type: "welcome", workspace: { name: "here", label: "Here" } }) });
+  await tick();
+  const [first] = JSON.parse((await answer("a1", "GET", "/api/runs?limit=1")).text) as { id: string }[];
+  const archive = (n: string, archived: boolean, headers: Record<string, string> = {}) =>
+    answer(n, "POST", `/api/runs/${first.id}/archive`, { ...json, ...headers }, JSON.stringify({ archived }));
+  is("a guest cannot archive a run", (await archive("a2", true, everything)).status, 403);
+  is("the owner can", (await archive("a3", true)).status, 200);
+  await tick();
+  const listed = (n: string) => answer(n, "GET", "/api/runs?limit=1").then((one) => JSON.parse(one.text)[0].archived);
+  is("and the run is still listed, saying when", typeof (await listed("a4")), "string");
+  is("the cloud is told", typeof (said("run").at(-1) as { run: { archived: unknown } }).run.archived, "string");
+  await archive("a5", false);
+  is("and bringing it back clears it", await listed("a7"), null);
+  is("a run that is not there is a 404", (await answer("a6", "POST", "/api/runs/nothing/archive", json, JSON.stringify({ archived: true }))).status, 404);
+  live.cloud.remote.write = false;
+
   // A path the client cannot put on the wire used to throw out of the relay
   // and end the process. It must come back as a 502 instead.
   const badPath = await answer("14", "GET", "/api/agents/c c/threads");

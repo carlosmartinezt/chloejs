@@ -94,7 +94,14 @@ added("messages", "used", "text");
 // The messages handed to a model before its first answer. This is separate
 // from prompt because a turn can recall earlier messages too.
 added("runs", "context", "text");
+// When somebody archived the run, or null. An archived run is kept whole and
+// listed as before: it is the page that leaves it out of the log.
+added("runs", "archived", "text");
 db.exec("create index if not exists runs_parked on runs (parked) where parked is not null");
+
+// What a person calls a conversation, and when they archived it. A row only
+// for a conversation somebody has named or archived: the rest have none.
+db.exec("create table if not exists threads (thread text primary key, label text, archived text)");
 
 // When somebody last looked at an agent's changes. One row per agent.
 db.exec("create table if not exists seen (agent text primary key, at text not null)");
@@ -103,7 +110,7 @@ db.exec("create table if not exists seen (agent text primary key, at text not nu
  * The columns a run is listed by: GET /api/runs, an agent's log, and what is
  * sent to a cloud. The trace, the state and the prompt are left to GET /api/runs/:id.
  */
-export const RUN_COLUMNS = "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary";
+export const RUN_COLUMNS = "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary, archived";
 
 /** One commit a run made: in the agent's memory, or in the repo its own folder is in. */
 export interface RunCommit {

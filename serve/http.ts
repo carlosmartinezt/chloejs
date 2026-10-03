@@ -10,6 +10,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { z } from "zod";
 
 import { db, RUN_COLUMNS } from "#chloe/core/db";
+import { runChanged } from "#chloe/core/events";
 import { settings } from "#chloe/core/settings";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
 import type { Clock } from "#chloe/core/clock";
@@ -398,7 +399,9 @@ export const routes: Route[] = [
         response,
         db
           .prepare(
-            "select thread, count(*) as messages, max(at) as last from messages where substr(thread, 1, ?) = ? group by thread order by last desc limit 20",
+            `select m.thread, count(*) as messages, max(m.at) as last, t.label, t.archived
+             from messages m left join threads t on t.thread = m.thread
+             where substr(m.thread, 1, ?) = ? group by m.thread order by last desc limit 50`,
           )
           .all(under.length, under),
       );
@@ -624,6 +627,20 @@ export const routes: Route[] = [
   },
   {
     method: "POST",
+    path: "/api/runs/:id/archive",
+    does: "Archive a run, or bring it back. It is kept whole either way: the log leaves an archived run out.",
+    takes: '{"archived": true}',
+    remote: "write",
+    handle: async ({ request, response, params }) => {
+      const { archived } = await body(request, z.object({ archived: z.boolean() }));
+      const at = archived ? new Date().toISOString() : null;
+      if (db.prepare("update runs set archived = ? where id = ?").run(at, params.id).changes === 0) throw new NotFound("No run with that id.");
+      runChanged(params.id);
+      json(response, { id: params.id, archived: at });
+    },
+  },
+  {
+    method: "POST",
     path: "/api/runs/:id/answer",
     does: "Answer a job that stopped to ask something, from here rather than on the channel it asked on.",
     takes: '{"text": "..."}',
@@ -631,6 +648,39 @@ export const routes: Route[] = [
     handle: async ({ request, response, context, params }) => {
       const { text } = await body(request, z.object({ text: z.string().trim().min(1) }));
       json(response, await answer(params.id, text, context.agents()));
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/threads/:thread/rename",
+    does: "Give a conversation a name. An empty one goes back to the name it was given when it started.",
+    takes: '{"label": "..."}',
+    remote: "chat",
+    // A guest may name their own conversations, and only those.
+    guest: "filtered",
+    handle: async ({ request, response, params, who }) => {
+      const thread = threadFor(who, decodeURIComponent(params.thread));
+      if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
+      const { label } = await body(request, z.object({ label: z.string().trim().max(200) }));
+      db.prepare("insert into threads (thread, label) values (?, ?) on conflict (thread) do update set label = excluded.label").run(thread, label || null);
+      json(response, { thread, label: label || null });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/threads/:thread/archive",
+    does: "Archive a conversation, or bring it back. It is kept, and the agent still remembers it.",
+    takes: '{"archived": true}',
+    remote: "chat",
+    // A guest may archive their own conversations, and only those.
+    guest: "filtered",
+    handle: async ({ request, response, params, who }) => {
+      const thread = threadFor(who, decodeURIComponent(params.thread));
+      if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
+      const { archived } = await body(request, z.object({ archived: z.boolean() }));
+      const at = archived ? new Date().toISOString() : null;
+      db.prepare("insert into threads (thread, archived) values (?, ?) on conflict (thread) do update set archived = excluded.archived").run(thread, at);
+      json(response, { thread, archived: at });
     },
   },
   {
