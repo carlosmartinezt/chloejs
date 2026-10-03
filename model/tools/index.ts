@@ -18,7 +18,7 @@
 
 
 // One folder, as tools, for an agent that needs a different set.
-export { list_in, read_in, search_in, write_in } from "./files.ts";
+export { edit_in, list_in, read_in, search_in, write_in } from "./files.ts";
 
 // Mail in, mail out, and answering one that came in. Each of these brings the
 // Google sign-in with it, so an agent that reads, sends or replies can get

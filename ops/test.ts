@@ -2685,6 +2685,52 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 }
 
 {
+  about("reading part of a note");
+
+  const { readFiles } = await import("@chloejs/core/services");
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const folder = await mkdtemp(`${(await import("node:os")).tmpdir()}/chloe-read-`);
+  const text = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`).join("\n");
+  await writeFile(`${folder}/log.html`, text);
+  is("with nothing asked, the whole file comes back as it always did", (await readFiles(folder, "log.html")).content, text);
+  const part = await readFiles(folder, "log.html", { from: 40, lines: 3 });
+  is("a range comes back as those lines", [part.content, part.from, part.to, part.totalLines], ["line 40\nline 41\nline 42", 40, 42, 100]);
+  is("and says how to read the rest", part.note?.startsWith("This is lines 40 to 42 of 100."), true);
+  const cut = await readFiles(folder, "log.html", { limit: 30 });
+  is("a file over the limit is cut at the last whole line that fits", cut.content, "line 1\nline 2\nline 3\nline 4");
+  is("and says how long it is", cut.totalLines, 100);
+  is("a file under the limit comes back whole, with no note", (await readFiles(folder, "log.html", { limit: 10_000 })).content, text);
+  is("from on its own reads to the end", (await readFiles(folder, "log.html", { from: 99 })).content, "line 99\nline 100");
+  is("a start past the end says how long the file is", (await readFiles(folder, "log.html", { from: 500 })).note, "The file has only 100 lines.");
+  await writeFile(`${folder}/one-line.html`, "x".repeat(1000));
+  is("a file that is one long line is still cut at the limit", (await readFiles(folder, "one-line.html", { limit: 30 })).content.length, 30);
+}
+
+{
+  about("changing one part of a note");
+
+  const { editFiles } = await import("@chloejs/core/services");
+  const { mkdtemp, readFile, writeFile } = await import("node:fs/promises");
+  const folder = await mkdtemp(`${(await import("node:os")).tmpdir()}/chloe-edit-`);
+  await writeFile(`${folder}/work.html`, "<h1>Work</h1>\n<li>Mercor: waiting</li>\n<li>Snap: no</li>\n<li>Clay: no</li>\n");
+  const done = await editFiles(folder, "work.html", "Mercor: waiting", "Mercor: rejected 1 Oct");
+  is(
+    "the text is replaced and the rest of the file is left as it was",
+    await readFile(`${folder}/work.html`, "utf8"),
+    "<h1>Work</h1>\n<li>Mercor: rejected 1 Oct</li>\n<li>Snap: no</li>\n<li>Clay: no</li>\n",
+  );
+  is("it says which line the change is on", done.line, 2);
+  const why = (p: Promise<unknown>) => p.then(() => "not refused", (e: Error) => e.message);
+  is("text that is not there is refused", (await why(editFiles(folder, "work.html", "Amazon", "x"))).startsWith("That text is not in the file"), true);
+  is("text that is there twice is refused, saying how many", await why(editFiles(folder, "work.html", ": no", "x")), "That text is in the file 2 times. Include more of the lines around it so it is found once.");
+  is("and neither refusal changed the file", (await readFile(`${folder}/work.html`, "utf8")).includes("Snap: no"), true);
+  await editFiles(folder, "work.html", "<li>Clay: no</li>\n", "");
+  is("an empty replacement deletes the text", (await readFile(`${folder}/work.html`, "utf8")).includes("Clay"), false);
+  is("a file that is not there is refused", (await why(editFiles(folder, "gone.html", "a", "b"))).includes("ENOENT"), true);
+  is("and the edge of the folder holds", (await why(editFiles(folder, "../outside.html", "a", "b"))) === "not refused", false);
+}
+
+{
   about("an agent's history, in git");
 
   const { execFileSync } = await import("node:child_process");

@@ -1,6 +1,6 @@
 // Reading and writing files inside one folder.
 //
-// `list`, `read`, `search` and `write` are what a job calls from a step. A job
+// `list`, `read`, `search`, `write` and `edit` are what a job calls from a step. A job
 // that knows which file it wants should call one of these: going through a
 // model to read a path you already know is two seconds and a price for
 // nothing. The tools over them are model/tools/files.ts.
@@ -30,11 +30,54 @@ export async function listFiles(root: string, path?: string) {
   };
 }
 
-/** Read one file. `path` is relative to `root` and cannot leave it. */
-export async function readFiles(root: string, path: string) {
+/**
+ * Read one file. `path` is relative to `root` and cannot leave it.
+ *
+ * With `from` (the first line, counting from 1) or `lines` (how many), only
+ * that part comes back, with `from`, `to` and the file's `totalLines`. With
+ * `limit` (characters) and no range, a longer file comes back cut at the last
+ * whole line that fits, saying so, so a big file is not read whole by
+ * accident. With none of the three it is the whole file, as it always was.
+ */
+export async function readFiles(
+  root: string,
+  path: string,
+  { from, lines, limit }: { from?: number; lines?: number; limit?: number } = {},
+) {
   const resolved = confine(root, path);
   const content = await readFile(resolved, "utf8");
-  return { path: resolved, bytes: content.length, content };
+  const ranged = from !== undefined || lines !== undefined;
+  if (!ranged && (limit === undefined || content.length <= limit)) {
+    return { path: resolved, bytes: content.length, content };
+  }
+  const all = content.split("\n");
+  const start = Math.max(1, from ?? 1);
+  let end = lines !== undefined ? Math.min(all.length, start + Math.max(1, lines) - 1) : all.length;
+  if (!ranged) {
+    let size = 0;
+    end = 0;
+    while (end < all.length && size + all[end].length + 1 <= limit!) size += all[end++].length + 1;
+    end = Math.max(end, 1);
+  }
+  // A file that is one long line (minified HTML) still has to stop at the limit.
+  const whole = all.slice(start - 1, end).join("\n");
+  const part = !ranged && whole.length > limit! ? whole.slice(0, limit) : whole;
+  return {
+    path: resolved,
+    bytes: content.length,
+    totalLines: all.length,
+    from: start,
+    to: Math.max(start - 1, end),
+    content: part,
+    note:
+      start > all.length
+        ? `The file has only ${all.length} lines.`
+        : part.length < whole.length
+          ? `This is the first ${part.length} characters of line 1, which is longer than one read. Search to find what you need in it.`
+          : end < all.length
+            ? `This is lines ${start} to ${end} of ${all.length}. Ask for from and lines to read another part, or search to find where something is.`
+            : undefined,
+  };
 }
 
 /** Search a folder for text, case-insensitive. `folder` narrows it. */
@@ -104,4 +147,38 @@ export async function writeFiles(
     (error: unknown) => `not committed: ${error instanceof Error ? error.message : String(error)}`,
   );
   return { path: resolved, bytes: content.length, commit: committed };
+}
+
+/**
+ * Change one part of a file: `old` must appear in it exactly once, and is
+ * replaced by `new`, so a small change to a big file never sends the whole
+ * file. Throws when `old` is not there or is there more than once, saying
+ * which, so the caller can add the text around it. An empty `new` deletes
+ * `old`. `commit`, `message`, `author` and `in` are as for writeFiles.
+ */
+export async function editFiles(
+  root: string,
+  path: string,
+  old: string,
+  replacement: string,
+  options: { commit?: boolean; message?: string; author?: string; in?: Place } = {},
+) {
+  if (old.length === 0) throw new Error("Say which text to replace: `old` is empty.");
+  const resolved = confine(root, path);
+  const before = await readFile(resolved, "utf8");
+  const first = before.indexOf(old);
+  if (first === -1) {
+    throw new Error(
+      "That text is not in the file. It has to match exactly, spaces, line breaks and HTML entities " +
+        "included: read the file again and copy it.",
+    );
+  }
+  if (before.indexOf(old, first + 1) !== -1) {
+    const times = before.split(old).length - 1;
+    throw new Error(`That text is in the file ${times} times. Include more of the lines around it so it is found once.`);
+  }
+  const after = before.slice(0, first) + replacement + before.slice(first + old.length);
+  const written = await writeFiles(root, path, after, options);
+  const line = before.slice(0, first).split("\n").length;
+  return { ...written, line };
 }

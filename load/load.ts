@@ -76,8 +76,8 @@ export interface AgentConfig {
    * Where this agent remembers things: the folder it reads and writes between
    * runs, browsable and editable from the site.
    *
-   * Every agent has one, and always has list_notes, read_notes, search_notes
-   * and write_notes on it. Left unsaid it is its own folder inside `memory/`
+   * Every agent has one, and always has list_notes, read_notes, search_notes,
+   * write_notes and edit_notes on it. Left unsaid it is its own folder inside `memory/`
    * beside the agents, which is a git repository, so this is only worth writing
    * down when the agent shares a folder with a person. Every file served out of it
    * is written to that agent's own audit log first. See serve/memory.ts for
@@ -229,7 +229,7 @@ export interface Job {
 
 /** Tools the runtime brings, switched on per agent: `features: { selfImprovement: true }`. */
 export interface Features {
-  /** list_notes, read_notes, search_notes and write_notes on its memory. On unless this says false. */
+  /** list_notes, read_notes, search_notes, write_notes and edit_notes on its memory. On unless this says false. */
   memory?: boolean;
   /**
    * list_own_files, read_own_file and write_own_file, to change the plain text

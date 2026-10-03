@@ -4,7 +4,7 @@
 // folder in plain words for the description.
 import { z } from "zod";
 
-import { listFiles, readFiles, searchFiles, writeFiles } from "#chloe/services/filesService";
+import { editFiles, listFiles, readFiles, searchFiles, writeFiles } from "#chloe/services/filesService";
 import { tool } from "#chloe/model/tool";
 
 /**
@@ -30,13 +30,24 @@ export function list_in({ root, what, id = "list_notes" }: Folder) {
   });
 }
 
-/** A tool that reads one file inside that folder. */
-export function read_in({ root, what, id = "read_notes" }: Folder) {
+/**
+ * A tool that reads one file inside that folder, or part of it. `limit` is
+ * how many characters an unranged read returns before it is cut at a line
+ * and says so: 40,000 (about 10,000 tokens) unless the binding says otherwise.
+ */
+export function read_in({ root, what, id = "read_notes", limit = 40_000 }: Folder & { limit?: number }) {
   return tool({
     id,
-    description: `Read one file from ${what}. Read before answering, and read before writing: guessing from memory is how you end up confidently wrong.`,
-    inputSchema: z.object({ path: z.string() }),
-    execute: ({ path }) => readFiles(root, path),
+    description:
+      `Read one file from ${what}, or part of it. Read before answering, and read before writing: guessing ` +
+      `from memory is how you end up confidently wrong. A long file comes back cut, saying how many lines it ` +
+      `has; then ask for the part you need with from and lines, or search first to find where it is.`,
+    inputSchema: z.object({
+      path: z.string(),
+      from: z.number().int().min(1).optional().describe("First line to read, counting from 1."),
+      lines: z.number().int().min(1).optional().describe("How many lines to read from there."),
+    }),
+    execute: ({ path, from, lines }) => readFiles(root, path, { from, lines, limit }),
   });
 }
 
@@ -81,5 +92,33 @@ export function write_in({
     }),
     execute: ({ path, content, append, message }) =>
       writeFiles(root, path, content, { commit, message, append, author, in: memory ? "memory" : undefined }),
+  });
+}
+
+/** A tool that changes one part of a file in that folder. `commit`, `author` and `memory` are as for write_in. */
+export function edit_in({
+  root,
+  what,
+  id = "edit_notes",
+  commit = false,
+  author,
+  memory = false,
+}: Folder & { commit?: boolean; author?: string; memory?: boolean }) {
+  return tool({
+    id,
+    description:
+      `Change one part of a file in ${what}: give the exact text to replace and what replaces it. ` +
+      `Use this for any change to a file that exists; write the whole file only when it is new or being ` +
+      `rewritten. The old text must appear exactly once, so include a line or two around it when it is short. ` +
+      `Read the file first, and copy the old text from what you read.` +
+      (commit ? " Committed as it is written, so `message` is required." : ""),
+    inputSchema: z.object({
+      path: z.string(),
+      old: z.string().min(1).describe("The exact text to replace, copied from the file."),
+      new: z.string().describe("What replaces it. Empty to delete it."),
+      message: z.string().optional().describe("Commit message saying what changed. Required here."),
+    }),
+    execute: ({ path, old, new: replacement, message }) =>
+      editFiles(root, path, old, replacement, { commit, message, author, in: memory ? "memory" : undefined }),
   });
 }
