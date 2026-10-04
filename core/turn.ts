@@ -13,7 +13,7 @@ import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
-import { describe, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool";
+import { describe, overviews, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 
 export interface Ask {
@@ -87,8 +87,9 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
   ).run(runId, agent.name, started, source, job ?? null, using, prompt, owner ?? null);
   runChanged(runId);
 
+  const known = await overviews(toolsFor(agent, without));
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, known) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -257,8 +258,7 @@ async function go(options: {
   signal?: AbortSignal;
 }): Promise<Result> {
   const { agent, runId, trace, job, source, thread, said, instead } = options;
-  const tools: Tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
-  for (const name of options.without ?? []) delete tools[name];
+  const tools = toolsFor(agent, options.without);
   const before = answers(trace);
   const calls: Result["calls"] = [];
   // An eval answers every tool itself, so nothing it does is written anywhere.
@@ -484,9 +484,17 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
   );
 }
 
-function systemPrompt(agent: Agent, person?: { name: string; source: string; asYouGo: boolean } | "" | undefined): string {
+/** The tools a turn of this agent has: its own and `skill`, less any its channel leaves out. */
+function toolsFor(agent: Agent, without: string[] = []): Tools {
+  const tools: Tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
+  for (const name of without) delete tools[name];
+  return tools;
+}
+
+function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, known: string): string {
   const parts = [agent.instructions];
   if (person) parts.push(talkingWith(person));
+  if (known) parts.push(known);
   if (agent.skills.length > 0) {
     parts.push(
       "## Your skills\n\n" +

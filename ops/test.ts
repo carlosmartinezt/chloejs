@@ -3159,6 +3159,36 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 }
 
 {
+  about("the folders of a memory, before the first call");
+
+  const { folderTree } = await import("@chloejs/core/services");
+  const { memoryTools } = await import("#chloe/model/tools/memory");
+  const { turn } = await import("#chloe/core/turn");
+  const { mkdir: makeDir, mkdtemp, writeFile } = await import("node:fs/promises");
+  const folder = await mkdtemp(`${(await import("node:os")).tmpdir()}/chloe-tree-`);
+  for (const path of ["02_areas/me/reading/old", "02_areas/money", "01_projects/tennis", ".git/objects", "secrets"]) {
+    await makeDir(`${folder}/${path}`, { recursive: true });
+  }
+  await writeFile(`${folder}/02_areas/index.html`, "<h1>Areas</h1>");
+  is(
+    "two levels of folders, without files, hidden folders or the ones no tool may open",
+    await folderTree(folder),
+    ["01_projects/", "  tennis/", "02_areas/", "  me/", "  money/"],
+  );
+  is("a long tree stops and says so", await folderTree(folder, { most: 2 }), ["01_projects/", "  tennis/", "(more folders, left out)"]);
+  is("an empty folder has none", await folderTree(`${folder}/01_projects/tennis`), []);
+
+  const keeper = { ...agentFor(codeJob("none", async () => "")), tools: memoryTools()({ name: "test", memory: { folder } }) };
+  answers.push("Noted.");
+  await turn({ agent: keeper, prompt: "where are my reading notes?", source: "test" });
+  const opening = lastAsked[0]?.content ?? "";
+  is("a turn starts with them, from the notes tools' overview", opening.includes("## The folders in your memory") && opening.includes("02_areas/\n  me/"), true);
+  answers.push("Noted.");
+  await turn({ agent: keeper, prompt: "and now?", source: "test", without: ["list_notes"] });
+  is("and without the tool, without them", lastAsked[0]?.content.includes("The folders in your memory"), false);
+}
+
+{
   about("an agent's history, in git");
 
   const { execFileSync } = await import("node:child_process");

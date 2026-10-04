@@ -12,7 +12,7 @@
 // What they do enforce is the edge of the folder, through confine().
 import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
-import { dirname, relative, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 import { confine, unreachable } from "#chloe/core/confine";
 import { commitPaths, noteCommit, type Place } from "./historyService.ts";
@@ -29,6 +29,32 @@ export async function listFiles(root: string, path?: string) {
       .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
       .sort(),
   };
+}
+
+/**
+ * The folders inside `root`, `depth` levels down, one a line, each level
+ * indented two spaces further. Files, hidden folders and the ones no file tool
+ * may open are left out. At most `most` lines, then a line saying more were
+ * left out.
+ */
+export async function folderTree(root: string, { depth = 2, most = 200 } = {}): Promise<string[]> {
+  const lines: string[] = [];
+  let more = false;
+  const walk = async (dir: string, level: number): Promise<void> => {
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    const folders = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && !unreachable(e.name)).map((e) => e.name).sort();
+    for (const name of folders) {
+      if (lines.length >= most) {
+        more = true;
+        return;
+      }
+      lines.push(`${"  ".repeat(level)}${name}/`);
+      if (level + 1 < depth) await walk(join(dir, name), level + 1);
+    }
+  };
+  await walk(root, 0);
+  if (more) lines.push("(more folders, left out)");
+  return lines;
 }
 
 /**

@@ -28,7 +28,7 @@ import type { Agent, Job } from "#chloe/load/load";
 import { modelFor } from "#chloe/model/choices";
 import { ask as askModel, type Message } from "#chloe/model/model";
 import { loop, money } from "#chloe/core/turn";
-import type { Approve, Call, Tool, Tools } from "#chloe/model/tool";
+import { overviews, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool";
 
 /** One finished step, and the record that lets it not run twice. */
 export interface Line {
@@ -597,11 +597,13 @@ function agentStep<S extends z.ZodType>(ctx: Ctx, name: string, options: AgentSt
     }
 
     const shape = options.output ? shapeOf(options.output) : undefined;
+    const known = await overviews(tools);
     const messages: Message[] = [
       {
         role: "system",
         content: [
           options.system,
+          known,
           "You have a goal and some tools. Work out the order yourself: call a tool, read what comes back, " +
             "decide what to do next, and stop when the goal is met. Call nothing you were not given.",
           shape

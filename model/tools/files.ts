@@ -4,7 +4,7 @@
 // folder in plain words for the description.
 import { z } from "zod";
 
-import { editFiles, listFiles, readFiles, searchFiles, writeFiles } from "#chloe/services/filesService";
+import { editFiles, folderTree, listFiles, readFiles, searchFiles, writeFiles } from "#chloe/services/filesService";
 import { tool } from "#chloe/model/tool";
 
 /**
@@ -18,7 +18,11 @@ interface Folder {
   id?: string;
 }
 
-/** A tool that lists what is in one folder, and nothing outside it. */
+/**
+ * A tool that lists what is in one folder, and nothing outside it. Its
+ * overview is the folder's folders, two levels down, so a model knows the
+ * layout before its first call.
+ */
 export function list_in({ root, what, id = "list_notes" }: Folder) {
   return tool({
     id,
@@ -27,6 +31,16 @@ export function list_in({ root, what, id = "list_notes" }: Folder) {
       path: z.string().optional().describe("Folder to list. Omit for the top level."),
     }),
     execute: ({ path }) => listFiles(root, path),
+    overview: async () => {
+      const tree = await folderTree(root);
+      if (!tree.length) return "";
+      return (
+        `## The folders in ${what}\n\n` +
+        `Two levels down, without the files. These are the only folders there are at those levels: ` +
+        `use ${id} for what is inside one, and never guess at a path that is not here.\n\n` +
+        "```\n" + tree.join("\n") + "\n```"
+      );
+    },
   });
 }
 
