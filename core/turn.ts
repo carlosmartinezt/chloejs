@@ -13,7 +13,7 @@ import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
-import { describe, overviews, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool";
+import { describe, overviewsOf, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 
 export interface Ask {
@@ -87,9 +87,9 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
   ).run(runId, agent.name, started, source, job ?? null, using, prompt, owner ?? null);
   runChanged(runId);
 
-  const known = await overviews(toolsFor(agent, without));
+  const overviews = await overviewsOf(toolsFor(agent, without));
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, known) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -491,10 +491,10 @@ function toolsFor(agent: Agent, without: string[] = []): Tools {
   return tools;
 }
 
-function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, known: string): string {
+function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string): string {
   const parts = [agent.instructions];
   if (person) parts.push(talkingWith(person));
-  if (known) parts.push(known);
+  if (overviews) parts.push(overviews);
   if (agent.skills.length > 0) {
     parts.push(
       "## Your skills\n\n" +

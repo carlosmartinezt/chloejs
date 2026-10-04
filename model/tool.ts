@@ -20,23 +20,8 @@ export interface Tool<Input = any> {
   overview?: () => Promise<string> | string;
 }
 
-/** What tool() is given: a schema for its arguments, and the one call it makes. */
-export interface ToolConfig<Input = any> {
-  id: string;
-  description: string;
-  inputSchema: z.ZodType<Input>;
-  execute: (input: Input) => Promise<unknown> | unknown;
-  /**
-   * What it reaches right now, in a few lines: the folders of a memory, the
-   * tables of a database. Put at the top of every turn and agent step it is
-   * handed to, so the model starts out knowing where things are rather than
-   * spending calls finding out. Asked again each time, never kept.
-   */
-  overview?: () => Promise<string> | string;
-}
-
 /** The type of `execute`'s argument comes from the schema. */
-export function tool<Input = any>(definition: ToolConfig<Input>): Tool<Input> {
+export function tool<Input = any>(definition: Tool<Input>): Tool<Input> {
   return definition;
 }
 
@@ -48,7 +33,7 @@ export type Tools = Record<string, Tool>;
  * Empty when none has one. One that fails is left out: it is a help to the
  * model, not a reason to stop the turn.
  */
-export async function overviews(tools: Tools): Promise<string> {
+export async function overviewsOf(tools: Tools): Promise<string> {
   const said = await Promise.all(
     [...new Set(Object.values(tools))].map(async (one) => {
       try {

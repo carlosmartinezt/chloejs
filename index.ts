@@ -27,7 +27,7 @@ export { work, resume, answer, sweep, parkedRuns, waitingFor, waitingOn, checkAr
 export { turn, type Result as TurnResult } from "./core/turn.ts";
 
 // What a model can be asked to do, and how it is asked.
-export { tool, type Approve, type Call, type Tool, type ToolConfig, type Tools } from "./model/tool.ts";
+export { tool, type Approve, type Call, type Tool, type Tools } from "./model/tool.ts";
 export { ask, learnModels, UsageLimit, type Attachment, type Message } from "./model/model.ts";
 
 // Reaching a person, and being reached back.
