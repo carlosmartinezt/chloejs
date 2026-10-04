@@ -4,11 +4,13 @@
 
 **[chloejs.org](https://chloejs.org)**: the docs, the examples and the reference.
 
-Chloe is a TypeScript AI agent framework that uses AI only when you need it. You
-build agents out of jobs: run them on a schedule, from a chat or by hand.
+**Write your AI agents in code. Choose how predictable they are.**
 
-You write the workflow in code, **and ask AI where a step needs judgement**. You
-decide where deterministic work ends and where non-deterministic work begins.
+Chloe is a TypeScript agent runtime you run yourself. A job is code:
+deterministic where it can be (the same input, the same result, every time),
+**and an LLM only where a step needs judgement**. Jobs run on a schedule, from a
+chat or by hand, and the jobs, the runs, the memory and the evals are files on
+your machine, with any LLM.
 
 ```sh
 npm install @chloejs/core
