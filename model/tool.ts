@@ -6,7 +6,7 @@ import type { ToolSpec } from "./model.ts";
  * What a model can be handed: an id, a description a model reads, a schema for
  * its arguments, and one function.
  */
-export interface Tool<Input = any> {
+export interface ToolConfig<Input = any> {
   id: string;
   description: string;
   inputSchema: z.ZodType<Input>;
@@ -21,12 +21,12 @@ export interface Tool<Input = any> {
 }
 
 /** The type of `execute`'s argument comes from the schema. */
-export function tool<Input = any>(definition: Tool<Input>): Tool<Input> {
+export function tool<Input = any>(definition: ToolConfig<Input>): ToolConfig<Input> {
   return definition;
 }
 
 /** Keyed by the name the model calls them by. */
-export type Tools = Record<string, Tool>;
+export type Tools = Record<string, ToolConfig>;
 
 /**
  * The overviews of these tools, one after another, for the top of a prompt.
@@ -65,7 +65,7 @@ export interface Call {
  */
 export type Approve = (call: { tool: string; args: unknown }) => Promise<boolean | string> | boolean | string;
 
-export function describe(name: string, one: Tool): ToolSpec {
+export function describe(name: string, one: ToolConfig): ToolSpec {
   const schema = z.toJSONSchema(one.inputSchema, { io: "input" }) as Record<string, any>;
   // $schema means nothing to a provider and some reject it.
   delete schema.$schema;

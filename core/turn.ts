@@ -13,7 +13,7 @@ import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
-import { describe, overviewsOf, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool";
+import { describe, overviewsOf, type Approve, type Call, type ToolConfig, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 
 export interface Ask {
@@ -455,7 +455,7 @@ async function runTool(
 // The model sees each skill's name and one sentence, and opens the body only
 // when it applies. In the system prompt instead, every skill would cost its
 // full text on every step of every turn.
-function skillTool(skills: Skill[]): Tool {
+function skillTool(skills: Skill[]): ToolConfig {
   const byName = new Map(skills.map((s) => [s.name, s]));
   return {
     id: "skill",

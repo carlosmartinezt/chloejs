@@ -17,7 +17,7 @@ import { declareSettings, settings as configured, type Declared } from "#chloe/c
 import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown";
 import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
-import type { Tool, Tools } from "#chloe/model/tool";
+import type { ToolConfig, Tools } from "#chloe/model/tool";
 import { memoryTools } from "#chloe/model/tools/memory";
 import { ownFiles } from "#chloe/model/tools/own_files";
 import { runScripts } from "#chloe/model/tools/run_script";
@@ -92,7 +92,7 @@ export interface AgentConfig {
    * Each tool, or a set of them like read_mail({ ... }). A model calls one by
    * its id. What `features` turns on is added to these and not listed here.
    */
-  tools?: (Tool | Tools | Binding)[];
+  tools?: (ToolConfig | Tools | Binding)[];
   /** Each job: one imported, or markdownJob("jobs/<id>.md") for one that is only a prompt. */
   jobs?: (JobConfig<any, any, any> | MarkdownJob)[];
   /** Each way in: `[telegramChannel({ ... }), apiChannel()]`. Each one carries its own name. */
@@ -563,11 +563,11 @@ function featureTools(features: Features = {}, where: string): (Tools | Binding)
   ];
 }
 
-function toolsOf(list: (Tool | Tools | Binding)[], home: Home, where: string): Tools {
+function toolsOf(list: (ToolConfig | Tools | Binding)[], home: Home, where: string): Tools {
   const tools: Tools = {};
   for (const one of list) {
     const some: Tools =
-      typeof one === "function" ? one(home) : typeof (one as Tool).execute === "function" ? { [(one as Tool).id]: one as Tool } : (one as Tools);
+      typeof one === "function" ? one(home) : typeof (one as ToolConfig).execute === "function" ? { [(one as ToolConfig).id]: one as ToolConfig } : (one as Tools);
     for (const [id, each] of Object.entries(some)) {
       if (typeof each?.execute !== "function") throw new Error(`${where}: tool ${id} is not a tool.`);
       // The same tool twice is the same tool. A set that comes along with

@@ -28,7 +28,7 @@ import type { Agent, Job } from "#chloe/load/load";
 import { modelFor } from "#chloe/model/choices";
 import { ask as askModel, type Message } from "#chloe/model/model";
 import { loop, money } from "#chloe/core/turn";
-import { overviewsOf, type Approve, type Call, type Tool, type Tools } from "#chloe/model/tool";
+import { overviewsOf, type Approve, type Call, type ToolConfig, type Tools } from "#chloe/model/tool";
 
 /** One finished step, and the record that lets it not run twice. */
 export interface Line {
@@ -92,7 +92,7 @@ export interface AgentStep<S extends z.ZodType = z.ZodType> {
   /** What you want done, not how to do it. */
   goal: string;
   /** Everything it may do. Nothing outside this list is reachable from inside. */
-  tools: Tool[] | Tools;
+  tools: ToolConfig[] | Tools;
   /** The shape the final answer has to be in. Without one, you get its words. */
   output?: S;
   /** Most turns of the loop before it has to stop. Ten by default. */
