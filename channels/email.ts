@@ -9,8 +9,8 @@
 // nothing here needs a mail account of its own.
 //
 // Each conversation has its own address, `reply-<id>@<the cloud's domain>`,
-// made for one person. The agent starts one with `startEmail()` (or the
-// `start_email` tool, or a job's `ask("email:<address>")`), and the person's
+// made for one person. The agent starts one with `openEmail()` (or the
+// `startEmail` tool, or a job's `ask("email:<address>")`), and the person's
 // replies to that address come back here as messages in that conversation.
 //
 // A reply reaches the cloud through its mail worker, and waits in this
@@ -116,7 +116,7 @@ const starters = new Map<string, Starter>();
  * them. Refused for anybody not in allowFrom, and when the channel is not
  * running.
  */
-export async function startEmail(agent: string, to: string, subject: string, text: string, channel = "email"): Promise<Started> {
+export async function openEmail(agent: string, to: string, subject: string, text: string, channel = "email"): Promise<Started> {
   const start = starters.get(`${agent}/${channel}`);
   if (!start) throw new Error(`${agent} has no ${channel} channel running, so it cannot start an email.`);
   return start(to, subject, text);

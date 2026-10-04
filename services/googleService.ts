@@ -721,7 +721,7 @@ export function setupSteps(): { steps: string[]; addresses: string[]; why: strin
  * agent can start itself, so none of them tells anybody to go to the box.
  */
 export function explain(text: string): string {
-  const sign = "Start a sign-in with google_sign_in, send the person the link, and do not retry this until they answer.";
+  const sign = "Start a sign-in with googleSignIn, send the person the link, and do not retry this until they answer.";
 
   if (/integrity check failed|KeyUnwrap/i.test(text)) {
     return `Google cannot be reached: the saved sign-in will not open. ${sign}`;

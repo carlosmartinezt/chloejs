@@ -10,8 +10,8 @@ import { z } from "zod";
 import { markdownToHtml, markdownToText } from "#chloe/services/emailService";
 import { writeFiles } from "#chloe/services/filesService";
 import { readEmailMessages, readOneEmailMessage, replyGmail } from "#chloe/services/gmailService";
-import { tool, type Tools } from "#chloe/model/tool";
-import { googleSignIn } from "./google.ts";
+import { defineTool, type Tools } from "#chloe/model/tool";
+import { googleSignInTools } from "./google.ts";
 
 interface Options {
   /**
@@ -36,13 +36,13 @@ interface Options {
  * read mail can get itself signed in to read mail. Nothing to add, and no way
  * to have one without the other.
  */
-export function read_mail({
+export function readMail({
   search = "in:inbox",
   what = "mail in the inbox",
   days = 7,
-  id = "read_mail",
+  id = "readMail",
 }: Options = {}): Tools {
-  const read = tool({
+  const read = defineTool({
     id,
     description:
       `Read ${what}. Lists what is there; pass a messageId from that list to read one in full. ` +
@@ -63,7 +63,7 @@ export function read_mail({
         ? readOneEmailMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
         : readEmailMessages({ search, days: back ?? days, limit: limit ?? 10 }),
   });
-  return { [id]: read, ...googleSignIn() };
+  return { [id]: read, ...googleSignInTools() };
 }
 
 interface ReplyOptions extends Options {
@@ -95,21 +95,21 @@ interface ReplyOptions extends Options {
  * choosing is the whole risk, and the only reliable answer is for the address
  * not to be an input.
  *
- * Give it the same `search` as the agent's `read_mail`, so the mail it can
+ * Give it the same `search` as the agent's `readMail`, so the mail it can
  * answer is exactly the mail that search lists.
  */
-export function reply_mail({
+export function replyMail({
   search = "in:inbox",
   what = "mail in the inbox",
   days = 7,
-  id = "reply_mail",
+  id = "replyMail",
   when = "",
   markdown = false,
   keep,
 }: ReplyOptions = {}) {
   return (agent: { name: string; memory: { folder: string; commit?: boolean | "each run" } }): Tools => ({
-    ...googleSignIn(),
-    [id]: tool({
+    ...googleSignInTools(),
+    [id]: defineTool({
       id,
       description:
         `Reply to one message in ${what}, as the account that reads it, in that message's own thread. ` +

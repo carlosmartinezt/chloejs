@@ -2,14 +2,14 @@
 // reading mail, reading and writing files in one folder, running one of an
 // agent's own scripts, reading a web page.
 //
-//   import { run, sendEmail } from "@chloejs/core/services";
+//   import { run, deliverEmail } from "@chloejs/core/services";
 //
 // The same work offered to a model instead is "@chloejs/core/tools", and each
 // of those is a wrapper over one of these. Same rule as `index.ts`: adding a
 // name here is publishing it.
 
 export { run, type Result } from "./runService.ts";
-export { markdownToHtml, markdownToText, sendEmail, type EmailSender } from "./emailService.ts";
+export { markdownToHtml, markdownToText, deliverEmail, type EmailSender } from "./emailService.ts";
 export { readEmailMessages, readOneEmailMessage, sendGmail, type Message as Mail } from "./gmailService.ts";
 export { NeedsClient, addressesIn, ensureGog, finish, finishArgs, setupSteps, signInState, start, type SignInState, type Started } from "./googleService.ts";
 export { editFiles, folderTree, listFiles, readFiles, searchFiles, writeFiles } from "./filesService.ts";

@@ -4,7 +4,7 @@
 // it is email.provider in settings, and each provider reads its own section
 // of .env for its key (CHLOE_RESEND_API_KEY for Resend).
 //
-// The tool a model reaches is model/tools/send_email.ts, which calls
+// The tool a model reaches is model/tools/sendEmail.ts, which calls
 // this. A job calls this directly, from a step.
 
 import { settings } from "#chloe/core/settings";
@@ -95,7 +95,7 @@ const none: EmailProvider = {
 const providers: Record<typeof settings.email.provider, EmailProvider> = { resend, gmail, none };
 
 /** Sends one email through the configured provider and returns its id. The tag is put in front of the subject. */
-export async function sendEmail(
+export async function deliverEmail(
   { from, to, tag, replyTo, markdown }: EmailSender,
   subject: string,
   body: string,

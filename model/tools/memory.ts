@@ -1,10 +1,10 @@
-// An agent's memory, as tools: list_notes, read_notes, search_notes,
-// write_notes and edit_notes, all inside the one folder its definition's
+// An agent's memory, as tools: listNotes, readNotes, searchNotes,
+// writeNotes and editNotes, all inside the one folder its definition's
 // `memory` names (memory/ in its own folder when it names none). Every agent
 // has them: the loader adds them, so an agent's `tools` never lists them.
 import { mkdirSync } from "node:fs";
 
-import { edit_in, list_in, read_in, search_in, write_in } from "./files.ts";
+import { editIn, listIn, readIn, searchIn, writeIn } from "./files.ts";
 import type { Tools } from "../tool.ts";
 
 /**
@@ -19,11 +19,11 @@ export function memoryTools(): (agent: { name: string; memory: { folder: string;
     // to fail on one missing.
     mkdirSync(folder, { recursive: true });
     return {
-      list_notes: list_in({ root: folder, what }),
-      read_notes: read_in({ root: folder, what }),
-      search_notes: search_in({ root: folder, what }),
-      write_notes: write_in({ root: folder, what, commit: commit === true, author: name, memory: true }),
-      edit_notes: edit_in({ root: folder, what, commit: commit === true, author: name, memory: true }),
+      listNotes: listIn({ root: folder, what }),
+      readNotes: readIn({ root: folder, what }),
+      searchNotes: searchIn({ root: folder, what }),
+      writeNotes: writeIn({ root: folder, what, commit: commit === true, author: name, memory: true }),
+      editNotes: editIn({ root: folder, what, commit: commit === true, author: name, memory: true }),
     };
   };
 }

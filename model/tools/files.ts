@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 import { editFiles, folderTree, listFiles, readFiles, searchFiles, writeFiles } from "#chloe/services/filesService";
-import { tool } from "#chloe/model/tool";
+import { defineTool } from "#chloe/model/tool";
 
 /**
  * `what` names the folder in the tool's description, e.g. "the shared notes".
@@ -23,8 +23,8 @@ interface Folder {
  * overview is the folder's folders, two levels down, so a model knows the
  * layout before its first call.
  */
-export function list_in({ root, what, id = "list_notes" }: Folder) {
-  return tool({
+export function listIn({ root, what, id = "listNotes" }: Folder) {
+  return defineTool({
     id,
     description: `List a folder in ${what}, so you can find the right file before reading it. Start here rather than guessing at a path.`,
     inputSchema: z.object({
@@ -49,8 +49,8 @@ export function list_in({ root, what, id = "list_notes" }: Folder) {
  * how many characters an unranged read returns before it is cut at a line
  * and says so: 40,000 (about 10,000 tokens) unless the binding says otherwise.
  */
-export function read_in({ root, what, id = "read_notes", limit = 40_000 }: Folder & { limit?: number }) {
-  return tool({
+export function readIn({ root, what, id = "readNotes", limit = 40_000 }: Folder & { limit?: number }) {
+  return defineTool({
     id,
     description:
       `Read one file from ${what}, or part of it. Read before answering, and read before writing: guessing ` +
@@ -70,8 +70,8 @@ export function read_in({ root, what, id = "read_notes", limit = 40_000 }: Folde
  * many lines either side of each match come back with it: 2 unless the
  * binding says otherwise.
  */
-export function search_in({ root, what, id = "search_notes", around = 2 }: Folder & { around?: number }) {
-  return tool({
+export function searchIn({ root, what, id = "searchNotes", around = 2 }: Folder & { around?: number }) {
+  return defineTool({
     id,
     description:
       `Search ${what} for text, and return each match with the lines around it and their line numbers. ` +
@@ -90,15 +90,15 @@ export function search_in({ root, what, id = "search_notes", around = 2 }: Folde
  * `author` when there is one. `memory` says this folder is the agent's memory,
  * so the run writing it lists the commit.
  */
-export function write_in({
+export function writeIn({
   root,
   what,
-  id = "write_notes",
+  id = "writeNotes",
   commit = false,
   author,
   memory = false,
 }: Folder & { commit?: boolean; author?: string; memory?: boolean }) {
-  return tool({
+  return defineTool({
     id,
     description:
       `Write one file in ${what}. This replaces the file, so include everything you want kept: ` +
@@ -116,16 +116,16 @@ export function write_in({
   });
 }
 
-/** A tool that changes one part of a file in that folder. `commit`, `author` and `memory` are as for write_in. */
-export function edit_in({
+/** A tool that changes one part of a file in that folder. `commit`, `author` and `memory` are as for writeIn. */
+export function editIn({
   root,
   what,
-  id = "edit_notes",
+  id = "editNotes",
   commit = false,
   author,
   memory = false,
 }: Folder & { commit?: boolean; author?: string; memory?: boolean }) {
-  return tool({
+  return defineTool({
     id,
     description:
       `Change one part of a file in ${what}: give the exact text to replace and what replaces it. ` +

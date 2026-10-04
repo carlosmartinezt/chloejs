@@ -9,12 +9,12 @@ import { z } from "zod";
 
 import { agentDir } from "#chloe/core/paths";
 import { listScripts, runScripts as runOne } from "#chloe/services/scriptsService";
-import { tool, type Tools } from "#chloe/model/tool";
+import { defineTool, type Tools } from "#chloe/model/tool";
 
 /** A tool that runs one file from that agent's own `scripts/` folder. */
 export function runScript(agent: string) {
-  return tool({
-    id: "run_script",
+  return defineTool({
+    id: "runScript",
     description:
       "Run one of your own scripts and return what it printed. Your skills say which script to " +
       "use and what its arguments mean. Use `list` to see what you have.",
@@ -31,7 +31,7 @@ export function runScript(agent: string) {
 }
 
 /**
- * run_script: the agent runs any file in its scripts/ folder, and nothing
+ * runScript: the agent runs any file in its scripts/ folder, and nothing
  * else. Refused as the agent loads when that folder has nothing in it.
  */
 export function runScripts(): (agent: { name: string }) => Tools {
@@ -39,6 +39,6 @@ export function runScripts(): (agent: { name: string }) => Tools {
     const dir = `${agentDir(name)}/scripts`;
     const any = existsSync(dir) && readdirSync(dir, { withFileTypes: true }).some((e) => e.isFile() && !e.name.startsWith("."));
     if (!any) throw new Error(`${name} has features.runScripts on, and ${dir} has no scripts in it.`);
-    return { run_script: runScript(name) };
+    return { runScript: runScript(name) };
   };
 }

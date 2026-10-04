@@ -20,8 +20,8 @@ import type { JobConfig } from "./job.ts";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { cannotRun, type ToolConfig, type Tools } from "#chloe/model/tool";
 import { memoryTools } from "#chloe/model/tools/memory";
-import { ownFiles } from "#chloe/model/tools/own_files";
-import { runScripts } from "#chloe/model/tools/run_script";
+import { ownFiles } from "#chloe/model/tools/ownFiles";
+import { runScripts } from "#chloe/model/tools/runScript";
 import { makeRepo } from "#chloe/services/historyService";
 import { work, type Data, type Result as RunResult, type Work } from "#chloe/core/steps";
 
@@ -51,7 +51,7 @@ export interface Home {
   memory: Memory & { folder: string };
 }
 
-/** A set of tools made for one agent as it loads, like read_mail({ ... }). */
+/** A set of tools made for one agent as it loads, like readMail({ ... }). */
 export type Binding = (agent: Home) => Tools;
 
 /** What defineAgent is given. */
@@ -79,8 +79,8 @@ export interface AgentConfig {
    * Where this agent remembers things: the folder it reads and writes between
    * runs, browsable and editable from the site.
    *
-   * Every agent has one, and always has list_notes, read_notes, search_notes,
-   * write_notes and edit_notes on it. Left unsaid it is its own folder inside `memory/`
+   * Every agent has one, and always has listNotes, readNotes, searchNotes,
+   * writeNotes and editNotes on it. Left unsaid it is its own folder inside `memory/`
    * beside the agents, which is a git repository, so this is only worth writing
    * down when the agent shares a folder with a person. Every file served out of it
    * is written to that agent's own audit log first. See serve/memory.ts for
@@ -92,7 +92,7 @@ export interface AgentConfig {
   /** `prompt("instructions.md")`, a path inside the agent's folder, or the words themselves. */
   instructions: string | Prompt;
   /**
-   * Each tool, or a set of them like read_mail({ ... }). A model calls one by
+   * Each tool, or a set of them like readMail({ ... }). A model calls one by
    * its id. What `features` turns on is added to these and not listed here.
    * Tools made with the AI SDK's `tool()` go in as a set, `{ weather: tool({ ... }) }`,
    * or as that set on its own instead of the list.
@@ -234,17 +234,17 @@ export interface Job {
 
 /** Tools the runtime brings, switched on per agent: `features: { selfImprovement: true }`. */
 export interface Features {
-  /** list_notes, read_notes, search_notes, write_notes and edit_notes on its memory. On unless this says false. */
+  /** listNotes, readNotes, searchNotes, writeNotes and editNotes on its memory. On unless this says false. */
   memory?: boolean;
   /**
-   * list_own_files, read_own_file and write_own_file, to change the plain text
+   * listOwnFiles, readOwnFile and writeOwnFile, to change the plain text
    * in its own folder: its instructions, its skills, its markdown jobs. Off
    * unless this says. `true` is every ending in PLAIN_TEXT; an object narrows
    * that or keeps a path back. Every write is a git commit under its name.
    */
   selfImprovement?: boolean | SelfImprovement;
   /**
-   * run_script, to run a file in its own scripts/ folder. Off unless this says
+   * runScript, to run a file in its own scripts/ folder. Off unless this says
    * true, and refused as it loads when that folder has no scripts.
    */
   runScripts?: boolean;
@@ -264,7 +264,7 @@ export const PLAIN_TEXT = ["md", "txt", "html", "json", "yml", "yaml", "csv"];
  *
  * Code never, whatever `files` says: nothing in tools/, services/, channels/ or
  * scripts/, and nothing ending in .ts or .js. Nor its evals/, which say what a
- * good run of it looks like, nor its memory, which is write_notes.
+ * good run of it looks like, nor its memory, which is writeNotes.
  */
 export interface SelfImprovement {
   /** File endings it may write, without the dot. PLAIN_TEXT when it says none. */
@@ -286,7 +286,7 @@ export interface Memory {
    * When a change becomes a git commit. `"each run"`: whatever a run changed
    * is committed when it ends, under the agent's name, and the folder is made
    * a repository of its own if it is not one. `true`: every write from the
-   * site and from write_notes is its own commit, with a message, for a folder
+   * site and from writeNotes is its own commit, with a message, for a folder
    * shared with a person. `false`: never. Unsaid, it is "each run" for the
    * folder the runtime keeps and false for one named here.
    */
@@ -577,7 +577,7 @@ function toolsOf(list: (ToolConfig | Tools | Binding)[], home: Home, where: stri
       const wrong = cannotRun(id, each);
       if (wrong) throw new Error(`${where}: ${wrong}`);
       // The same tool twice is the same tool. A set that comes along with
-      // something else, like the Google sign-in that read_mail and send_email
+      // something else, like the Google sign-in that readMail and sendEmail
       // both bring, arrives once per binding and is the one object each time,
       // so an agent with both is not a clash. Two different tools of one name
       // still is, because only one of them could ever be reached.

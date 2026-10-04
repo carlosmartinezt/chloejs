@@ -42,7 +42,7 @@ function inMemory(agent: Home, path: string): boolean {
 /** Why the agent may not write this path, or undefined when it may. */
 export function whyNot(agent: Home, rules: OwnFileRules, path: string): string | undefined {
   const at = within(agent, path);
-  if (inMemory(agent, at)) return "that is your memory, which you write with write_notes";
+  if (inMemory(agent, at)) return "that is your memory, which you write with writeNotes";
   const top = at.split("/")[0];
   if (KEPT_BACK.includes(top)) return top === "evals" ? "evals/ is how your runs are marked" : `${top}/ is code`;
   const ending = extname(at).slice(1).toLowerCase();
@@ -80,10 +80,10 @@ export async function listOwn(agent: Home, rules: OwnFileRules) {
 /** One file in the agent's folder, and whether it may write it. */
 export async function readOwn(agent: Home, rules: OwnFileRules, path: string) {
   const at = within(agent, path);
-  if (inMemory(agent, at)) throw new Error(`${path} is in your memory: read it with read_notes.`);
+  if (inMemory(agent, at)) throw new Error(`${path} is in your memory: read it with readNotes.`);
   const resolved = confine(agent.folder, at);
   if (existsSync(resolved) && statSync(resolved).isDirectory()) {
-    throw new Error(`${path} is a folder. list_own_files shows what is in it.`);
+    throw new Error(`${path} is a folder. listOwnFiles shows what is in it.`);
   }
   const { content } = await readFiles(agent.folder, at);
   const why = whyNot(agent, rules, at);

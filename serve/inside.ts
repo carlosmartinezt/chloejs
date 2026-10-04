@@ -188,7 +188,7 @@ export function connectionsOf(agent: Agent): Way[] {
           ready: null,
         },
   ];
-  if (has("send_email")) {
+  if (has("sendEmail")) {
     out.push(
       settings.email.provider === "gmail"
         ? {
@@ -212,7 +212,7 @@ export function connectionsOf(agent: Agent): Way[] {
           },
     );
   }
-  if (has("read_mail")) {
+  if (has("readMail")) {
     out.push({
       name: "google",
       does: "The account its mail is read from. Somebody still has to sign in once, which the agent can ask them to do.",
@@ -220,7 +220,7 @@ export function connectionsOf(agent: Agent): Way[] {
       ready: filled(settings.google.account) && filled(settings.google.client),
     });
   }
-  if (has("read_web")) {
+  if (has("readWeb")) {
     out.push({ name: "the web", does: "It can fetch a page. Nothing is needed for that.", needs: "", ready: null });
   }
   return out;

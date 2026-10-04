@@ -2,7 +2,7 @@
 // not at this machine.
 //
 // **Nothing binds these on their own.** They come with whatever needs Google:
-// `read_mail` brings them, and so does `send_email` when the mail goes out
+// `readMail` brings them, and so does `sendEmail` when the mail goes out
 // through Google. An agent that can read mail can get itself signed in to read
 // mail, which is one decision and not two, and there is nothing to remember to
 // add. Signing in is not a thing an agent does, it is part of the thing it
@@ -16,7 +16,7 @@
 import { z } from "zod";
 
 import { NeedsClient, finish, setupSteps, signInState, start } from "#chloe/services/googleService";
-import { tool, type Tools } from "#chloe/model/tool";
+import { defineTool, type Tools } from "#chloe/model/tool";
 
 /**
  * Start a sign-in, and say where the last one stands.
@@ -24,9 +24,9 @@ import { tool, type Tools } from "#chloe/model/tool";
  * Handing the link back rather than opening anything is the whole point: the
  * person is on a phone somewhere and this machine has no browser.
  */
-function google_sign_in() {
-  return tool({
-    id: "google_sign_in",
+function googleSignIn() {
+  return defineTool({
+    id: "googleSignIn",
     description:
       "Get the person signed in to Google, for the mail and anything else of theirs you can reach. Hands back a " +
       "link. Send them that link exactly as it is, tell them what it says to tell them, and stop: do not call this " +
@@ -90,9 +90,9 @@ function google_sign_in() {
  * Takes the whole address or just the code, because a person on a phone sends
  * one or the other and neither of them is wrong.
  */
-function finish_google_sign_in() {
-  return tool({
-    id: "finish_google_sign_in",
+function finishGoogleSignIn() {
+  return defineTool({
+    id: "finishGoogleSignIn",
     description:
       "Finish the Google sign-in you started, using what the person sent back: the whole address of the page " +
       "their browser landed on, or just the code out of it. Only after they have answered.",
@@ -112,7 +112,7 @@ function finish_google_sign_in() {
 let made: Tools | undefined;
 
 /** The sign-in, as whatever needs Google adds it to its own set. Never bound on its own. */
-export function googleSignIn(): Tools {
-  made ??= { google_sign_in: google_sign_in(), finish_google_sign_in: finish_google_sign_in() };
+export function googleSignInTools(): Tools {
+  made ??= { googleSignIn: googleSignIn(), finishGoogleSignIn: finishGoogleSignIn() };
   return made;
 }

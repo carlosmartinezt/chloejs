@@ -2,12 +2,12 @@
 import { z } from "zod";
 
 import { readPage } from "#chloe/services/webService";
-import { tool } from "#chloe/model/tool";
+import { defineTool } from "#chloe/model/tool";
 
 /** A tool that reads one public web page as plain text. */
-export function read_web() {
-  return tool({
-    id: "read_web",
+export function readWeb() {
+  return defineTool({
+    id: "readWeb",
     description:
       "Read a public web page as plain text. Links come back as `[text](url)`: to follow one, pass that url " +
       "exactly as it came back, never one you rebuilt by hand, because one changed character can make a site " +

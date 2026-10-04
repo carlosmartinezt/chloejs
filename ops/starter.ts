@@ -165,10 +165,10 @@ const SUMMARY = `---
 description: Reads its own notes and writes one line about them. A prompt, so it asks a model.
 ---
 
-Read your notes: list_notes for what is there, then read_notes for each one.
+Read your notes: listNotes for what is there, then readNotes for each one.
 
 Write one line saying what they hold, and save it as \`summary.md\` with
-write_notes. If there are no notes yet, write that.
+writeNotes. If there are no notes yet, write that.
 
 Nothing else. This job is here to prove that a model, its tools and your memory
 all work, and to be replaced by something you actually want. It has no cron

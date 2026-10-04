@@ -250,10 +250,10 @@ The runtime is the floor everyone stands on, so nothing in it may name an agent
 or a person, and nothing in `model/tools/` or `channels/` exports a
 default: each exports a function that an agent binds.
 
-**A tool that needs somebody signed in brings that with it.** `read_mail`
+**A tool that needs somebody signed in brings that with it.** `readMail`
 hands back a set and not one tool: the mail tool, and the two that get a person
-signed in to Google. `send_email` brings the same two when the mail goes out
-through Google, and nothing when it does not. So an agent says `read_mail` and
+signed in to Google. `sendEmail` brings the same two when the mail goes out
+through Google, and nothing when it does not. So an agent says `readMail` and
 is done, rather than remembering to add the sign-in beside it, and there is no
 way to have mail without the means to fix mail. The set is made once and handed
 out, and the loader takes the same tool twice and refuses two different tools of
@@ -263,9 +263,9 @@ one name, which is what lets an agent have both of those bindings.
 `services/`, published as `"@chloejs/core/services"`, and a job calls it from a step.
 `model/tools/` holds the wrappers over those functions, and a wrapper is
 a description, a schema and one call. Nothing in it does work. A tool's
-function is named like the tool it makes, lower case with underscores:
-`send_email()` makes `send_email`. A service's function is camel case,
-`sendEmail()`, so the two never share a name. A file in
+function is named like the tool it makes: `sendEmail()` makes `sendEmail`.
+A service's function is named for the work, `deliverEmail()`, and never
+takes a tool's name, so a job and a model never reach for the same one. A file in
 `services/` is named for what it reaches, `<thing>Service.ts`. Where more than
 one provider could do the same work, the file holds the interface and the
 providers, and a setting picks one: `email.provider` in `emailService.ts`.
@@ -278,7 +278,7 @@ channel exists because `agent.ts` names it, a markdown job as
 `markdownJob("jobs/<id>.md")`. A job exported from a file in `jobs/` that its
 agent does not name fails `npm run test`, because it would look like a job and
 never run, and
-`write_own_file` refuses to make a new one for the same reason.
+`writeOwnFile` refuses to make a new one for the same reason.
 
 A job that imports a tool, chloe's or its own agent's, fails `npm run test`:
 it either wanted a `services/` folder or it is paying a model to read a path it
@@ -433,7 +433,7 @@ and a `cron` that does not read stops the agent loading. `markdownJob("jobs/<id>
 in `agent.ts` names one, and its file name is its id. The loader does not refuse a fifth key,
 which is worth knowing: the old system accepted a key it did not recognise by
 silently refusing to rebuild, so the file looked saved, the service looked
-healthy, and the change never happened. `write_own_file` does refuse one, with
+healthy, and the change never happened. `writeOwnFile` does refuse one, with
 `markdownJobProblem()`, and it refuses a cron line that runs more than once an
 hour unless a person wrote that line. Teach `load/load.ts` to read a key
 before you write one.
@@ -490,7 +490,7 @@ prompt, and the second is skipped rather than queued. A job that takes longer th
 run less often than its cron line says.
 
 **A tool that reads someone's mail or notes is bound, not asked.** The search a
-tool like `read_mail` runs comes from the agent's own binding, and the agent
+tool like `readMail` runs comes from the agent's own binding, and the agent
 chooses only how far back and how many. Reading one item re-runs that same
 search and refuses anything that is not in it. A query an agent can write is a
 filter, not a boundary: it widens the moment a turn goes wrong, and by then it
@@ -533,7 +533,7 @@ that stops to ask somebody runs into.
 because the cloud owns the mail domain: it hands out `reply-<uuid>@<domain>`
 for one conversation with one person, sends from it, and puts replies in the
 channel's post box, which is collected like WhatsApp's (`channels/postbox.ts`,
-shared by both). A conversation starts with `startEmail()`, the `start_email`
+shared by both). A conversation starts with `openEmail()`, the `startEmail`
 tool, or a job's `ask("email:<address>")`, and only ever with somebody in
 `allowFrom`. Nothing between the sender and here is trusted: a reply is taken
 only to an open address made here, from the one person it was made for, with a
@@ -685,7 +685,7 @@ honest beats precise and forgeable. None of this is worth anything if something
 other than the proxy can reach the port, which is why it binds loopback.
 
 **A case is answered strictly.** A tool mock matches on the exact arguments, so
-a case that answers `read_mail` with `{}` fails the moment the agent asks for
+a case that answers `readMail` with `{}` fails the moment the agent asks for
 one message by id. Mark that answer `"anyArgs": true` when the arguments
 do not change the answer, and `"times"` when one answer covers several calls.
 
@@ -739,7 +739,7 @@ stands on. Agent specific code lives in that agent's folder.
 
 **Do not add a per-agent file for something every agent has.** Write it once
 in `model/tools/` and let each agent name it in its `agent.ts`. What any
-agent may want switched on (its notes tools, the own-file tools, run_script) is
+agent may want switched on (its notes tools, the own-file tools, runScript) is
 a `features` flag in its definition instead, and the loader adds the tools.
 
 **A channel says its own name, and nothing else may say it for it.** Every
@@ -791,7 +791,7 @@ A comment on a function is for someone calling it: what it does, what it
 takes, and anything that would surprise them. It is not the story of the
 change that produced it. "Whose they are is filled in when the agent loads, so
 the name is not written twice" describes a refactor, and says nothing to
-someone reading `memoryTools()` for the first time; "list_notes, read_notes,
-search_notes and write_notes, all inside one folder" does. Words like
+someone reading `memoryTools()` for the first time; "listNotes, readNotes,
+searchNotes and writeNotes, all inside one folder" does. Words like
 "now", "no longer", "used to" and "instead of" in a function's comment are the
 sign. The history is in git.

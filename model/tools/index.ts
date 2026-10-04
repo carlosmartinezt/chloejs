@@ -5,9 +5,9 @@
 // its own folder, its own mailbox, its own From line, so nothing here names an
 // agent or a person.
 //
-//   import { read_mail, read_web } from "@chloejs/core/tools";
+//   import { readMail, readWeb } from "@chloejs/core/tools";
 //
-// The notes tools, the own-file tools and run_script are not
+// The notes tools, the own-file tools and runScript are not
 // here: an agent turns them on with `features` in its definition.
 //
 // The work itself is in services/, published as "@chloejs/core/services", and a job calls it
@@ -18,21 +18,21 @@
 
 
 // One folder, as tools, for an agent that needs a different set.
-export { edit_in, list_in, read_in, search_in, write_in } from "./files.ts";
+export { editIn, listIn, readIn, searchIn, writeIn } from "./files.ts";
 
 // Mail in, mail out, and answering one that came in. Each of these brings the
 // Google sign-in with it, so an agent that reads, sends or replies can get
 // itself signed in and there is nothing to add here for that.
 //
-// reply_mail is the narrow one of the three: it answers a message the agent has
+// replyMail is the narrow one of the three: it answers a message the agent has
 // already read, at that message's own address, so it cannot reach anybody who
-// has not written in. Prefer it over send_email wherever the mail is a reply.
-export { read_mail, reply_mail } from "./gmail.ts";
-export { send_email } from "./send_email.ts";
+// has not written in. Prefer it over sendEmail wherever the mail is a reply.
+export { readMail, replyMail } from "./gmail.ts";
+export { sendEmail } from "./sendEmail.ts";
 
 // Starting an email conversation, for an agent on the email channel.
-export { start_email } from "./start_email.ts";
+export { startEmail } from "./startEmail.ts";
 
 
 // Reading a public web page.
-export { read_web } from "./web.ts";
+export { readWeb } from "./web.ts";

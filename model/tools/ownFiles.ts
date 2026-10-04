@@ -5,30 +5,30 @@ import { z } from "zod";
 
 import type { Home, OwnFileRules } from "#chloe/load/load";
 import { listOwn, readOwn, writeOwn } from "#chloe/services/ownFilesService";
-import { tool, type Tools } from "../tool.ts";
+import { defineTool, type Tools } from "../tool.ts";
 
-/** list_own_files, read_own_file and write_own_file, for the files `rules` lets it change. */
+/** listOwnFiles, readOwnFile and writeOwnFile, for the files `rules` lets it change. */
 export function ownFiles(rules: OwnFileRules): (agent: Home) => Tools {
   const endings = rules.files.map((one) => `.${one.replace(/^\./, "")}`).join(", ");
   const kept = rules.except?.length ? ` Never ${rules.except.join(", ")}.` : "";
   return (agent) => ({
-    list_own_files: tool({
-      id: "list_own_files",
+    listOwnFiles: defineTool({
+      id: "listOwnFiles",
       description:
         "List the files in your own folder (your instructions, skills and jobs), and which of them you can " +
-        "change. Your memory is not in it: that is list_notes.",
+        "change. Your memory is not in it: that is listNotes.",
       inputSchema: z.object({}),
       execute: () => listOwn(agent, rules),
     }),
-    read_own_file: tool({
-      id: "read_own_file",
+    readOwnFile: defineTool({
+      id: "readOwnFile",
       description:
         "Read one file in your own folder, like instructions.md or jobs/morning-run.md. Read a file before you change it.",
-      inputSchema: z.object({ path: z.string().describe("A path inside your folder, from list_own_files.") }),
+      inputSchema: z.object({ path: z.string().describe("A path inside your folder, from listOwnFiles.") }),
       execute: ({ path }) => readOwn(agent, rules, path),
     }),
-    write_own_file: tool({
-      id: "write_own_file",
+    writeOwnFile: defineTool({
+      id: "writeOwnFile",
       description:
         `Change one file in your own folder, ending in ${endings}.${kept} This replaces the whole file, so read it ` +
         "first and include everything you want kept. A markdown file directly in skills/ is a skill, with name and " +

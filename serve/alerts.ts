@@ -10,7 +10,7 @@
 // nobody was told about, and the sign-in is recorded either way.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
-import { sendEmail } from "#chloe/services/emailService";
+import { deliverEmail } from "#chloe/services/emailService";
 import { STATE } from "#chloe/core/paths";
 import { settings } from "#chloe/core/settings";
 
@@ -45,7 +45,7 @@ function where(): { to: string[]; from: string } | null {
 function mail(subject: string, body: string): void {
   const address = where();
   if (!address) return;
-  void sendEmail({ from: address.from, to: address.to, tag: "chloe" }, subject, body).catch((error: unknown) => {
+  void deliverEmail({ from: address.from, to: address.to, tag: "chloe" }, subject, body).catch((error: unknown) => {
     console.error("could not send the alert:", error instanceof Error ? error.message : error);
   });
 }

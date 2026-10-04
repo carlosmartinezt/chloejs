@@ -4,9 +4,9 @@
 // here, and nothing else in this folder is anybody's business. Import it as
 // "@chloejs/core": the lines below say the rest.
 //
-//   import { defineJob, tool, note } from "@chloejs/core";
-//   import { run, sendEmail } from "@chloejs/core/services";  // the work, for a job
-//   import { read_mail } from "@chloejs/core/tools";  // the work, for a model
+//   import { defineJob, defineTool, note } from "@chloejs/core";
+//   import { run, deliverEmail } from "@chloejs/core/services";  // the work, for a job
+//   import { readMail } from "@chloejs/core/tools";  // the work, for a model
 //   import { telegramChannel } from "@chloejs/core/channels";  // reaching an agent
 //   import { calls, expectations } from "@chloejs/core/scorers";  // marking a run
 //
@@ -27,7 +27,7 @@ export { work, resume, answer, sweep, parkedRuns, waitingFor, waitingOn, checkAr
 export { turn, type Result as TurnResult } from "./core/turn.ts";
 
 // What a model can be asked to do, and how it is asked.
-export { tool, type Approve, type Call, type ToolConfig, type Tools } from "./model/tool.ts";
+export { defineTool, type Approve, type Call, type ToolConfig, type Tools } from "./model/tool.ts";
 export { ask, learnModels, UsageLimit, type Attachment, type Message } from "./model/model.ts";
 
 // Reaching a person, and being reached back.

@@ -22,7 +22,7 @@ export interface ToolConfig<Input = any> {
 }
 
 /** The type of `execute`'s argument comes from the schema. */
-export function tool<Input = any>(definition: ToolConfig<Input>): ToolConfig<Input> {
+export function defineTool<Input = any>(definition: ToolConfig<Input>): ToolConfig<Input> {
   return definition;
 }
 

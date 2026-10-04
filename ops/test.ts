@@ -247,9 +247,9 @@ about("an agent step: the goal is yours, the order is the model's");
 {
   asked = 0;
   answers.length = 0;
-  const { tool } = await import("@chloejs/core");
+  const { defineTool } = await import("@chloejs/core");
   const looked: string[] = [];
-  const look = tool({
+  const look = defineTool({
     id: "look",
     description: "Look in one place.",
     inputSchema: z.object({ where: z.string() }),
@@ -369,8 +369,8 @@ about("an agent step that runs out of steps, and one with nothing to call");
 {
   asked = 0;
   answers.length = 0;
-  const { tool } = await import("@chloejs/core");
-  const wander = tool({
+  const { defineTool } = await import("@chloejs/core");
+  const wander = defineTool({
     id: "wander",
     description: "Go round again.",
     inputSchema: z.object({}),
@@ -398,8 +398,8 @@ about("an agent step kept inside its budget");
 {
   asked = 0;
   answers.length = 0;
-  const { tool } = await import("@chloejs/core");
-  const wander = tool({
+  const { defineTool } = await import("@chloejs/core");
+  const wander = defineTool({
     id: "wander",
     description: "Go round again.",
     inputSchema: z.object({}),
@@ -445,9 +445,9 @@ about("an agent step whose calls the job has to allow");
 {
   asked = 0;
   answers.length = 0;
-  const { tool } = await import("@chloejs/core");
+  const { defineTool } = await import("@chloejs/core");
   const looked: string[] = [];
-  const look = tool({
+  const look = defineTool({
     id: "look",
     description: "Look in one place.",
     inputSchema: z.object({ where: z.string() }),
@@ -490,8 +490,8 @@ about("an approve that cannot answer, and a question from inside a step");
 {
   asked = 0;
   answers.length = 0;
-  const { tool } = await import("@chloejs/core");
-  const look = tool({
+  const { defineTool } = await import("@chloejs/core");
+  const look = defineTool({
     id: "look",
     description: "Look in one place.",
     inputSchema: z.object({ where: z.string() }),
@@ -898,7 +898,7 @@ about("a model step that never fits");
     ["nobody having signed in yet", "no token for account"],
   ] as const) {
     const said = explain(text);
-    is(`${what} points at the tool`, said.includes("google_sign_in"), true);
+    is(`${what} points at the tool`, said.includes("googleSignIn"), true);
     is(`${what} says not to retry`, said.includes("do not retry"), true);
     is(`${what} does not send anybody to the box`, /auth login|on the box|paste/i.test(said), false);
   }
@@ -1079,16 +1079,16 @@ about("a model step that never fits");
   }
 
   about("what a Google tool brings with it");
-  const { read_mail } = await import("#chloe/model/tools/gmail");
-  const { send_email } = await import("#chloe/model/tools/send_email");
+  const { readMail } = await import("#chloe/model/tools/gmail");
+  const { sendEmail } = await import("#chloe/model/tools/sendEmail");
 
   // Nobody should have to remember to add the sign-in. An agent that can read
   // mail can get itself signed in to read mail, and that is one decision.
-  const reading = read_mail({ search: "in:inbox" });
-  is("read_mail is not one tool on its own", Object.keys(reading).sort(), [
-    "finish_google_sign_in",
-    "google_sign_in",
-    "read_mail",
+  const reading = readMail({ search: "in:inbox" });
+  is("readMail is not one tool on its own", Object.keys(reading).sort(), [
+    "finishGoogleSignIn",
+    "googleSignIn",
+    "readMail",
   ]);
 
   // Both of them bringing it is the case that would have thrown, before the
@@ -1096,13 +1096,13 @@ about("a model step that never fits");
   const home = { name: "somebody", folder: "/tmp", memory: { folder: "/tmp", commit: false } };
   const providerWas = settings.email.provider;
   settings.email.provider = "gmail";
-  const sending = send_email({ when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] })(home);
-  is("send_email brings it too, when the mail goes out through Google", "google_sign_in" in sending, true);
-  is("and it is the same tool, not a second one of the name", sending.google_sign_in === reading.google_sign_in, true);
+  const sending = sendEmail({ when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] })(home);
+  is("sendEmail brings it too, when the mail goes out through Google", "googleSignIn" in sending, true);
+  is("and it is the same tool, not a second one of the name", sending.googleSignIn === reading.googleSignIn, true);
 
   settings.email.provider = "resend";
-  const elsewhere = send_email({ when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] })(home);
-  is("through any other provider there is nothing to sign in to", "google_sign_in" in elsewhere, false);
+  const elsewhere = sendEmail({ when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] })(home);
+  is("through any other provider there is nothing to sign in to", "googleSignIn" in elsewhere, false);
   settings.email.provider = providerWas;
 
   about("what the person is told to do");
@@ -1189,10 +1189,10 @@ about("a model step that never fits");
 
   is("plain words are an answer", readReply("The site is up.").call, undefined);
   const tagged = readReply(
-    'Let me look.\n<invoke name="read_notes">\n<parameter name="path">2026</parameter>\n<parameter name="limit">5</parameter>\n</invoke>\n</invoke>\n<invoke name="read_notes">',
-    [{ name: "read_notes", description: "", parameters: { type: "object", properties: { path: { type: "string" }, limit: { type: "number" } } } }],
+    'Let me look.\n<invoke name="readNotes">\n<parameter name="path">2026</parameter>\n<parameter name="limit">5</parameter>\n</invoke>\n</invoke>\n<invoke name="readNotes">',
+    [{ name: "readNotes", description: "", parameters: { type: "object", properties: { path: { type: "string" }, limit: { type: "number" } } } }],
   );
-  is("the tag form Claude is trained on is a request too", tagged.call?.function.name, "read_notes");
+  is("the tag form Claude is trained on is a request too", tagged.call?.function.name, "readNotes");
   is("its values follow the tool's schema", tagged.call?.function.arguments, '{"path":"2026","limit":5}');
   is("and what came before it is what it said", tagged.said, "Let me look.");
   is(
@@ -1228,11 +1228,11 @@ about("a model step that never fits");
   );
 
   const several = readReply(
-    'Reading both.\n{"tool": "read_notes", "arguments": {"path": "a.html"}}\n{"tool": "search_notes", "arguments": {"query": "citi"}}',
+    'Reading both.\n{"tool": "readNotes", "arguments": {"path": "a.html"}}\n{"tool": "searchNotes", "arguments": {"query": "citi"}}',
   );
-  is("several requests, one a line, are all read, in order", several.calls.map((c) => c.function.name), ["read_notes", "search_notes"]);
+  is("several requests, one a line, are all read, in order", several.calls.map((c) => c.function.name), ["readNotes", "searchNotes"]);
   is("and what came before them is what it said", several.said, "Reading both.");
-  is("the first is still the one call for a caller that takes one", several.call?.function.name, "read_notes");
+  is("the first is still the one call for a caller that takes one", several.call?.function.name, "readNotes");
   is(
     "a request over several lines counts as one of them",
     readReply('{"tool": "a", "arguments": {}}\n{\n  "tool": "b",\n  "arguments": {"x": 1}\n}').calls.map((c) => c.function.arguments),
@@ -1255,10 +1255,10 @@ about("a model step that never fits");
   );
   is("plain words ask for nothing", readReply("All fine.").calls, []);
 
-  // A Telegram run ended by sending the user `list_notes with {"path":"01_projects"}`:
+  // A Telegram run ended by sending the user `listNotes with {"path":"01_projects"}`:
   // the transcript showed past calls in another shape, and the model copied it.
   const { asText } = await import("#chloe/model/cli");
-  const listNotes = [{ name: "list_notes", description: "", parameters: { type: "object", properties: { path: { type: "string" } } } }];
+  const listNotes = [{ name: "listNotes", description: "", parameters: { type: "object", properties: { path: { type: "string" } } } }];
   const { transcript } = asText({
     tools: listNotes,
     messages: [
@@ -1266,13 +1266,13 @@ about("a model step that never fits");
       {
         role: "assistant",
         content: "",
-        tool_calls: [{ id: "1", type: "function", function: { name: "list_notes", arguments: '{"path":"02_areas"}' } }],
+        tool_calls: [{ id: "1", type: "function", function: { name: "listNotes", arguments: '{"path":"02_areas"}' } }],
       },
       { role: "tool", tool_call_id: "1", content: "[]" },
     ],
   });
-  const shown = transcript.split("\n").find((line) => line.includes("list_notes"));
-  is("a past call is shown in the shape the rules ask for", shown, '{"tool":"list_notes","arguments":{"path":"02_areas"}}');
+  const shown = transcript.split("\n").find((line) => line.includes("listNotes"));
+  is("a past call is shown in the shape the rules ask for", shown, '{"tool":"listNotes","arguments":{"path":"02_areas"}}');
   is("a single result keeps its plain heading", transcript.includes("[result]\n[]"), true);
   const both = asText({
     messages: [
@@ -1281,8 +1281,8 @@ about("a model step that never fits");
         role: "assistant",
         content: "",
         tool_calls: [
-          { id: "1", type: "function", function: { name: "list_notes", arguments: "{}" } },
-          { id: "2", type: "function", function: { name: "search_notes", arguments: '{"query":"citi"}' } },
+          { id: "1", type: "function", function: { name: "listNotes", arguments: "{}" } },
+          { id: "2", type: "function", function: { name: "searchNotes", arguments: '{"query":"citi"}' } },
         ],
       },
       { role: "tool", tool_call_id: "1", content: "[a]" },
@@ -1291,7 +1291,7 @@ about("a model step that never fits");
   }).transcript;
   is(
     "results of several calls say which call each answers",
-    [both.includes("[result of list_notes]\n[a]"), both.includes("[result of search_notes]\n[b]")],
+    [both.includes("[result of listNotes]\n[a]"), both.includes("[result of searchNotes]\n[b]")],
     [true, true],
   );
   is(
@@ -1301,12 +1301,12 @@ about("a model step that never fits");
   );
   is(
     "a call written as a sentence is still a request",
-    readReply('list_notes with {"path":"01_projects"}', listNotes).call?.function.arguments,
+    readReply('listNotes with {"path":"01_projects"}', listNotes).call?.function.arguments,
     '{"path":"01_projects"}',
   );
   is(
     "bracketed too, with what came before kept",
-    readReply('Let me look.\n[asked for list_notes with {"path":"01_projects"}]', listNotes).said,
+    readReply('Let me look.\n[asked for listNotes with {"path":"01_projects"}]', listNotes).said,
     "Let me look.",
   );
   is(
@@ -1316,25 +1316,25 @@ about("a model step that never fits");
   );
   is(
     "and not in the middle of a sentence",
-    readReply('I called list_notes with {"path":"01_projects"} and it was empty.', listNotes).call,
+    readReply('I called listNotes with {"path":"01_projects"} and it was empty.', listNotes).call,
     undefined,
   );
 
   // A morning run ended after one turn: the model asked for a file, then wrote
   // the file's contents itself and carried on. None of it ran.
-  const readNotes = [{ name: "read_notes", description: "", parameters: { type: "object", properties: { path: { type: "string" } } } }];
+  const readNotes = [{ name: "readNotes", description: "", parameters: { type: "object", properties: { path: { type: "string" } } } }];
   const ahead = readReply(
     [
       "I'll start with the briefing.",
       "",
-      '{"tool": "read_notes", "arguments": {"path": "BRIEFING.md"}}',
+      '{"tool": "readNotes", "arguments": {"path": "BRIEFING.md"}}',
       "",
       "[tool_result]",
       "# BRIEFING.md",
       "Generated: 2026-10-03T06:45:02Z",
       "",
       "Sending the summary.",
-      '{"tool": "read_notes", "arguments": {"path": "STATUS.md"}}',
+      '{"tool": "readNotes", "arguments": {"path": "STATUS.md"}}',
     ].join("\n"),
     readNotes,
   );
@@ -1347,7 +1347,7 @@ about("a model step that never fits");
   is("and the rest kept aside, not acted on", ahead.dropped?.split("\n")[0], "[tool_result]");
   is(
     "a [system] heading is the model writing a result too",
-    readReply('Checking mail.\n{"tool": "read_notes", "arguments": {}}\n[system] {"count":0}', readNotes).dropped,
+    readReply('Checking mail.\n{"tool": "readNotes", "arguments": {}}\n[system] {"count":0}', readNotes).dropped,
     '[system] {"count":0}',
   );
   is(
@@ -1357,19 +1357,19 @@ about("a model step that never fits");
   );
   is(
     "and a heading with words between it and the request is an answer",
-    readReply('{"tool": "read_notes", "arguments": {}}\nthat is how you ask.\n[note]\nfine', readNotes).call,
+    readReply('{"tool": "readNotes", "arguments": {}}\nthat is how you ask.\n[note]\nfine', readNotes).call,
     undefined,
   );
 
   // A Telegram reply said it was filing a comment and sent the request itself
   // as the answer: the object was one closing brace short, so nothing ran.
-  const short = readReply('Adding it now.\n\n{"tool":"read_notes","arguments":{"path":"a {b}.html"}', readNotes);
+  const short = readReply('Adding it now.\n\n{"tool":"readNotes","arguments":{"path":"a {b}.html"}', readNotes);
   is("a request short of its closing braces runs", short.call?.function.arguments, '{"path":"a {b}.html"}');
   is("with the words before it kept", short.said, "Adding it now.");
   is(
     "one broken some other way still goes to the tool, which says it is not JSON",
-    readReply('{"tool": "read_notes", "arguments": {"path": "a",,}}', readNotes).call?.function.arguments,
-    '{"tool": "read_notes", "arguments": {"path": "a",,}}',
+    readReply('{"tool": "readNotes", "arguments": {"path": "a",,}}', readNotes).call?.function.arguments,
+    '{"tool": "readNotes", "arguments": {"path": "a",,}}',
   );
   is("but only for a tool the agent has", readReply('{"tool": "send_money", "arguments": {', readNotes).call, undefined);
 }
@@ -1890,7 +1890,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("a code block keeps its lines", telegramHtml("```\na < b\n  c\n```"), "<pre>a &lt; b\n  c</pre>");
   is("a quote is a quote", telegramHtml("> said\n> twice"), "<blockquote>said\ntwice</blockquote>");
   is("a link that is not a web or mail address stays as written", telegramHtml("[go](javascript:alert(1))"), "[go](javascript:alert(1))");
-  is("underscores in a name are left alone", telegramHtml("run_script and ship_code_change"), "run_script and ship_code_change");
+  is("underscores in a name are left alone", telegramHtml("runScript and shipCodeChange"), "runScript and shipCodeChange");
   is("a sum is not italics", telegramHtml("2 * 3 * 4"), "2 * 3 * 4");
   is("a long reply is cut at a line break", inPieces("aaaa\nbbbb\ncc", 10), ["aaaa\nbbbb", "cc"]);
   is("and one with none is cut where it has to be", inPieces("abcdefghij", 4), ["abcd", "efgh", "ij"]);
@@ -2801,8 +2801,8 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     ...agentFor(codeJob("unused", async () => ({}))),
     label: "Chloe",
     tools: {
-      read_mail: { description: "Read the owner's mail.", inputSchema: z.object({}), execute: async () => "mail" },
-      read_web: { description: "Read a page.", inputSchema: z.object({}), execute: async () => "page" },
+      readMail: { description: "Read the owner's mail.", inputSchema: z.object({}), execute: async () => "mail" },
+      readWeb: { description: "Read a page.", inputSchema: z.object({}), execute: async () => "page" },
     },
   } as unknown as Agent;
   const running = listen({
@@ -2811,21 +2811,21 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     cloud: where,
     key: "chl_workspace_test",
     allowFrom: ["Jenny@Example.com"],
-    withoutTools: ["read_mail"],
+    withoutTools: ["readMail"],
     lookUp: dns,
     agent: () => agent,
   });
-  const { startEmail } = await import("#chloe/channels/email");
+  const { openEmail } = await import("#chloe/channels/email");
 
   let refused = "";
   try {
-    await startEmail("test", "someone@else.com", "Hello", "Hi");
+    await openEmail("test", "someone@else.com", "Hello", "Hi");
   } catch (error) {
     refused = (error as Error).message;
   }
   is("nobody outside allowFrom is ever emailed", refused.includes("is not somebody test may email"), true);
 
-  const started = await startEmail("test", "jenny@example.com", "Tennis", "What matters most to you in a **club**?");
+  const started = await openEmail("test", "jenny@example.com", "Tennis", "What matters most to you in a **club**?");
   is("starting one asks the cloud for an address, with the workspace key", [started.address, keys.every((one) => one === "Bearer chl_workspace_test")], [ADDRESS, true]);
   is(
     "and sends from it, as the agent, in Markdown and plain text",
@@ -2860,7 +2860,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("the turn had what she wrote this time, not the quoted history", lastAsked.at(-1)?.content.includes("Saturdays work best") && !lastAsked.at(-1)?.content.includes("What matters most to you in a club?"), true);
   is("and was told her address and the subject", lastAsked.at(-1)?.content.includes("address: jenny@example.com") && lastAsked.at(-1)?.content.includes("subject: Re: Tennis"), true);
   is("and saw what was sent to start it", lastAsked.some((one) => one.role === "assistant" && one.content.includes("What matters most")), true);
-  is("a tool the channel leaves out is not offered", [lastTools.includes("read_mail"), lastTools.includes("read_web")], [false, true]);
+  is("a tool the channel leaves out is not offered", [lastTools.includes("readMail"), lastTools.includes("readWeb")], [false, true]);
 
   deliver("e2", SIGNED.relaxed);
   await pause(300);
@@ -2985,9 +2985,9 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   const { CUT_OFF } = await import("#chloe/core/db");
   const { carryOn, stopped } = await import("#chloe/core/turn");
-  const { tool } = await import("@chloejs/core");
+  const { defineTool } = await import("@chloejs/core");
   const looked: string[] = [];
-  const look = tool({
+  const look = defineTool({
     id: "look",
     description: "Look in one place.",
     inputSchema: z.object({ where: z.string() }),
@@ -3090,13 +3090,13 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const { recall, remember } = await import("#chloe/model/memory");
   remember("test/tools", "user", "What board am I on?");
   remember("test/tools", "assistant", "Board 210.", [
-    { tool: "read_web", args: { url: "https://example.com/pairings" } },
-    { tool: "write_notes", args: { path: "chess.html", content: "x".repeat(1000) } },
+    { tool: "readWeb", args: { url: "https://example.com/pairings" } },
+    { tool: "writeNotes", args: { path: "chess.html", content: "x".repeat(1000) } },
   ]);
   remember("test/tools", "assistant", "Anything else?");
   const told = recall("test/tools", { limit: 10, tools: true });
   is("the next turn sees the calls, then the reply", told.map((one) => one.role), ["user", "assistant", "tool", "tool", "assistant", "assistant"]);
-  is("in the shape a turn's own calls take", told[1].tool_calls?.[0].function, { name: "read_web", arguments: '{"url":"https://example.com/pairings"}' });
+  is("in the shape a turn's own calls take", told[1].tool_calls?.[0].function, { name: "readWeb", arguments: '{"url":"https://example.com/pairings"}' });
   is("a whole file written is cut short", JSON.parse(told[1].tool_calls![1].function.arguments).content.length, 303);
   is("each call is answered, or a provider refuses the history", told[2].tool_call_id, told[1].tool_calls?.[0].id);
   is("the reply itself is left as it was", told[4].content, "Board 210.");
@@ -3268,7 +3268,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const opening = lastAsked[0]?.content ?? "";
   is("a turn starts with them, from the notes tools' overview", opening.includes("## The folders in your memory") && opening.includes("02_areas/\n  me/"), true);
   answers.push("Noted.");
-  await turn({ agent: keeper, prompt: "and now?", source: "test", without: ["list_notes"] });
+  await turn({ agent: keeper, prompt: "and now?", source: "test", without: ["listNotes"] });
   is("and without the tool, without them", lastAsked[0]?.content.includes("The folders in your memory"), false);
 }
 
@@ -3378,7 +3378,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is(
     "nor its memory, which has tools of its own, when somebody keeps that inside its folder",
     whyNot({ ...home, memory: { folder: join(folder, "memory") } }, rules, "memory/STATUS.md") ?? "yes",
-    "that is your memory, which you write with write_notes",
+    "that is your memory, which you write with writeNotes",
   );
   is("nor what marks its runs", may("evals/status.json"), "evals/ is how your runs are marked");
   is("nor a file no loader would read", may("skills/deploys/SKILL.md"), "a file in a folder inside skills/ is never read");
@@ -3543,12 +3543,12 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("a provider that carries nothing");
 
-  const { sendEmail } = await import("@chloejs/core/services");
-  const sent = await sendEmail({ from: "a@example.com", to: ["b@example.com"], tag: "test" }, "Hello", "A body.");
+  const { deliverEmail } = await import("@chloejs/core/services");
+  const sent = await deliverEmail({ from: "a@example.com", to: ["b@example.com"], tag: "test" }, "Hello", "A body.");
   is("it says it was sent, with the tag in front", [sent.sent, sent.subject], [true, "[test] Hello"]);
   is("and it has no id, because nothing carried it", sent.id, undefined);
 
-  const nobody = await sendEmail({ from: "a@example.com", to: [] }, "Hello", "A body.").catch((error: Error) => error.message);
+  const nobody = await deliverEmail({ from: "a@example.com", to: [] }, "Hello", "A body.").catch((error: Error) => error.message);
   is("nobody to send to is refused rather than dropped", nobody, "Nobody to send to. Give the sender at least one address in to.");
 }
 
