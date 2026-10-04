@@ -2025,11 +2025,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and answered the same way", said(), ["7: sent to me"]);
   is("it never polls in webhook mode", calls.some((c) => c.token === "w" && c.method === "getUpdates"), false);
 
-  // A plain message goes to a job when the model replies with that job's
-  // command, and with inGroups "always" a group message needs no mention.
+  // A command a person sends starts that job with the words after it, and with
+  // inGroups "always" a group message needs no mention.
   calls.length = 0;
   answers.length = 0;
-  answers.push("/highlights");
   const { startClock } = await import("#chloe/core/clock");
   const handed: string[] = [];
   const highlights = {
@@ -2039,16 +2038,16 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const reader = agentFor(highlights);
   const ticking = startClock(() => new Map([["test", reader]]));
   const fifth = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => reader });
-  inbox.push(inGroup(40, me, "\u201cA line from a book.\u201d \u2014 A Book"));
+  inbox.push(inGroup(40, me, "/highlights \u201cA line from a book.\u201d \u2014 A Book"));
   await settle(1);
   fifth.stop();
   ticking.stop();
   await pause(100);
-  is("a reply that is a command hands the message to that job, whole", handed, ["\u201cA line from a book.\u201d \u2014 A Book"]);
+  is("a command hands the words after it to that job, whole", handed, ["\u201cA line from a book.\u201d \u2014 A Book"]);
   const whole = "Filed. " + "A reply that is longer than one line. ".repeat(8).trim();
   is("and its own reply is what the chat is sent, whole", said(), [`-100: ${whole}`]);
   const { recall: recalled } = await import("#chloe/model/memory");
-  is("and the exchange is kept in that chat's conversation, once", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["/highlights", whole]);
+  is("and the exchange is kept in that chat's conversation, once", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["/highlights \u201cA line from a book.\u201d \u2014 A Book", whole]);
   is("the / menu is the agent's jobs, then /models and /clear", calls.find((c) => c.method === "setMyCommands")?.body.commands, [
     { command: "highlights", description: "highlights" },
     { command: "models", description: "Which model answers here, and the ones to pick from" },
@@ -2059,9 +2058,8 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // first of them. A share that arrives as a quote and then a comment is why.
   calls.length = 0;
   handed.length = 0;
-  answers.push("/highlights");
   const sixth = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", stackWithin: 1, agent: () => reader });
-  inbox.push(inGroup(41, me, "\u201cA line.\u201d \u2014 A Book"));
+  inbox.push(inGroup(41, me, "/highlights \u201cA line.\u201d \u2014 A Book"));
   await pause(200);
   inbox.push(inGroup(42, me, "and what I thought of it"));
   await settle(1);
@@ -2070,22 +2068,20 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("messages sent close together are handled as one", handed, ["\u201cA line.\u201d \u2014 A Book\n\nand what I thought of it"]);
   is("and the answer replies to the first of them", calls.find((c) => c.method === "sendMessage")?.body.reply_parameters, { message_id: 41 });
 
-  // What the model writes after the command is what the job is started with,
-  // and a reply naming no job is only a reply.
+  // A model's reply never starts a job, even one that is exactly its command:
+  // the model may have read a page or a mail written to ask for that reply.
   calls.length = 0;
   handed.length = 0;
-  answers.push("/highlights only the quote", "/nothing-here");
+  answers.push("/highlights only the quote");
   const again = startClock(() => new Map([["test", reader]]));
   const replied = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => reader });
   inbox.push(inGroup(44, me, "\u201cA line.\u201d and a comment"));
   await settle(1);
-  inbox.push(inGroup(45, me, "anything"));
-  await settle(1);
   replied.stop();
   again.stop();
   await pause(100);
-  is("the text after a replied command is what the job gets", handed, ["only the quote"]);
-  is("and a reply that names no job is sent as it is", said().at(-1), "-100: /nothing-here");
+  is("a reply that is a job's command starts nothing", handed, []);
+  is("and is sent as it is", said().at(-1), "-100: /highlights only the quote");
 
   // The words after a command fill the job's args in order, the last field
   // taking the rest of the line.
@@ -2108,7 +2104,6 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // A run that failed says so. Saying it is already running would send
   // somebody looking for a run that is not there.
   calls.length = 0;
-  answers.push("/highlights");
   const breaks = {
     ...codeJob("highlights", async () => {
       throw new Error("the page would not write");
@@ -2118,7 +2113,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const broken = agentFor(breaks);
   const failing = startClock(() => new Map([["test", broken]]));
   const seventh = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => broken });
-  inbox.push(inGroup(43, me, "\u201cAnother line.\u201d \u2014 A Book"));
+  inbox.push(inGroup(43, me, "/highlights \u201cAnother line.\u201d \u2014 A Book"));
   await settle(1);
   seventh.stop();
   failing.stop();

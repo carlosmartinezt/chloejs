@@ -661,7 +661,7 @@ async function fromCode(agent: string, dir: string, definition: JobConfig<any, a
   const unread = ["summary", "reply"].filter((key) => key in definition);
   if (unread.length) throw new Error(`${where} has ${unread.join(" and ")}, which nothing reads. Say it with \`response\`.`);
   if ("answers" in definition) {
-    throw new Error(`${where} has answers, which nothing reads. A skill that tells the agent to reply /${id} is what sends it a plain message.`);
+    throw new Error(`${where} has answers, which nothing reads. A job starts on its schedule or from /${id} sent by a person, never from what a model replies.`);
   }
 
   const common = {

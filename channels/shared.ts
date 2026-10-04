@@ -17,10 +17,10 @@
 //      platforms allow no hyphens in a command. The words after it fill the
 //      job's `args` in order, the last field taking the rest of the line. "/models" and "/model" are
 //      the agent's own, and pick which model answers.
-//   5. Anything else is a turn, shown the chat's recent conversation. A turn
-//      whose reply is "/<job id> ..." runs that job the same way, with the
-//      text after the command or, when there is none, the message itself.
-//      That is how a skill hands a plain message to a job.
+//   5. Anything else is a turn, shown the chat's recent conversation. Its
+//      reply is only ever sent: one that reads "/<job id>" starts nothing,
+//      because the model may have read a page or a mail written to ask for it.
+//      A job starts on its schedule or from a command a person sent.
 //
 // What a job said in a chat is kept in that chat's conversation, so the next
 // turn knows it happened.
@@ -426,13 +426,6 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, send?: (te
       without: message.withoutTools,
     });
     await sending;
-    const handed = clock() ? jobFor(agent, result.text.trim()) : undefined;
-    if (handed) {
-      const done = await started(agent, message, handed.job, handed.text || message.text);
-      // The turn already kept the message and the command it replied with.
-      if (message.thread && done.runId) remember(message.thread, "assistant", done.text);
-      return { ...done, steps: result.steps + done.steps, cost: result.cost + done.cost };
-    }
     return { text: result.text || "(no reply)", runId: result.runId, steps: result.steps, cost: result.cost };
   } catch (error) {
     console.error(`${message.channel}: turn failed`, error);

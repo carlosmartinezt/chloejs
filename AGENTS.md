@@ -566,10 +566,11 @@ and it declares nothing to read it. A message beginning with
 `/<job id>` runs that job and nothing asks a model what was meant, because that
 is a rule somebody can write down. The words after it fill the job's `args`
 in order, the last field taking the rest of the line, so `/check-weather New
-York` is one location. A plain message reaches a job only through
-the model: a skill says which messages are that job's, and a turn whose reply
-is `/<job id>` runs it, with the message itself when nothing follows the
-command. Do not invent a second envelope for a new channel.
+York` is one location. A job starts on its schedule or from that command
+sent by a person, and in no other way from a chat: a model's reply that reads
+`/<job id>` is only sent, because the model may have read a page or a mail
+written to ask for it. A plain message is the agent's to handle in its turn,
+with a skill saying how. Do not invent a second envelope for a new channel.
 
 **Every route is one entry in the list in `serve/http.ts`**, carrying its
 own one-line description, and `GET /api` is generated from that list. Adding a
