@@ -14,6 +14,7 @@ import { bold, dim } from "#chloe/core/style";
 import { settings, unclaimed } from "#chloe/core/settings";
 import { closeCutOff, trim } from "#chloe/core/db";
 import { loadAll, type Agent, type Running } from "#chloe/load/load";
+import { sdkModel } from "#chloe/model/key";
 import { learnModels, runnable } from "#chloe/model/model";
 import { HOST, PORT, serve } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
@@ -153,8 +154,11 @@ function startup(): string[] {
   // so the line says what will actually be used and not what was asked for.
   const ready = settings.model.prefer.filter((one) => runnable(one));
   const routed = Object.entries(settings.model.routes).map(([provider, one]) => `${provider} by ${byRoute(one)}`);
-  lines.push(row("AI models", ready.length ? [...ready.map(byRoute), ...routed].join("; ") : "not set up"));
-  if (!ready.length) {
+  // An AI SDK model goes by its own package, whatever the routes say.
+  const given = [...new Set([...agents.values()].flatMap((agent) => [agent.model, ...agent.jobs.flatMap((job) => (job.model ? [job.model] : []))]))].filter((one) => sdkModel(one));
+  const reached = [...ready.map(byRoute), ...routed, ...(given.length ? [`${given.join(", ")} by the AI SDK`] : [])];
+  lines.push(row("AI models", reached.length ? reached.join("; ") : "not set up"));
+  if (!ready.length && !given.length) {
     lines.push(under(
       `Nothing in model.prefer is set up here (${settings.model.prefer.join(", ")}). Set one up: npx chloe setup`,
     ));

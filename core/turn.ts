@@ -13,7 +13,7 @@ import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
-import { describe, overviewsOf, type Approve, type Call, type ToolConfig, type Tools } from "#chloe/model/tool";
+import { check, describe, overviewsOf, run, type Approve, type Call, type ToolConfig, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 
 export interface Ask {
@@ -354,7 +354,7 @@ export async function loop(options: {
   approve?: Approve;
   onStep?: (line: LoopStep) => void;
 }): Promise<{ text: string; steps: number; cost: number; calls: Result["calls"]; stopped: false | "steps" | "budget" }> {
-  const specs = Object.entries(options.tools).map(([name, one]) => describe(name, one));
+  const specs = await Promise.all(Object.entries(options.tools).map(([name, one]) => describe(name, one)));
   const calls: Result["calls"] = [];
   let cost = 0;
   let steps = 0;
@@ -420,17 +420,15 @@ async function runTool(
   const one = tools[name];
   if (!one) return { output: `There is no tool called ${name}. You have: ${Object.keys(tools).join(", ")}`, args, failed: true };
 
-  const checked = one.inputSchema.safeParse(args);
-  if (!checked.success) {
-    return { output: `${name} was called wrongly: ${checked.error.issues.map((i) => `${i.path.join(".") || "input"} ${i.message}`).join("; ")}`, args, failed: true };
-  }
+  const checked = await check(one, args);
+  if (!checked.ok) return { output: `${name} was called wrongly: ${checked.why}`, args, failed: true };
 
   // Asked once the arguments are known and before anything runs, because what
   // makes a call worth stopping is usually the arguments rather than the tool.
   if (approve) {
     let allowed: boolean | string;
     try {
-      allowed = await approve({ tool: name, args: checked.data });
+      allowed = await approve({ tool: name, args: checked.value });
     } catch (error) {
       throw new Error(`Deciding whether ${name} could run failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -438,17 +436,17 @@ async function runTool(
       const why = typeof allowed === "string" && allowed.trim() !== "" ? allowed : "the job did not allow it";
       return {
         output: `${name} was not allowed: ${why}. Try another way, or finish with what you have.`,
-        args: checked.data,
+        args: checked.value,
         refused: true,
       };
     }
   }
 
   try {
-    const output = instead ? await instead(name, checked.data) : await one.execute(checked.data);
-    return { output: output ?? { ok: true }, args: checked.data };
+    const output = instead ? await instead(name, checked.value) : await run(one, checked.value, call.id);
+    return { output: output ?? { ok: true }, args: checked.value };
   } catch (error) {
-    return { output: `${name} failed: ${error instanceof Error ? error.message : String(error)}`, args: checked.data, failed: true };
+    return { output: `${name} failed: ${error instanceof Error ? error.message : String(error)}`, args: checked.value, failed: true };
   }
 }
 

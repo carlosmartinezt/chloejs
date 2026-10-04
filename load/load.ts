@@ -17,7 +17,8 @@ import { declareSettings, settings as configured, type Declared } from "#chloe/c
 import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown";
 import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
-import type { ToolConfig, Tools } from "#chloe/model/tool";
+import { nameOf, type SdkModel } from "#chloe/model/key";
+import { cannotRun, type ToolConfig, type Tools } from "#chloe/model/tool";
 import { memoryTools } from "#chloe/model/tools/memory";
 import { ownFiles } from "#chloe/model/tools/own_files";
 import { runScripts } from "#chloe/model/tools/run_script";
@@ -65,11 +66,13 @@ export interface AgentConfig {
    */
   folder?: string;
   /**
-   * A gateway model id, like "anthropic/claude-sonnet-5". Unsaid, it is
-   * `model.default` in settings, and an agent with neither is refused as it
-   * loads.
+   * A model's name, like "anthropic/claude-sonnet-5", which goes by whichever
+   * route settings pick for it. Or an AI SDK model, like
+   * `anthropic("claude-opus-5-5")`, which goes straight to that provider as
+   * its package was set up. Unsaid, it is `model.default` in settings, and an
+   * agent with neither is refused as it loads.
    */
-  model?: string;
+  model?: string | SdkModel;
   /** One line, shown wherever agents are listed. */
   description: string;
   /**
@@ -91,8 +94,10 @@ export interface AgentConfig {
   /**
    * Each tool, or a set of them like read_mail({ ... }). A model calls one by
    * its id. What `features` turns on is added to these and not listed here.
+   * Tools made with the AI SDK's `tool()` go in as a set, `{ weather: tool({ ... }) }`,
+   * or as that set on its own instead of the list.
    */
-  tools?: (ToolConfig | Tools | Binding)[];
+  tools?: (ToolConfig | Tools | Binding)[] | Tools;
   /** Each job: one imported, or markdownJob("jobs/<id>.md") for one that is only a prompt. */
   jobs?: (JobConfig<any, any, any> | MarkdownJob)[];
   /** Each way in: `[telegramChannel({ ... }), apiChannel()]`. Each one carries its own name. */
@@ -489,7 +494,7 @@ export async function runJob(options: {
 export async function resolveAgent(definition: Defined): Promise<Agent> {
   const { name, folder } = definition;
   const where = `${name} (${shown(folder)})`;
-  const model = definition.model || configured.model.default;
+  const model = definition.model ? nameOf(definition.model) : configured.model.default;
   if (!model) throw new Error(`${where} does not say which model, and model.default in settings names none.`);
   if (!definition.instructions) throw new Error(`${where} has no instructions. Add instructions: prompt("instructions.md").`);
 
@@ -517,7 +522,7 @@ export async function resolveAgent(definition: Defined): Promise<Agent> {
     memory,
     instructions: await readPrompt(definition.instructions, { dir: folder, where }),
     instructionsFile: isPrompt(definition.instructions) ? definition.instructions.file : undefined,
-    tools: toolsOf([...featureTools(definition.features, where), ...(tools ?? [])], home, where),
+    tools: toolsOf([...featureTools(definition.features, where), ...(Array.isArray(tools) ? tools : tools ? [tools] : [])], home, where),
     skills: await skillsIn(`${folder}/skills`),
     jobs: await jobsOf(name, folder, jobs ?? []),
     channels: channelsOf(channels ?? [], where),
@@ -569,7 +574,8 @@ function toolsOf(list: (ToolConfig | Tools | Binding)[], home: Home, where: stri
     const some: Tools =
       typeof one === "function" ? one(home) : typeof (one as ToolConfig).execute === "function" ? { [(one as ToolConfig).id]: one as ToolConfig } : (one as Tools);
     for (const [id, each] of Object.entries(some)) {
-      if (typeof each?.execute !== "function") throw new Error(`${where}: tool ${id} is not a tool.`);
+      const wrong = cannotRun(id, each);
+      if (wrong) throw new Error(`${where}: ${wrong}`);
       // The same tool twice is the same tool. A set that comes along with
       // something else, like the Google sign-in that read_mail and send_email
       // both bring, arrives once per binding and is the one object each time,
@@ -670,7 +676,7 @@ async function fromCode(agent: string, dir: string, definition: JobConfig<any, a
     description: definition.description,
     cron: checked(definition.cron, where),
     timezone: definition.timezone ?? "UTC",
-    model: definition.model,
+    model: definition.model && nameOf(definition.model),
     files: [
       ...new Set([
         ...(isPrompt(definition.markdown) ? [relative(dir, join(dir, definition.markdown.file))] : []),

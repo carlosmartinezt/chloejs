@@ -26,9 +26,10 @@ import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { oneLineSummary } from "#chloe/core/markdown";
 import type { Agent, Job } from "#chloe/load/load";
 import { modelFor } from "#chloe/model/choices";
+import { nameOf, type SdkModel } from "#chloe/model/key";
 import { ask as askModel, type Message } from "#chloe/model/model";
 import { loop, money } from "#chloe/core/turn";
-import { overviewsOf, type Approve, type Call, type ToolConfig, type Tools } from "#chloe/model/tool";
+import { cannotRun, overviewsOf, type Approve, type Call, type ToolConfig, type Tools } from "#chloe/model/tool";
 
 /** One finished step, and the record that lets it not run twice. */
 export interface Line {
@@ -77,8 +78,8 @@ export interface ModelStep<S extends z.ZodType> {
   prompt: string;
   /** The shape the answer has to be in. Free text cannot steer the next step. */
   output: S;
-  /** When this one step wants a model the rest of the job does not. */
-  model?: string;
+  /** When this one step wants a model the rest of the job does not: a name, or an AI SDK model. */
+  model?: string | SdkModel;
   system?: string;
 }
 
@@ -113,8 +114,8 @@ export interface AgentStep<S extends z.ZodType = z.ZodType> {
    * before the step and let this read the answer.
    */
   approve?: Approve;
-  /** When this step wants a model the rest of the job does not. */
-  model?: string;
+  /** When this step wants a model the rest of the job does not: a name, or an AI SDK model. */
+  model?: string | SdkModel;
   /** What it should know before it starts. */
   system?: string;
 }
@@ -528,7 +529,7 @@ async function once<T>(
 /** One question, one shape, and the run priced for it. */
 function modelStep<S extends z.ZodType>(ctx: Ctx, name: string, options: ModelStep<S>): Promise<z.infer<S>> {
   return once(ctx, name, "model", async (charge) => {
-    const using = options.model ?? modelFor(ctx.agent, ctx.job);
+    const using = options.model ? nameOf(options.model) : modelFor(ctx.agent, ctx.job);
     const shape = shapeOf(options.output);
 
     // The shape goes in the words rather than in a provider flag, so this
@@ -578,10 +579,14 @@ const AGENT_STEPS = 10;
  */
 function agentStep<S extends z.ZodType>(ctx: Ctx, name: string, options: AgentStep<S>): Promise<unknown> {
   return once<unknown>(ctx, name, "agent", async (charge, calls) => {
-    const using = options.model ?? modelFor(ctx.agent, ctx.job);
+    const using = options.model ? nameOf(options.model) : modelFor(ctx.agent, ctx.job);
     const tools: Tools = Array.isArray(options.tools)
       ? Object.fromEntries(options.tools.map((one) => [one.id, one]))
       : options.tools;
+    for (const [id, one] of Object.entries(tools)) {
+      const wrong = cannotRun(id, one);
+      if (wrong) throw new Error(`agent(${JSON.stringify(name)}): ${wrong}`);
+    }
     if (Object.keys(tools).length === 0) {
       throw new Error(
         `agent(${JSON.stringify(name)}) was given no tools. An agent step with nothing to call is a model step: use model(...).`,

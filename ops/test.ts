@@ -281,6 +281,90 @@ about("an agent step: the goal is yours, the order is the model's");
   is("and both turns are priced", line.cost, 0.0004);
 }
 
+about("an agent written with the AI SDK's own model and tools");
+{
+  asked = 0;
+  answers.length = 0;
+  const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+  const { jsonSchema, tool } = await import("ai");
+  const { defineAgent } = await import("@chloejs/core");
+  const { resolveAgent } = await import("#chloe/load/load");
+  const { turn } = await import("#chloe/core/turn");
+  const { models, routeFor } = await import("#chloe/model/model");
+  const { learnPrices, priced } = await import("#chloe/model/key");
+
+  // A provider package pointed at the stand-in, as anthropic("...") would be at Anthropic.
+  const standIn = createOpenAICompatible({ name: "standin", baseURL: process.env.AI_GATEWAY_URL!.replace(/\/chat\/completions$/, "") });
+  const asked_: string[] = [];
+  const definition = defineAgent({
+    name: "sdk",
+    folder: await mkdtemp(join(tmpdir(), "chloe-sdk-")),
+    description: "",
+    instructions: "Answer about the weather.",
+    features: { memory: false },
+    model: standIn("pal-1"),
+    tools: {
+      weather: tool({
+        description: "Get the weather in a location (in Fahrenheit)",
+        inputSchema: z.object({ location: z.string() }),
+        execute: async ({ location }) => {
+          asked_.push(location);
+          return { location, temperature: 72 };
+        },
+      }),
+      convert: tool({
+        description: "Convert Fahrenheit to Celsius",
+        inputSchema: jsonSchema<{ temperature: number }>({ type: "object", properties: { temperature: { type: "number" } }, required: ["temperature"] }),
+        execute: async ({ temperature }) => ({ celsius: Math.round((temperature - 32) * (5 / 9)) }),
+      }),
+    },
+  });
+  const agent = await resolveAgent(definition);
+  is("its model goes by the provider's own name for it", agent.model, "standin/pal-1");
+  is("and is reached by its own package, whatever the routes say", routeFor(agent.model), "direct");
+  is("it is on offer for that agent", models(agent).find((one) => one.model === agent.model)?.route, "direct");
+  is("its tools are the ones it was given, by their names", Object.keys(agent.tools ?? {}).sort(), ["convert", "weather"]);
+
+  answers.push(
+    { content: "", tool_calls: [{ id: "1", type: "function", function: { name: "weather", arguments: '{"location":"San Francisco"}' } }] },
+    { content: "", tool_calls: [{ id: "2", type: "function", function: { name: "convert", arguments: '{"temperature":72}' } }] },
+    { content: "", tool_calls: [{ id: "3", type: "function", function: { name: "weather", arguments: '{"place":"Paris"}' } }] },
+    "It is 22 degrees.",
+  );
+  const result = await turn({ agent, prompt: "What is the weather in San Francisco in celsius?", source: "terminal" });
+  is("chloe's own loop runs its tools", asked_, ["San Francisco"]);
+  is("and the model sees what each one said", lastAsked.filter((one) => one.role === "tool").map((one) => one.content), [
+    '{"location":"San Francisco","temperature":72}',
+    '{"celsius":22}',
+    "weather was called wrongly: location Invalid input: expected string, received undefined",
+  ]);
+  is("and answers", result.text, "It is 22 degrees.");
+  const trace = JSON.parse(row(result.runId).trace) as { tool?: string; failed?: boolean }[];
+  is("every call is in the record, the wrong one marked", trace.filter((one) => one.tool).map((one) => [one.tool, one.failed ?? false]), [["weather", false], ["convert", false], ["weather", true]]);
+  is("under the model's name", row(result.runId).model, "standin/pal-1");
+
+  // A provider says tokens, and the gateway's list says what a token costs,
+  // in its own spelling of the name.
+  learnPrices([{ id: "standin/pal-1.5", pricing: { input: "0.000001", output: "0.000002", input_cache_read: "0.0000001" } }]);
+  const usage = (inputTokens: number, cacheReadTokens: number, outputTokens: number) =>
+    ({ inputTokens, outputTokens, inputTokenDetails: { noCacheTokens: inputTokens - cacheReadTokens, cacheReadTokens, cacheWriteTokens: 0 }, outputTokenDetails: {} }) as never;
+  is("a call is priced from the gateway's list, which writes a dot where the provider writes a dash", priced("standin/pal-1-5", usage(1000, 0, 500)).toFixed(6), "0.002000");
+  is("with what came from the cache at its own price", priced("standin/pal-1-5", usage(1000, 800, 0)).toFixed(6), "0.000280");
+  is("and a model the list does not have costs nothing", priced("standin/unlisted", usage(1000, 0, 500)), 0);
+  learnPrices([]);
+
+  const asking = defineAgent({
+    ...definition,
+    name: "sdk-asking",
+    tools: { pay: tool({ description: "Pay.", inputSchema: z.object({}), needsApproval: true, execute: async () => "paid" }) },
+  });
+  is(
+    "a tool that wants approval is refused, rather than run without asking",
+    await resolveAgent(asking).then(() => "", (error: Error) => error.message.includes("pay has needsApproval")),
+    true,
+  );
+}
+
 about("an agent step that runs out of steps, and one with nothing to call");
 {
   asked = 0;

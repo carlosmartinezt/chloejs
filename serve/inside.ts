@@ -7,6 +7,7 @@
 import { settings } from "#chloe/core/settings";
 import { modelFor } from "#chloe/model/choices";
 import { routeFor } from "#chloe/model/model";
+import { descriptionOf } from "#chloe/model/tool";
 import type { Agent } from "#chloe/load/load";
 import { collectsAt } from "#chloe/channels/whatsapp";
 
@@ -99,7 +100,7 @@ function optionsOf(channel: { name: string; madeWith?: string }): { name: string
 /** What an agent can do: every tool it is bound, with what the model is told it is for. */
 export function toolsOf(agent: Agent): { name: string; does: string }[] {
   return Object.entries(agent.tools ?? {})
-    .map(([name, tool]) => ({ name, does: tool.description.trim() }))
+    .map(([name, tool]) => ({ name, does: descriptionOf(tool).trim() }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

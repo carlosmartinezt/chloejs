@@ -8,6 +8,7 @@ import type { z } from "zod";
 
 import type { Prompt } from "#chloe/core/markdown";
 import type { Data, Work } from "#chloe/core/steps";
+import type { SdkModel } from "#chloe/model/key";
 
 /**
  * What defineJob is given, and what a job file is checked against as it is
@@ -34,8 +35,8 @@ export interface JobConfig<
    */
   cron?: string;
   timezone?: string;
-  /** When this job should not run on the agent's own model. */
-  model?: string;
+  /** When this job should not run on the agent's own model: a name, or an AI SDK model like anthropic("claude-opus-5-5"). */
+  model?: string | SdkModel;
   /** The prompt: a string for a one-liner, or `prompt("./name.md")`. */
   markdown?: string | Prompt;
   /**
