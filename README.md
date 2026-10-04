@@ -173,7 +173,7 @@ resume, so it must not send, write or spend.
 | --- | --- |
 | Durable jobs | Steps are written down as they finish, and replayed on a resume. |
 | Schedules | Cron lines in TypeScript, with real time zones. |
-| Models | A Claude subscription, a ChatGPT plan, opencode, or any model a gateway key reaches. A job can pick its own. |
+| Models | A Claude subscription, a ChatGPT plan, opencode, any model a gateway key reaches, or an AI SDK model like `anthropic("claude-opus-5-5")`. A job can pick its own. |
 | Agents | Tools, approvals and a budget, set where the step is written. |
 | Tools | A description, a schema and one call. Typed at both ends. A tool that needs somebody signed in brings that with it. |
 | Human approvals | A run parks for days and carries on when somebody answers. |
@@ -199,7 +199,7 @@ npm run evals <name>  # the prompts: did the model decide well
 ## Run it wherever Node runs
 
 Your code, your models, your machine. One process serves the page, keeps every
-cron line and answers the channels. The runtime's only dependency is zod and its
+cron line and answers the channels. Its dependencies are zod and the AI SDK, its
 state is one SQLite file, so moving machine is copying a folder.
 
 Three files, and you have an agent:
@@ -209,6 +209,36 @@ package.json           with "type": "module", so node reads your .ts files
 chloe.config.ts        the agents this copy runs, and every setting
 your-agent/agent.ts    what the agent is: its jobs, tools and channels
 ```
+
+An agent written for the AI SDK moves across as it is: its model and its
+tools go into `defineAgent` unchanged, and chloe's own loop runs them, so each
+call is approved, budgeted and written down like any other.
+
+```ts
+import { anthropic } from "@ai-sdk/anthropic";
+import { defineAgent } from "@chloejs/core";
+import { tool } from "ai";
+import { z } from "zod";
+
+export default defineAgent({
+  name: "weather",
+  description: "Says what the weather is.",
+  instructions: "Answer about the weather.",
+  model: anthropic("claude-opus-5-5"),
+  tools: {
+    weather: tool({
+      description: "Get the weather in a location (in Fahrenheit)",
+      inputSchema: z.object({ location: z.string() }),
+      execute: async ({ location }) => ({ location, temperature: 72 }),
+    }),
+  },
+});
+```
+
+That model goes to Anthropic on `ANTHROPIC_API_KEY`, as the package reads it,
+whatever the routes in settings say. Its cost is its tokens at the price the
+gateway's public list gives. A tool with `needsApproval` is refused, because
+chloe asks with `approve` instead and would otherwise run it without asking.
 
 A setting is a choice about how the runtime behaves, so it goes in the config
 with the agents, where it is typed and committed:

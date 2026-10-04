@@ -1,4 +1,4 @@
-// Asking a model, by one of four routes.
+// Asking a model, by one of five routes.
 //
 // A model is a string like "anthropic/claude-sonnet-5": a provider, then the
 // model's name. Which route it goes by is `routeFor()` below:
@@ -6,9 +6,14 @@
 //   claude    the Claude Code CLI, Anthropic models, on a Claude subscription.
 //   codex     the Codex CLI, OpenAI models, on a ChatGPT plan.
 //   opencode  the opencode CLI, whatever it is signed in to.
+//   direct    an AI SDK model an agent's file gave, like
+//             anthropic("claude-opus-5-5"), however its package was set up.
+//             Never set in settings: naming the model in code is what says it.
 //   gateway   the Vercel AI Gateway over HTTP, any model, on a key, charged per
-//             call. Any gateway that speaks the same shape works by setting
-//             model.gateway.
+//             call. Any gateway that speaks the chat-completions shape works by
+//             setting model.gateway.
+//
+// The last two go through the AI SDK, in key.ts.
 //
 // A CLI is the only way to spend a subscription: it authorises the program,
 // and there is no key to put in a header. Everything above this file is the
@@ -22,6 +27,7 @@ import { nameInEnv, settingInEnv, settings } from "#chloe/core/settings";
 
 import { viaClaude } from "./claude.ts";
 import { viaCodex } from "./codex.ts";
+import { anySdkModel, learnPrices, sdkModel, viaKey } from "./key.ts";
 import { forgetOpencodeModels, opencodeModels, viaOpencode } from "./opencode.ts";
 
 export type { Route } from "#chloe/core/settings";
@@ -45,8 +51,12 @@ function carries(route: Route, provider: string): boolean {
   return opencodeModels().some((model) => providerOf(model) === provider);
 }
 
+/** How a model is reached: a route in settings, or "direct" for an AI SDK model an agent's file gave. */
+export type Reach = Route | "direct";
+
 /**
- * The route a model goes by: `model.routes` for its provider, else the first
+ * The route a model goes by: "direct" when an agent's file gave it as an AI SDK
+ * model, since the code said exactly how. Otherwise `model.routes` for its provider, else the first
  * entry in `model.prefer` that can carry that provider and is set up here. The
  * environment settles it for a whole run, so it beats a provider's own route.
  *
@@ -54,7 +64,8 @@ function carries(route: Route, provider: string): boolean {
  * gateway, which says a key is missing rather than handing a model name to a CLI
  * that would refuse it for a second reason.
  */
-export function routeFor(model: string): Route {
+export function routeFor(model: string): Reach {
+  if (sdkModel(model)) return "direct";
   const provider = providerOf(model);
   const forced = settingInEnv(process.env, ["model", "prefer"]);
   if (forced) {
@@ -94,8 +105,13 @@ function can(path: string): boolean {
   }
 }
 
-/** Whether this box can send a call down a route: a key for the gateway, the program for a CLI. */
-export function runnable(route: Route): boolean {
+/**
+ * Whether this box can send a call down a route: a key for the gateway, the
+ * program for a CLI. An AI SDK model always can, as far as chloe knows: its
+ * package holds the key and says so when it is missing.
+ */
+export function runnable(route: Reach): boolean {
+  if (route === "direct") return true;
   return route === "gateway" ? Boolean(gatewayKey()) : onPath(programOf(route));
 }
 
@@ -113,26 +129,29 @@ function shortlist(): string[] {
 }
 
 /**
- * Ask the gateway what it carries, for the list somebody picks from. Called at
- * startup and on each reload, never from a request: a slow gateway must not hold
- * up a page, and until it answers the offer is the shortlist and the agents' own
- * models. The address is the chat one with its last part swapped, which is the
- * same for every gateway that speaks this shape.
+ * Ask the gateway what it carries, for the list somebody picks from, and what
+ * each model costs, for a call on a provider's own key. Called at startup and on
+ * each reload, never from a request: a slow gateway must not hold up a page, and
+ * until it answers the offer is the shortlist and the agents' own models. The
+ * address is the chat one with its last part swapped, which is the same for
+ * every gateway that speaks this shape. Asked with no gateway key too when an
+ * agent names an AI SDK model, because the list is public and its prices are
+ * what such a call is charged at.
  */
 export async function learnModels(): Promise<void> {
   forgetOpencodeModels();
   const key = gatewayKey();
-  if (!key) {
-    fromGateway = [];
-    return;
-  }
+  if (!key) fromGateway = [];
+  if (!key && !anySdkModel()) return;
   try {
     const response = await fetch(settings.model.gateway.replace(/\/chat\/completions\/?$/, "/models"), {
-      headers: { authorization: `Bearer ${key}` },
+      headers: key ? { authorization: `Bearer ${key}` } : {},
       signal: AbortSignal.timeout(20_000),
     });
     if (!response.ok) return;
-    const body = (await response.json()) as { data?: { id?: string }[] };
+    const body = (await response.json()) as { data?: { id?: string; pricing?: Record<string, string> }[] };
+    learnPrices(body.data ?? []);
+    if (!key) return;
     fromGateway = (body.data ?? []).map((one) => one.id).filter((id): id is string => typeof id === "string" && id.includes("/"));
   } catch {
     // A gateway that cannot be reached is not an error here: it only means the
@@ -143,7 +162,7 @@ export async function learnModels(): Promise<void> {
 /** One model somebody may pick, and the route it would go by here. */
 export interface Offered {
   model: string;
-  route: Route;
+  route: Reach;
 }
 
 /**
@@ -157,7 +176,7 @@ export function models(agent?: Agent): Offered[] {
   for (const model of named) {
     if (out.some((one) => one.model === model)) continue;
     const route = routeFor(model);
-    if (carries(route, providerOf(model)) && runnable(route)) out.push({ model, route });
+    if ((route === "direct" || carries(route, providerOf(model))) && runnable(route)) out.push({ model, route });
   }
   return out;
 }
@@ -171,7 +190,7 @@ export interface Attachment {
   name?: string;
 }
 
-/** In the shape the gateway wants it, apart from attachments, which each way turns into its own. */
+/** A message in the chat-completions shape, apart from attachments, which each route turns into its own. */
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
@@ -200,7 +219,7 @@ export interface Answer {
   toolCalls: ToolCall[];
   /** What a CLI model wrote after its requests as if they had run. Never acted on. */
   dropped?: string;
-  /** Dollars, when the gateway says. */
+  /** Dollars: what the gateway says, or a provider's tokens at the gateway's list price, or 0 when neither is known. */
   cost: number;
   tokensIn: number;
   tokensOut: number;
@@ -213,28 +232,12 @@ export interface Answer {
 export class UsageLimit extends Error {}
 
 export interface Ask {
+  /** A model's name. An AI SDK model is named by nameOf() first. */
   model: string;
   messages: Message[];
   tools?: ToolSpec[];
   maxTokens?: number;
   signal?: AbortSignal;
-}
-
-/** The chat-completions shape for a message with files: text first, then each file. */
-function forGateway({ attachments, ...message }: Message): unknown {
-  if (!attachments?.length) return message;
-  const url = (a: Attachment) => `data:${a.mediaType};base64,${a.data}`;
-  return {
-    ...message,
-    content: [
-      { type: "text", text: message.content },
-      ...attachments.map((a) =>
-        a.mediaType.startsWith("image/")
-          ? { type: "image_url", image_url: { url: url(a) } }
-          : { type: "file", file: { filename: a.name ?? "file", file_data: url(a) } },
-      ),
-    ],
-  };
 }
 
 /**
@@ -246,84 +249,5 @@ export function ask(request: Ask): Promise<Answer> {
   if (route === "claude") return viaClaude(request);
   if (route === "codex") return viaCodex(request);
   if (route === "opencode") return viaOpencode(request);
-  return viaGateway(request);
-}
-
-async function viaGateway({ model, messages, tools, maxTokens, signal }: Ask): Promise<Answer> {
-  const key = gatewayKey();
-  if (!key) {
-    throw new Error(
-      "No gateway key. Put it in .env as CHLOE_MODEL_KEY. " +
-        "To run on a subscription instead, put that route first in model.prefer, or route the provider in model.routes.",
-    );
-  }
-
-  const body = {
-    model,
-    messages: messages.map(forGateway),
-    max_tokens: maxTokens ?? 8000,
-    ...(tools?.length ? { tools: tools.map((t) => ({ type: "function", function: t })) } : {}),
-  };
-
-  let lastError = "";
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (attempt > 0) await wait(Math.min(2 ** attempt, 8) * 1000, signal);
-
-    const response = await fetch(settings.model.gateway, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: signal ?? AbortSignal.timeout(600_000),
-    }).catch((error: unknown) => error as Error);
-
-    if (response instanceof Error) {
-      lastError = response.message;
-      continue;
-    }
-    if (!response.ok) {
-      const text = (await response.text()).slice(0, 500);
-      // A bad key or a missing model fails the same way forever: say so now.
-      const worthRetrying = response.status === 408 || response.status === 409 || response.status === 429 || response.status >= 500;
-      lastError = `the gateway answered ${response.status}: ${text}`;
-      if (!worthRetrying) throw new Error(`Model call refused: ${lastError}`);
-      continue;
-    }
-
-    const json = (await response.json()) as GatewayAnswer;
-    const choice = json.choices?.[0];
-    if (!choice) {
-      lastError = "the gateway answered with no choices";
-      continue;
-    }
-    return {
-      text: choice.message?.content ?? "",
-      toolCalls: choice.message?.tool_calls ?? [],
-      // The gateway reports cost 0 for a user's own provider key and puts the
-      // real number in upstream_inference_cost.
-      cost: json.usage?.cost || json.usage?.cost_details?.upstream_inference_cost || 0,
-      tokensIn: json.usage?.prompt_tokens ?? 0,
-      tokensOut: json.usage?.completion_tokens ?? 0,
-    };
-  }
-  throw new Error(`Model call failed after 4 attempts: ${lastError}`);
-}
-
-interface GatewayAnswer {
-  choices?: { message?: { content?: string; tool_calls?: ToolCall[] } }[];
-  usage?: {
-    cost?: number;
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    cost_details?: { upstream_inference_cost?: number };
-  };
-}
-
-function wait(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((done, fail) => {
-    const timer = setTimeout(done, ms);
-    signal?.addEventListener("abort", () => {
-      clearTimeout(timer);
-      fail(new Error("stopped"));
-    });
-  });
+  return viaKey(request, route);
 }
