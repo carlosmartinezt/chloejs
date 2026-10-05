@@ -57,7 +57,7 @@ export function choices(agent: string): Choice[] {
  * names. Without a job, the last two.
  */
 export function modelFor(agent: Agent, job?: Job): string {
-  const own = chosen(agent.name, "agent") ?? agent.model;
+  const own = chosen(agent.id, "agent") ?? agent.model;
   if (!job) return own;
-  return chosen(agent.name, `job:${job.id}`) ?? job.model ?? own;
+  return chosen(agent.id, `job:${job.id}`) ?? job.model ?? own;
 }

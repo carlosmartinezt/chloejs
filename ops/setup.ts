@@ -17,7 +17,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFi
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { identifier, modelLine, nameProblem, STARTER_MODEL_LINE, starterFiles, withChannel } from "./starter.ts";
+import { identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel } from "./starter.ts";
 import { ask, askHidden, pick, setPassword, yes } from "./terminal.ts";
 
 /** The folder being set up: where the person ran the command. */
@@ -110,26 +110,26 @@ async function theProject(): Promise<void> {
   }
 }
 
-/** The starter agent: its name, then every file it is made of. */
+/** The starter agent: its id, then every file it is made of. */
 async function theAgent(): Promise<string> {
   // A config that is already there is somebody's own, so it is read and never
   // written: what it says about an agent decides whether this is that agent again.
   const configFile = join(HERE, "chloe.config.ts");
   const config = existsSync(configFile) ? readFileSync(configFile, "utf8") : "";
-  const named = (name: string) => config.includes(`agents/${name}/agent.ts`);
+  const listed = (id: string) => config.includes(`agents/${id}/agent.ts`);
   if (config) console.log("chloe.config.ts is already here, so this leaves it alone.\n");
 
-  let name = "";
-  while (!name) {
+  let id = "";
+  while (!id) {
     const said = (await ask("What is your first agent called? (starter) ")).trim() || "starter";
-    const problem = nameProblem(said);
+    const problem = idProblem(said);
     if (problem) console.log(`  ${problem}`);
-    else if (existsSync(join(HERE, "agents", said)) && !named(said)) {
-      console.log(`  agents/${said} is there already and chloe.config.ts does not name it. Pick another name.`);
-    } else name = said;
+    else if (existsSync(join(HERE, "agents", said)) && !listed(said)) {
+      console.log(`  agents/${said} is there already and chloe.config.ts does not list it. Pick another.`);
+    } else id = said;
   }
 
-  for (const file of starterFiles(name)) {
+  for (const file of starterFiles(id)) {
     const path = join(HERE, file.path);
     if (file.add) {
       // .gitignore: only the lines it does not have, so a project with its own
@@ -147,13 +147,13 @@ async function theAgent(): Promise<string> {
     written(file.path, "written");
   }
 
-  if (config && !named(name)) {
-    console.log(`\nagents/${name} is written. chloe.config.ts is yours, so add it there:`);
-    console.log(`  import ${identifier(name)} from "./agents/${name}/agent.ts";`);
-    console.log(`  export default defineConfig({ agents: [${identifier(name)}] });`);
+  if (config && !listed(id)) {
+    console.log(`\nagents/${id} is written. chloe.config.ts is yours, so add it there:`);
+    console.log(`  import ${identifier(id)} from "./agents/${id}/agent.ts";`);
+    console.log(`  export default defineConfig({ agents: [${identifier(id)}] });`);
   }
-  console.log(`\n${name} has two jobs: daily-note is code and asks no model, summary is a prompt and asks one.\n`);
-  return name;
+  console.log(`\n${id} has two jobs: daily-note is code and asks no model, summary is a prompt and asks one.\n`);
+  return id;
 }
 
 /**
@@ -259,13 +259,13 @@ async function settle(model: Record<string, string>, key?: string): Promise<stri
   // have been imported before it was written.
   const declared = (await import(`${pathToFileURL(configFile).href}?setup=${Date.now()}`)).default as {
     settings?: Record<string, unknown>;
-    agents?: { name?: string }[];
+    agents?: { id?: string }[];
   };
   const settings = declared.settings ?? {};
   const prefer = model.prefer ? { prefer: model.prefer.split(",") } : {};
   declareSettings(
     { ...settings, model: { ...(settings.model as object), ...model, ...prefer } } as Parameters<typeof declareSettings>[0],
-    (declared.agents ?? []).map((one) => one?.name ?? "").filter(Boolean),
+    (declared.agents ?? []).map((one) => one?.id ?? "").filter(Boolean),
   );
 
   // Asked of the runtime rather than worked out here, so this cannot disagree
@@ -297,7 +297,7 @@ async function tryIt(model: string): Promise<string> {
   try {
     const answer = await askModel({
       model,
-      maxTokens: 300,
+      maxOutputTokens: 300,
       messages: [
         { role: "system", content: "Use the tool. Say nothing else." },
         { role: "user", content: 'Call ready with word set to "chloe".' },
@@ -327,12 +327,12 @@ async function tryIt(model: string): Promise<string> {
  * The clock is not started and no channel is opened, so this is one writer for
  * one run even if the service is already going.
  */
-async function firstRun(name: string): Promise<void> {
-  console.log(`\nRunning ${name}/daily-note, which asks no model.`);
+async function firstRun(id: string): Promise<void> {
+  console.log(`\nRunning ${id}/daily-note, which asks no model.`);
   try {
     const { load } = await import("#chloe/load/load");
     const { work } = await import("#chloe/core/steps");
-    const agent = await load(name);
+    const agent = await load(id);
     const job = agent.jobs.find((one) => one.id === "daily-note");
     if (!job) return void console.log("  it is not there any more, so nothing ran.");
 
@@ -443,13 +443,13 @@ async function thePassword(): Promise<void> {
   written("data/", "the account, and the run history");
 }
 
-function sayWhatNext(name: string, model: string): void {
+function sayWhatNext(id: string, model: string): void {
   if (wrote.length) console.log(`\nWritten:\n${columns(wrote)}`);
   console.log(
     `\nTry these:\n${columns([
       ["npx chloe", "the server: every cron line, the page, the API"],
-      [`npx chloe agent ${name}`, "talk to it in this terminal"],
-      ...(model ? ([[`npx chloe agent ${name} summary`, "run the prompt job now"]] as [string, string][]) : []),
+      [`npx chloe agent ${id}`, "talk to it in this terminal"],
+      ...(model ? ([[`npx chloe agent ${id} summary`, "run the prompt job now"]] as [string, string][]) : []),
       ["npx chloe install", "keep it running after you close this terminal"],
     ])}`,
   );

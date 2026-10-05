@@ -45,11 +45,11 @@ export async function expectations(
   if (lines.length === 0) return { score: 1, reason: "Nothing was expected." };
 
   const did = result.calls.map((c) => ({
-    tool: c.tool,
-    args: c.args,
+    toolName: c.toolName,
+    input: c.input,
     // A tool result is often the whole site list or the whole disk table. The
     // judge needs to know what came back, not to re-read all of it.
-    result: JSON.stringify(c.result ?? "").slice(0, 2000),
+    output: JSON.stringify(c.output ?? "").slice(0, 2000),
   }));
 
   const answer = await ask({

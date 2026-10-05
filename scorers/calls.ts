@@ -28,7 +28,7 @@ export interface Mark {
 
 /** Marks a run on the tools it used, which is arithmetic and asks nobody. */
 export function calls(result: Result, expected: Expected): Mark {
-  const used = result.calls.map((c) => c.tool);
+  const used = result.calls.map((c) => c.toolName);
   const times = (tool: string) => used.filter((name) => name === tool).length;
 
   const missing = (expected.mustCall ?? []).filter((tool) => !used.includes(tool));

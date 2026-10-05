@@ -75,7 +75,7 @@ function answerFrom(one: Case, quiet: string[], skills: Map<string, string>) {
     // A skill is answered from the real file rather than from the case. It
     // reads something in this repo and changes nothing, and answering it for
     // real is what makes rewriting a skill move the score.
-    if (name === "skill") {
+    if (name === "skillRead") {
       const asked = (args as { name?: string })?.name ?? "";
       const body = skills.get(asked);
       if (body) return body;
@@ -119,19 +119,19 @@ function found(agent: Agent, job: string): string {
   // A job made of code is checked by running it, not by scoring what it said.
   if (one?.run) {
     throw new Error(
-      `${agent.name}/${job} is code, not a prompt. Evals score what a model decided, and this one decides in code.`,
+      `${agent.id}/${job} is code, not a prompt. Evals score what a model decided, and this one decides in code.`,
     );
   }
   if (!one) {
     throw new Error(
-      `${agent.name} has no job called ${JSON.stringify(job)}. It has: ${agent.jobs.map((s) => s.id).join(", ")}`,
+      `${agent.id} has no job called ${JSON.stringify(job)}. It has: ${agent.jobs.map((s) => s.id).join(", ")}`,
     );
   }
   return one.prompt;
 }
 
 async function runFile(loaded: Agent, file: string): Promise<{ passed: number; failed: number }> {
-  const agent = loaded.name;
+  const agent = loaded.id;
   const spec = JSON.parse(await readFile(file, "utf8")) as EvalFile;
   const skills = await skillsOf(loaded);
   // Through the loader, so a case runs the prompt the agent wakes up to
@@ -178,7 +178,7 @@ async function runFile(loaded: Agent, file: string): Promise<{ passed: number; f
 }
 
 const wanted = process.argv[2];
-const agents = [...(await loadAll()).values()].sort((a, b) => a.name.localeCompare(b.name));
+const agents = [...(await loadAll()).values()].sort((a, b) => a.id.localeCompare(b.id));
 
 let passed = 0;
 let failed = 0;
@@ -186,7 +186,7 @@ let ran = 0;
 
 for (const agent of agents) {
   const evals = join(agent.folder, "evals");
-  if (wanted && wanted !== agent.name) {
+  if (wanted && wanted !== agent.id) {
     // `npm run evals morning-check` runs one file whatever agent it belongs to.
     const owns = (await readdir(evals).catch(() => [])).some((f) => f === `${wanted}.json`);
     if (!owns) continue;
@@ -194,7 +194,7 @@ for (const agent of agents) {
   for (const file of (await readdir(evals).catch(() => []))
     .filter((f) => f.endsWith(".json"))
     .sort()) {
-    if (wanted && wanted !== agent.name && basename(file, ".json") !== wanted) continue;
+    if (wanted && wanted !== agent.id && basename(file, ".json") !== wanted) continue;
     const marks = await runFile(agent, join(evals, file));
     passed += marks.passed;
     failed += marks.failed;

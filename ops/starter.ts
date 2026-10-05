@@ -25,13 +25,13 @@ export function identifier(agent: string): string {
 }
 
 /**
- * What a name may be: lower case, digits and dashes, starting with a letter. It
- * becomes a folder, an import and the folder the run history is filed under, so
- * it is checked before any of that is written. Empty when the name is fine.
+ * What an agent's id may be: lower case, digits and dashes, starting with a
+ * letter. It becomes a folder, an import and what the run history is filed
+ * under, so it is checked before any of that is written. Empty when it is fine.
  */
-export function nameProblem(agent: string): string {
-  if (!/^[a-z][a-z0-9-]*$/.test(agent)) return "A name is lower case letters, digits and dashes, and starts with a letter.";
-  if (agent.endsWith("-")) return "A name does not end with a dash.";
+export function idProblem(agent: string): string {
+  if (!/^[a-z][a-z0-9-]*$/.test(agent)) return "An id is lower case letters, digits and dashes, and starts with a letter.";
+  if (agent.endsWith("-")) return "An id does not end with a dash.";
   return "";
 }
 
@@ -111,7 +111,7 @@ import { defineAgent, markdownJob, prompt } from "@chloejs/core";
 import dailyNote from "./jobs/daily-note.ts";
 
 export default defineAgent({
-  name: "${agent}",
+  id: "${agent}",
   description: "The agent npx chloe setup wrote. Make it yours.",
   instructions: prompt("instructions.md"),
   // Which model it asks is model.default in chloe.config.ts, so it is written
@@ -165,10 +165,10 @@ const SUMMARY = `---
 description: Reads its own notes and writes one line about them. A prompt, so it asks a model.
 ---
 
-Read your notes: listNotes for what is there, then readNotes for each one.
+Read your notes: memoryListFiles for what is there, then memoryReadFile for each one.
 
 Write one line saying what they hold, and save it as \`summary.md\` with
-writeNotes. If there are no notes yet, write that.
+memoryWriteFile. If there are no notes yet, write that.
 
 Nothing else. This job is here to prove that a model, its tools and your memory
 all work, and to be replaced by something you actually want. It has no cron

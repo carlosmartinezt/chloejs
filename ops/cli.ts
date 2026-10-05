@@ -16,10 +16,10 @@ ${bold("Starting out")}
 
 ${bold("Every day")}${dim("  (these talk to a running chloe, so leave npx chloe going)")}
   npx chloe agent                pick an agent and talk to it
-  npx chloe agent <name>         talk to that one
-  npx chloe agent <name> "..."   ask it one thing and stop
-  npx chloe agent <name> <job>   run one of its jobs now, step by step
-  npx chloe evals <agent>        score that agent's prompts
+  npx chloe agent <id>           talk to that one
+  npx chloe agent <id> "..."     ask it one thing and stop
+  npx chloe agent <id> <job>     run one of its jobs now, step by step
+  npx chloe evals <id>           score that agent's prompts
 
 ${bold("Looking after it")}
   npx chloe account              set the password for the page, or a new one later

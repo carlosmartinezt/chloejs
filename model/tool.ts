@@ -4,15 +4,22 @@ import { z } from "zod";
 import type { ToolSpec } from "./model.ts";
 
 /**
- * Tools keyed by the name the model calls them by, each made with the AI SDK's
- * `tool()`. One field is chloe's own, `overview`: what the tool reaches right
- * now, in a few lines (the folders of a memory, the tables of a database), put
- * at the top of every turn and agent step it is handed to, so the model starts
- * out knowing where things are. Asked again each time, never kept. Add it after
- * making the tool, `Object.assign(tool({ ... }), { overview })`, because
+ * A tool made with the AI SDK's `tool()`, with two fields of chloe's own, added
+ * after making it, `Object.assign(tool({ ... }), { overview })`, because
  * `tool()` does not take a field it does not know.
+ *
+ * `overview` is what the tool reaches right now, in a few lines (the folders of
+ * a memory, the tables of a database), put at the top of every turn and agent
+ * step it is handed to, so the model starts out knowing where things are. Asked
+ * again each time, never kept. `needs` is the account it works through, which
+ * the setup page checks for: `needs: "google"` also makes the loader add
+ * `googleSignIn` and `googleSignInComplete` beside it, so an agent that can
+ * read mail can get somebody signed in to read it.
  */
-export type Tools = Record<string, Tool & { overview?: () => Promise<string> | string }>;
+export type ChloeTool = Tool & { overview?: () => Promise<string> | string; needs?: "google" | "resend" };
+
+/** Tools keyed by the name the model calls them by. */
+export type Tools = Record<string, ChloeTool>;
 
 /**
  * The overviews of these tools, one after another, for the top of a prompt.
@@ -32,12 +39,27 @@ export async function overviewsOf(tools: Tools): Promise<string> {
   return said.filter(Boolean).join("\n\n");
 }
 
+/**
+ * What every tool chloe runs is handed as its `context`, the second argument
+ * to `execute`: the agent it runs for. Read it with `agentOf(context)`.
+ */
+export interface ToolContext {
+  agent: { id: string; folder: string; memory: { folder: string; commit?: boolean | "each run" } };
+}
+
+/** The agent a tool is running for, out of the `context` its `execute` was handed. */
+export function agentOf(context: unknown): ToolContext["agent"] {
+  const agent = (context as Partial<ToolContext> | undefined)?.agent;
+  if (!agent?.id) throw new Error("This tool was run without the agent it runs for, which chloe hands every tool as its context.");
+  return agent;
+}
+
 /** One tool a model asked for: what it was called with, what came back, and whether it was allowed to run at all. */
 export interface Call {
-  tool: string;
-  args: unknown;
-  result: unknown;
-  /** Set when `toolApproval` or `needsApproval` would not let it run, in which case nothing ran and `result` is what the model was told. */
+  toolName: string;
+  input: unknown;
+  output: unknown;
+  /** Set when `toolApproval` or `needsApproval` would not let it run, in which case nothing ran and `output` is what the model was told. */
   refused?: boolean;
 }
 
@@ -53,15 +75,16 @@ export async function approval(
   name: string,
   input: unknown,
   toolCallId: string,
+  context: ToolContext,
   toolApproval?: ToolApprovalConfiguration<any, any>,
 ): Promise<{ run: true } | { denied: string } | { person: string }> {
   const one = tools[name];
   let status: ToolApprovalStatus;
   if (typeof toolApproval === "function") {
-    status = await toolApproval({ toolCall: { type: "tool-call", toolCallId, toolName: name, input }, tools, toolsContext: {}, runtimeContext: {}, messages: [] });
+    status = await toolApproval({ toolCall: { type: "tool-call", toolCallId, toolName: name, input }, tools, toolsContext: { [name]: context }, runtimeContext: {}, messages: [] });
   } else {
     const own = toolApproval?.[name];
-    status = typeof own === "function" ? await own(input, { toolCallId, messages: [], toolContext: {}, runtimeContext: {} } as never) : own;
+    status = typeof own === "function" ? await own(input, { toolCallId, messages: [], toolContext: context, runtimeContext: {} } as never) : own;
   }
   const type = typeof status === "object" ? status.type : status;
   const reason = (typeof status === "object" ? status.reason?.trim() : undefined) ?? "";
@@ -69,7 +92,7 @@ export async function approval(
   if (type === "denied") return { denied: reason || "it was denied" };
   if (type === "user-approval") return { person: reason };
   const needs =
-    typeof one.needsApproval === "function" ? await one.needsApproval(input, { toolCallId, messages: [], context: {} } as never) : one.needsApproval;
+    typeof one.needsApproval === "function" ? await one.needsApproval(input, { toolCallId, messages: [], context } as never) : one.needsApproval;
   return needs ? { person: "" } : { run: true };
 }
 
@@ -114,12 +137,12 @@ export async function check(one: Tool, args: unknown): Promise<{ ok: true; value
 }
 
 /**
- * Runs a tool once. It is handed the call's id as its second argument, and
+ * Runs a tool once. It is handed the call's id and its `context` as its second argument, and
  * one that streams its answer is read to the end and its last
  * part kept, which is what the SDK hands the model too.
  */
-export async function run(one: Tool, args: unknown, callId: string): Promise<unknown> {
-  const output = await (one.execute as (input: unknown, options: unknown) => unknown)(args, { toolCallId: callId, messages: [] });
+export async function run(one: Tool, args: unknown, callId: string, context: ToolContext): Promise<unknown> {
+  const output = await (one.execute as (input: unknown, options: unknown) => unknown)(args, { toolCallId: callId, messages: [], context });
   if (output && typeof output === "object" && Symbol.asyncIterator in output) {
     let last: unknown;
     for await (const part of output as AsyncIterable<unknown>) last = part;

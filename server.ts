@@ -52,13 +52,13 @@ function startChannels(changed: Set<string> = new Set()): void {
   const wanted = new Set<string>();
   for (const agent of agents.values()) {
     for (const one of agent.channels) {
-      const key = `${agent.name}/${one.name}`;
+      const key = `${agent.id}/${one.name}`;
       wanted.add(key);
       const now = running.get(key);
-      if (now && !changed.has(agent.name) && now.madeWith === one.madeWith) continue;
-      if (now) console.log(`${key}: restarted, ${changed.has(agent.name) ? "the settings" : "its options"} changed`);
+      if (now && !changed.has(agent.id) && now.madeWith === one.madeWith) continue;
+      if (now) console.log(`${key}: restarted, ${changed.has(agent.id) ? "the settings" : "its options"} changed`);
       now?.stop();
-      running.set(key, { ...one.start(() => agents.get(agent.name)), madeWith: one.madeWith });
+      running.set(key, { ...one.start(() => agents.get(agent.id)), madeWith: one.madeWith });
     }
   }
   for (const [key, one] of running) {
@@ -167,7 +167,7 @@ function startup(): string[] {
   const jobs = [...agents.values()].flatMap((agent) =>
     agent.jobs.map(
       (job) =>
-        `${agent.name}/${job.id}  ${job.cron ? `${job.cron} ${job.timezone}` : "when started"}` + (job.model ? ` on ${job.model}` : ""),
+        `${agent.id}/${job.id}  ${job.cron ? `${job.cron} ${job.timezone}` : "when started"}` + (job.model ? ` on ${job.model}` : ""),
     ),
   );
   lines.push(row("Jobs", jobs.length ? jobs[0] : dim("none yet")));

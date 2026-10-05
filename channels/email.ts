@@ -1,6 +1,6 @@
 // Talking to an agent by email. It is one entry in the agent's channels:
 //
-//   // agents/<name>/agent.ts
+//   // agents/<id>/agent.ts
 //   import { emailChannel } from "@chloejs/core/channels";
 //   channels: [emailChannel({ allowFrom: ["someone@example.com"] })],
 //
@@ -10,7 +10,7 @@
 //
 // Each conversation has its own address, `reply-<id>@<the cloud's domain>`,
 // made for one person. The agent starts one with `openEmail()` (or the
-// `startEmail` tool, or a job's `ask("email:<address>")`), and the person's
+// `emailStartConversation` tool, or a job's `ask("email:<address>")`), and the person's
 // replies to that address come back here as messages in that conversation.
 //
 // A reply reaches the cloud through its mail worker, and waits in this
@@ -154,31 +154,31 @@ export function emailChannel(options: EmailOptions): Channel {
     chatHistory: options.chatHistory,
     madeWith: JSON.stringify({ ...options, lookUp: undefined, key: undefined }),
     start(agent) {
-      const name = agent()?.name ?? "";
+      const agentId = agent()?.id ?? "";
       const cloud = (options.cloud ?? settings.cloud.url).replace(/\/+$/, "");
       const key = options.key ?? settings.cloud.api_key;
       if (!cloud || !key) {
         console.error(
-          `email: ${name} is on email and has no ${cloud ? "workspace key" : "cloud"}. Email goes through a Chloe Cloud: ` +
+          `email: ${agentId} is on email and has no ${cloud ? "workspace key" : "cloud"}. Email goes through a Chloe Cloud: ` +
             `put the workspace's key in .env as CHLOE_CLOUD_API_KEY.`,
         );
         return { stop: () => {} };
       }
-      return listen({ ...options, name, channel: options.name ?? "email", cloud, key, agent });
+      return listen({ ...options, agentId, channel: options.name ?? "email", cloud, key, agent });
     },
   };
 }
 
 /** Answers on email until stopped. Separate from the channel so the tests can point it somewhere else. */
 export function listen(
-  options: EmailOptions & { name: string; channel: string; cloud: string; key: string; agent: () => Agent | undefined },
+  options: EmailOptions & { agentId: string; channel: string; cloud: string; key: string; agent: () => Agent | undefined },
 ): Running {
-  const { name, channel, cloud, key } = options;
+  const { agentId, channel, cloud, key } = options;
   const allowed = options.allowFrom.map(lower);
   const rules: Rules = { allowFrom: allowed, chatHistory: options.chatHistory };
   const stopping = new AbortController();
   let box: Promise<Box> | undefined;
-  const ourBox = () => (box ??= boxFor("email", name, channel, cloud));
+  const ourBox = () => (box ??= boxFor("email", agentId, channel, cloud));
 
   /** One call to the cloud's mail routes, with the workspace key. */
   async function call<T>(path: string, body: object, what: string): Promise<T> {
@@ -198,7 +198,7 @@ export function listen(
    * message it is threaded under it, with that message quoted below.
    */
   async function send(row: Row, subject: string, text: string, answering?: Email): Promise<void> {
-    const label = displayName(options.agent()?.label ?? name);
+    const label = displayName(options.agent()?.label ?? agentId);
     const quote = answering?.text ? quoted(answering) : { text: "", html: "" };
     await call(
       "/mail/send",
@@ -218,24 +218,24 @@ export function listen(
 
   const start: Starter = async (to, subject, text) => {
     const person = lower(to);
-    if (!allowed.includes(person)) throw new Error(`${to} is not somebody ${name} may email. It may email: ${allowed.join(", ")}.`);
+    if (!allowed.includes(person)) throw new Error(`${to} is not somebody ${agentId} may email. It may email: ${allowed.join(", ")}.`);
     const mine = await ourBox();
     const { address } = await call<{ address: string }>("/mail/addresses", { box: mine.id, person }, "asking for an address");
-    const thread = `${name}/${channel}-${randomUUID()}`;
+    const thread = `${agentId}/${channel}-${randomUUID()}`;
     const at = new Date().toISOString();
-    const row: Row = { address: lower(address), agent: name, channel, person, thread, subject, made: at, used: at, closed: null, last_id: null, refs: null };
+    const row: Row = { address: lower(address), agent: agentId, channel, person, thread, subject, made: at, used: at, closed: null, last_id: null, refs: null };
     db.prepare(
       "insert into email_addresses (address, agent, channel, person, thread, subject, made, used) values (?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(row.address, name, channel, person, thread, subject, at, at);
+    ).run(row.address, agentId, channel, person, thread, subject, at, at);
     // The person's own conversation, under the subject, so it is in their list wherever they look.
     db.prepare("insert into threads (thread, label, owner) values (?, ?, ?) on conflict (thread) do nothing").run(thread, subject.slice(0, 80), person);
     await send(row, subject, text);
     remember(thread, "assistant", text);
     return { address: row.address, thread };
   };
-  starters.set(`${name}/${channel}`, start);
+  starters.set(`${agentId}/${channel}`, start);
   // A job that stops to ask somebody by email starts a conversation with them.
-  reachBy(channel, async (to, text) => void (await start(to, `A question from ${options.agent()?.label ?? name}`, text)), name);
+  reachBy(channel, async (to, text) => void (await start(to, `A question from ${options.agent()?.label ?? agentId}`, text)), agentId);
 
   /** Message ids already dealt with, so one delivered twice is answered once. */
   const seen = new Set<string>();
@@ -245,9 +245,9 @@ export function listen(
     const { to, raw: encoded } = JSON.parse(body) as { to?: string; raw?: string };
     if (!to || !encoded) return;
     const raw = Buffer.from(encoded, "base64").toString("latin1");
-    const drop = (why: string) => console.warn(`email: ${name} dropped a message to ${to}: ${why}.`);
+    const drop = (why: string) => console.warn(`email: ${agentId} dropped a message to ${to}: ${why}.`);
 
-    const row = db.prepare("select * from email_addresses where address = ? and agent = ? and channel = ?").get(lower(to), name, channel) as Row | undefined;
+    const row = db.prepare("select * from email_addresses where address = ? and agent = ? and channel = ?").get(lower(to), agentId, channel) as Row | undefined;
     if (!row) return drop("that address was not made here");
     if (row.closed) return drop("that address is closed");
     if (Date.now() - Date.parse(row.used) > OPEN_FOR) {
@@ -302,18 +302,18 @@ export function listen(
   void ourBox()
     .then((mine) =>
       collectFrom(mine, {
-        label: `email: ${name}`,
+        label: `email: ${agentId}`,
         signal: stopping.signal,
-        open: (body) => opened(body).catch((error) => console.error(`email: ${name}:`, (error as Error).message)),
+        open: (body) => opened(body).catch((error) => console.error(`email: ${agentId}:`, (error as Error).message)),
       }),
     )
-    .catch((error) => console.error(`email: ${name}:`, (error as Error).message));
+    .catch((error) => console.error(`email: ${agentId}:`, (error as Error).message));
 
   return {
     stop() {
       stopping.abort();
-      starters.delete(`${name}/${channel}`);
-      unreach(channel, name);
+      starters.delete(`${agentId}/${channel}`);
+      unreach(channel, agentId);
     },
   };
 }

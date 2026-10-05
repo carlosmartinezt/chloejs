@@ -127,7 +127,7 @@ function toSdk(messages: Message[]): ModelMessage[] {
         role: "user",
         content: [
           { type: "text", text: message.content },
-          ...message.attachments.map((a) => ({ type: "file" as const, data: a.data, mediaType: a.mediaType, ...(a.name && { filename: a.name }) })),
+          ...message.attachments.map((a) => ({ type: "file" as const, data: a.data, mediaType: a.mediaType, ...(a.filename && { filename: a.filename }) })),
         ],
       };
     }
@@ -161,7 +161,7 @@ function parsed(text: string): unknown {
 }
 
 /** Asks once on a key, by the gateway or the AI SDK model an agent's file gave, and answers in chloe's shape. */
-export async function viaKey({ model, messages, tools, maxTokens, signal }: Ask, route: "gateway" | "direct"): Promise<Answer> {
+export async function viaKey({ model, messages, tools, maxOutputTokens, signal }: Ask, route: "gateway" | "direct"): Promise<Answer> {
   let reach: LanguageModel;
   let where: string;
   if (route === "gateway") {
@@ -188,7 +188,7 @@ export async function viaKey({ model, messages, tools, maxTokens, signal }: Ask,
       ...(tools?.length && {
         tools: Object.fromEntries(tools.map((one) => [one.name, tool({ description: one.description, inputSchema: jsonSchema(one.parameters) })])),
       }),
-      maxOutputTokens: maxTokens ?? 8000,
+      maxOutputTokens: maxOutputTokens ?? 8000,
       // Four tries in all, for a busy or failing provider. A bad key or a
       // missing model fails the same way forever and is not tried again.
       maxRetries: 3,

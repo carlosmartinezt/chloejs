@@ -1,5 +1,5 @@
 // The tools over services/gmailService.ts: reading the mail an agent is bound
-// to, and answering one of those messages.
+// to, answering one of those messages, and sending one as the signed-in person.
 //
 // The binding lives in the agent's config, not in anything the model can
 // write. For reading, all the model chooses is how far back and how many. For
@@ -11,8 +11,8 @@ import { z } from "zod";
 import { markdownToHtml, markdownToText } from "#chloe/services/emailService";
 import { writeFiles } from "#chloe/services/filesService";
 import { readEmailMessages, readOneEmailMessage, replyGmail } from "#chloe/services/gmailService";
-import type { Tools } from "#chloe/model/tool";
-import { googleSignInTools } from "./google.ts";
+import { agentOf } from "#chloe/model/tool";
+import { sendingTool, type SendOptions } from "./email.ts";
 
 interface Options {
   /**
@@ -25,24 +25,21 @@ interface Options {
   what?: string;
   /** Days back when the agent does not say. */
   days?: number;
-  id?: string;
 }
 
 /**
  * A tool that reads the mail the agent is bound to. The search is the
  * binding's, and the model chooses only how far back and how many.
  *
- * It comes with the Google sign-in, because mail that cannot be read because
- * nobody has signed in is not a different problem from mail: an agent that can
- * read mail can get itself signed in to read mail. Nothing to add, and no way
- * to have one without the other.
+ * It is marked `needs: "google"`, so the agent gets the Google sign-in beside it:
+ * mail that cannot be read because nobody has signed in is not a different
+ * problem from mail. Nothing to add, and no way to have one without the other.
  */
-export function readMail({
+export function gmailReadEmail({
   search = "in:inbox",
   what = "mail in the inbox",
   days = 7,
-  id = "readMail",
-}: Options = {}): Tools {
+}: Options = {}) {
   const read = tool({
     description:
       `Read ${what}. Lists what is there; pass a messageId from that list to read one in full. ` +
@@ -63,7 +60,7 @@ export function readMail({
         ? await readOneEmailMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
         : await readEmailMessages({ search, days: back ?? days, limit: limit ?? 10 }),
   });
-  return { [id]: read, ...googleSignInTools() };
+  return Object.assign(read, { needs: "google" as const });
 }
 
 interface ReplyOptions extends Options {
@@ -95,69 +92,75 @@ interface ReplyOptions extends Options {
  * choosing is the whole risk, and the only reliable answer is for the address
  * not to be an input.
  *
- * Give it the same `search` as the agent's `readMail`, so the mail it can
+ * Give it the same `search` as the agent's `gmailReadEmail`, so the mail it can
  * answer is exactly the mail that search lists.
  */
-export function replyMail({
+export function gmailReplyEmail({
   search = "in:inbox",
   what = "mail in the inbox",
   days = 7,
-  id = "replyMail",
   when = "",
   markdown = false,
   keep,
 }: ReplyOptions = {}) {
-  return (agent: { name: string; memory: { folder: string; commit?: boolean | "each run" } }): Tools => ({
-    ...googleSignInTools(),
-    [id]: tool({
-      description:
-        `Reply to one message in ${what}, as the account that reads it, in that message's own thread. ` +
-        `Pass a messageId the mail tool listed. It goes to whoever sent that message: you do not choose ` +
-        `the address, and this cannot start a new conversation or reach anybody who has not written in. ` +
-        `The subject is taken from the original.${when ? ` ${when}` : ""}`,
-      inputSchema: z.object({
-        messageId: z.string().describe("The message to answer. Must be an id the mail tool already listed."),
-        body: z
-          .string()
-          .min(20)
-          .describe(`${markdown ? "Markdown" : "Plain text"}. What to say, written as the person sending it.`),
-        days: z
-          .number()
-          .int()
-          .min(1)
-          .max(365)
-          .optional()
-          .describe("Only needed if the message is older than this tool's default."),
-      }),
-      execute: async ({ messageId, body, days: back }) => {
-        const sent = await replyGmail({
-          search,
-          what,
-          days: back ?? days,
-          // Generous, because this only decides how wide the fallback search
-          // looks for an id that was listed before this run rather than in it.
-          limit: 50,
-          messageId,
-          body: markdown ? markdownToText(body) : body,
-          html: markdown ? markdownToHtml(body) : undefined,
-        });
-        if (!keep) return sent;
-        const at = new Date().toISOString();
-        const slug = sent.subject.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
-        // Quoted, because the subject is the sender's words: a value that
-        // happens to hold a colon is a broken file, and the frontmatter of a
-        // file a model reads later is not a place to find out.
-        const copy = `---\nto: ${sent.to}\nsubject: ${JSON.stringify(sent.subject)}\nsent: ${at}\n---\n\n${body}\n`;
-        const { folder, commit } = agent.memory;
-        // With "each run", the end of the run commits the copy with everything else it wrote.
-        const kept = await writeFiles(folder, `${keep}/${at.slice(0, 16).replace("T", "-").replace(":", "")}-${slug}.md`, copy, {
-          commit: commit === true,
-          message: `Replied: ${sent.subject}`,
-          author: agent.name,
-          in: "memory",
-        });
-        return { ...sent, copy: kept.path };
-      },
+  const reply = tool({
+    description:
+      `Reply to one message in ${what}, as the account that reads it, in that message's own thread. ` +
+      `Pass a messageId the mail tool listed. It goes to whoever sent that message: you do not choose ` +
+      `the address, and this cannot start a new conversation or reach anybody who has not written in. ` +
+      `The subject is taken from the original.${when ? ` ${when}` : ""}`,
+    inputSchema: z.object({
+      messageId: z.string().describe("The message to answer. Must be an id the mail tool already listed."),
+      body: z
+        .string()
+        .min(20)
+        .describe(`${markdown ? "Markdown" : "Plain text"}. What to say, written as the person sending it.`),
+      days: z
+        .number()
+        .int()
+        .min(1)
+        .max(365)
+        .optional()
+        .describe("Only needed if the message is older than this tool's default."),
     }),
+    execute: async ({ messageId, body, days: back }, { context }) => {
+      const sent = await replyGmail({
+        search,
+        what,
+        days: back ?? days,
+        // Generous, because this only decides how wide the fallback search
+        // looks for an id that was listed before this run rather than in it.
+        limit: 50,
+        messageId,
+        body: markdown ? markdownToText(body) : body,
+        html: markdown ? markdownToHtml(body) : undefined,
+      });
+      if (!keep) return sent;
+      const at = new Date().toISOString();
+      const slug = sent.subject.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
+      // Quoted, because the subject is the sender's words: a value that
+      // happens to hold a colon is a broken file, and the frontmatter of a
+      // file a model reads later is not a place to find out.
+      const copy = `---\nto: ${sent.to}\nsubject: ${JSON.stringify(sent.subject)}\nsent: ${at}\n---\n\n${body}\n`;
+      const agent = agentOf(context);
+      const { folder, commit } = agent.memory;
+      // With "each run", the end of the run commits the copy with everything else it wrote.
+      const kept = await writeFiles(folder, `${keep}/${at.slice(0, 16).replace("T", "-").replace(":", "")}-${slug}.md`, copy, {
+        commit: commit === true,
+        message: `Replied: ${sent.subject}`,
+        author: agent.id,
+        in: "memory",
+      });
+      return { ...sent, copy: kept.path };
+    },
   });
+  return Object.assign(reply, { needs: "google" as const });
+}
+
+/**
+ * Sends mail as the person signed in to Google, from the address the agent was
+ * given, which has to be that account or an alias Google verified for it.
+ */
+export function gmailSendEmail(options: SendOptions) {
+  return Object.assign(sendingTool("gmail", options), { needs: "google" as const });
 }

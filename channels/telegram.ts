@@ -1,10 +1,10 @@
 // Talking to an agent from Telegram. It is one entry in the agent's channels:
 //
-//   // agents/<name>/agent.ts
+//   // agents/<id>/agent.ts
 //   import { telegramChannel } from "@chloejs/core/channels";
 //   channels: [telegramChannel({ allowFrom: [111111111] })],
 //
-// The bot's token is CHLOE_AGENTS_<name>_TELEGRAM in .env, or
+// The bot's token is CHLOE_AGENTS_<id>_TELEGRAM in .env, or
 // `credentials: { botToken }` here. To make a bot, message @BotFather in
 // Telegram, send /newbot, and pick a name and a username. It replies with the
 // token.
@@ -20,7 +20,7 @@
 //   "polling"  chloe asks Telegram for them. Nothing is exposed, and a message
 //              sent while chloe is down is picked up when it comes back. The
 //              default.
-//   "webhook"  Telegram sends each one to publicUrl + /chloe/v1/<agent>/telegram,
+//   "webhook"  Telegram sends each one to publicUrl + /chloe/v1/<id>/telegram,
 //              which has to be reachable past the login, and checks
 //              credentials.webhookSecretToken, or one made on start, on every
 //              call. chloe registers the address itself on start.
@@ -132,22 +132,22 @@ export function telegramChannel(options: TelegramOptions = {}): Channel {
     chatHistory: options.chatHistory,
     madeWith: JSON.stringify(options),
     start(agent) {
-      const name = agent()?.name ?? "";
-      const token = options.credentials?.botToken || settings.agents[name]?.telegram || "";
+      const agentId = agent()?.id ?? "";
+      const token = options.credentials?.botToken || settings.agents[agentId]?.telegram || "";
       if (!token) {
         console.error(
-          `telegram: ${name} has a Telegram channel but no bot. Message @BotFather in Telegram, send /newbot, ` +
-            `and put the token it gives you in .env as ${nameInEnv(["agents", name, "telegram"])}.`,
+          `telegram: ${agentId} has a Telegram channel but no bot. Message @BotFather in Telegram, send /newbot, ` +
+            `and put the token it gives you in .env as ${nameInEnv(["agents", agentId, "telegram"])}.`,
         );
         return { stop: () => {} };
       }
       const holder = taken.get(token);
-      if (holder && holder !== name) {
-        console.error(`telegram: ${holder} already answers this bot, so ${name}'s channel does nothing. Give it its own bot.`);
+      if (holder && holder !== agentId) {
+        console.error(`telegram: ${holder} already answers this bot, so ${agentId}'s channel does nothing. Give it its own bot.`);
         return { stop: () => {} };
       }
-      taken.set(token, name);
-      const running = listen({ ...options, name, channel: options.name, token, agent });
+      taken.set(token, agentId);
+      const running = listen({ ...options, agentId, channel: options.name, token, agent });
       return {
         routes: running.routes,
         stop() {
@@ -162,20 +162,20 @@ export function telegramChannel(options: TelegramOptions = {}): Channel {
 /** Reads messages until stopped. Separate from the channel so the tests can point it somewhere else. */
 export function listen(
   options: Omit<TelegramOptions, "name"> & {
-    /** The agent's name. */
-    name: string;
+    /** The agent's id. */
+    agentId: string;
     /** The channel's name, "telegram" when left out. */
     channel?: string;
     token: string;
     agent: () => Agent | undefined;
   },
 ): Running {
-  const { name, token } = options;
+  const { agentId, token } = options;
   const channel = options.channel ?? "telegram";
   const api = options.api ?? "https://api.telegram.org";
   const rules: Rules = { allowFrom: options.allowFrom ?? [], inGroups: options.inGroups, chatHistory: options.chatHistory, sendWhileWorking: options.sendWhileWorking };
   const mode = options.mode ?? "polling";
-  const path = `/chloe/v1/${name}/${channel}`;
+  const path = `/chloe/v1/${agentId}/${channel}`;
   const secret = options.credentials?.webhookSecretToken || randomBytes(24).toString("hex");
   const allowedTypes = options.uploadPolicy?.allowedMediaTypes ?? ["image/*", "application/pdf", "text/*"];
   const maxBytes = options.uploadPolicy?.maxBytes ?? 10 * 1024 * 1024;
@@ -224,10 +224,10 @@ export function listen(
           ? { inline_keyboard: [choices.map((choice, i) => ({ text: choice, callback_data: `a:${i}` }))] }
           : { force_reply: true },
       }),
-    name,
+    agentId,
   );
   // A private chat's id is the person's user id, so the first allowed person is reachable at it.
-  if (options.allowFrom?.[0]) ownedBy(name, `${channel}:${options.allowFrom[0]}`);
+  if (options.allowFrom?.[0]) ownedBy(agentId, `${channel}:${options.allowFrom[0]}`);
 
   /**
    * A reply's buttons, one a row, each carrying what it sends. Telegram holds
@@ -257,7 +257,7 @@ export function listen(
     const response = await fetch(`${api}/file/bot${token}/${file.file_path}`, { signal: AbortSignal.timeout(60_000) });
     const bytes = Buffer.from(await response.arrayBuffer());
     if (mediaType.startsWith("text/")) return { text: `<file name="${fileName}">\n${bytes.toString("utf8")}\n</file>` };
-    return { attachment: { mediaType, data: bytes.toString("base64"), name: fileName }, note: `(Attached: ${fileName})` };
+    return { attachment: { mediaType, data: bytes.toString("base64"), filename: fileName }, note: `(Attached: ${fileName})` };
   }
 
   /**
@@ -287,7 +287,7 @@ export function listen(
     return {
       channel,
       chat: String(chatId),
-      thread: `${name}/${channel}-${chatId}${topic ? `-${topic}` : ""}`,
+      thread: `${agentId}/${channel}-${chatId}${topic ? `-${topic}` : ""}`,
       from: { id: String(from.id), name: from.username ? `@${from.username}` : (from.first_name ?? String(from.id)) },
       text,
       private: message.chat.type === "private",
@@ -431,7 +431,7 @@ export function listen(
     me = await call<User>("getMe", {}).catch(() => undefined);
     if (mode === "webhook") {
       if (!options.publicUrl) {
-        console.error(`telegram: ${name} is in webhook mode with no publicUrl, so Telegram has nowhere to send messages.`);
+        console.error(`telegram: ${agentId} is in webhook mode with no publicUrl, so Telegram has nowhere to send messages.`);
         return;
       }
       await call("setWebhook", {
@@ -461,7 +461,7 @@ export function listen(
         }
       } catch (error) {
         if (stopping.signal.aborted) break;
-        console.error(`telegram: ${name} could not read messages, trying again in 5s:`, (error as Error).message);
+        console.error(`telegram: ${agentId} could not read messages, trying again in 5s:`, (error as Error).message);
         await new Promise((done) => setTimeout(done, 5000));
       }
     }
@@ -488,7 +488,7 @@ export function listen(
     routes: mode === "webhook" ? [{ path, handle: webhook }] : [],
     stop() {
       stopping.abort();
-      unreach(channel, name);
+      unreach(channel, agentId);
       // Anything still inside its stacking window is handled now rather than
       // dropped. A reader is replaced whenever the agent's folder is edited,
       // and how far this bot has read outlives it, so Telegram will not hand

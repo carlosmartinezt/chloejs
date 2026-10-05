@@ -224,7 +224,7 @@ export interface Work<State = Data, Args = Data> {
   readonly input: Envelope;
   readonly owner: string;
   /** Whose job this is. Notes, scripts and folders are filed under it. */
-  readonly agentName: string;
+  readonly agentId: string;
   /**
    * Where that agent remembers things: its memory folder. A job that files
    * something there reads the path from here rather than writing it down again,
@@ -291,7 +291,7 @@ export async function work(options: {
   signal?: AbortSignal;
 }): Promise<Result> {
   const { agent, job } = options;
-  if (!job.run) throw new Error(`${agent.name}/${job.id} is a prompt, not code.`);
+  if (!job.run) throw new Error(`${agent.id}/${job.id} is a prompt, not code.`);
 
   // Before the run exists, so a caller that sent the wrong thing is told so
   // rather than left reading a failed run to find out.
@@ -299,14 +299,14 @@ export async function work(options: {
   const input = envelopeOf(options.input);
 
   const runId = randomUUID();
-  const owner = whoOwns(agent.name);
+  const owner = whoOwns(agent.id);
   const state = starting(job);
   db.prepare(
     `insert into runs (id, agent, started, source, job, model, prompt, kind, owner, state, args, input)
      values (?, ?, ?, ?, ?, 'code', '', 'job', ?, ?, ?, ?)`,
   ).run(
     runId,
-    agent.name,
+    agent.id,
     new Date().toISOString(),
     options.source ?? "unknown",
     job.id,
@@ -411,7 +411,7 @@ export async function resume(runId: string, agents: Map<string, Agent>, signal?:
     cost: row.cost,
     state: row.state ? (JSON.parse(row.state) as Data) : starting(job),
     parked: JSON.parse(row.parked) as Parked,
-    owner: row.owner ?? whoOwns(agent.name),
+    owner: row.owner ?? whoOwns(agent.id),
     model: row.model,
     signal,
   });
@@ -433,7 +433,7 @@ async function drive(ctx: Ctx): Promise<Result> {
     args: ctx.args,
     input: ctx.input,
     owner: ctx.owner,
-    agentName: ctx.agent.name,
+    agentId: ctx.agent.id,
     memory: ctx.agent.memory.folder,
     runId: ctx.runId,
     signal: ctx.signal,
@@ -703,6 +703,7 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
         model: using,
         messages,
         tools,
+        context: { agent: ctx.agent },
         stopWhen: attempt === 0 ? stopWhen : [isStepCount(1)],
         before,
         budget: options.budget === undefined ? undefined : options.budget - spent,
@@ -716,7 +717,7 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
         // step that fails half way through still says what it spent and ran.
         onStep: (line) => {
           if (line.cost) spent = charge(line.cost);
-          if (line.tool) calls.push({ tool: line.tool, args: line.args, result: line.result, ...(line.refused && { refused: true }) });
+          if (line.tool) calls.push({ toolName: line.tool, input: line.args, output: line.result, ...(line.refused && { refused: true }) });
         },
       });
       ctx.model = using;
@@ -756,7 +757,7 @@ async function waitFor(ctx: Ctx, name: string, waiting: { calls: ToolCall[]; rea
   const tool = waiting.calls[0].function.name;
   const input = JSON.stringify(waiting.input, null, 2);
   const question =
-    `${ctx.agent.label ?? ctx.agent.name} wants to use ${tool} in ${JSON.stringify(name)}` +
+    `${ctx.agent.label ?? ctx.agent.id} wants to use ${tool} in ${JSON.stringify(name)}` +
     `${waiting.reason ? `, which needs a yes: ${waiting.reason}` : ""}.\n` +
     `${input.length > 1500 ? `${input.slice(0, 1500)}…` : input}\nShould it go ahead?`;
   ctx.parked = {
@@ -769,7 +770,7 @@ async function waitFor(ctx: Ctx, name: string, waiting: { calls: ToolCall[]; rea
     agent,
   };
   save(ctx);
-  await deliver(ctx.owner, `${question}\n${hint(z.boolean())}`, ctx.agent.name, choices(z.boolean()));
+  await deliver(ctx.owner, `${question}\n${hint(z.boolean())}`, ctx.agent.id, choices(z.boolean()));
   throw new Waiting(`waiting on ${ctx.owner}`);
 }
 
@@ -787,7 +788,7 @@ async function decision(ctx: Ctx, waited: Parked): Promise<Decided> {
   if (confusions > 3) return "no";
   ctx.parked = { ...waited, reply: undefined, confusions };
   save(ctx);
-  await deliver(waited.who, `I did not understand that. ${waited.question}\n${hint(z.boolean())}`, ctx.agent.name, choices(z.boolean()));
+  await deliver(waited.who, `I did not understand that. ${waited.question}\n${hint(z.boolean())}`, ctx.agent.id, choices(z.boolean()));
   throw new Waiting(`waiting on ${waited.who}`);
 }
 
@@ -845,7 +846,7 @@ async function askStep<S extends z.ZodType>(ctx: Ctx, name: string, options: Ask
     }
     ctx.parked = { ...waiting, reply: undefined, confusions };
     save(ctx);
-    await deliver(who, `I did not understand that. ${options.question}\n${hint(options.answer)}`, ctx.agent.name, choices(options.answer));
+    await deliver(who, `I did not understand that. ${options.question}\n${hint(options.answer)}`, ctx.agent.id, choices(options.answer));
     throw new Waiting(`waiting on ${who}`);
   }
 
@@ -858,7 +859,7 @@ async function askStep<S extends z.ZodType>(ctx: Ctx, name: string, options: Ask
     expires: new Date(Date.now() + minutes(options.within ?? WAIT) * 60_000).toISOString(),
   };
   save(ctx);
-  await deliver(who, `${options.question}\n${hint(options.answer)}`, ctx.agent.name, choices(options.answer));
+  await deliver(who, `${options.question}\n${hint(options.answer)}`, ctx.agent.id, choices(options.answer));
   throw new Waiting(`waiting on ${who}`);
 }
 

@@ -5,7 +5,7 @@
 // input can be a path, and arguments are passed one at a time, never as a
 // shell string.
 //
-// The tool a model reaches is model/tools/runScript.ts. A job calls
+// The tool a model reaches is model/tools/scriptRun.ts. A job calls
 // these from a step.
 import { readdir } from "node:fs/promises";
 

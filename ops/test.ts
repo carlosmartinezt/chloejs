@@ -86,6 +86,7 @@ const { answer, db, sweep, waitingFor, waitingOn, work } = await import("@chloej
 type Agent = import("@chloejs/core").Agent;
 type Job = import("@chloejs/core").Job;
 type Line = import("@chloejs/core").Line;
+type Tools = import("@chloejs/core").Tools;
 
 // The runtime's own site, so whether a page package happens to be installed in
 // this repo decides nothing here. A setting, so it is written rather than put in
@@ -102,7 +103,7 @@ function codeJob(id: string, run: Job["run"], state?: z.ZodType, response?: Job[
 
 function agentFor(job: Job): Agent {
   return {
-    name: "test",
+    id: "test",
     folder: tmpdir(),
     memory: { folder: `${tmpdir()}/memory-of-test` },
     description: "",
@@ -169,7 +170,7 @@ about("what a run did, in one line");
   is("and it says so", row(done.runId).summary, "(its response failed: no such field)");
 
   const { recentWork } = await import("#chloe/serve/recentWork");
-  const agent = { ...agentFor(counted), name: "recent" };
+  const agent = { ...agentFor(counted), id: "recent" };
   const at = (minutes: number) => new Date(Date.UTC(2026, 0, 1, 0, minutes)).toISOString();
   const insert = db.prepare(
     "insert into runs (id, agent, started, finished, source, job, model, prompt, summary, error, cost) values (?, 'recent', ?, ?, ?, ?, 'code', '', ?, ?, ?)",
@@ -240,7 +241,7 @@ about("what started a run, and what to say about it");
   const first = await work({ agent: waiter, job: memorable, input: { text: "a highlight", from: "telegram" } });
   is("it parked", first.parked, true);
   is("the question names the message", sent.slice(before), ["somebody: File a highlight?\n(yes or no)"]);
-  const done = await answer(first.runId, "yes", new Map([[waiter.name, waiter]]));
+  const done = await answer(first.runId, "yes", new Map([[waiter.id, waiter]]));
   is("the message survived the pause", done.text, "filed a highlight");
   sent.splice(before);
 }
@@ -275,9 +276,9 @@ about("an agent step: the goal is yours, the order is the model's");
   const result = await work({ agent: agentFor(job), job });
   is("it ran the tool it was given", looked, ["logs"]);
   is("and answered in the shape", JSON.parse(result.text), { why: "the deploy failed at 03:00" });
-  const line = (JSON.parse(row(result.runId).trace) as { kind: string; cost: number; calls?: { tool: string }[] }[])[0];
+  const line = (JSON.parse(row(result.runId).trace) as { kind: string; cost: number; calls?: { toolName: string }[] }[])[0];
   is("the run calls it an agent step", line.kind, "agent");
-  is("what it ran is written down", line.calls?.map((one) => one.tool), ["look"]);
+  is("what it ran is written down", line.calls?.map((one) => one.toolName), ["look"]);
   is("and both turns are priced", line.cost, 0.0004);
 }
 
@@ -296,7 +297,7 @@ about("an agent written with the AI SDK's own model and tools");
   const standIn = createOpenAICompatible({ name: "standin", baseURL: process.env.AI_GATEWAY_URL!.replace(/\/chat\/completions$/, "") });
   const asked_: string[] = [];
   const definition = defineAgent({
-    name: "sdk",
+    id: "sdk",
     folder: await mkdtemp(join(tmpdir(), "chloe-sdk-")),
     description: "",
     instructions: "Answer about the weather.",
@@ -354,16 +355,18 @@ about("an agent written with the AI SDK's own model and tools");
 
   const asking = defineAgent({
     ...definition,
-    name: "sdk-asking",
+    id: "sdk-asking",
     tools: { pay: tool({ description: "Pay.", inputSchema: z.object({}), needsApproval: true, execute: async () => "paid" }) },
   });
   const { approval } = await import("#chloe/model/tool");
-  const pay = (await resolveAgent(asking)).tools!.pay;
+  const loaded = await resolveAgent(asking);
+  const pay = loaded.tools!.pay;
+  const here = { agent: loaded };
   is("a tool that wants approval loads", typeof pay.execute, "function");
-  is("and wants a person", await approval({ pay }, "pay", {}, "1"), { person: "" });
-  is("unless toolApproval approves it first, as the AI SDK has it", await approval({ pay }, "pay", {}, "1", { pay: "approved" }), { run: true });
-  is("and toolApproval saying nothing leaves it to the tool", await approval({ pay }, "pay", {}, "1", () => "not-applicable"), { person: "" });
-  is("a denial's reason is what the model is told", await approval({ pay }, "pay", {}, "1", { pay: { type: "denied", reason: "not on Sundays" } }), { denied: "not on Sundays" });
+  is("and wants a person", await approval({ pay }, "pay", {}, "1", here), { person: "" });
+  is("unless toolApproval approves it first, as the AI SDK has it", await approval({ pay }, "pay", {}, "1", here, { pay: "approved" }), { run: true });
+  is("and toolApproval saying nothing leaves it to the tool", await approval({ pay }, "pay", {}, "1", here, () => "not-applicable"), { person: "" });
+  is("a denial's reason is what the model is told", await approval({ pay }, "pay", {}, "1", here, { pay: { type: "denied", reason: "not on Sundays" } }), { denied: "not on Sundays" });
 }
 
 about("an agent step that runs out of steps, and one with nothing to call");
@@ -440,9 +443,9 @@ about("an agent step kept inside its budget");
   is("and the run is charged for what it did spend", dear.cost, 0.0004);
   // A step that failed is still a step that happened, or a budget blowout
   // would say what it cost and not what it spent the money on.
-  const line = (JSON.parse(dear.trace) as { kind: string; cost: number; failed?: string; calls?: { tool: string }[] }[])[0];
+  const line = (JSON.parse(dear.trace) as { kind: string; cost: number; failed?: string; calls?: { toolName: string }[] }[])[0];
   is("the step it failed on is still a line", [line.kind, line.cost], ["agent", 0.0004]);
-  is("with the calls that spent the money", line.calls?.map((one) => one.tool), ["wander"]);
+  is("with the calls that spent the money", line.calls?.map((one) => one.toolName), ["wander"]);
   is("and why it stopped", line.failed?.includes("budget"), true);
 
   // The second go at the shape is another turn, so it is the budget's business
@@ -499,9 +502,9 @@ about("an agent step whose calls the job has to allow");
   );
   const result = await work({ agent: agentFor(job), job });
   is("the call it was not allowed never ran", looked, ["logs"]);
-  const line = (JSON.parse(row(result.runId).trace) as { calls?: { tool: string; result: unknown; refused?: boolean }[] }[])[0];
+  const line = (JSON.parse(row(result.runId).trace) as { calls?: { toolName: string; output: unknown; refused?: boolean }[] }[])[0];
   is("the refusal is written down beside the call", line.calls?.map((one) => one.refused === true), [true, false]);
-  is("and the model was told why", String(line.calls?.[0].result).includes("only the logs are yours to read"), true);
+  is("and the model was told why", String(line.calls?.[0].output).includes("only the logs are yours to read"), true);
   is("so it tried another way and finished", JSON.parse(result.text), { why: "the deploy failed at 03:00" });
   answers.length = 0;
 }
@@ -546,9 +549,9 @@ about("an approve that cannot answer, and a question from inside a step");
     work.agent("work out what happened", { prompt: "Say why the site went down.", tools: { look }, toolApproval: () => "denied" }),
   );
   const said = await work({ agent: agentFor(flat), job: flat });
-  const told = (JSON.parse(row(said.runId).trace) as { calls?: { result: unknown; refused?: boolean }[] }[])[0];
+  const told = (JSON.parse(row(said.runId).trace) as { calls?: { output: unknown; refused?: boolean }[] }[])[0];
   is("a refusal with no reason given still stops the call", told.calls?.[0].refused, true);
-  is("and says so in words the model can use", String(told.calls?.[0].result).includes("it was denied"), true);
+  is("and says so in words the model can use", String(told.calls?.[0].output).includes("it was denied"), true);
 
   const priced = codeJob("priced", async (work) =>
     work.agent("go round", { prompt: "Spend nothing.", tools: { look }, budget: 0 }),
@@ -587,7 +590,7 @@ about("a job that waits for a person");
     z.object({ down: z.array(z.string()).default([]) }),
   );
   const agent = agentFor(job);
-  const agents = new Map([[agent.name, agent]]);
+  const agents = new Map([[agent.id, agent]]);
 
   const first = await work({ agent, job });
   is("it parked", first.parked, true);
@@ -633,7 +636,7 @@ about("an agent step that stops for a person to approve a call");
     return work.agent("pay up", { prompt: "Pay what is owed.", tools: { pay } });
   });
   const agent = agentFor(job);
-  const agents = new Map([[agent.name, agent]]);
+  const agents = new Map([[agent.id, agent]]);
 
   asked = 0;
   answers.length = 0;
@@ -652,7 +655,7 @@ about("an agent step that stops for a person to approve a call");
   is("the step before it did not run again", gathered, 1);
   is("and the model was not asked again for what it had already said", asked, 2);
   const line = (JSON.parse(row(done.runId).trace) as Line[])[1];
-  is("the agent step is one line, with every call it made", line.calls?.map((one) => (one.args as { amount: number }).amount), [20, 240]);
+  is("the agent step is one line, with every call it made", line.calls?.map((one) => (one.input as { amount: number }).amount), [20, 240]);
   is("priced for both turns, the one before the wait and the one after", line.cost, 0.0004);
 
   paid.length = 0;
@@ -662,7 +665,7 @@ about("an agent step that stops for a person to approve a call");
   const said = await answer(again.runId, "no", agents);
   is("a no refuses that call, and the model is told", [paid, said.text], [[20], "Paid the small one."]);
   const refused = (JSON.parse(row(said.runId).trace) as Line[])[1].calls?.[1];
-  is("and the refusal is in the record", [refused?.refused, String(refused?.result).includes("the person asked said no")], [true, true]);
+  is("and the refusal is in the record", [refused?.refused, String(refused?.output).includes("the person asked said no")], [true, true]);
   answers.length = 0;
 }
 
@@ -685,7 +688,7 @@ about("a step that failed, on a run that carried on past it");
   const first = await work({ agent, job });
   is("the step that failed is a line in the record", JSON.parse(row(first.runId).trace)[0].failed, "it did not work");
 
-  const done = await answer(first.runId, "yes", new Map([[agent.name, agent]]));
+  const done = await answer(first.runId, "yes", new Map([[agent.id, agent]]));
   is("it did not run again on the way back", tried, 1);
   is("and it failed the same way it failed the first time", JSON.parse(done.text).why, "it did not work");
 }
@@ -698,7 +701,7 @@ about("nobody answers");
   const agent = agentFor(job);
   const first = await work({ agent, job });
   timePasses(first.runId);
-  await sweep(new Map([[agent.name, agent]]));
+  await sweep(new Map([[agent.id, agent]]));
   is("it carried on with what the ask said to", JSON.parse(row(first.runId).reply), { deployed: false });
   is("and stopped holding its job", waitingFor("test", "lapsing"), false);
 }
@@ -709,7 +712,7 @@ about("nobody answers, and the ask had nothing to carry on with");
   const agent = agentFor(job);
   const first = await work({ agent, job });
   timePasses(first.runId);
-  await sweep(new Map([[agent.name, agent]]));
+  await sweep(new Map([[agent.id, agent]]));
   is("the run stopped and said why", String(row(first.runId).error).startsWith("Nobody answered"), true);
   is("and stopped holding its job", waitingFor("test", "stuck"), false);
 }
@@ -726,7 +729,7 @@ about("the job was edited while a run was waiting");
     return ask("go?", { question: "Go?", answer: z.boolean() });
   } } as Job;
   const edited = agentFor(after);
-  const result = await answer(first.runId, "yes", new Map([[edited.name, edited]]));
+  const result = await answer(first.runId, "yes", new Map([[edited.id, edited]]));
   is("it refused to hand the wrong answer to the wrong step", String(row(result.runId).error).startsWith("This job changed"), true);
 }
 
@@ -1159,31 +1162,28 @@ about("a model step that never fits");
   }
 
   about("what a Google tool brings with it");
-  const { readMail } = await import("#chloe/model/tools/gmail");
-  const { sendEmail } = await import("#chloe/model/tools/sendEmail");
+  const { gmailReadEmail, gmailSendEmail } = await import("#chloe/model/tools/gmail");
+  const { resendSendEmail } = await import("#chloe/model/tools/resend");
 
   // Nobody should have to remember to add the sign-in. An agent that can read
   // mail can get itself signed in to read mail, and that is one decision.
-  const reading = readMail({ search: "in:inbox" });
-  is("readMail is not one tool on its own", Object.keys(reading).sort(), [
-    "finishGoogleSignIn",
+  const { defineAgent: define } = await import("@chloejs/core");
+  const { resolveAgent: resolve } = await import("#chloe/load/load");
+  const toolsOf = async (tools: Tools) =>
+    Object.keys((await resolve(define({ id: "mail", folder: await mkdtemp(join(tmpdir(), "chloe-mail-")), model: "m", description: "", instructions: "Hi.", features: { memory: false }, tools }))).tools ?? {}).sort();
+  is("gmailReadEmail comes with the sign-in", await toolsOf({ gmailReadEmail: gmailReadEmail({ search: "in:inbox" }) }), [
+    "gmailReadEmail",
     "googleSignIn",
-    "readMail",
+    "googleSignInComplete",
   ]);
 
-  // Both of them bringing it is the case that would have thrown, before the
-  // loader learned that the same tool twice is the same tool.
-  const home = { name: "somebody", folder: "/tmp", memory: { folder: "/tmp", commit: false } };
-  const providerWas = settings.email.provider;
-  settings.email.provider = "gmail";
-  const sending = sendEmail({ when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] })(home);
-  is("sendEmail brings it too, when the mail goes out through Google", "googleSignIn" in sending, true);
-  is("and it is the same tool, not a second one of the name", sending.googleSignIn === reading.googleSignIn, true);
-
-  settings.email.provider = "resend";
-  const elsewhere = sendEmail({ when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] })(home);
-  is("through any other provider there is nothing to sign in to", "googleSignIn" in elsewhere, false);
-  settings.email.provider = providerWas;
+  const sender = { when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] };
+  is("gmailSendEmail does too", await toolsOf({ gmailSendEmail: gmailSendEmail(sender) }), [
+    "gmailSendEmail",
+    "googleSignIn",
+    "googleSignInComplete",
+  ]);
+  is("resendSendEmail has nothing to sign in to", await toolsOf({ resendSendEmail: resendSendEmail(sender) }), ["resendSendEmail"]);
 
   about("what the person is told to do");
   const { whatToDo } = await import("#chloe/services/googleService");
@@ -1269,10 +1269,10 @@ about("a model step that never fits");
 
   is("plain words are an answer", readReply("The site is up.").call, undefined);
   const tagged = readReply(
-    'Let me look.\n<invoke name="readNotes">\n<parameter name="path">2026</parameter>\n<parameter name="limit">5</parameter>\n</invoke>\n</invoke>\n<invoke name="readNotes">',
-    [{ name: "readNotes", description: "", parameters: { type: "object", properties: { path: { type: "string" }, limit: { type: "number" } } } }],
+    'Let me look.\n<invoke name="memoryReadFile">\n<parameter name="path">2026</parameter>\n<parameter name="limit">5</parameter>\n</invoke>\n</invoke>\n<invoke name="memoryReadFile">',
+    [{ name: "memoryReadFile", description: "", parameters: { type: "object", properties: { path: { type: "string" }, limit: { type: "number" } } } }],
   );
-  is("the tag form Claude is trained on is a request too", tagged.call?.function.name, "readNotes");
+  is("the tag form Claude is trained on is a request too", tagged.call?.function.name, "memoryReadFile");
   is("its values follow the tool's schema", tagged.call?.function.arguments, '{"path":"2026","limit":5}');
   is("and what came before it is what it said", tagged.said, "Let me look.");
   is(
@@ -1308,11 +1308,11 @@ about("a model step that never fits");
   );
 
   const several = readReply(
-    'Reading both.\n{"tool": "readNotes", "arguments": {"path": "a.html"}}\n{"tool": "searchNotes", "arguments": {"query": "citi"}}',
+    'Reading both.\n{"tool": "memoryReadFile", "arguments": {"path": "a.html"}}\n{"tool": "memorySearchFiles", "arguments": {"query": "citi"}}',
   );
-  is("several requests, one a line, are all read, in order", several.calls.map((c) => c.function.name), ["readNotes", "searchNotes"]);
+  is("several requests, one a line, are all read, in order", several.calls.map((c) => c.function.name), ["memoryReadFile", "memorySearchFiles"]);
   is("and what came before them is what it said", several.said, "Reading both.");
-  is("the first is still the one call for a caller that takes one", several.call?.function.name, "readNotes");
+  is("the first is still the one call for a caller that takes one", several.call?.function.name, "memoryReadFile");
   is(
     "a request over several lines counts as one of them",
     readReply('{"tool": "a", "arguments": {}}\n{\n  "tool": "b",\n  "arguments": {"x": 1}\n}').calls.map((c) => c.function.arguments),
@@ -1335,24 +1335,24 @@ about("a model step that never fits");
   );
   is("plain words ask for nothing", readReply("All fine.").calls, []);
 
-  // A Telegram run ended by sending the user `listNotes with {"path":"01_projects"}`:
+  // A Telegram run ended by sending the user `memoryListFiles with {"path":"01_projects"}`:
   // the transcript showed past calls in another shape, and the model copied it.
   const { asText } = await import("#chloe/model/cli");
-  const listNotes = [{ name: "listNotes", description: "", parameters: { type: "object", properties: { path: { type: "string" } } } }];
+  const memoryListFiles = [{ name: "memoryListFiles", description: "", parameters: { type: "object", properties: { path: { type: "string" } } } }];
   const { transcript } = asText({
-    tools: listNotes,
+    tools: memoryListFiles,
     messages: [
       { role: "user", content: "add a note" },
       {
         role: "assistant",
         content: "",
-        tool_calls: [{ id: "1", type: "function", function: { name: "listNotes", arguments: '{"path":"02_areas"}' } }],
+        tool_calls: [{ id: "1", type: "function", function: { name: "memoryListFiles", arguments: '{"path":"02_areas"}' } }],
       },
       { role: "tool", tool_call_id: "1", content: "[]" },
     ],
   });
-  const shown = transcript.split("\n").find((line) => line.includes("listNotes"));
-  is("a past call is shown in the shape the rules ask for", shown, '{"tool":"listNotes","arguments":{"path":"02_areas"}}');
+  const shown = transcript.split("\n").find((line) => line.includes("memoryListFiles"));
+  is("a past call is shown in the shape the rules ask for", shown, '{"tool":"memoryListFiles","arguments":{"path":"02_areas"}}');
   is("a single result keeps its plain heading", transcript.includes("[result]\n[]"), true);
   const both = asText({
     messages: [
@@ -1361,8 +1361,8 @@ about("a model step that never fits");
         role: "assistant",
         content: "",
         tool_calls: [
-          { id: "1", type: "function", function: { name: "listNotes", arguments: "{}" } },
-          { id: "2", type: "function", function: { name: "searchNotes", arguments: '{"query":"citi"}' } },
+          { id: "1", type: "function", function: { name: "memoryListFiles", arguments: "{}" } },
+          { id: "2", type: "function", function: { name: "memorySearchFiles", arguments: '{"query":"citi"}' } },
         ],
       },
       { role: "tool", tool_call_id: "1", content: "[a]" },
@@ -1371,52 +1371,52 @@ about("a model step that never fits");
   }).transcript;
   is(
     "results of several calls say which call each answers",
-    [both.includes("[result of listNotes]\n[a]"), both.includes("[result of searchNotes]\n[b]")],
+    [both.includes("[result of memoryListFiles]\n[a]"), both.includes("[result of memorySearchFiles]\n[b]")],
     [true, true],
   );
   is(
     "and copying it word for word is a request",
-    readReply(shown ?? "", listNotes).call?.function.arguments,
+    readReply(shown ?? "", memoryListFiles).call?.function.arguments,
     '{"path":"02_areas"}',
   );
   is(
     "a call written as a sentence is still a request",
-    readReply('listNotes with {"path":"01_projects"}', listNotes).call?.function.arguments,
+    readReply('memoryListFiles with {"path":"01_projects"}', memoryListFiles).call?.function.arguments,
     '{"path":"01_projects"}',
   );
   is(
     "bracketed too, with what came before kept",
-    readReply('Let me look.\n[asked for listNotes with {"path":"01_projects"}]', listNotes).said,
+    readReply('Let me look.\n[asked for memoryListFiles with {"path":"01_projects"}]', memoryListFiles).said,
     "Let me look.",
   );
   is(
     "but only for a tool the agent has",
-    readReply('send_money with {"to":"x"}', listNotes).call,
+    readReply('send_money with {"to":"x"}', memoryListFiles).call,
     undefined,
   );
   is(
     "and not in the middle of a sentence",
-    readReply('I called listNotes with {"path":"01_projects"} and it was empty.', listNotes).call,
+    readReply('I called memoryListFiles with {"path":"01_projects"} and it was empty.', memoryListFiles).call,
     undefined,
   );
 
   // A morning run ended after one turn: the model asked for a file, then wrote
   // the file's contents itself and carried on. None of it ran.
-  const readNotes = [{ name: "readNotes", description: "", parameters: { type: "object", properties: { path: { type: "string" } } } }];
+  const memoryReadFile = [{ name: "memoryReadFile", description: "", parameters: { type: "object", properties: { path: { type: "string" } } } }];
   const ahead = readReply(
     [
       "I'll start with the briefing.",
       "",
-      '{"tool": "readNotes", "arguments": {"path": "BRIEFING.md"}}',
+      '{"tool": "memoryReadFile", "arguments": {"path": "BRIEFING.md"}}',
       "",
       "[tool_result]",
       "# BRIEFING.md",
       "Generated: 2026-10-03T06:45:02Z",
       "",
       "Sending the summary.",
-      '{"tool": "readNotes", "arguments": {"path": "STATUS.md"}}',
+      '{"tool": "memoryReadFile", "arguments": {"path": "STATUS.md"}}',
     ].join("\n"),
-    readNotes,
+    memoryReadFile,
   );
   is(
     "a request followed by a result it wrote itself is the first request alone",
@@ -1427,31 +1427,31 @@ about("a model step that never fits");
   is("and the rest kept aside, not acted on", ahead.dropped?.split("\n")[0], "[tool_result]");
   is(
     "a [system] heading is the model writing a result too",
-    readReply('Checking mail.\n{"tool": "readNotes", "arguments": {}}\n[system] {"count":0}', readNotes).dropped,
+    readReply('Checking mail.\n{"tool": "memoryReadFile", "arguments": {}}\n[system] {"count":0}', memoryReadFile).dropped,
     '[system] {"count":0}',
   );
   is(
     "but only for a tool the agent has",
-    readReply('{"tool": "send_money", "arguments": {}}\n[tool_result]\nsent', readNotes).call,
+    readReply('{"tool": "send_money", "arguments": {}}\n[tool_result]\nsent', memoryReadFile).call,
     undefined,
   );
   is(
     "and a heading with words between it and the request is an answer",
-    readReply('{"tool": "readNotes", "arguments": {}}\nthat is how you ask.\n[note]\nfine', readNotes).call,
+    readReply('{"tool": "memoryReadFile", "arguments": {}}\nthat is how you ask.\n[note]\nfine', memoryReadFile).call,
     undefined,
   );
 
   // A Telegram reply said it was filing a comment and sent the request itself
   // as the answer: the object was one closing brace short, so nothing ran.
-  const short = readReply('Adding it now.\n\n{"tool":"readNotes","arguments":{"path":"a {b}.html"}', readNotes);
+  const short = readReply('Adding it now.\n\n{"tool":"memoryReadFile","arguments":{"path":"a {b}.html"}', memoryReadFile);
   is("a request short of its closing braces runs", short.call?.function.arguments, '{"path":"a {b}.html"}');
   is("with the words before it kept", short.said, "Adding it now.");
   is(
     "one broken some other way still goes to the tool, which says it is not JSON",
-    readReply('{"tool": "readNotes", "arguments": {"path": "a",,}}', readNotes).call?.function.arguments,
-    '{"tool": "readNotes", "arguments": {"path": "a",,}}',
+    readReply('{"tool": "memoryReadFile", "arguments": {"path": "a",,}}', memoryReadFile).call?.function.arguments,
+    '{"tool": "memoryReadFile", "arguments": {"path": "a",,}}',
   );
-  is("but only for a tool the agent has", readReply('{"tool": "send_money", "arguments": {', readNotes).call, undefined);
+  is("but only for a tool the agent has", readReply('{"tool": "send_money", "arguments": {', memoryReadFile).call, undefined);
 }
 
 {
@@ -1671,9 +1671,9 @@ about("a model step that never fits");
   // for as long as nobody looked. Loading them all is the cheapest way to
   // notice.
   const { defineAgent } = await import("@chloejs/core");
-  const here = defineAgent({ name: "here", model: "m", description: "", instructions: "Hello." });
+  const here = defineAgent({ id: "here", model: "m", description: "", instructions: "Hello." });
   is("an agent's folder is the one it is written in, unless it says", here.folder, import.meta.dirname);
-  is("and it can say", defineAgent({ ...here, folder: "/elsewhere" }).folder, "/elsewhere");
+  is("and it can say", defineAgent({ ...here, id: here.id, folder: "/elsewhere" }).folder, "/elsewhere");
 
   const all = await loadAll().then((found) => found, (error: Error) => error);
   is("every agent loads", all instanceof Error ? all.message : null, null);
@@ -1696,7 +1696,7 @@ about("a model step that never fits");
         if (isJob && !ids.has(job.id as string)) unnamed.push(`jobs/${file}: ${job.id}`);
       }
     }
-    is(`every job in ${agent.name}'s jobs folder is named in its agent.ts`, unnamed, []);
+    is(`every job in ${agent.id}'s jobs folder is named in its agent.ts`, unnamed, []);
   }
 }
 
@@ -1883,8 +1883,8 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   about("the folder the page reads and writes");
 
   const { editable, open, save, tree } = await import("#chloe/serve/files");
-  const { names } = await import("@chloejs/core");
-  const agent = (await names())[0];
+  const { agentIds } = await import("@chloejs/core");
+  const agent = (await agentIds())[0];
 
   const top = await tree(agent);
   is("folders come before files", [...top].sort((a, b) => Number(b.dir) - Number(a.dir)), top);
@@ -1970,7 +1970,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("a code block keeps its lines", telegramHtml("```\na < b\n  c\n```"), "<pre>a &lt; b\n  c</pre>");
   is("a quote is a quote", telegramHtml("> said\n> twice"), "<blockquote>said\ntwice</blockquote>");
   is("a link that is not a web or mail address stays as written", telegramHtml("[go](javascript:alert(1))"), "[go](javascript:alert(1))");
-  is("underscores in a name are left alone", telegramHtml("runScript and shipCodeChange"), "runScript and shipCodeChange");
+  is("underscores in a name are left alone", telegramHtml("scriptRun and webReadPage"), "scriptRun and webReadPage");
   is("a sum is not italics", telegramHtml("2 * 3 * 4"), "2 * 3 * 4");
   is("a long reply is cut at a line break", inPieces("aaaa\nbbbb\ncc", 10), ["aaaa\nbbbb", "cc"]);
   is("and one with none is cut where it has to be", inPieces("abcdefghij", 4), ["abcd", "efgh", "ij"]);
@@ -1985,8 +1985,8 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     const log = console.error;
     console.error = (line: string) => void said.push(line);
     const channel = telegramChannel({ api: "http://127.0.0.1:9" });
-    channel.start(() => ({ name: "second" }) as any).stop();
-    channel.start(() => ({ name: "first" }) as any).stop();
+    channel.start(() => ({ id: "second" }) as any).stop();
+    channel.start(() => ({ id: "first" }) as any).stop();
     console.error = log;
     settings.agents = before;
     is("an agent with no entry has no bot, and is not handed another's", said.some((l) => l.includes("second has a Telegram channel but no bot")), true);
@@ -2015,7 +2015,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
       stackWithin: 5,
       credentials: { botToken: "8301554167:AAH3kQ2vB7pLxZr9TnW4sYdE1cJmU6oKgFa" },
     });
-    const shown = channelsOf({ name: "first", channels: [channel] } as any)[0].settings;
+    const shown = channelsOf({ id: "first", channels: [channel] } as any)[0].settings;
     is("who may reach it and how it answers are shown", shown?.slice(0, 3), [
       { name: "allowFrom", value: "111111111" },
       { name: "inGroups", value: "always" },
@@ -2028,7 +2028,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     const held = telegramChannel({ credentials: { botToken: "the-one-in-settings" } });
     is(
       "nor is a short one the settings hold",
-      channelsOf({ name: "first", channels: [held] } as any)[0].settings,
+      channelsOf({ id: "first", channels: [held] } as any)[0].settings,
       [{ name: "credentials", value: "botToken hidden" }],
     );
     settings.agents = before;
@@ -2083,7 +2083,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const job = codeJob("unused", async () => ({}));
   const agent = agentFor(job);
 
-  const first = listen({ name: "test", token: "t", api, agent: () => agent });
+  const first = listen({ agentId: "test", token: "t", api, agent: () => agent });
   inbox.push(privately(1, stranger, "hi"));
   await settle(1);
   first.stop();
@@ -2093,7 +2093,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("it clears a webhook first, or Telegram refuses to hand out messages", calls.some((c) => c.method === "deleteWebhook"), true);
   is("a reply goes as telegram's formatting", calls.find((c) => c.method === "sendMessage")?.body.parse_mode, "HTML");
 
-  const picky = listen({ name: "test", token: "picky", api, agent: () => agent });
+  const picky = listen({ agentId: "test", token: "picky", api, agent: () => agent });
   inbox.push(privately(2, stranger, "hi"));
   for (let i = 0; i < 100 && !calls.some((c) => c.token === "picky" && c.method === "sendMessage"); i++) await pause(20);
   picky.stop();
@@ -2104,7 +2104,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   calls.length = 0;
   answers.push("hello from the agent", "seen in the group", "a red square");
-  const second = listen({ name: "test", token: "t", api, allowFrom: [7], agent: () => agent });
+  const second = listen({ agentId: "test", token: "t", api, allowFrom: [7], agent: () => agent });
   // One at a time: two turns at once would take the stand-in model's answers in either order.
   inbox.push(privately(5, stranger, "let me in"), privately(6, me, "hi"));
   await settle(1);
@@ -2135,7 +2135,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   calls.length = 0;
   const asking = codeJob("buttons", async ({ ask }) => ({ go: await ask("go?", { question: "Go?", answer: z.boolean(), who: "telegram:7" }) }));
   const withJob = agentFor(asking);
-  const third = listen({ name: "test", token: "t", api, allowFrom: [7], agent: () => withJob });
+  const third = listen({ agentId: "test", token: "t", api, allowFrom: [7], agent: () => withJob });
   const parked = await work({ agent: withJob, job: asking });
   const question = calls.find((c) => c.method === "sendMessage");
   is("a yes or no question comes with two buttons", question?.body.reply_markup?.inline_keyboard?.[0]?.map((b: { text: string }) => b.text), ["yes", "no"]);
@@ -2158,7 +2158,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   calls.length = 0;
   answers.push("sent to me");
   const fourth = listen({
-    name: "test",
+    agentId: "test",
     token: "w",
     api,
     allowFrom: [7],
@@ -2201,7 +2201,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   delete highlights.cron;
   const reader = agentFor(highlights);
   const ticking = startClock(() => new Map([["test", reader]]));
-  const fifth = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => reader });
+  const fifth = listen({ agentId: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => reader });
   inbox.push(inGroup(40, me, "/highlights \u201cA line from a book.\u201d \u2014 A Book"));
   await settle(1);
   fifth.stop();
@@ -2222,7 +2222,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // first of them. A share that arrives as a quote and then a comment is why.
   calls.length = 0;
   handed.length = 0;
-  const sixth = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", stackWithin: 1, agent: () => reader });
+  const sixth = listen({ agentId: "test", token: "j", api, allowFrom: [7], inGroups: "always", stackWithin: 1, agent: () => reader });
   inbox.push(inGroup(41, me, "/highlights \u201cA line.\u201d \u2014 A Book"));
   await pause(200);
   inbox.push(inGroup(42, me, "and what I thought of it"));
@@ -2238,7 +2238,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   handed.length = 0;
   answers.push("/highlights only the quote");
   const again = startClock(() => new Map([["test", reader]]));
-  const replied = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => reader });
+  const replied = listen({ agentId: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => reader });
   inbox.push(inGroup(44, me, "\u201cA line.\u201d and a comment"));
   await settle(1);
   replied.stop();
@@ -2276,7 +2276,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   delete breaks.cron;
   const broken = agentFor(breaks);
   const failing = startClock(() => new Map([["test", broken]]));
-  const seventh = listen({ name: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => broken });
+  const seventh = listen({ agentId: "test", token: "j", api, allowFrom: [7], inGroups: "always", agent: () => broken });
   inbox.push(inGroup(43, me, "/highlights \u201cAnother line.\u201d \u2014 A Book"));
   await settle(1);
   seventh.stop();
@@ -2290,7 +2290,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const { settings: withModels } = await import("@chloejs/core");
   const offeredBefore = withModels.model.models;
   withModels.model.models = [];
-  const eighth = listen({ name: "test", token: "t", api, allowFrom: [7], agent: () => agent });
+  const eighth = listen({ agentId: "test", token: "t", api, allowFrom: [7], agent: () => agent });
   inbox.push(privately(60, me, "/models"));
   await settle(1);
   const offered = calls.find((c) => c.method === "sendMessage");
@@ -2387,7 +2387,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   const agent = agentFor(codeJob("unused", async () => ({})));
 
-  const first = listen({ name: "test", token: "b", appToken: "a", api, agent: () => agent });
+  const first = listen({ agentId: "test", token: "b", appToken: "a", api, agent: () => agent });
   await until(() => !!socket);
   direct("U9", "hi", "1.1");
   await settle(1);
@@ -2400,7 +2400,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   calls.length = 0;
   socket = undefined;
   answers.push("hello from the agent", "seen in the channel", "in the thread");
-  const second = listen({ name: "test", token: "b", appToken: "a", api, allowFrom: ["U7"], agent: () => agent });
+  const second = listen({ agentId: "test", token: "b", appToken: "a", api, allowFrom: ["U7"], agent: () => agent });
   await until(() => !!socket);
   direct("U9", "let me in", "2.1");
   direct("U7", "hi", "2.2");
@@ -2430,7 +2430,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   socket = undefined;
   const asking = codeJob("buttons", async ({ ask }) => ({ go: await ask("go?", { question: "Go?", answer: z.boolean(), who: "slack:U7" }) }));
   const withJob = agentFor(asking);
-  const third = listen({ name: "test", token: "b", appToken: "a", api, allowFrom: ["U7"], agent: () => withJob });
+  const third = listen({ agentId: "test", token: "b", appToken: "a", api, allowFrom: ["U7"], agent: () => withJob });
   await until(() => !!socket);
   const parked = await work({ agent: withJob, job: asking });
   const question = calls.find((c) => c.method === "chat.postMessage");
@@ -2459,7 +2459,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     request.on("end", () => (replies.push(JSON.parse(raw).text), response.end()));
   });
   await new Promise<void>((done) => hook.listen(0, "127.0.0.1", done));
-  const fourth = listen({ name: "test", token: "b", appToken: "a", api, allowFrom: ["U7"], agent: () => noter });
+  const fourth = listen({ agentId: "test", token: "b", appToken: "a", api, allowFrom: ["U7"], agent: () => noter });
   await until(() => !!socket);
   push("slash_commands", { command: "/note_it", text: "buy milk", user_id: "U7", channel_id: "C1", response_url: `http://127.0.0.1:${(hook.address() as { port: number }).port}/` });
   await until(() => replies.length > 0);
@@ -2571,7 +2571,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const SECRET = "app-secret";
   const agent = agentFor(codeJob("unused", async () => ({})));
   const running = listen({
-    name: "test",
+    agentId: "test",
     phoneNumberId: "55501",
     token: "permanent",
     appSecret: SECRET,
@@ -2647,7 +2647,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   calls.length = 0;
   const asking = codeJob("buttons", async ({ ask }) => ({ go: await ask("go?", { question: "Go?", answer: z.boolean(), who: "whatsapp:+447700900123" }) }));
   const withJob = agentFor(asking);
-  const second = listen({ name: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900123"], api, postBox: "", agent: () => withJob });
+  const second = listen({ agentId: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900123"], api, postBox: "", agent: () => withJob });
   const parked = await work({ agent: withJob, job: asking });
   const question = calls.find((c) => c.body.type === "interactive");
   is("a yes or no question comes with two buttons", question?.body.interactive.action.buttons.map((b: any) => b.reply.title), ["yes", "no"]);
@@ -2662,7 +2662,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const log = console.error;
   console.error = (...line: unknown[]) => void said.push(line.join(" "));
   const stale = posted(text("hello", "447700900999"), "Ada", "447700900999");
-  const third = listen({ name: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900999"], api, postBox: "", agent: () => agent });
+  const third = listen({ agentId: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900999"], api, postBox: "", agent: () => agent });
   answers.push("an answer nobody will see");
   await hit(third.routes![0], "POST", "/x", stale, signed(stale));
   await until(() => said.some((l) => l.includes("131047")));
@@ -2711,7 +2711,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     calls.length = 0;
     answers.push("hello from the post box");
     const polling = listen({
-      name: "test",
+      agentId: "test",
       phoneNumberId: "55501",
       token: "permanent",
       appSecret: SECRET,
@@ -2761,7 +2761,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     const told: string[] = [];
     const log = console.error;
     console.error = (line: string) => void told.push(line);
-    const open = listen({ name: "test", phoneNumberId: "55501", token: "permanent", appSecret: "", api, postBox: "", agent: () => agent });
+    const open = listen({ agentId: "test", phoneNumberId: "55501", token: "permanent", appSecret: "", api, postBox: "", agent: () => agent });
     console.error = log;
     const body = posted(text("hello"));
     const { status } = await hit(open.routes![0], "POST", "/x", body, signed(body));
@@ -2881,17 +2881,17 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     ...agentFor(codeJob("unused", async () => ({}))),
     label: "Chloe",
     tools: {
-      readMail: { description: "Read the owner's mail.", inputSchema: z.object({}), execute: async () => "mail" },
-      readWeb: { description: "Read a page.", inputSchema: z.object({}), execute: async () => "page" },
+      gmailReadEmail: { description: "Read the owner's mail.", inputSchema: z.object({}), execute: async () => "mail" },
+      webReadPage: { description: "Read a page.", inputSchema: z.object({}), execute: async () => "page" },
     },
   } as unknown as Agent;
   const running = listen({
-    name: "test",
+    agentId: "test",
     channel: "email",
     cloud: where,
     key: "chl_workspace_test",
     allowFrom: ["Jenny@Example.com"],
-    withoutTools: ["readMail"],
+    withoutTools: ["gmailReadEmail"],
     lookUp: dns,
     agent: () => agent,
   });
@@ -2940,7 +2940,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("the turn had what she wrote this time, not the quoted history", lastAsked.at(-1)?.content.includes("Saturdays work best") && !lastAsked.at(-1)?.content.includes("What matters most to you in a club?"), true);
   is("and was told her address and the subject", lastAsked.at(-1)?.content.includes("address: jenny@example.com") && lastAsked.at(-1)?.content.includes("subject: Re: Tennis"), true);
   is("and saw what was sent to start it", lastAsked.some((one) => one.role === "assistant" && one.content.includes("What matters most")), true);
-  is("a tool the channel leaves out is not offered", [lastTools.includes("readMail"), lastTools.includes("readWeb")], [false, true]);
+  is("a tool the channel leaves out is not offered", [lastTools.includes("gmailReadEmail"), lastTools.includes("webReadPage")], [false, true]);
 
   deliver("e2", SIGNED.relaxed);
   await pause(300);
@@ -3136,10 +3136,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const job: Job = { agent: "test", id: "morning", timezone: "UTC", prompt: "Look around.", files: [] };
   const agent = { ...agentFor(job), stopWhen: isStepCount(2) };
   const trace = [
-    { step: 0, at: "", say: "Start with the logs.", wants: ["skill"], cost: 0.1 },
-    { step: 0, at: "", tool: "skill", args: { name: "none" }, result: "No skill called none." },
-    { step: 1, at: "", say: "Now the site.", wants: ["skill"], cost: 0.1 },
-    { step: 1, at: "", tool: "skill", args: { name: "none" }, result: "No skill called none." },
+    { step: 0, at: "", say: "Start with the logs.", wants: ["skillRead"], cost: 0.1 },
+    { step: 0, at: "", tool: "skillRead", args: { name: "none" }, result: "No skill called none." },
+    { step: 1, at: "", say: "Now the site.", wants: ["skillRead"], cost: 0.1 },
+    { step: 1, at: "", tool: "skillRead", args: { name: "none" }, result: "No skill called none." },
   ];
   const context = [
     { role: "system", content: "You are a test." },
@@ -3152,7 +3152,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("the page is told why it can carry on", canCarryOn("tired-turn"), "out of steps");
 
   answers.length = 0;
-  answers.push({ content: "One more look.", tool_calls: [{ id: "c1", type: "function", function: { name: "skill", arguments: '{"name":"none"}' } }] }, "All done.");
+  answers.push({ content: "One more look.", tool_calls: [{ id: "c1", type: "function", function: { name: "skillRead", arguments: '{"name":"none"}' } }] }, "All done.");
   const result = await carryOn({ agent, runId: "tired-turn" });
   const shown = lastAsked as { role: string; content: string }[];
   is("it is told it ran out of steps", shown.at(-3)?.content.startsWith("You ran out of steps"), true);
@@ -3168,13 +3168,13 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const { recall, remember } = await import("#chloe/model/memory");
   remember("test/tools", "user", "What board am I on?");
   remember("test/tools", "assistant", "Board 210.", [
-    { tool: "readWeb", args: { url: "https://example.com/pairings" } },
-    { tool: "writeNotes", args: { path: "chess.html", content: "x".repeat(1000) } },
+    { toolName: "webReadPage", input: { url: "https://example.com/pairings" } },
+    { toolName: "memoryWriteFile", input: { path: "chess.html", content: "x".repeat(1000) } },
   ]);
   remember("test/tools", "assistant", "Anything else?");
   const told = recall("test/tools", { limit: 10, tools: true });
   is("the next turn sees the calls, then the reply", told.map((one) => one.role), ["user", "assistant", "tool", "tool", "assistant", "assistant"]);
-  is("in the shape a turn's own calls take", told[1].tool_calls?.[0].function, { name: "readWeb", arguments: '{"url":"https://example.com/pairings"}' });
+  is("in the shape a turn's own calls take", told[1].tool_calls?.[0].function, { name: "webReadPage", arguments: '{"url":"https://example.com/pairings"}' });
   is("a whole file written is cut short", JSON.parse(told[1].tool_calls![1].function.arguments).content.length, 303);
   is("each call is answered, or a provider refuses the history", told[2].tool_call_id, told[1].tool_calls?.[0].id);
   is("the reply itself is left as it was", told[4].content, "Board 210.");
@@ -3340,13 +3340,13 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("a long tree stops and says so", await folderTree(folder, { most: 2 }), ["01_projects/", "  tennis/", "(more folders, left out)"]);
   is("an empty folder has none", await folderTree(`${folder}/01_projects/tennis`), []);
 
-  const keeper = { ...agentFor(codeJob("none", async () => "")), tools: memoryTools()({ name: "test", memory: { folder } }) };
+  const keeper = { ...agentFor(codeJob("none", async () => "")), tools: memoryTools()({ id: "test", memory: { folder } }) };
   answers.push("Noted.");
   await turn({ agent: keeper, prompt: "where are my reading notes?", source: "test" });
   const opening = lastAsked[0]?.content ?? "";
-  is("a turn starts with them, from the notes tools' overview", opening.includes("## The folders in your memory") && opening.includes("02_areas/\n  me/"), true);
+  is("a turn starts with them, from the memory tools' overview", opening.includes("## The folders in your memory") && opening.includes("02_areas/\n  me/"), true);
   answers.push("Noted.");
-  await turn({ agent: keeper, prompt: "and now?", source: "test", without: ["listNotes"] });
+  await turn({ agent: keeper, prompt: "and now?", source: "test", without: ["memoryListFiles"] });
   is("and without the tool, without them", lastAsked[0]?.content.includes("The folders in your memory"), false);
 }
 
@@ -3399,7 +3399,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await makeRepo(memories, "keeper");
   is("the memories are one repository of their own", git(memory, "rev-parse", "--show-toplevel"), memories);
   is(
-    "holding what was already there, under the agent's name",
+    "holding what was already there, under the agent's id",
     git(memories, "log", "--format=%an: %s"),
     "keeper: What was here when this folder started keeping its history",
   );
@@ -3413,7 +3413,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     undefined,
     () => "wrote the status",
   );
-  const keeper: Agent = { ...agentFor(status), name: "keeper", folder, memory: { folder: memory, commit: "each run" } };
+  const keeper: Agent = { ...agentFor(status), id: "keeper", folder, memory: { folder: memory, commit: "each run" } };
   const ran = await work({ agent: keeper, job: status });
   is(
     "a change made outside a run is committed before it, under this box's git name",
@@ -3421,7 +3421,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
     "a person: Changed outside a run",
   );
   is(
-    "and what the run changed is committed after it, under the agent's name",
+    "and what the run changed is committed after it, under the agent's id",
     git(memory, "log", "-1", "--format=%an <%ae>: %s"),
     "keeper <>: status: wrote the status",
   );
@@ -3444,7 +3444,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   );
 
   // What it may change of its own folder.
-  const home = { name: "keeper", folder, memory: { folder: memory } };
+  const home = { id: "keeper", folder, memory: { folder: memory } };
   const rules = { files: ["md", "txt", "json"], except: ["PERMISSIONS.md"] };
   const may = (path: string) => whyNot(home, rules, path) ?? "yes";
   is("it may change its instructions", may("instructions.md"), "yes");
@@ -3456,7 +3456,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is(
     "nor its memory, which has tools of its own, when somebody keeps that inside its folder",
     whyNot({ ...home, memory: { folder: join(folder, "memory") } }, rules, "memory/STATUS.md") ?? "yes",
-    "that is your memory, which you write with writeNotes",
+    "that is your memory, which you write with memoryWriteFile",
   );
   is("nor what marks its runs", may("evals/status.json"), "evals/ is how your runs are marked");
   is("nor a file no loader would read", may("skills/deploys/SKILL.md"), "a file in a folder inside skills/ is never read");
@@ -3488,7 +3488,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and a file with nothing in it", await wrote("instructions.md", "  \n"), "instructions.md would be empty. Write what it should say.");
   const made = await wrote("jobs/weekly.md", "---\ncron: 0 9 * * 1\ntimezone: America/New_York\n---\nLook back at the week.");
   is("a job that loads is written and committed", /^[0-9a-f]{12}$/.test(made), true);
-  is("under the agent's name, with its message", git(repo, "log", "-1", "--format=%an: %s"), "keeper: a change worth making");
+  is("under the agent's id, with its message", git(repo, "log", "-1", "--format=%an: %s"), "keeper: a change worth making");
   is("and nothing of anybody else's went with it", git(repo, "status", "--porcelain"), "?? half-done.ts");
   is(
     "writing it does not make it a job, because jobs are named in agent.ts",
@@ -3847,7 +3847,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const docs = await fetch(`${at}/api`, { headers: { accept: "text/html" } });
   is("the docs are open, because they are about the API and not in it", docs.status, 200);
   const listed = (await (await fetch(`${at}/api`)).json()) as { path: string }[];
-  is("and the same list comes back as JSON", listed.some((one) => one.path === "/api/agents/:name/chat"), true);
+  is("and the same list comes back as JSON", listed.some((one) => one.path === "/api/agents/:id/chat"), true);
   is("every route it answers is in that list", listed.length > 15, true);
 
   server.close();
@@ -4113,7 +4113,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const keeper: Agent = { ...agentFor(codeJob("unused", async () => ({}))), memory: { folder, label: "Private" } };
   const other: Agent = {
     ...agentFor(codeJob("unused", async () => ({}))),
-    name: "other",
+    id: "other",
     memory: { folder: `${process.env.AGENTS_STATE}/other-has-never-written` },
   };
 
@@ -4235,7 +4235,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await put(`${outer}/agents/someone-elses-work.ts`, "half done");
   await put(`${outer}/data/tempo/journal.md`, "a day");
 
-  const inside: Agent = { ...agentFor(codeJob("unused", async () => ({}))), name: "inside", memory: { folder: `${outer}/data/tempo` } };
+  const inside: Agent = { ...agentFor(codeJob("unused", async () => ({}))), id: "inside", memory: { folder: `${outer}/data/tempo` } };
   const { memoryGit, memoryCommit } = await import("#chloe/serve/memory");
   is("a memory inside another repo is not a repo", (await memoryGit(inside)).repo, false);
   const tried = await memoryCommit(inside, "tidy up", "test").then(() => "committed", (error: Error) => error.message);
@@ -4395,7 +4395,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const hello = said("hello")[0];
   is("the first message says hello, with the key inside it", [hello?.type, hello?.key, hello?.protocol, hello?.coreVersion], ["hello", "chl_install_test", 1, "9.9.9"]);
   is("and says which machine it is on", hello?.machine, hostname());
-  is("and carries the agents and the routes", [hello?.agents?.[0]?.name, hello?.routes?.some((one: { path: string }) => one.path === "/api/agents")], ["test", true]);
+  is("and carries the agents and the routes", [hello?.agents?.[0]?.id, hello?.routes?.some((one: { path: string }) => one.path === "/api/agents")], ["test", true]);
   is("and which switches are on", hello?.remote, { read: true, chat: true, run: true, memory: false, write: false, google: false });
   is("nothing else until the cloud answers", cloud.connected(), false);
 
@@ -4414,10 +4414,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   // A request down the socket is a request to the runtime's own port.
   const agents = await answer("1", "GET", "/api/agents");
-  is("a relayed read is answered", [agents.status, JSON.parse(agents.text)[0]?.name], [200, "test"]);
+  is("a relayed read is answered", [agents.status, JSON.parse(agents.text)[0]?.id], [200, "test"]);
   is("with the runtime's own headers, less the ones the socket owns", [agents.headers["content-type"]?.startsWith("application/json"), "set-cookie" in agents.headers, "content-length" in agents.headers], [true, false, false]);
   const list = await answer("2", "GET", "/api");
-  is("the route list is answered, with each route's switch on it", JSON.parse(list.text).find((one: { path: string }) => one.path === "/api/agents/:name/memory")?.remote, "memory");
+  is("the route list is answered, with each route's switch on it", JSON.parse(list.text).find((one: { path: string }) => one.path === "/api/agents/:id/memory")?.remote, "memory");
 
   // What is never relayed, and what a switched-off switch refuses.
   is("the way in is not answered through the cloud", (await answer("3", "GET", "/api/account")).status, 403);
@@ -4484,7 +4484,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   const { remember } = await import("#chloe/model/memory");
   const asGuest = (given: Record<string, string[]>) => ({ "x-chloe-relay-user": "g@example.com", "x-chloe-relay-guest": JSON.stringify(given) });
   const chatOnly = asGuest({ test: ["chat"] });
-  is("a guest sees the agents they were given", JSON.parse((await answer("g1", "GET", "/api/agents", chatOnly)).text).map((one: { name: string }) => one.name), ["test"]);
+  is("a guest sees the agents they were given", JSON.parse((await answer("g1", "GET", "/api/agents", chatOnly)).text).map((one: { id: string }) => one.id), ["test"]);
   is("and nothing of an agent they were not", JSON.parse((await answer("g2", "GET", "/api/agents", asGuest({ other: ["chat"] }))).text), []);
   is("a header that does not read is a guest who may do nothing", JSON.parse((await answer("g3", "GET", "/api/agents", { "x-chloe-relay-guest": "nonsense" })).text), []);
   is("an agent they were not given is not there", (await answer("g4", "GET", "/api/agents/test/log", asGuest({ other: ["read"] }))).status, 403);
@@ -4602,7 +4602,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 {
   about("the files npx chloe setup writes");
 
-  const { identifier, modelLine, nameProblem, STARTER_MODEL_LINE, starterFiles, withChannel } = await import("#chloe/ops/starter");
+  const { identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel } = await import("#chloe/ops/starter");
   const { resolveAgent, jobsOf, markdownJob } = await import("#chloe/load/load");
   const { ROOT, settings } = await import("@chloejs/core");
 
@@ -4615,9 +4615,9 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("and nowhere above the root of the disk has one", findConfig("/"), "");
 
   is("a name with a dash imports as one word", identifier("night-watch"), "nightWatch");
-  is("a plain name is fine", nameProblem("watcher"), "");
-  is("a name with a capital in it is not", nameProblem("Watcher").startsWith("A name is lower case"), true);
-  is("and neither is one that starts with a digit", nameProblem("2fast").startsWith("A name is lower case"), true);
+  is("a plain id is fine", idProblem("watcher"), "");
+  is("an id with a capital in it is not", idProblem("Watcher").startsWith("An id is lower case"), true);
+  is("and neither is one that starts with a digit", idProblem("2fast").startsWith("An id is lower case"), true);
 
   const files = starterFiles("watcher");
   const config = files.find((one) => one.path === "chloe.config.ts")!.body;
@@ -4657,7 +4657,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   // once for every agent.
   settings.model.default = "anthropic/claude-haiku-4.5";
   const agent = await resolveAgent(definition);
-  is("the agent it wrote loads", agent.name, "watcher");
+  is("the agent it wrote loads", agent.id, "watcher");
   is("its words come from the file beside it", agent.instructions.startsWith("You are watcher."), true);
   is("it names no model, so it asks the one in settings", definition.model, undefined);
   is("and that is what it loads with", agent.model, settings.model.default);

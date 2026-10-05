@@ -1,6 +1,6 @@
 // Talking to an agent from Slack. It is one entry in the agent's channels:
 //
-//   // agents/<name>/agent.ts
+//   // agents/<id>/agent.ts
 //   import { slackChannel } from "@chloejs/core/channels";
 //   channels: [slackChannel({ allowFrom: ["U0123ABCD"] })],
 //
@@ -14,8 +14,8 @@
 // Under Event Subscriptions subscribe the bot to message.im, message.channels,
 // message.groups and message.mpim, and under App Home allow messages from the
 // Messages tab. Install it to the workspace, which makes the bot token
-// ("xoxb-..."). The two tokens are CHLOE_AGENTS_<name>_SLACK_BOT_TOKEN and
-// CHLOE_AGENTS_<name>_SLACK_APP_TOKEN in .env, or
+// ("xoxb-..."). The two tokens are CHLOE_AGENTS_<id>_SLACK_BOT_TOKEN and
+// CHLOE_AGENTS_<id>_SLACK_APP_TOKEN in .env, or
 // `credentials: { botToken, appToken }` here. In a channel, invite the bot
 // (/invite @name) before it can read anything there.
 //
@@ -109,24 +109,24 @@ export function slackChannel(options: SlackOptions = {}): Channel {
     chatHistory: options.chatHistory,
     madeWith: JSON.stringify(options),
     start(agent) {
-      const name = agent()?.name ?? "";
-      const token = options.credentials?.botToken || settings.agents[name]?.slack.bot_token || "";
-      const appToken = options.credentials?.appToken || settings.agents[name]?.slack.app_token || "";
+      const agentId = agent()?.id ?? "";
+      const token = options.credentials?.botToken || settings.agents[agentId]?.slack.bot_token || "";
+      const appToken = options.credentials?.appToken || settings.agents[agentId]?.slack.app_token || "";
       if (!token || !appToken) {
         console.error(
-          `slack: ${name} has a Slack channel but no ${token ? "app token" : "bot token"}. Make an app at api.slack.com/apps ` +
-            `with Socket Mode on, and put its tokens in .env as ${nameInEnv(["agents", name, "slack", "bot_token"])} ` +
-            `and ${nameInEnv(["agents", name, "slack", "app_token"])}.`,
+          `slack: ${agentId} has a Slack channel but no ${token ? "app token" : "bot token"}. Make an app at api.slack.com/apps ` +
+            `with Socket Mode on, and put its tokens in .env as ${nameInEnv(["agents", agentId, "slack", "bot_token"])} ` +
+            `and ${nameInEnv(["agents", agentId, "slack", "app_token"])}.`,
         );
         return { stop: () => {} };
       }
       const holder = taken.get(appToken);
-      if (holder && holder !== name) {
-        console.error(`slack: ${holder} already answers this app, so ${name}'s channel does nothing. Give it its own app.`);
+      if (holder && holder !== agentId) {
+        console.error(`slack: ${holder} already answers this app, so ${agentId}'s channel does nothing. Give it its own app.`);
         return { stop: () => {} };
       }
-      taken.set(appToken, name);
-      const running = listen({ ...options, name, channel: options.name, token, appToken, agent });
+      taken.set(appToken, agentId);
+      const running = listen({ ...options, agentId, channel: options.name, token, appToken, agent });
       return {
         stop() {
           running.stop();
@@ -140,8 +140,8 @@ export function slackChannel(options: SlackOptions = {}): Channel {
 /** Reads messages until stopped. Separate from the channel so the tests can point it somewhere else. */
 export function listen(
   options: Omit<SlackOptions, "name"> & {
-    /** The agent's name. */
-    name: string;
+    /** The agent's id. */
+    agentId: string;
     /** The channel's name, "slack" when left out. */
     channel?: string;
     token: string;
@@ -149,7 +149,7 @@ export function listen(
     agent: () => Agent | undefined;
   },
 ): Running {
-  const { name, token } = options;
+  const { agentId, token } = options;
   const channel = options.channel ?? "slack";
   const api = options.api ?? "https://slack.com/api";
   const rules: Rules = { allowFrom: options.allowFrom ?? [], inGroups: options.inGroups, chatHistory: options.chatHistory, sendWhileWorking: options.sendWhileWorking };
@@ -201,9 +201,9 @@ export function listen(
             }
           : {},
       ),
-    name,
+    agentId,
   );
-  if (options.allowFrom?.[0]) ownedBy(name, `${channel}:${options.allowFrom[0]}`);
+  if (options.allowFrom?.[0]) ownedBy(agentId, `${channel}:${options.allowFrom[0]}`);
 
   /** Names by id, asked of Slack once each. An id stands in when Slack will not say. */
   const names = new Map<string, Promise<string>>();
@@ -239,7 +239,7 @@ export function listen(
         const bytes = Buffer.from(await response.arrayBuffer());
         if (mediaType.startsWith("text/")) texts.push(`<file name="${fileName}">\n${bytes.toString("utf8")}\n</file>`);
         else {
-          attachments.push({ mediaType, data: bytes.toString("base64"), name: fileName });
+          attachments.push({ mediaType, data: bytes.toString("base64"), filename: fileName });
           notes.push(`(Attached: ${fileName})`);
         }
       }
@@ -268,7 +268,7 @@ export function listen(
     return {
       channel,
       chat,
-      thread: `${name}/${channel}-${chat}${message.thread_ts ? `-${message.thread_ts}` : ""}`,
+      thread: `${agentId}/${channel}-${chat}${message.thread_ts ? `-${message.thread_ts}` : ""}`,
       from: { id: user, name: await named("user", user) },
       // The mention is how it was addressed, not part of what was said, and would hide a leading "/".
       text: mentioned ? text.replaceAll(mention, "").trim() : text,
@@ -377,7 +377,7 @@ export function listen(
         if (!stopped) await new Promise((done) => setTimeout(done, 1000));
       } catch (error) {
         if (stopped) break;
-        console.error(`slack: ${name} could not reach Slack, trying again in 5s:`, (error as Error).message);
+        console.error(`slack: ${agentId} could not reach Slack, trying again in 5s:`, (error as Error).message);
         await new Promise((done) => setTimeout(done, 5000));
       }
     }
@@ -388,7 +388,7 @@ export function listen(
     stop() {
       stopped = true;
       socket?.close();
-      unreach(channel, name);
+      unreach(channel, agentId);
     },
   };
 }

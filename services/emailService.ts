@@ -1,10 +1,11 @@
 // Sending one email.
 //
 // The caller supplies who it is from and who it is to. Which provider carries
-// it is email.provider in settings, and each provider reads its own section
-// of .env for its key (CHLOE_RESEND_API_KEY for Resend).
+// it is email.provider in settings unless the caller names one, and each
+// provider reads its own section of .env for its key (CHLOE_RESEND_API_KEY for
+// Resend). "none" in settings sends nothing at all, whoever names a provider.
 //
-// The tool a model reaches is model/tools/sendEmail.ts, which calls
+// The tools a model reaches are gmailSendEmail and resendSendEmail, which call
 // this. A job calls this directly, from a step.
 
 import { settings } from "#chloe/core/settings";
@@ -94,19 +95,27 @@ const none: EmailProvider = {
 /** Every provider email.provider can name. Adding one is an entry here and in the settings schema. */
 const providers: Record<typeof settings.email.provider, EmailProvider> = { resend, gmail, none };
 
-/** Sends one email through the configured provider and returns its id. The tag is put in front of the subject. */
+/** A provider that actually sends. */
+export type SendingProvider = Exclude<typeof settings.email.provider, "none">;
+
+/**
+ * Sends one email and returns its id. The tag is put in front of the subject.
+ * It goes by `provider`, else by email.provider in settings, and by nothing
+ * when settings say "none".
+ */
 export async function deliverEmail(
   { from, to, tag, replyTo, markdown }: EmailSender,
   subject: string,
   body: string,
+  provider?: SendingProvider,
 ): Promise<{ sent: true; id?: string; subject: string }> {
   // Refuse rather than send nowhere.
   if (to.length === 0) throw new Error("Nobody to send to. Give the sender at least one address in to.");
   const tagged = tag && !subject.startsWith(`[${tag}]`) ? `[${tag}] ${subject}` : subject;
-  const chosen = settings.email.provider;
-  const provider = providers[chosen];
-  if (!provider) throw new Error(`No email provider called "${chosen}". It is one of: ${Object.keys(providers).join(", ")}.`);
-  const { id } = await provider.send({
+  const chosen = settings.email.provider === "none" ? "none" : (provider ?? settings.email.provider);
+  const carrier = providers[chosen];
+  if (!carrier) throw new Error(`No email provider called "${chosen}". It is one of: ${Object.keys(providers).join(", ")}.`);
+  const { id } = await carrier.send({
     from,
     to,
     replyTo,

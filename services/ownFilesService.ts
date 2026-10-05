@@ -42,7 +42,7 @@ function inMemory(agent: Home, path: string): boolean {
 /** Why the agent may not write this path, or undefined when it may. */
 export function whyNot(agent: Home, rules: OwnFileRules, path: string): string | undefined {
   const at = within(agent, path);
-  if (inMemory(agent, at)) return "that is your memory, which you write with writeNotes";
+  if (inMemory(agent, at)) return "that is your memory, which you write with memoryWriteFile";
   const top = at.split("/")[0];
   if (KEPT_BACK.includes(top)) return top === "evals" ? "evals/ is how your runs are marked" : `${top}/ is code`;
   const ending = extname(at).slice(1).toLowerCase();
@@ -80,10 +80,10 @@ export async function listOwn(agent: Home, rules: OwnFileRules) {
 /** One file in the agent's folder, and whether it may write it. */
 export async function readOwn(agent: Home, rules: OwnFileRules, path: string) {
   const at = within(agent, path);
-  if (inMemory(agent, at)) throw new Error(`${path} is in your memory: read it with readNotes.`);
+  if (inMemory(agent, at)) throw new Error(`${path} is in your memory: read it with memoryReadFile.`);
   const resolved = confine(agent.folder, at);
   if (existsSync(resolved) && statSync(resolved).isDirectory()) {
-    throw new Error(`${path} is a folder. listOwnFiles shows what is in it.`);
+    throw new Error(`${path} is a folder. selfListFiles shows what is in it.`);
   }
   const { content } = await readFiles(agent.folder, at);
   const why = whyNot(agent, rules, at);
@@ -93,7 +93,7 @@ export async function readOwn(agent: Home, rules: OwnFileRules, path: string) {
 /**
  * Replaces one file in the agent's folder and commits it under the agent's
  * name. Refused, with the reason, when the rules keep it back, when it has
- * changes nobody has committed (they would go in under the agent's name), or
+ * changes nobody has committed (they would go in under the agent's id), or
  * when what is written would not load: a job that does not read, a job made to
  * run more than once an hour, JSON that does not parse.
  */
@@ -136,6 +136,6 @@ export async function writeOwn(agent: Home, rules: OwnFileRules, path: string, c
     }
   }
 
-  const written = await writeFiles(agent.folder, at, content, { commit: true, message, author: agent.name, in: "folder" });
+  const written = await writeFiles(agent.folder, at, content, { commit: true, message, author: agent.id, in: "folder" });
   return { path: at, bytes: written.bytes, commit: written.commit };
 }

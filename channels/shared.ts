@@ -121,13 +121,13 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
 
   if (rules.allowFrom) {
     if (rules.allowFrom.length === 0) {
-      console.log(`${channel}: ${from.id} wrote to ${agent.name}. Add ${from.id} to allowFrom in ${agent.name}'s ${channel} channel.`);
+      console.log(`${channel}: ${from.id} wrote to ${agent.id}. Add ${from.id} to allowFrom in ${agent.id}'s ${channel} channel.`);
       const Channel = channel.charAt(0).toUpperCase() + channel.slice(1);
-      return message.private ? said(`Your ${Channel} user id is ${from.id}. Add it to allowFrom in ${agent.name}'s ${channel} channel.`) : undefined;
+      return message.private ? said(`Your ${Channel} user id is ${from.id}. Add it to allowFrom in ${agent.id}'s ${channel} channel.`) : undefined;
     }
     if (!rules.allowFrom.map(String).includes(from.id)) {
       // In a group the agent sees everybody's messages, and most are not for it.
-      if (message.private) console.warn(`${channel}: ${agent.name} is ignoring ${from.id} (${from.name}), not in allowFrom`);
+      if (message.private) console.warn(`${channel}: ${agent.id} is ignoring ${from.id} (${from.name}), not in allowFrom`);
       return undefined;
     }
   }
@@ -140,7 +140,7 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
   const picking = modelCommand(text);
   if (picking) return { ...picked(agent, message, picking), steps: 0, cost: 0 };
 
-  const waiting = text ? waitingOn(`${channel}:${message.chat}`, agent.name) : undefined;
+  const waiting = text ? waitingOn(`${channel}:${message.chat}`, agent.id) : undefined;
   if (waiting) return during(working, () => answered(agent, message, waiting.id, waiting.job));
 
   if (!isForAgent(message, rules)) return undefined;
@@ -210,10 +210,10 @@ const SHOWN = 20;
 function picked(agent: Agent, message: Incoming, asked: { pick?: string; target?: string }): { text: string; buttons?: Button[] } {
   const offered = models(agent);
   const thread = message.thread;
-  const here = thread ? chosen(agent.name, `chat:${thread}`) : undefined;
+  const here = thread ? chosen(agent.id, `chat:${thread}`) : undefined;
 
   if (!asked.pick) {
-    const made = choices(agent.name).filter((one) => !one.scope.startsWith("chat:"));
+    const made = choices(agent.id).filter((one) => !one.scope.startsWith("chat:"));
     // With no shortlist the offer is every model each route carries, which runs
     // to hundreds. A chat cannot show that, so it shows the first few and says
     // where to shorten it. Any of them can still be named in full.
@@ -241,7 +241,7 @@ function picked(agent: Agent, message: Incoming, asked: { pick?: string; target?
     where = "This chat";
   } else if (/^everything$/i.test(asked.target)) {
     scope = "agent";
-    where = `Everything ${agent.label ?? agent.name} does`;
+    where = `Everything ${agent.label ?? agent.id} does`;
   } else {
     const id = asked.target.toLowerCase();
     const job = agent.jobs.find((one) => one.id === id || one.id === id.replace(/_/g, "-"));
@@ -251,13 +251,13 @@ function picked(agent: Agent, message: Incoming, asked: { pick?: string; target?
   }
 
   if (/^default$/i.test(asked.pick)) {
-    choose(agent.name, scope, "");
+    choose(agent.id, scope, "");
     const now = scope === "agent" ? modelFor(agent) : scope.startsWith("job:") ? modelFor(agent, agent.jobs.find((one) => one.id === scope.slice(4))) : modelFor(agent);
     return { text: `${where} is back on the default, ${now}.` };
   }
   const model = offered.find((one) => one.model.toLowerCase() === asked.pick!.toLowerCase());
   if (!model) return { text: `I cannot run ${asked.pick}. /models lists what I can.` };
-  choose(agent.name, scope, model.model);
+  choose(agent.id, scope, model.model);
   const aside = scope === "agent" ? ", apart from a job that names its own" : "";
   return { text: `${where} now uses ${model.model}${aside}.` };
 }
@@ -379,14 +379,14 @@ async function started(agent: Agent, message: Incoming, job: Job, text: string):
     // What was sent did not fit the job, which is worth saying where it was
     // sent: it is the message that has to change.
     const why = error instanceof WrongArgs ? `${error.message}\n${usage(job)}` : "It is in the logs on the box.";
-    if (!(error instanceof WrongArgs)) console.error(`${agent.name}/${job.id}: failed`, error);
+    if (!(error instanceof WrongArgs)) console.error(`${agent.id}/${job.id}: failed`, error);
     return { text: `I could not run ${job.id}. ${why}`, steps: 0, cost: 0, job: job.id };
   }
 }
 
 async function answered(agent: Agent, message: Incoming, runId: string, job: string): Promise<Handled> {
   try {
-    const result = await answer(runId, message.text, new Map([[agent.name, agent]]));
+    const result = await answer(runId, message.text, new Map([[agent.id, agent]]));
     // Still parked means the answer did not fit, and the job has already asked again.
     const reply = result.parked ? "" : result.reply || result.summary || result.text || "Done.";
     kept(message, reply);
@@ -420,7 +420,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, send?: (te
       history: rules.chatHistory,
       said,
       talkingTo: message.from.name,
-      model: message.model ?? (message.thread ? chosen(agent.name, `chat:${message.thread}`) : undefined),
+      model: message.model ?? (message.thread ? chosen(agent.id, `chat:${message.thread}`) : undefined),
       source: message.channel,
       owner: `${message.channel}:${message.from.id}`,
       without: message.withoutTools,

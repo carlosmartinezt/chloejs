@@ -1,7 +1,7 @@
 // Talking to an agent from WhatsApp, through WhatsApp's own API. It is one
 // entry in the agent's channels:
 //
-//   // agents/<name>/agent.ts
+//   // agents/<id>/agent.ts
 //   import { whatsappChannel } from "@chloejs/core/channels";
 //   channels: [whatsappChannel({ allowFrom: ["+447700900123"] })],
 //
@@ -13,9 +13,9 @@
 // and it gives you a test number and a token to try with. The three things
 // this needs go in .env, under the agent's name:
 //
-//   CHLOE_AGENTS_<name>_WHATSAPP_PHONE_NUMBER_ID   on the app's WhatsApp page
-//   CHLOE_AGENTS_<name>_WHATSAPP_TOKEN             a permanent token from a system user
-//   CHLOE_AGENTS_<name>_WHATSAPP_APP_SECRET        signs every call in
+//   CHLOE_AGENTS_<id>_WHATSAPP_PHONE_NUMBER_ID   on the app's WhatsApp page
+//   CHLOE_AGENTS_<id>_WHATSAPP_TOKEN             a permanent token from a system user
+//   CHLOE_AGENTS_<id>_WHATSAPP_APP_SECRET        signs every call in
 //
 // The token the app's page shows first lasts a day, which is fine for trying
 // and no good for a box that runs: make a system user with the
@@ -35,7 +35,7 @@
 // where a box is asked for, and that needs no account.
 //
 // `postBox: ""` turns all of that off, which leaves the route this channel
-// answers on the one port, `/chloe/v1/<agent>/<channel name>`, for somebody who
+// answers on the one port, `/chloe/v1/<id>/<channel name>`, for somebody who
 // has deliberately opened an address of their own. It sits outside the login, so:
 //
 //   Every POST is checked against app_secret before it is read, and one that
@@ -177,20 +177,20 @@ export function whatsappChannel(options: WhatsAppOptions = {}): Channel {
     chatHistory: options.chatHistory,
     madeWith: JSON.stringify(options),
     start(agent) {
-      const name = agent()?.name ?? "";
-      const held = settings.agents[name]?.whatsapp;
+      const agentId = agent()?.id ?? "";
+      const held = settings.agents[agentId]?.whatsapp;
       const phoneNumberId = options.credentials?.phoneNumberId || held?.phone_number_id || "";
       const token = options.credentials?.token || held?.token || "";
       const appSecret = options.credentials?.appSecret || held?.app_secret || "";
       if (!phoneNumberId || !token) {
         console.error(
-          `whatsapp: ${name} is on WhatsApp's API and has no ${phoneNumberId ? "token" : "number"}. Add an app at ` +
+          `whatsapp: ${agentId} is on WhatsApp's API and has no ${phoneNumberId ? "token" : "number"}. Add an app at ` +
             `developers.facebook.com, add WhatsApp to it, and put what it gives you in .env as ` +
-            `${nameInEnv(["agents", name, "whatsapp", "phone_number_id"])} and the two beside it.`,
+            `${nameInEnv(["agents", agentId, "whatsapp", "phone_number_id"])} and the two beside it.`,
         );
         return { stop: () => {} };
       }
-      return listen({ ...options, name, channel: options.name, phoneNumberId, token, appSecret, verifyToken: options.credentials?.verifyToken, agent });
+      return listen({ ...options, agentId, channel: options.name, phoneNumberId, token, appSecret, verifyToken: options.credentials?.verifyToken, agent });
     },
   };
 }
@@ -198,8 +198,8 @@ export function whatsappChannel(options: WhatsAppOptions = {}): Channel {
 /** Answers one number until stopped. Separate from the channel so the tests can point it somewhere else. */
 export function listen(
   options: Omit<WhatsAppOptions, "name" | "credentials"> & {
-    /** The agent's name. */
-    name: string;
+    /** The agent's id. */
+    agentId: string;
     /** The channel's name, "whatsapp" when left out. */
     channel?: string;
     phoneNumberId: string;
@@ -209,11 +209,11 @@ export function listen(
     agent: () => Agent | undefined;
   },
 ): Running {
-  const { name, phoneNumberId, token, appSecret } = options;
+  const { agentId, phoneNumberId, token, appSecret } = options;
   const channel = options.channel ?? "whatsapp";
   const api = options.api ?? "https://graph.facebook.com";
   const version = options.version ?? "v23.0";
-  const path = `/chloe/v1/${name}/${channel}`;
+  const path = `/chloe/v1/${agentId}/${channel}`;
   const postBox = (options.postBox ?? settings.cloud.url).replace(/\/+$/, "");
   const verify = options.verifyToken || randomBytes(12).toString("hex");
   const allowedTypes = options.uploadPolicy?.allowedMediaTypes ?? ["image/*", "application/pdf", "text/*"];
@@ -226,7 +226,7 @@ export function listen(
 
   if (!appSecret) {
     console.error(
-      `whatsapp: ${name} has no app_secret, so every message posted to ${path} is refused. It is the only thing ` +
+      `whatsapp: ${agentId} has no app_secret, so every message posted to ${path} is refused. It is the only thing ` +
         `telling a message from WhatsApp apart from a message from anybody who found the address. It is on the app's ` +
         `settings page at developers.facebook.com.`,
     );
@@ -235,7 +235,7 @@ export function listen(
   // address is the one to register, and it is said once the box is known.
   if (!postBox) {
     console.log(
-      `whatsapp: ${name} answers ${options.publicUrl ? `${options.publicUrl.replace(/\/+$/, "")}${path}` : path}. ` +
+      `whatsapp: ${agentId} answers ${options.publicUrl ? `${options.publicUrl.replace(/\/+$/, "")}${path}` : path}. ` +
         `Register that address on the app's WhatsApp page, subscribed to messages, with ${verify} as the word it checks.`,
     );
   }
@@ -311,8 +311,8 @@ export function listen(
 
   // A job of this agent's that stops to ask somebody reaches them at their
   // number. An answer that can be listed is a button.
-  reachBy(channel, (to, text, choices) => reply(to, text, (choices ?? []).map((one) => ({ label: one, sends: one }))), name);
-  if (options.allowFrom?.[0]) ownedBy(name, `${channel}:${asNumber(options.allowFrom[0])}`);
+  reachBy(channel, (to, text, choices) => reply(to, text, (choices ?? []).map((one) => ({ label: one, sends: one }))), agentId);
+  if (options.allowFrom?.[0]) ownedBy(agentId, `${channel}:${asNumber(options.allowFrom[0])}`);
 
   /** Marks the message read and shows "typing...", until the returned function is called. */
   function typing(id: string): () => void {
@@ -342,7 +342,7 @@ export function listen(
     const file = await fetch(found.url, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(60_000) });
     const bytes = Buffer.from(await file.arrayBuffer());
     if (mediaType.startsWith("text/")) return { text: `<file name="${fileName}">\n${bytes.toString("utf8")}\n</file>` };
-    return { attachment: { mediaType, data: bytes.toString("base64"), name: fileName }, note: `(Attached: ${fileName})` };
+    return { attachment: { mediaType, data: bytes.toString("base64"), filename: fileName }, note: `(Attached: ${fileName})` };
   }
 
   /** The words on a message, whichever kind it is. A pressed button sends what it carried. */
@@ -359,7 +359,7 @@ export function listen(
     return {
       channel,
       chat: from,
-      thread: `${name}/${channel}-${from}`,
+      thread: `${agentId}/${channel}-${from}`,
       from: { id: from, name: who || from },
       text: said,
       // The API carries one-to-one messages and nothing else.
@@ -478,19 +478,19 @@ export function listen(
     routes: [route],
     stop() {
       stopping.abort();
-      unreach(channel, name);
+      unreach(channel, agentId);
     },
   };
 
   /** Collects from this number's post box until stopped. Where it is goes to the log, to be pasted into the app. */
   async function collect(): Promise<void> {
-    const box = await boxFor("whatsapp", name, channel, postBox);
+    const box = await boxFor("whatsapp", agentId, channel, postBox);
     console.log(
-      `whatsapp: ${name} collects from ${box.at}. Register that address on the app's WhatsApp page at ` +
+      `whatsapp: ${agentId} collects from ${box.at}. Register that address on the app's WhatsApp page at ` +
         `developers.facebook.com, subscribed to messages.`,
     );
     await collectFrom(box, {
-      label: `whatsapp: ${name}`,
+      label: `whatsapp: ${agentId}`,
       signal: stopping.signal,
       open: async (body, signature) => {
         if (!(await delivered(body, signature))) console.warn(`whatsapp: a message from the post box was not signed by the app, and was dropped.`);

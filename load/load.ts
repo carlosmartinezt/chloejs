@@ -20,9 +20,10 @@ import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { cannotRun, type Tools } from "#chloe/model/tool";
+import { googleSignInTools } from "#chloe/model/tools/google";
 import { memoryTools } from "#chloe/model/tools/memory";
-import { ownFiles } from "#chloe/model/tools/ownFiles";
-import { runScripts } from "#chloe/model/tools/runScript";
+import { scriptTools } from "#chloe/model/tools/script";
+import { selfTools } from "#chloe/model/tools/self";
 import { makeRepo } from "#chloe/services/historyService";
 import { work, type Data, type Result as RunResult, type Work } from "#chloe/core/steps";
 
@@ -46,19 +47,16 @@ registerHooks({
 
 /** The agent, as far as a tool bound to it needs to know. */
 export interface Home {
-  name: string;
+  id: string;
   folder: string;
   /** This agent's memory as its definition says it, with the folder worked out. See Memory. */
   memory: Memory & { folder: string };
 }
 
-/** A set of tools made for one agent as it loads, like readMail({ ... }). */
-export type Binding = (agent: Home) => Tools;
-
 /** What defineAgent is given. */
 export interface AgentConfig {
   /** What the run history, its memory and its pages are filed under. Do not change it once it has run. */
-  name: string;
+  id: string;
   /** What the page calls it, when that is not its name: "C.C.". Free to change. */
   label?: string;
   /**
@@ -80,8 +78,8 @@ export interface AgentConfig {
    * Where this agent remembers things: the folder it reads and writes between
    * runs, browsable and editable from the site.
    *
-   * Every agent has one, and always has listNotes, readNotes, searchNotes,
-   * writeNotes and editNotes on it. Left unsaid it is its own folder inside `memory/`
+   * Every agent has one, and always has memoryListFiles, memoryReadFile, memorySearchFiles,
+   * memoryWriteFile and memoryEditFile on it. Left unsaid it is its own folder inside `memory/`
    * beside the agents, which is a git repository, so this is only worth writing
    * down when the agent shares a folder with a person. Every file served out of it
    * is written to that agent's own audit log first. See serve/memory.ts for
@@ -93,12 +91,13 @@ export interface AgentConfig {
   /** `prompt("instructions.md")`, a path inside the agent's folder, or the words themselves. */
   instructions: string | Prompt;
   /**
-   * Sets of tools made with the AI SDK's `tool()`, each keyed by the name a
-   * model calls it by: `{ weather: tool({ ... }) }`, or one of chloe's, like
-   * readMail({ ... }). One set on its own may stand in for the list. What
-   * `features` turns on is added to these and not listed here.
+   * Tools made with the AI SDK's `tool()`, keyed by the name a model calls
+   * them by: `{ weather, gmailReadEmail: gmailReadEmail({ ... }) }`. Every tool is handed
+   * `{ agent }` as its `context`. What `features` turns on is added to these
+   * and not listed here, and so is the Google sign-in beside a tool marked
+   * `needs: "google"`.
    */
-  tools?: (Tools | Binding)[] | Tools;
+  tools?: Tools;
   /** Each job: one imported, or markdownJob("jobs/<id>.md") for one that is only a prompt. */
   jobs?: (JobConfig<any, any, any> | MarkdownJob)[];
   /** Each way in: `[telegramChannel({ ... }), apiChannel()]`. Each one carries its own name. */
@@ -127,7 +126,7 @@ export function defineAgent(definition: AgentConfig): Defined {
   // [0] is this function, [1] is whoever called it.
   const caller = getCallSites()[1]?.scriptName ?? "";
   if (!caller.startsWith("file:") && !caller.startsWith("/")) {
-    throw new Error(`defineAgent could not tell which file ${definition.name} is written in. Give it folder: import.meta.dirname.`);
+    throw new Error(`defineAgent could not tell which file ${definition.id} is written in. Give it folder: import.meta.dirname.`);
   }
   const file = caller.startsWith("file:") ? fileURLToPath(caller) : caller;
   return { ...definition, folder: dirname(file) };
@@ -244,17 +243,17 @@ export interface Job {
 
 /** Tools the runtime brings, switched on per agent: `features: { selfImprovement: true }`. */
 export interface Features {
-  /** listNotes, readNotes, searchNotes, writeNotes and editNotes on its memory. On unless this says false. */
+  /** memoryListFiles, memoryReadFile, memorySearchFiles, memoryWriteFile and memoryEditFile on its memory. On unless this says false. */
   memory?: boolean;
   /**
-   * listOwnFiles, readOwnFile and writeOwnFile, to change the plain text
+   * selfListFiles, selfReadFile and selfWriteFile, to change the plain text
    * in its own folder: its instructions, its skills, its markdown jobs. Off
    * unless this says. `true` is every ending in PLAIN_TEXT; an object narrows
    * that or keeps a path back. Every write is a git commit under its name.
    */
   selfImprovement?: boolean | SelfImprovement;
   /**
-   * runScript, to run a file in its own scripts/ folder. Off unless this says
+   * scriptRun, to run a file in its own scripts/ folder. Off unless this says
    * true, and refused as it loads when that folder has no scripts.
    */
   runScripts?: boolean;
@@ -274,7 +273,7 @@ export const PLAIN_TEXT = ["md", "txt", "html", "json", "yml", "yaml", "csv"];
  *
  * Code never, whatever `files` says: nothing in tools/, services/, channels/ or
  * scripts/, and nothing ending in .ts or .js. Nor its evals/, which say what a
- * good run of it looks like, nor its memory, which is writeNotes.
+ * good run of it looks like, nor its memory, which is memoryWriteFile.
  */
 export interface SelfImprovement {
   /** File endings it may write, without the dot. PLAIN_TEXT when it says none. */
@@ -294,9 +293,9 @@ export interface Memory {
   label?: string;
   /**
    * When a change becomes a git commit. `"each run"`: whatever a run changed
-   * is committed when it ends, under the agent's name, and the folder is made
+   * is committed when it ends, under the agent's id, and the folder is made
    * a repository of its own if it is not one. `true`: every write from the
-   * site and from writeNotes is its own commit, with a message, for a folder
+   * site and from memoryWriteFile is its own commit, with a message, for a folder
    * shared with a person. `false`: never. Unsaid, it is "each run" for the
    * folder the runtime keeps and false for one named here.
    */
@@ -358,8 +357,7 @@ export interface ChannelRoute {
  * One agent as the runtime holds it: the definition with its instructions
  * read, its tools bound, its skills loaded and its jobs resolved.
  */
-export interface Agent extends Omit<AgentConfig, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model"> {
-  folder: string;
+export interface Agent extends Omit<Defined, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model"> {
   /** Its own, or `model.default` in settings. Always there once loaded. */
   model: string;
   /** Always there once loaded, with its folder worked out. See memoryFolder. */
@@ -388,8 +386,8 @@ export function memoryRoot(memory?: Memory): string {
  * `memory/`. Named after the agent rather than its folder, so a folder that is
  * renamed still finds the same memory.
  */
-export function memoryFolder(name: string, memory?: Memory): string {
-  return memory?.folder || join(MEMORIES, name);
+export function memoryFolder(id: string, memory?: Memory): string {
+  return memory?.folder || join(MEMORIES, id);
 }
 
 /** When a change to this memory becomes a commit. See Memory. */
@@ -403,24 +401,24 @@ function shown(folder: string): string {
   return inside && !inside.startsWith("..") ? inside : folder;
 }
 
-/** Every agent chloe.config.ts lists, by name. */
+/** Every agent chloe.config.ts lists, by id. */
 export async function loadAll(): Promise<Map<string, Agent>> {
   const { config, listed } = await readConfig();
-  declareSettings(config.settings, listed.map((one) => one?.name).filter(Boolean));
+  declareSettings(config.settings, listed.map((one) => one?.id).filter(Boolean));
 
   const folders = new Map<string, string>();
   const memories = new Map<string, string>();
   for (const one of listed) {
-    if (!one?.name) throw new Error("chloe.config.ts lists an agent with no name.");
-    if (folders.has(one.name)) throw new Error(`chloe.config.ts lists two agents called ${one.name}.`);
-    folders.set(one.name, one.folder);
-    memories.set(one.name, memoryFolder(one.name, one.memory));
+    if (!one?.id) throw new Error("chloe.config.ts lists an agent with no id.");
+    if (folders.has(one.id)) throw new Error(`chloe.config.ts lists two agents called ${one.id}.`);
+    folders.set(one.id, one.folder);
+    memories.set(one.id, memoryFolder(one.id, one.memory));
   }
   // Before anything is bound, so a tool that asks where its agent lives is told.
   setAgentDirs(folders, memories);
 
   const all = new Map<string, Agent>();
-  for (const one of listed) all.set(one.name, await resolveAgent(one));
+  for (const one of listed) all.set(one.id, await resolveAgent(one));
   return all;
 }
 
@@ -448,25 +446,25 @@ async function readConfig(): Promise<{ config: Config; listed: Defined[] }> {
  */
 export async function loadSettings(): Promise<void> {
   const { config, listed } = await readConfig();
-  declareSettings(config.settings, listed.map((one) => one?.name).filter(Boolean));
+  declareSettings(config.settings, listed.map((one) => one?.id).filter(Boolean));
 }
 
-/** Every agent's name, in the order `chloe.config.ts` lists them. */
-export async function names(): Promise<string[]> {
+/** Every agent's id, in the order `chloe.config.ts` lists them. */
+export async function agentIds(): Promise<string[]> {
   return [...(await loadAll()).keys()];
 }
 
-/** One agent by name, or a throw that names the agents there are. */
-export async function load(name: string): Promise<Agent> {
+/** One agent by id, or a throw that names the agents there are. */
+export async function load(id: string): Promise<Agent> {
   const all = await loadAll();
-  const one = all.get(name);
-  if (!one) throw new Error(`chloe.config.ts has no agent called ${JSON.stringify(name)}. It has: ${[...all.keys()].join(", ")}.`);
+  const one = all.get(id);
+  if (!one) throw new Error(`chloe.config.ts has no agent called ${JSON.stringify(id)}. It has: ${[...all.keys()].join(", ")}.`);
   return one;
 }
 
 /**
  * Runs one of an agent's code jobs in this process and waits for it to finish.
- * `agent` is its name or what `defineAgent` returned, `job` its id or what
+ * `agent` is its id or what `defineAgent` returned, `job` its id or what
  * `defineJob` returned:
  *
  * ```ts
@@ -482,17 +480,17 @@ export async function load(name: string): Promise<Agent> {
  * for a loop.
  */
 export async function runJob(options: {
-  agent: string | { name: string };
+  agent: string | { id: string };
   job: string | { id: string };
   input?: Record<string, unknown>;
   source?: string;
   signal?: AbortSignal;
 }): Promise<RunResult> {
-  const agentName = typeof options.agent === "string" ? options.agent : options.agent.name;
+  const agentId = typeof options.agent === "string" ? options.agent : options.agent.id;
   const jobId = typeof options.job === "string" ? options.job : options.job.id;
-  const agent = await load(agentName);
+  const agent = await load(agentId);
   const job = agent.jobs.find((one) => one.id === jobId);
-  if (!job) throw new Error(`${agentName} has no job called ${JSON.stringify(jobId)}. It has: ${agent.jobs.map((one) => one.id).join(", ")}.`);
+  if (!job) throw new Error(`${agentId} has no job called ${JSON.stringify(jobId)}. It has: ${agent.jobs.map((one) => one.id).join(", ")}.`);
   return work({ agent, job, input: options.input, source: options.source ?? "terminal", signal: options.signal });
 }
 
@@ -502,8 +500,8 @@ export async function runJob(options: {
  * every agent in chloe.config.ts.
  */
 export async function resolveAgent(definition: Defined): Promise<Agent> {
-  const { name, folder } = definition;
-  const where = `${name} (${shown(folder)})`;
+  const { id, folder } = definition;
+  const where = `${id} (${shown(folder)})`;
   const model = definition.model ? nameOf(definition.model) : configured.model.default;
   if (!model) throw new Error(`${where} does not say which model, and model.default in settings names none.`);
   if (!definition.instructions) throw new Error(`${where} has no instructions. Add instructions: prompt("instructions.md").`);
@@ -513,7 +511,7 @@ export async function resolveAgent(definition: Defined): Promise<Agent> {
   // work.memory all mean the same folder without any of them saying it again.
   const memory = {
     ...definition.memory,
-    folder: memoryFolder(name, definition.memory),
+    folder: memoryFolder(id, definition.memory),
     commit: commitsWhen(definition.memory),
   };
   // Made now, so committing what a run changed has a folder to name.
@@ -521,20 +519,20 @@ export async function resolveAgent(definition: Defined): Promise<Agent> {
   if (memory.commit === "each run") {
     // Without git, or on a folder it cannot write, the agent still runs: it only
     // has no history. The repository is the memory root, shared by every agent.
-    await makeRepo(memoryRoot(definition.memory), name).catch((error: unknown) =>
+    await makeRepo(memoryRoot(definition.memory), id).catch((error: unknown) =>
       console.error(`${where}: its memory could not be made a git repository:`, error instanceof Error ? error.message : error),
     );
   }
-  const home = { name, folder, memory };
+  const home = { id, folder, memory };
   return {
     ...rest,
     model,
     memory,
     instructions: await readPrompt(definition.instructions, { dir: folder, where }),
     instructionsFile: isPrompt(definition.instructions) ? definition.instructions.file : undefined,
-    tools: toolsOf([...featureTools(definition.features, where), ...(Array.isArray(tools) ? tools : tools ? [tools] : [])], home, where),
+    tools: toolsOf({ ...featureTools(definition.features, home, where), ...tools }, where),
     skills: await skillsIn(`${folder}/skills`),
-    jobs: await jobsOf(name, folder, jobs ?? []),
+    jobs: await jobsOf(id, folder, jobs ?? []),
     channels: channelsOf(channels ?? [], where),
   };
 }
@@ -566,35 +564,28 @@ export function ownFileRules(self: true | SelfImprovement): OwnFileRules {
   return { ...said, files: said.files ?? PLAIN_TEXT };
 }
 
-function featureTools(features: Features = {}, where: string): (Tools | Binding)[] {
+function featureTools(features: Features = {}, home: Home, where: string): Tools {
   const self = features.selfImprovement;
   if (typeof self === "object" && self.files && self.files.length === 0) {
     throw new Error(`${where}: selfImprovement is true, or says which files it may change, like { files: ["md"] }.`);
   }
-  return [
-    ...(features.memory === false ? [] : [memoryTools()]),
-    ...(self ? [ownFiles(ownFileRules(self))] : []),
-    ...(features.runScripts ? [runScripts()] : []),
-  ];
+  return {
+    ...(features.memory === false ? {} : memoryTools()(home)),
+    ...(self ? selfTools(ownFileRules(self))(home) : {}),
+    ...(features.runScripts ? scriptTools()(home) : {}),
+  };
 }
 
-function toolsOf(list: (Tools | Binding)[], home: Home, where: string): Tools {
-  const tools: Tools = {};
-  for (const one of list) {
-    const some = typeof one === "function" ? one(home) : one;
-    for (const [id, each] of Object.entries(some)) {
-      const wrong = cannotRun(id, each);
-      if (wrong) throw new Error(`${where}: ${wrong}`);
-      // The same tool twice is the same tool. A set that comes along with
-      // something else, like the Google sign-in that readMail and sendEmail
-      // both bring, arrives once per binding and is the one object each time,
-      // so an agent with both is not a clash. Two different tools of one name
-      // still is, because only one of them could ever be reached.
-      if (tools[id] && tools[id] !== each) throw new Error(`${where}: two different tools are called ${id}.`);
-      tools[id] = each;
-    }
+/** The agent's tools, checked, with the Google sign-in beside any tool marked `needs: "google"`. */
+function toolsOf(tools: Tools, where: string): Tools {
+  if (Array.isArray(tools) || typeof tools !== "object") {
+    throw new Error(`${where}: tools is one object keyed by name, like { weather, gmailReadEmail: gmailReadEmail({ ... }) }.`);
   }
-  return tools;
+  for (const [id, each] of Object.entries(tools)) {
+    const wrong = cannotRun(id, each);
+    if (wrong) throw new Error(`${where}: ${wrong}`);
+  }
+  return Object.values(tools).some((one) => one.needs === "google") ? { ...googleSignInTools(), ...tools } : tools;
 }
 
 async function skillsIn(dir: string): Promise<Skill[]> {

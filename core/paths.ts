@@ -23,8 +23,8 @@ export function setAgentDirs(declared: Map<string, string>, memory = new Map<str
 }
 
 /** One agent's memory folder, as the loader worked it out. Undefined for an agent not loaded. */
-export function memoryDir(name: string): string | undefined {
-  return memories.get(name);
+export function memoryDir(id: string): string | undefined {
+  return memories.get(id);
 }
 
 /**
@@ -33,14 +33,14 @@ export function memoryDir(name: string): string | undefined {
  * agent writes goes anywhere but its memory, which is why this never falls back
  * to the state directory.
  */
-export function memoryFolderOf(name: string): string {
-  return memories.get(name) ?? join(MEMORIES, name);
+export function memoryFolderOf(id: string): string {
+  return memories.get(id) ?? join(MEMORIES, id);
 }
 
 /** One agent's own folder: its skills, scripts, evals and prompts. */
-export function agentDir(name: string): string {
-  const folder = folders.get(name);
-  if (!folder) throw new Error(`No agent called ${JSON.stringify(name)} has been loaded.`);
+export function agentDir(id: string): string {
+  const folder = folders.get(id);
+  if (!folder) throw new Error(`No agent called ${JSON.stringify(id)} has been loaded.`);
   return folder;
 }
 

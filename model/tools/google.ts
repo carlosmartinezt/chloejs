@@ -2,10 +2,10 @@
 // not at this machine.
 //
 // **Nothing binds these on their own.** They come with whatever needs Google:
-// `readMail` brings them, and so does `sendEmail` when the mail goes out
-// through Google. An agent that can read mail can get itself signed in to read
-// mail, which is one decision and not two, and there is nothing to remember to
-// add. Signing in is not a thing an agent does, it is part of the thing it
+// gmailReadEmail, gmailReplyEmail and gmailSendEmail are marked `needs: "google"`,
+// and the loader adds these beside them. An agent that can read mail can get
+// itself signed in to read mail, which is one decision and not two, and there
+// is nothing to remember to add. Signing in is not a thing an agent does, it is part of the thing it
 // does.
 //
 // Two tools rather than one, because they happen minutes or days apart and the
@@ -90,7 +90,7 @@ function googleSignIn() {
  * Takes the whole address or just the code, because a person on a phone sends
  * one or the other and neither of them is wrong.
  */
-function finishGoogleSignIn() {
+function googleSignInComplete() {
   return tool({
     description:
       "Finish the Google sign-in you started, using what the person sent back: the whole address of the page " +
@@ -102,16 +102,7 @@ function finishGoogleSignIn() {
   });
 }
 
-/**
- * Made once and handed out, so an agent with two Google tools on it gets one
- * copy of these rather than a clash. The loader allows the same tool twice and
- * refuses two different tools of one name, and this is what makes the first of
- * those true.
- */
-let made: Tools | undefined;
-
-/** The sign-in, as whatever needs Google adds it to its own set. Never bound on its own. */
+/** The sign-in, which the loader adds to an agent with a tool marked `needs: "google"`. Never bound on its own. */
 export function googleSignInTools(): Tools {
-  made ??= { googleSignIn: googleSignIn(), finishGoogleSignIn: finishGoogleSignIn() };
-  return made;
+  return { googleSignIn: googleSignIn(), googleSignInComplete: googleSignInComplete() };
 }

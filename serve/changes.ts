@@ -27,13 +27,13 @@ export async function agentChanges(
 ) {
   const found = await changes(agent, { place, path, limit });
   if (found.some((one) => one.in === "memory")) await record(agent, "history", path ?? "/", from);
-  const seen = seenAt(agent.name);
+  const seen = seenAt(agent.id);
   const marked = found.map((one) => ({ ...one, new: isNew(agent, one, seen) }));
   return { seen: seen ?? null, unseen: marked.filter((one) => one.new).length, changes: marked };
 }
 
 function isNew(agent: Agent, one: Change, seen: string | undefined): boolean {
-  return one.by === agent.name && (!seen || one.at > seen);
+  return one.by === agent.id && (!seen || one.at > seen);
 }
 
 /** One change with its diff. */
@@ -41,7 +41,7 @@ export async function agentChange(agent: Agent, place: Place, id: string, from: 
   const found = await change(agent, place, id);
   if (!found) throw new NotFound("There is no such change.");
   if (place === "memory") await record(agent, "read", `change ${found.id}`, from, { bytes: found.diff.length });
-  return { ...found, new: isNew(agent, found, seenAt(agent.name)) };
+  return { ...found, new: isNew(agent, found, seenAt(agent.id)) };
 }
 
 /** Puts back what one change changed, and commits that. */
@@ -57,5 +57,5 @@ export async function agentUndo(agent: Agent, place: Place, id: string, from: st
 
 /** Everything up to now has been looked at. */
 export function agentSeen(agent: Agent) {
-  return { seen: markSeen(agent.name) };
+  return { seen: markSeen(agent.id) };
 }

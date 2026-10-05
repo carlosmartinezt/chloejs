@@ -40,7 +40,7 @@ export function recentWork(agent: Agent, count = 3): RecentWork[] {
     .prepare(
       "select id, source, job, started, finished, summary, error, cost from runs where agent = ? order by started desc limit ?",
     )
-    .all(agent.name, LOOK_BACK) as unknown as Row[];
+    .all(agent.id, LOOK_BACK) as unknown as Row[];
 
   const out: RecentWork[] = [];
   for (const run of rows) {

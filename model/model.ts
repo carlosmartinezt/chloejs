@@ -187,7 +187,7 @@ export interface Attachment {
   mediaType: string;
   /** The file, base64. */
   data: string;
-  name?: string;
+  filename?: string;
 }
 
 /** A message in the chat-completions shape, apart from attachments, which each route turns into its own. */
@@ -236,7 +236,7 @@ export interface Ask {
   model: string;
   messages: Message[];
   tools?: ToolSpec[];
-  maxTokens?: number;
+  maxOutputTokens?: number;
   signal?: AbortSignal;
 }
 

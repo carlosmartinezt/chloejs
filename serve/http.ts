@@ -58,7 +58,7 @@ export const HOST = "127.0.0.1";
 export const PORT = 3067;
 
 export interface Context {
-  agent(name: string): Agent;
+  agent(id: string): Agent;
   agents(): Map<string, Agent>;
   clock: Clock;
   body: typeof body;
@@ -81,7 +81,7 @@ export interface At {
  * from this list: a route and the line describing it cannot drift apart when
  * they are the same object.
  *
- *   path             like `/api/agents/:name/log`. A `:part` matches one segment.
+ *   path             like `/api/agents/:id/log`. A `:part` matches one segment.
  *   open             answered without a session or a token.
  *   token            a token may call it. Without this, only the account may.
  *   needsApiChannel  for a token, only when that agent binds an api channel.
@@ -159,13 +159,13 @@ const Picture = z.object({
 function refusedGuest(route: Route, params: Record<string, string>, guest: Guest): string | undefined {
   if (route.guest === "filtered") return undefined;
   const needs = route.guest ? [route.guest] : [route.remote ?? []].flat();
-  if (!params.name || needs.length === 0 || needs.some((one) => one === "write" || one === "google")) {
+  if (!params.id || needs.length === 0 || needs.some((one) => one === "write" || one === "google")) {
     return "A guest cannot do that. It is the workspace owner's.";
   }
-  const given = guest[params.name];
-  if (!given) return `There is no agent called ${JSON.stringify(params.name)}.`;
+  const given = guest[params.id];
+  if (!given) return `There is no agent called ${JSON.stringify(params.id)}.`;
   const missing = needs.filter((one) => !given.includes(one));
-  return missing.length ? `You have not been given ${missing.join(" and ")} on ${params.name}. Its owner can allow it.` : undefined;
+  return missing.length ? `You have not been given ${missing.join(" and ")} on ${params.id}. Its owner can allow it.` : undefined;
 }
 
 /** Whether an agent has opted in to being reached by another system. */
@@ -176,7 +176,7 @@ function onTheApi(agent: Agent): boolean {
 /** One agent's configuration, the same shape from the list, from its own route, and as sent to a cloud. */
 export function summary(agent: Agent) {
   return {
-    name: agent.name,
+    id: agent.id,
     label: agent.label,
     description: agent.description,
     /** What its runs go to now: a choice made on the fly, else what its definition names. */
@@ -184,7 +184,7 @@ export function summary(agent: Agent) {
     /** What its definition names. */
     declaredModel: agent.model,
     /** Every choice made on the fly: for everything it does, for one job, or for one chat. */
-    chosen: choices(agent.name),
+    chosen: choices(agent.id),
     channels: agent.channels.map((one) => one.name).sort(),
     /** Whether a token may chat to it or run its jobs. */
     api: onTheApi(agent),
@@ -287,32 +287,32 @@ export const routes: Route[] = [
     remote: "read",
     guest: "filtered",
     handle: ({ response, context, who }) =>
-      json(response, [...context.agents().values()].filter((one) => sees(who, one.name)).map(summary)),
+      json(response, [...context.agents().values()].filter((one) => sees(who, one.id)).map(summary)),
   },
   {
     method: "GET",
-    path: "/api/agents/:name",
+    path: "/api/agents/:id",
     does: "One agent's configuration: its model, tools, skills, channels and jobs.",
     token: true,
     remote: "read",
     // A guest who may only chat still needs to know which model will answer.
     guest: "chat",
-    handle: ({ response, context, params }) => json(response, summary(context.agent(params.name))),
+    handle: ({ response, context, params }) => json(response, summary(context.agent(params.id))),
   },
   {
     method: "GET",
-    path: "/api/agents/:name/instructions",
+    path: "/api/agents/:id/instructions",
     does: "What it is told to do, as the model is given it, and which file it is in when it is in one.",
     token: true,
     remote: "read",
     handle: ({ response, context, params }) => {
-      const agent = context.agent(params.name);
+      const agent = context.agent(params.id);
       return json(response, { text: agent.instructions, path: agent.instructionsFile });
     },
   },
   {
     method: "GET",
-    path: "/api/agents/:name/skills",
+    path: "/api/agents/:id/skills",
     does: "Its skills, each with what it says. A skill is words it reaches for when it needs them.",
     token: true,
     remote: "read",
@@ -320,33 +320,33 @@ export const routes: Route[] = [
       json(
         response,
         context
-          .agent(params.name)
+          .agent(params.id)
           .skills.map((one) => ({ name: one.name, description: one.description, body: one.body, path: one.file })),
       ),
   },
   {
     method: "GET",
-    path: "/api/agents/:name/tools",
+    path: "/api/agents/:id/tools",
     does: "What it can do: every tool it is bound, with what the model is told each one is for.",
     token: true,
     remote: "read",
-    handle: ({ response, context, params }) => json(response, toolsOf(context.agent(params.name))),
+    handle: ({ response, context, params }) => json(response, toolsOf(context.agent(params.id))),
   },
   {
     method: "GET",
-    path: "/api/agents/:name/channels",
+    path: "/api/agents/:id/channels",
     does: "The ways in it binds, and which setting carries each one's credentials. Never the credentials.",
     token: true,
     remote: "read",
-    handle: ({ response, context, params }) => json(response, channelsOf(context.agent(params.name))),
+    handle: ({ response, context, params }) => json(response, channelsOf(context.agent(params.id))),
   },
   {
     method: "GET",
-    path: "/api/agents/:name/connections",
+    path: "/api/agents/:id/connections",
     does: "What it can reach that is not on this box, and whether each is set up. Never the credentials.",
     token: true,
     remote: "read",
-    handle: ({ response, context, params }) => json(response, connectionsOf(context.agent(params.name))),
+    handle: ({ response, context, params }) => json(response, connectionsOf(context.agent(params.id))),
   },
   {
     method: "GET",
@@ -363,59 +363,59 @@ export const routes: Route[] = [
   },
   {
     method: "GET",
-    path: "/api/agents/:name/log",
+    path: "/api/agents/:id/log",
     does: "That agent's runs, newest first. Takes ?limit=, at most 200.",
     token: true,
     remote: "read",
     handle: ({ response, context, params, url }) => {
-      context.agent(params.name);
+      context.agent(params.id);
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
       json(
         response,
         db
           .prepare(`select ${RUN_COLUMNS} from runs where agent = ? order by started desc limit ?`)
-          .all(params.name, limit),
+          .all(params.id, limit),
       );
     },
   },
   {
     method: "GET",
-    path: "/api/agents/:name/files",
+    path: "/api/agents/:id/files",
     does: "That agent's own folder as a tree: its instructions, skills, scripts and jobs.",
     token: true,
     remote: "read",
     handle: async ({ response, context, params }) => {
-      context.agent(params.name);
-      json(response, await tree(params.name));
+      context.agent(params.id);
+      json(response, await tree(params.id));
     },
   },
   {
     method: "GET",
-    path: "/api/agents/:name/file",
+    path: "/api/agents/:id/file",
     does: "One file in that folder. Takes ?path=, and a folder answers with what is in it.",
     token: true,
     remote: "read",
     handle: async ({ response, context, params, url }) => {
-      context.agent(params.name);
+      context.agent(params.id);
       const path = url.searchParams.get("path");
       if (!path) return json(response, { error: "No path." }, 400);
-      const found = await open(params.name, path);
-      if (!found) throw new NotFound(`${params.name} has no ${path}.`);
+      const found = await open(params.id, path);
+      if (!found) throw new NotFound(`${params.id} has no ${path}.`);
       json(response, found);
     },
   },
   {
     method: "GET",
-    path: "/api/agents/:name/threads",
+    path: "/api/agents/:id/threads",
     does: "That agent's conversations, newest first, however they were started.",
     token: true,
     remote: "read",
     // A guest sees their own conversations and nobody else's.
     guest: "chat",
     handle: ({ response, context, params, who }) => {
-      context.agent(params.name);
+      context.agent(params.id);
       const guest = who?.kind === "cloud" && who.guest ? who.user.toLowerCase() : null;
-      const under = `${params.name}/`;
+      const under = `${params.id}/`;
       const rows = db
         .prepare(
           `select m.thread, count(*) as messages, max(m.at) as last, t.label, t.archived, t.owner
@@ -508,7 +508,7 @@ export const routes: Route[] = [
       json(
         response,
         Object.fromEntries(
-          [...context.agents().values()].filter((a) => may(who, a.name, "read")).map((a) => [a.name, recentWork(a)]),
+          [...context.agents().values()].filter((a) => may(who, a.id, "read")).map((a) => [a.id, recentWork(a)]),
         ),
       ),
   },
@@ -530,14 +530,14 @@ export const routes: Route[] = [
   // Doing. A token may do these, and only to an agent that binds an api channel.
   {
     method: "POST",
-    path: "/api/agents/:name/chat",
+    path: "/api/agents/:id/chat",
     does: "One turn with the agent. Send the same thread again and it remembers what was said. Pictures are seen in this turn only and never kept.",
     takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}]}',
     token: true,
     needsApiChannel: true,
     remote: "chat",
     handle: async ({ request, response, context, params, who }) => {
-      const agent = context.agent(params.name);
+      const agent = context.agent(params.id);
       const { prompt, thread, model, images } = await body(
         request,
         z.object({
@@ -555,17 +555,17 @@ export const routes: Route[] = [
       const token = who?.kind === "token";
       const guest = who?.kind === "cloud" && who.guest ? who : undefined;
       const relayed = who?.kind === "cloud" ? who : undefined;
-      let under = token && thread ? `${agent.name}/api-${thread}` : (thread ?? "");
+      let under = token && thread ? `${agent.id}/api-${thread}` : (thread ?? "");
       if (guest) {
         // Picking a model changes it for everybody, and a /command runs a job.
         if (/^\/models?(?:@\w+)?(?:\s|$)/i.test(prompt)) {
           return json(response, { error: "A guest cannot pick the model. Its owner can." }, 403);
         }
-        if (prompt.startsWith("/") && !/^\/clear(?:@\w+)?\s*$/i.test(prompt) && !may(guest, agent.name, "run")) {
-          return json(response, { error: `You have not been given run on ${agent.name}. Its owner can allow it.` }, 403);
+        if (prompt.startsWith("/") && !/^\/clear(?:@\w+)?\s*$/i.test(prompt) && !may(guest, agent.id, "run")) {
+          return json(response, { error: `You have not been given run on ${agent.id}. Its owner can allow it.` }, 403);
         }
         const named = thread ? thread.slice(thread.indexOf("/") + 1) : randomUUID();
-        under = threadFor(guest, `${agent.name}/${named}`, true);
+        under = threadFor(guest, `${agent.id}/${named}`, true);
       }
       // The same path as every channel's message, so a /command, or a reply
       // that is one, goes to that job here too. Who may call this is already
@@ -603,38 +603,38 @@ export const routes: Route[] = [
   },
   {
     method: "POST",
-    path: "/api/agents/:name/model",
+    path: "/api/agents/:id/model",
     does: 'Pick a model on the fly: for everything the agent does, one job, or one chat. An empty model takes the pick back.',
     takes: '{"scope": "agent" | "job:<id>" | "chat:<thread>", "model": "..." or ""}',
     remote: "write",
     handle: async ({ request, response, context, params }) => {
-      const agent = context.agent(params.name);
+      const agent = context.agent(params.id);
       const { scope, model } = await body(
         request,
         z.object({ scope: z.string().regex(/^(agent|job:.+|chat:.+)$/, 'agent, job:<id> or chat:<thread>'), model: z.string().trim() }),
       );
       if (scope.startsWith("job:") && !agent.jobs.some((one) => one.id === scope.slice(4))) {
-        throw new BadRequest(`${agent.name} has no job called ${scope.slice(4)}.`);
+        throw new BadRequest(`${agent.id} has no job called ${scope.slice(4)}.`);
       }
       if (model && !models(agent).some((one) => one.model === model)) {
         throw new BadRequest(`${model} is not on offer here. GET /api/models lists what is.`);
       }
-      choose(agent.name, scope as Scope, model);
+      choose(agent.id, scope as Scope, model);
       json(response, summary(agent));
     },
   },
   {
     method: "POST",
-    path: "/api/agents/:name/job/:job",
+    path: "/api/agents/:id/job/:job",
     does: "Run one of that agent's jobs now, rather than waiting for its cron line. Takes what that job's input shape says.",
     takes: 'whatever the job declares, as JSON or as a query string: {"text": "..."}',
     token: true,
     needsApiChannel: true,
     remote: "run",
     handle: async ({ request, response, context, params, url }) => {
-      const agent = context.agent(params.name);
+      const agent = context.agent(params.id);
       const job = agent.jobs.find((one: Job) => one.id === params.job);
-      if (!job) throw new NotFound(`${agent.name} has no job called ${JSON.stringify(params.job)}.`);
+      if (!job) throw new NotFound(`${agent.id} has no job called ${JSON.stringify(params.job)}.`);
 
       // A query string for the one-liner case, a body for anything with
       // newlines or numbers in it, and the body wins where they overlap.
@@ -655,24 +655,24 @@ export const routes: Route[] = [
       }
 
       void context.clock.fire(agent, job, sent, channelOf(request));
-      json(response, { started: `${agent.name}/${job.id}`, log: `/api/agents/${agent.name}/log` });
+      json(response, { started: `${agent.id}/${job.id}`, log: `/api/agents/${agent.id}/log` });
     },
   },
 
   // Writing, and the tokens themselves. The account and nothing else.
   {
     method: "POST",
-    path: "/api/agents/:name/file",
+    path: "/api/agents/:id/file",
     does: "Write a file in that agent's folder back. Markdown only: code is edited where the type checker runs.",
     takes: '{"path": "skills/x.md", "content": "..."}',
     remote: "write",
     handle: async ({ request, response, context, params }) => {
-      context.agent(params.name);
+      context.agent(params.id);
       const { path, content } = await body(request, z.object({ path: z.string(), content: z.string() }));
       if (!editable(path)) {
         return json(response, { error: `${path} is not markdown, so it cannot be written from here.` }, 400);
       }
-      json(response, await save(params.name, path, content));
+      json(response, await save(params.id, path, content));
     },
   },
   {
@@ -714,9 +714,9 @@ export const routes: Route[] = [
       }
       const agent = context.agent(run.agent);
       const job = agent.jobs.find((one: Job) => one.id === run.job);
-      if (!job || job.run) throw new BadRequest(`${agent.name} no longer has a prompt job called ${run.job}, so there is nothing to carry on with.`);
-      if (context.clock.running().includes(`${agent.name}/${job.id}`)) {
-        throw new BadRequest(`${agent.name}/${job.id} is running now. Carry this one on once it has finished.`);
+      if (!job || job.run) throw new BadRequest(`${agent.id} no longer has a prompt job called ${run.job}, so there is nothing to carry on with.`);
+      if (context.clock.running().includes(`${agent.id}/${job.id}`)) {
+        throw new BadRequest(`${agent.id}/${job.id} is running now. Carry this one on once it has finished.`);
       }
       void context.clock.carryOn(agent, job, params.id);
       json(response, { carrying: params.id, log: `/api/runs/${params.id}` });
@@ -797,126 +797,126 @@ export const routes: Route[] = [
   // takes a token: see memory.ts for why every read is written down first.
   {
     method: "GET",
-    path: "/api/agents/:name/memory",
+    path: "/api/agents/:id/memory",
     does: "That agent's memory as a tree. Empty when it has never written anything. Recorded like a read.",
     remote: "memory",
     handle: async ({ request, response, context, params }) =>
-      json(response, await memoryTree(context.agent(params.name), from(request))),
+      json(response, await memoryTree(context.agent(params.id), from(request))),
   },
   {
     method: "GET",
-    path: "/api/agents/:name/memory/file",
+    path: "/api/agents/:id/memory/file",
     does: "One file as text, for editing. Takes ?path=. Written to the audit log before it is sent.",
     remote: "memory",
     handle: async ({ request, response, context, params, url }) => {
       const path = url.searchParams.get("path");
       if (!path) return json(response, { error: "No path." }, 400);
-      const found = await memoryOpen(context.agent(params.name), path, from(request));
+      const found = await memoryOpen(context.agent(params.id), path, from(request));
       if (!found) throw new NotFound(`Nothing at ${path}.`);
       json(response, found);
     },
   },
   {
     method: "POST",
-    path: "/api/agents/:name/memory/file",
+    path: "/api/agents/:id/memory/file",
     does: "Write a file back. A commit too, when the memory is a repo and the agent says to commit.",
     takes: '{"path": "01_projects/x.html", "content": "..."}',
     remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) => {
       const { path, content } = await body(request, z.object({ path: z.string(), content: z.string() }));
-      json(response, await memorySave(context.agent(params.name), path, content, from(request)));
+      json(response, await memorySave(context.agent(params.id), path, content, from(request)));
     },
   },
   {
     method: "POST",
-    path: "/api/agents/:name/memory/rename",
+    path: "/api/agents/:id/memory/rename",
     does: "Move a file or a folder inside that memory.",
     takes: '{"from": "a.html", "to": "b/a.html"}',
     remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) => {
       const moved = await body(request, z.object({ from: z.string().min(1), to: z.string().min(1) }));
-      json(response, await memoryRename(context.agent(params.name), moved.from, moved.to, from(request)));
+      json(response, await memoryRename(context.agent(params.id), moved.from, moved.to, from(request)));
     },
   },
   {
     method: "POST",
-    path: "/api/agents/:name/memory/delete",
+    path: "/api/agents/:id/memory/delete",
     does: "Delete a file or a folder. In a repo, git still has it.",
     takes: '{"path": "a.html"}',
     remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) => {
       const { path } = await body(request, z.object({ path: z.string().min(1) }));
-      json(response, await memoryDelete(context.agent(params.name), path, from(request)));
+      json(response, await memoryDelete(context.agent(params.id), path, from(request)));
     },
   },
   {
     method: "GET",
-    path: "/api/agents/:name/memory/pass",
+    path: "/api/agents/:id/memory/pass",
     does: "A pass to show that memory's files in a frame, for ten minutes. See pass.ts.",
     remote: "memory",
     handle: ({ response, context, params }) => {
-      const pass = makePass(context.agent(params.name).name);
+      const pass = makePass(context.agent(params.id).id);
       json(response, { pass, at: `/memory/${encodeURIComponent(pass)}` });
     },
   },
   {
     method: "GET",
-    path: "/api/agents/:name/memory/log",
+    path: "/api/agents/:id/memory/log",
     does: "That agent's audit log: every file read, served, written, moved or deleted, when, and from where.",
     remote: "memory",
     handle: async ({ response, context, params, url }) =>
       json(
         response,
-        await memoryLog(context.agent(params.name), Math.min(Number(url.searchParams.get("limit") ?? 200), 1000)),
+        await memoryLog(context.agent(params.id), Math.min(Number(url.searchParams.get("limit") ?? 200), 1000)),
       ),
   },
   {
     method: "GET",
-    path: "/api/agents/:name/memory/git",
+    path: "/api/agents/:id/memory/git",
     does: "Source control for that memory, when it is a repo: what changed, the branch, and the recent history.",
     remote: "memory",
-    handle: async ({ response, context, params }) => json(response, await memoryGit(context.agent(params.name))),
+    handle: async ({ response, context, params }) => json(response, await memoryGit(context.agent(params.id))),
   },
   {
     method: "POST",
-    path: "/api/agents/:name/memory/git/commit",
+    path: "/api/agents/:id/memory/git/commit",
     does: "Commit everything that changed in that memory.",
     takes: '{"message": "..."}',
     remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) => {
       const { message } = await body(request, z.object({ message: z.string() }));
-      json(response, await memoryCommit(context.agent(params.name), message, from(request)));
+      json(response, await memoryCommit(context.agent(params.id), message, from(request)));
     },
   },
   {
     method: "POST",
-    path: "/api/agents/:name/memory/git/push",
+    path: "/api/agents/:id/memory/git/push",
     does: "Push that memory's commits. Says where they went, because this is what sends them off the box.",
     remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) =>
-      json(response, await memoryPush(context.agent(params.name), from(request))),
+      json(response, await memoryPush(context.agent(params.id), from(request))),
   },
   {
     method: "POST",
-    path: "/api/agents/:name/memory/git/pull",
+    path: "/api/agents/:id/memory/git/pull",
     does: "Pull, fast-forward only.",
     remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) =>
-      json(response, await memoryPull(context.agent(params.name), from(request))),
+      json(response, await memoryPull(context.agent(params.id), from(request))),
   },
 
   // What an agent changed: the commits in its memory and in its own folder.
   // A memory's are recorded like any read of it, so none of these takes a token.
   {
     method: "GET",
-    path: "/api/agents/:name/changes",
+    path: "/api/agents/:id/changes",
     does: "Commits to that agent's memory and own folder, newest first, the ones it made since somebody last looked marked new. Takes ?in=memory|folder, ?path= for one file's history, and ?limit=, at most 200.",
     remote: "memory",
     handle: async ({ request, response, context, params, url }) =>
       json(
         response,
         await agentChanges(
-          context.agent(params.name),
+          context.agent(params.id),
           {
             place: placeOf(url.searchParams.get("in")),
             path: url.searchParams.get("path") || undefined,
@@ -928,21 +928,21 @@ export const routes: Route[] = [
   },
   {
     method: "GET",
-    path: "/api/agents/:name/changes/:id",
+    path: "/api/agents/:id/changes/:change",
     does: "One commit and its diff, cut to that agent's part of the repository. Takes ?in=memory|folder.",
     remote: "memory",
     handle: async ({ request, response, context, params, url }) => {
       const place = placeOf(url.searchParams.get("in"));
       if (!place) return json(response, { error: "Say which: ?in=memory or ?in=folder." }, 400);
-      json(response, await agentChange(context.agent(params.name), place, params.id, from(request)));
+      json(response, await agentChange(context.agent(params.id), place, params.change, from(request)));
     },
   },
   {
     method: "POST",
-    path: "/api/agents/:name/changes/seen",
+    path: "/api/agents/:id/changes/seen",
     does: "Everything that agent has changed up to now has been looked at.",
     remote: "write",
-    handle: ({ response, context, params }) => json(response, agentSeen(context.agent(params.name))),
+    handle: ({ response, context, params }) => json(response, agentSeen(context.agent(params.id))),
   },
   // Getting signed in to Google. Starting one is the agent's own tool; these
   // two are for a person at the page and for the dashboard handing back the
@@ -978,13 +978,13 @@ export const routes: Route[] = [
   },
   {
     method: "POST",
-    path: "/api/agents/:name/changes/:id/undo",
+    path: "/api/agents/:id/changes/:change/undo",
     does: "Put every file one commit changed back how it was, and commit that. Refused when a file has changed since.",
     takes: '{"in": "memory"}',
     remote: ["memory", "write"],
     handle: async ({ request, response, context, params }) => {
       const { in: place } = await body(request, z.object({ in: z.enum(["memory", "folder"]) }));
-      json(response, await agentUndo(context.agent(params.name), place, params.id, from(request)));
+      json(response, await agentUndo(context.agent(params.id), place, params.change, from(request)));
     },
   },
 ];
@@ -1197,10 +1197,10 @@ async function api(
     if (who.kind === "token" && !route.token) {
       return json(response, { error: "A token cannot do that. That one is the account's." }, 403);
     }
-    if (who.kind === "token" && route.needsApiChannel && !onTheApi(context.agent(params.name))) {
+    if (who.kind === "token" && route.needsApiChannel && !onTheApi(context.agent(params.id))) {
       return json(
         response,
-        { error: `${params.name} has no api channel, so a token cannot reach it. Bind one to open it.` },
+        { error: `${params.id} has no api channel, so a token cannot reach it. Bind one to open it.` },
         403,
       );
     }

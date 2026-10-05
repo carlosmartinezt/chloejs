@@ -95,7 +95,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
   }
 
   async function guarded(agent: Agent, job: Job, run: () => Promise<Fired>): Promise<Fired | NotRun> {
-    const key = `${agent.name}/${job.id}`;
+    const key = `${agent.id}/${job.id}`;
     if (busy.has(key)) {
       console.warn(`${key}: still running from last time, skipping this one`);
       return { skipped: "busy" };
@@ -103,7 +103,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
     // A job waiting on a person is still that job's turn. Starting a second
     // one would ask the same question twice and act on whichever came back
     // first.
-    if (job.run && waitingFor(agent.name, job.id)) {
+    if (job.run && waitingFor(agent.id, job.id)) {
       console.warn(`${key}: still waiting on an answer, skipping this one`);
       return { skipped: "waiting" };
     }

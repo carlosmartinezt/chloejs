@@ -245,7 +245,7 @@ function trailingCalls(text: string): { said: string; calls: ToolCall[] } {
 }
 
 /**
- * The same request written as a sentence, `listNotes with {"path": "a"}`,
+ * The same request written as a sentence, `memoryListFiles with {"path": "a"}`,
  * bracketed or not, as transcripts once showed past calls and models still
  * copy. Only for a tool this agent has, starting the last line, with arguments
  * that parse to the end of the reply: anything looser would catch a reply that

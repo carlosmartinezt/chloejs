@@ -3,11 +3,13 @@
 // writes into its own folder, where it can be read and corrected.
 import { db } from "#chloe/core/db";
 import type { Message } from "./model.ts";
+import type { Call } from "./tool.ts";
 
 /** How many messages of a conversation a turn is shown, when the agent does not say. */
 export const RECALL = 10;
 
-export interface Used {
+/** A call as a thread keeps it: which tool, and what it was called with. */
+interface Used {
   tool: string;
   args: unknown;
 }
@@ -21,14 +23,14 @@ function clipArgs(args: unknown): unknown {
 }
 
 /** `used` is the tools a reply called, kept so a later turn can see how the reply was reached. */
-export function remember(thread: string, role: "user" | "assistant", content: string, used: Used[] = []): void {
+export function remember(thread: string, role: "user" | "assistant", content: string, used: Pick<Call, "toolName" | "input">[] = []): void {
   if (!content) return;
   db.prepare("insert into messages (thread, role, content, at, used) values (?, ?, ?, ?, ?)").run(
     thread,
     role,
     content,
     new Date().toISOString(),
-    used.length ? JSON.stringify(used.map((one) => ({ tool: one.tool, args: clipArgs(one.args) }))) : null,
+    used.length ? JSON.stringify(used.map((one): Used => ({ tool: one.toolName, args: clipArgs(one.input) }))) : null,
   );
 }
 

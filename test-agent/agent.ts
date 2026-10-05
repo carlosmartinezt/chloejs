@@ -5,7 +5,7 @@ import { defineAgent, STATE } from "@chloejs/core";
 import hello from "./jobs/hello.ts";
 
 export default defineAgent({
-  name: "test",
+  id: "test",
   model: "anthropic/claude-haiku-4.5",
   description: "Loaded by the runtime's tests and nothing else.",
   instructions: "Answer in one line.",

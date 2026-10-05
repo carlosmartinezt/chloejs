@@ -70,9 +70,9 @@ variable already in the real environment wins, so
 `CHLOE_MODEL_VIA=gateway npx chloe` still beats the file.
 
 What belongs to one agent, its channels' tokens, is under `agents` and that
-agent's name, read by the name the agent has when the channel starts:
-`CHLOE_AGENTS_TEMPO_TELEGRAM`. A name with a dash in it still works, because
-`loadAll` hands the agent names over with the declaration and a variable's name
+agent's id, read by the id the agent has when the channel starts:
+`CHLOE_AGENTS_TEMPO_TELEGRAM`. An id with a dash in it still works, because
+`loadAll` hands the agent ids over with the declaration and a variable's name
 cannot hold a dash.
 
 **The config reaches `core/settings.ts` and not the other way round.** The
@@ -209,7 +209,7 @@ Going straight to step 3 or 4 is the most common mistake made here.
 
 `agents/` holds agents and nothing else: one folder per agent, each with an
 `agent.ts`, and an agent runs only if `chloe.config.ts` lists it. An agent's
-folder is the one its `agent.ts` is in, and could be anywhere. Its `name` is
+folder is the one its `agent.ts` is in, and could be anywhere. Its `id` is
 what its run history is filed under, so it does not change; `label` is what
 the page shows and can. Its memory is inside its folder unless it says
 otherwise, so the two move together. Anything every
@@ -232,7 +232,7 @@ the runtime; the rest must not, and nothing there may know what an agent is
 except those three. The two files left at the top are `server.ts` and `index.ts`, which is the
 list of names `chloe` exports, and nothing is written in it.
 A thing only one agent wants is not common, and lives in that agent's folder.
-`agents/<name>/` is that agent's
+`agents/<id>/` is that agent's
 own, including its `evals/`, which say what a good run of its jobs looks like.
 `ops/` is what a person runs rather than the service: `cli.ts`, which is what
 `npx chloe` reaches and which runs each of the others, then the tests, the
@@ -250,36 +250,40 @@ The runtime is the floor everyone stands on, so nothing in it may name an agent
 or a person, and nothing in `model/tools/` or `channels/` exports a
 default: each exports a function that an agent binds.
 
-**A tool that needs somebody signed in brings that with it.** `readMail`
-hands back a set and not one tool: the mail tool, and the two that get a person
-signed in to Google. `sendEmail` brings the same two when the mail goes out
-through Google, and nothing when it does not. So an agent says `readMail` and
-is done, rather than remembering to add the sign-in beside it, and there is no
-way to have mail without the means to fix mail. The set is made once and handed
-out, and the loader takes the same tool twice and refuses two different tools of
-one name, which is what lets an agent have both of those bindings.
+**A tool that needs somebody signed in brings that with it.** `gmailReadEmail`,
+`gmailReplyEmail` and `gmailSendEmail` are marked `needs: "google"`, and the loader
+adds the two tools that get a person signed in to Google beside any tool so
+marked. So an agent says `gmailReadEmail` and is
+done, rather than remembering to add the sign-in beside it, and there is no way
+to have mail without the means to fix mail.
 
 **A tool is for a model and nothing else.** The work is a plain function in
 `services/`, published as `"@chloejs/core/services"`, and a job calls it from a step.
 `model/tools/` holds the wrappers over those functions, and a wrapper is
-a description, a schema and one call, made with the AI SDK's `tool()` and handed
-back keyed by its name. Nothing in it does work. A tool's
-function is named like the tool it makes: `sendEmail()` makes `sendEmail`.
+a description, a schema and one call, made with the AI SDK's `tool()`. Each
+function returns one tool, and the agent's `tools` object gives it the name the
+model calls it by: `{ gmailReadEmail: gmailReadEmail({ ... }) }`. Nothing in it does work. A tool that needs to know
+which agent it runs for reads `agentOf(context)`: every tool is handed
+`{ agent }` as the AI SDK's `context`, so no tool is made per agent. A tool's
+function is named like the tool it makes: `resendSendEmail()` makes
+`resendSendEmail`. A tool's name is where it reaches, then a verb and a noun:
+`gmailReadEmail`, `fsListFiles`, `memoryWriteFile`, `selfReadFile`,
+`scriptRun`, `webReadPage`.
 A service's function is named for the work, `deliverEmail()`, and never
 takes a tool's name, so a job and a model never reach for the same one. A file in
 `services/` is named for what it reaches, `<thing>Service.ts`. Where more than
 one provider could do the same work, the file holds the interface and the
 providers, and a setting picks one: `email.provider` in `emailService.ts`.
 
-An agent's own folder is the same shape one level down: `agents/<name>/services/` is
+An agent's own folder is the same shape one level down: `agents/<id>/services/` is
 what that agent does without asking, the address it sends from and the mail
-search it is bound to, and `agents/<name>/tools/` is the wrappers. Nothing in
+search it is bound to, and `agents/<id>/tools/` is the wrappers. Nothing in
 an agent's folder is found by looking except `skills/`: a job, a tool or a
 channel exists because `agent.ts` names it, a markdown job as
 `markdownJob("jobs/<id>.md")`. A job exported from a file in `jobs/` that its
 agent does not name fails `npm run test`, because it would look like a job and
 never run, and
-`writeOwnFile` refuses to make a new one for the same reason.
+`selfWriteFile` refuses to make a new one for the same reason.
 
 A job that imports a tool, chloe's or its own agent's, fails `npm run test`:
 it either wanted a `services/` folder or it is paying a model to read a path it
@@ -334,7 +338,7 @@ own `/models`, which `learnModels()` fetches at startup and on each reload and
 never from a request. Do not write a list of model names into this repo: it is
 wrong the week after it ships.
 
-A model picked on the fly (`/models` in a chat, `POST /api/agents/<name>/model`)
+A model picked on the fly (`/models` in a chat, `POST /api/agents/<id>/model`)
 is a row in `model/choices.ts`, and `modelFor()` there is the one place that
 says which wins: a pick for the job, the job's own, a pick for the agent, the
 agent's own. The three runners read it; nothing else decides a model.
@@ -447,7 +451,7 @@ and a `cron` that does not read stops the agent loading. `markdownJob("jobs/<id>
 in `agent.ts` names one, and its file name is its id. The loader does not refuse a fifth key,
 which is worth knowing: the old system accepted a key it did not recognise by
 silently refusing to rebuild, so the file looked saved, the service looked
-healthy, and the change never happened. `writeOwnFile` does refuse one, with
+healthy, and the change never happened. `selfWriteFile` does refuse one, with
 `markdownJobProblem()`, and it refuses a cron line that runs more than once an
 hour unless a person wrote that line. Teach `load/load.ts` to read a key
 before you write one.
@@ -504,7 +508,7 @@ prompt, and the second is skipped rather than queued. A job that takes longer th
 run less often than its cron line says.
 
 **A tool that reads someone's mail or notes is bound, not asked.** The search a
-tool like `readMail` runs comes from the agent's own binding, and the agent
+tool like `gmailReadEmail` runs comes from the agent's own binding, and the agent
 chooses only how far back and how many. Reading one item re-runs that same
 search and refuses anything that is not in it. A query an agent can write is a
 filter, not a boundary: it widens the moment a turn goes wrong, and by then it
@@ -517,7 +521,7 @@ give it this shape.
 user ids, so an allowed person is answered in any chat, including a group made
 later. One bot per agent, unless each has its own `name`. `mode` is `"polling"` (the default: chloe fetches
 messages, nothing is exposed) or `"webhook"` (Telegram posts to
-`/chloe/v1/<agent>/<channel name>`, which is answered before the login and checks its
+`/chloe/v1/<id>/<channel name>`, which is answered before the login and checks its
 secret on every call). Do not add another path past the login without a secret
 and an allowlist of its own.
 
@@ -527,7 +531,7 @@ chloe connecting out to Slack, so it adds no path past the login at all.
 
 **WhatsApp is WhatsApp's own API, and nothing else.** `whatsappChannel()` needs
 no library: a number registered with Meta, a token, and one route past the login
-at `/chloe/v1/<agent>/whatsapp`, which checks the app secret on every POST and
+at `/chloe/v1/<id>/whatsapp`, which checks the app secret on every POST and
 answers Meta's verification GET only for the word it was given. Meta only pushes,
 and has nothing to ask for messages with, so by default nothing reaches that
 route at all: the channel asks `postBox` (`cloud.url` in settings, and no account
@@ -547,7 +551,7 @@ that stops to ask somebody runs into.
 because the cloud owns the mail domain: it hands out `reply-<uuid>@<domain>`
 for one conversation with one person, sends from it, and puts replies in the
 channel's post box, which is collected like WhatsApp's (`channels/postbox.ts`,
-shared by both). A conversation starts with `openEmail()`, the `startEmail`
+shared by both). A conversation starts with `openEmail()`, the `emailStartConversation`
 tool, or a job's `ask("email:<address>")`, and only ever with somebody in
 `allowFrom`. Nothing between the sender and here is trusted: a reply is taken
 only to an open address made here, from the one person it was made for, with a
@@ -558,8 +562,8 @@ every turn on a channel, for when the person writing should not reach them.
 
 **An agent is reachable by another system because its `agent.ts` lists
 `apiChannel()` in `channels`**, imported from `@chloejs/core/channels`.
-It listens to nothing. `POST /api/agents/<name>/chat` and
-`POST /api/agents/<name>/job/<job>` are answered by `serve/http.ts`
+It listens to nothing. `POST /api/agents/<id>/chat` and
+`POST /api/agents/<id>/job/<job>` are answered by `serve/http.ts`
 either way, and what binding the channel does is let a **token** reach that
 agent: without it a token gets a 403 and only the account can. It never carries
 a question out, because HTTP cannot push, and a job that stops to ask still
@@ -640,16 +644,16 @@ repository: every commit, and everything listed and shown, is scoped to the
 agent's own folder, because the folder beside it is another agent's memory.
 `memoryRepo()` is the rule for which repository a memory's history is in, and a
 memory deeper inside a repository has none, on purpose. Whatever a run changed is
-committed when it finishes, fails or stops to wait, under the agent's name
+committed when it finishes, fails or stops to wait, under the agent's id
 with an empty email, ending `Run: <id>`, and the run's row lists the commit.
 Whatever changed before a run started was somebody else, so it is committed
 first under this box's own git name. `commit: true` is the other shape: every
 write is its own commit, for a folder shared with a person. The git work is
 `services/historyService.ts`, and the site reads the history, one change and
-undo through `/api/agents/<name>/changes`.
+undo through `/api/agents/<id>/changes`.
 
 **An agent's memory is never reached through its own folder's routes.**
-`/api/agents/<name>/files` and `/file` take a token and record nothing, so
+`/api/agents/<id>/files` and `/file` take a token and record nothing, so
 `serve/files.ts` leaves the memory out of the tree and answers 404 for anything
 in it, which matters when somebody keeps a memory inside the agent's folder
 after all. The watcher leaves it out too: it changes on every run and is never
@@ -699,7 +703,7 @@ honest beats precise and forgeable. None of this is worth anything if something
 other than the proxy can reach the port, which is why it binds loopback.
 
 **A case is answered strictly.** A tool mock matches on the exact arguments, so
-a case that answers `readMail` with `{}` fails the moment the agent asks for
+a case that answers `gmailReadEmail` with `{}` fails the moment the agent asks for
 one message by id. Mark that answer `"anyArgs": true` when the arguments
 do not change the answer, and `"times"` when one answer covers several calls.
 
@@ -748,12 +752,12 @@ never where only a human edits it.
 power.** Every script in an agent's `scripts/` folder is reachable by that
 agent. If no skill or instruction mentions it, it does not belong there.
 
-**Do not let the runtime learn an agent's name.** It is the floor everyone
+**Do not let the runtime learn an agent's id.** It is the floor everyone
 stands on. Agent specific code lives in that agent's folder.
 
 **Do not add a per-agent file for something every agent has.** Write it once
 in `model/tools/` and let each agent name it in its `agent.ts`. What any
-agent may want switched on (its notes tools, the own-file tools, runScript) is
+agent may want switched on (its memory tools, the self tools, scriptRun) is
 a `features` flag in its definition instead, and the loader adds the tools.
 
 **A channel says its own name, and nothing else may say it for it.** Every
@@ -805,7 +809,7 @@ A comment on a function is for someone calling it: what it does, what it
 takes, and anything that would surprise them. It is not the story of the
 change that produced it. "Whose they are is filled in when the agent loads, so
 the name is not written twice" describes a refactor, and says nothing to
-someone reading `memoryTools()` for the first time; "listNotes, readNotes,
-searchNotes and writeNotes, all inside one folder" does. Words like
+someone reading `memoryTools()` for the first time; "memoryListFiles, memoryReadFile,
+memorySearchFiles and memoryWriteFile, all inside one folder" does. Words like
 "now", "no longer", "used to" and "instead of" in a function's comment are the
 sign. The history is in git.

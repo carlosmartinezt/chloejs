@@ -122,30 +122,30 @@ export function channelsOf(agent: Agent): Way[] {
         return {
           name: "telegram",
           does: "A Telegram bot. Anyone it is told to listen to can talk to this agent.",
-          needs: `agents.${agent.name}.telegram`,
-          ready: filled(settings.agents[agent.name]?.telegram),
+          needs: `agents.${agent.id}.telegram`,
+          ready: filled(settings.agents[agent.id]?.telegram),
           settings: how,
         };
       }
       if (channel.name === "slack") {
-        const slack = settings.agents[agent.name]?.slack;
+        const slack = settings.agents[agent.id]?.slack;
         return {
           name: "slack",
           does: "A Slack app. It answers in a direct message or wherever it is invited.",
-          needs: `agents.${agent.name}.slack`,
+          needs: `agents.${agent.id}.slack`,
           ready: filled(slack?.bot_token) && filled(slack?.app_token),
           settings: how,
         };
       }
       if (channel.name === "whatsapp") {
-        const whatsapp = settings.agents[agent.name]?.whatsapp;
-        const box = collectsAt(agent.name, channel.name);
+        const whatsapp = settings.agents[agent.id]?.whatsapp;
+        const box = collectsAt(agent.id, channel.name);
         return {
           name: "whatsapp",
           does:
             "A number on WhatsApp's own API. It answers one-to-one messages, and WhatsApp allows no groups on it." +
             (box ? ` Paste ${box} into the app's WhatsApp page: that is the post box it collects from.` : ""),
-          needs: `agents.${agent.name}.whatsapp`,
+          needs: `agents.${agent.id}.whatsapp`,
           ready: filled(whatsapp?.phone_number_id) && filled(whatsapp?.token) && filled(whatsapp?.app_secret),
           settings: how,
         };
@@ -170,7 +170,6 @@ export function channelsOf(agent: Agent): Way[] {
  * disk is not here, because nothing outside is involved in it.
  */
 export function connectionsOf(agent: Agent): Way[] {
-  const has = (tool: string) => Object.keys(agent.tools ?? {}).includes(tool);
   const model = modelFor(agent);
   const route = routeFor(model);
   const out: Way[] = [
@@ -188,40 +187,21 @@ export function connectionsOf(agent: Agent): Way[] {
           ready: null,
         },
   ];
-  if (has("sendEmail")) {
-    out.push(
-      settings.email.provider === "gmail"
-        ? {
-            name: "gmail",
-            does: "Its mail goes out as the signed-in account, from their own address.",
-            needs: "google.account",
-            ready: filled(settings.google.account) && filled(settings.google.client),
-          }
-        : settings.email.provider === "resend"
-        ? {
-            name: "resend",
-            does: "Where its mail is sent. Without a key nothing is sent and nothing fails.",
-            needs: "resend.api_key",
-            ready: filled(settings.resend.api_key),
-          }
-        : {
-            name: "no mail provider",
-            does: "Mail is written to the log and sent nowhere.",
-            needs: "email.provider",
-            ready: null,
-          },
-    );
+  if (Object.values(agent.tools ?? {}).some((one) => one.needs === "resend")) {
+    out.push({
+      name: "resend",
+      does: "Where its mail is sent. Without a key nothing is sent and nothing fails.",
+      needs: "resend.api_key",
+      ready: filled(settings.resend.api_key),
+    });
   }
-  if (has("readMail")) {
+  if (Object.values(agent.tools ?? {}).some((one) => one.needs === "google")) {
     out.push({
       name: "google",
-      does: "The account its mail is read from. Somebody still has to sign in once, which the agent can ask them to do.",
+      does: "The account its mail is read and sent as. Somebody still has to sign in once, which the agent can ask them to do.",
       needs: "google.account",
       ready: filled(settings.google.account) && filled(settings.google.client),
     });
-  }
-  if (has("readWeb")) {
-    out.push({ name: "the web", does: "It can fetch a page. Nothing is needed for that.", needs: "", ready: null });
   }
   return out;
 }

@@ -488,7 +488,7 @@ function fieldsOf(path: string[]): string[][] {
 }
 
 /**
- * A record's entries out of the environment: `CHLOE_AGENTS_<name>_TELEGRAM`.
+ * A record's entries out of the environment: `CHLOE_AGENTS_<id>_TELEGRAM`.
  * The field is matched off the end, longest first, so an agent whose name has
  * an underscore in it still reads as one name. The key is lower case, which is
  * what an agent folder and a provider are, unless something already spells it
@@ -592,7 +592,7 @@ export function readSettings(declared: unknown, env: Env = process.env, spelling
 /** What `chloe.config.ts` declared, kept so the environment can be read again over it. */
 let declared: Declared = {};
 
-/** The agent names of the last declaration, so a variable can find one with a dash in it. */
+/** The agent ids of the last declaration, so a variable can find one with a dash in it. */
 let spellings: string[] = [];
 
 /**

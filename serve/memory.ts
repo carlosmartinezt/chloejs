@@ -56,7 +56,7 @@ export function memoryLabel(agent: Agent): string {
  * was read, and go wherever the memory is pushed.
  */
 function logFor(agent: Agent): string {
-  return `${STATE}/memory-audit/${agent.name}.jsonl`;
+  return `${STATE}/memory-audit/${agent.id}.jsonl`;
 }
 
 function folder(agent: Agent): string {
@@ -127,7 +127,7 @@ function inside(agent: Agent, path: string, from: string): string | null {
   try {
     return confine(folder(agent), path);
   } catch (error) {
-    console.error(`memory: ${agent.name} refused ${JSON.stringify(path)} from ${from}: ${(error as Error).message}`);
+    console.error(`memory: ${agent.id} refused ${JSON.stringify(path)} from ${from}: ${(error as Error).message}`);
     return null;
   }
 }

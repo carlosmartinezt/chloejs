@@ -7,7 +7,7 @@
 //
 //   import { defineJob, note } from "@chloejs/core";
 //   import { run, deliverEmail } from "@chloejs/core/services";  // the work, for a job
-//   import { readMail } from "@chloejs/core/tools";  // the work, for a model
+//   import { gmailReadEmail } from "@chloejs/core/tools";  // the work, for a model
 //   import { telegramChannel } from "@chloejs/core/channels";  // reaching an agent
 //   import { calls, expectations } from "@chloejs/core/scorers";  // marking a run
 //
@@ -16,7 +16,7 @@
 // The server itself is `server.ts`, and it is run rather than imported.
 
 // An agent, and the jobs it runs.
-export { defineAgent, defineConfig, markdownJob, load, loadAll, runJob, loadSettings, names, type Agent, type AgentConfig, type Channel, type ChannelRoute, type Config, type Defined, type Running, type Job, type MarkdownJob, type Skill, type Binding, type Home, type Features, type SelfImprovement, type Memory, type ChatHistory } from "./load/load.ts";
+export { defineAgent, defineConfig, markdownJob, load, loadAll, runJob, loadSettings, agentIds, type Agent, type AgentConfig, type Channel, type ChannelRoute, type Config, type Defined, type Running, type Job, type MarkdownJob, type Skill, type Features, type SelfImprovement, type Memory, type ChatHistory } from "./load/load.ts";
 export { defineJob, type JobConfig } from "./load/job.ts";
 export { prompt, isPrompt, oneLineSummary, type Prompt } from "./core/markdown.ts";
 
@@ -28,8 +28,8 @@ export { work, resume, answer, sweep, parkedRuns, waitingFor, waitingOn, checkAr
 export { turn, type Result as TurnResult } from "./core/turn.ts";
 
 // What a model can be asked to do, and how it is asked.
-export { type Call, type Tools } from "./model/tool.ts";
-export { ask, learnModels, UsageLimit, type Attachment, type Message } from "./model/model.ts";
+export { agentOf, type Call, type ChloeTool, type ToolContext, type Tools } from "./model/tool.ts";
+export { learnModels, UsageLimit, type Attachment } from "./model/model.ts";
 
 // Reaching a person, and being reached back.
 export { canReach, deliver, owner, reachBy, split, type Send } from "./model/ask.ts";

@@ -14,7 +14,7 @@ import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
-import { approval, check, describe, overviewsOf, run, type Call, type Tools } from "#chloe/model/tool";
+import { approval, check, describe, overviewsOf, run, type Call, type ToolContext, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 
 export interface Ask {
@@ -92,7 +92,7 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
   const started = new Date().toISOString();
   db.prepare(
     "insert into runs (id, agent, started, source, job, model, prompt, kind, owner) values (?, ?, ?, ?, ?, ?, ?, 'turn', ?)",
-  ).run(runId, agent.name, started, source, job ?? null, using, prompt, owner ?? null);
+  ).run(runId, agent.id, started, source, job ?? null, using, prompt, owner ?? null);
   runChanged(runId);
 
   const overviews = await overviewsOf(toolsFor(agent, without));
@@ -126,7 +126,7 @@ export async function turn({ agent, prompt, attachments, model, thread, source, 
  */
 export async function carryOn({ agent, runId, signal }: { agent: Agent; runId: string; signal?: AbortSignal }): Promise<Result> {
   const row = stopped(runId);
-  if (row.agent !== agent.name) throw new Error(`${agent.name} has no run ${JSON.stringify(runId)}.`);
+  if (row.agent !== agent.id) throw new Error(`${agent.id} has no run ${JSON.stringify(runId)}.`);
 
   const trace = JSON.parse(row.trace) as LoopStep[];
   const before = answers(trace);
@@ -280,6 +280,7 @@ async function go(options: {
         model: options.model,
         messages: options.messages,
         tools,
+        context: { agent },
         stopWhen: stopWhenOf(agent),
         before: options.before,
         toolApproval: agent.toolApproval,
@@ -288,7 +289,7 @@ async function go(options: {
         onStep: (line) => {
           trace.push({ ...line, step: line.step + before });
           if (said && line.say?.trim() && line.wants?.length) said(line.say);
-          if (line.tool) calls.push({ tool: line.tool, args: line.args, result: line.result });
+          if (line.tool) calls.push({ toolName: line.tool, input: line.args, output: line.result });
           save(runId, answers(trace), costOf(trace), trace);
         },
       }),
@@ -354,6 +355,8 @@ export async function loop(options: {
   model: string;
   messages: Message[];
   tools: Tools;
+  /** What each tool is handed as its `context`: the agent it runs for. */
+  context: ToolContext;
   /** The AI SDK's stop conditions, checked after each step that ran tools, as `generateText` checks them. */
   stopWhen: StopCondition<any>[];
   /** Steps a run that carried on had already taken, which the conditions count. */
@@ -421,14 +424,14 @@ export async function loop(options: {
     for (const [n, call] of toolCalls.entries()) {
       const at = new Date().toISOString();
       const decided = resume && n === 0 ? resume.decided : undefined;
-      const ran = await runTool(options.tools, call, { instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided });
+      const ran = await runTool(options.tools, call, { context: options.context, instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided });
       if ("person" in ran) {
         return { text: "", steps, cost, calls, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
       }
       const { output, args, failed, refused } = ran;
       step.toolCalls.push({ type: "tool-call", toolCallId: call.id, toolName: call.function.name, input: args });
       step.toolResults.push({ type: "tool-result", toolCallId: call.id, toolName: call.function.name, input: args, output });
-      calls.push({ tool: call.function.name, args, result: output, ...(refused && { refused }) });
+      calls.push({ toolName: call.function.name, input: args, output, ...(refused && { refused }) });
       options.onStep?.({ step: steps, at, tool: call.function.name, args, result: clip(output), ...(failed && { failed }), ...(refused && { refused }) });
       options.messages.push({
         role: "tool",
@@ -466,7 +469,7 @@ function costOf(trace: unknown[]): number {
 async function runTool(
   tools: Tools,
   call: ToolCall,
-  how: { instead?: Ask["instead"]; toolApproval?: ToolApprovalConfiguration<any, any>; canAsk?: boolean; decided?: Decided },
+  how: { context: ToolContext; instead?: Ask["instead"]; toolApproval?: ToolApprovalConfiguration<any, any>; canAsk?: boolean; decided?: Decided },
 ): Promise<{ output: unknown; args: unknown; failed?: boolean; refused?: boolean } | { person: string; args: unknown }> {
   const name = call.function.name;
   let args: unknown;
@@ -496,7 +499,7 @@ async function runTool(
   if (how.decided !== "yes") {
     let allowed: Awaited<ReturnType<typeof approval>>;
     try {
-      allowed = await approval(tools, name, checked.value, call.id, how.toolApproval);
+      allowed = await approval(tools, name, checked.value, call.id, how.context, how.toolApproval);
     } catch (error) {
       throw new Error(`Deciding whether ${name} could run failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -508,7 +511,7 @@ async function runTool(
   }
 
   try {
-    const output = how.instead ? await how.instead(name, checked.value) : await run(one, checked.value, call.id);
+    const output = how.instead ? await how.instead(name, checked.value) : await run(one, checked.value, call.id, how.context);
     return { output: output ?? { ok: true }, args: checked.value };
   } catch (error) {
     return { output: `${name} failed: ${error instanceof Error ? error.message : String(error)}`, args: checked.value, failed: true };
@@ -546,9 +549,9 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
   );
 }
 
-/** The tools a turn of this agent has: its own and `skill`, less any its channel leaves out. */
+/** The tools a turn of this agent has: its own and `skillRead`, less any its channel leaves out. */
 function toolsFor(agent: Agent, without: string[] = []): Tools {
-  const tools: Tools = { ...(agent.tools ?? {}), skill: skillTool(agent.skills) };
+  const tools: Tools = { ...(agent.tools ?? {}), skillRead: skillTool(agent.skills) };
   for (const name of without) delete tools[name];
   return tools;
 }
@@ -560,7 +563,7 @@ function systemPrompt(agent: Agent, person: { name: string; source: string; asYo
   if (agent.skills.length > 0) {
     parts.push(
       "## Your skills\n\n" +
-        "Open one with the `skill` tool before doing the thing it covers.\n\n" +
+        "Open one with the `skillRead` tool before doing the thing it covers.\n\n" +
         agent.skills.map((s) => `- **${s.name}**: ${s.description}`).join("\n"),
     );
   }

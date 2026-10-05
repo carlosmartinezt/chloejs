@@ -1,14 +1,14 @@
 // Opting one agent in to being reached by another system.
 //
-//   // agents/<name>/agent.ts
+//   // agents/<id>/agent.ts
 //   import { apiChannel } from "@chloejs/core/channels";
 //   channels: [apiChannel()],
 //
 // Binding it makes two routes answer for that agent when the caller holds a
 // token, made at /tokens on the runtime site:
 //
-//   POST /api/agents/<name>/chat          one turn, and a reply
-//   POST /api/agents/<name>/job/<job>     run one of its jobs now
+//   POST /api/agents/<id>/chat          one turn, and a reply
+//   POST /api/agents/<id>/job/<job>     run one of its jobs now
 //
 //   curl -X POST http://127.0.0.1:3067/api/agents/shop/chat \
 //     -H "authorization: Bearer $CHLOE_TOKEN" \

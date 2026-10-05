@@ -25,7 +25,7 @@ export async function nameThread(thread: string, prompt: string): Promise<void> 
         { role: "system", content: ASKED },
         { role: "user", content: prompt.slice(0, 2000) },
       ],
-      maxTokens: 30,
+      maxOutputTokens: 30,
       signal: AbortSignal.timeout(30_000),
     });
     const name = (text.trim().split("\n")[0] ?? "").replace(/^["'\u201c\u201d]+|["'\u201c\u201d.]+$/g, "").trim().slice(0, 80);

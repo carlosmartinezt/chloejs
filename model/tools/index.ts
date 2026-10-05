@@ -2,13 +2,14 @@
 //
 // Everything here is a tool: a wrapper that lets a model reach work it could
 // not have been told the rule for. Each one is a function an agent calls with
-// its own folder, its own mailbox, its own From line, so nothing here names an
-// agent or a person.
+// its own folder, its own mailbox, its own From line, and it returns one tool,
+// which the agent names in its `tools`. Nothing here names an agent or a person.
 //
-//   import { readMail, readWeb } from "@chloejs/core/tools";
+//   import { gmailReadEmail, webReadPage } from "@chloejs/core/tools";
+//   tools: { gmailReadEmail: gmailReadEmail({ search: "in:inbox" }), webReadPage: webReadPage() }
 //
-// The notes tools, the own-file tools and runScript are not
-// here: an agent turns them on with `features` in its definition.
+// The memory tools, the self tools and scriptRun are not here: an agent
+// turns them on with `features` in its definition.
 //
 // The work itself is in services/, published as "@chloejs/core/services", and a job calls it
 // from a step rather than coming through here. If a job imports this file,
@@ -18,21 +19,23 @@
 
 
 // One folder, as tools, for an agent that needs a different set.
-export { editIn, listIn, readIn, searchIn, writeIn } from "./files.ts";
+export { fsEditFile, fsListFiles, fsReadFile, fsSearchFiles, fsWriteFile } from "./fs.ts";
 
-// Mail in, mail out, and answering one that came in. Each of these brings the
-// Google sign-in with it, so an agent that reads, sends or replies can get
-// itself signed in and there is nothing to add here for that.
+// Gmail, as the person signed in to Google: reading the mail an agent is bound
+// to, answering one of those messages, and sending one. Each is marked
+// `needs: "google"`, and the loader adds the sign-in beside it, so there is nothing
+// to add for that.
 //
-// replyMail is the narrow one of the three: it answers a message the agent has
+// gmailReplyEmail is the narrow one: it answers a message the agent has
 // already read, at that message's own address, so it cannot reach anybody who
-// has not written in. Prefer it over sendEmail wherever the mail is a reply.
-export { readMail, replyMail } from "./gmail.ts";
-export { sendEmail } from "./sendEmail.ts";
+// has not written in. Prefer it over sending wherever the mail is a reply.
+export { gmailReadEmail, gmailReplyEmail, gmailSendEmail } from "./gmail.ts";
+
+// Sending one email through Resend, on a key.
+export { resendSendEmail } from "./resend.ts";
 
 // Starting an email conversation, for an agent on the email channel.
-export { startEmail } from "./startEmail.ts";
-
+export { emailStartConversation } from "./email.ts";
 
 // Reading a public web page.
-export { readWeb } from "./web.ts";
+export { webReadPage } from "./web.ts";

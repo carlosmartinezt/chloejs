@@ -82,7 +82,7 @@ export async function viaCodex({ model, messages, tools, signal }: Ask): Promise
         await writeFile(path, Buffer.from(file.data, "base64"));
         images.push(path);
       } else {
-        notes.push(`(A file called ${file.name ?? "file"}, a ${file.mediaType}, was sent, and this route cannot read it.)`);
+        notes.push(`(A file called ${file.filename ?? "file"}, a ${file.mediaType}, was sent, and this route cannot read it.)`);
       }
     }
 

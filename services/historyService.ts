@@ -6,7 +6,7 @@
 // folder inside a repository and never a repository, and everything here is
 // scoped to that folder: what is listed, what is shown, and above all what is
 // committed, because the folder beside it belongs to another agent. A commit made
-// for an agent is written under the agent's name with an empty email, and
+// for an agent is written under the agent's id with an empty email, and
 // ends with the run that made it, `Run: <id>`, so a file's history leads back
 // to the run and the run's record lists its commits.
 //
@@ -172,10 +172,10 @@ export async function beforeRun(agent: Agent, runId: string): Promise<void> {
   if (!eachRun(agent) || !(await memoryRepo(agent))) return;
   const busy = db
     .prepare("select 1 from runs where agent = ? and finished is null and parked is null and id != ? limit 1")
-    .get(agent.name, runId);
+    .get(agent.id, runId);
   if (busy) return;
   await commitPaths(agent.memory.folder, ["."], { message: "Changed outside a run", runId: undefined }).catch((error: unknown) =>
-    console.error(`${agent.name}: committing what changed outside a run failed:`, error instanceof Error ? error.message : error),
+    console.error(`${agent.id}: committing what changed outside a run failed:`, error instanceof Error ? error.message : error),
   );
 }
 
@@ -196,7 +196,7 @@ export interface RunEnd {
 
 /**
  * After a run, or when it stops to wait for somebody: everything that changed
- * in the memory is committed under the agent's name, and the run keeps the
+ * in the memory is committed under the agent's id, and the run keeps the
  * commit. Never throws, because the run's work is already done: a commit that
  * failed is said in the service's log.
  */
@@ -204,10 +204,10 @@ export async function afterRun(agent: Agent, runId: string, end: RunEnd): Promis
   try {
     if (!eachRun(agent) || !(await memoryRepo(agent))) return;
     const subject = subjectFor(end);
-    const id = await commitPaths(agent.memory.folder, ["."], { message: subject, author: agent.name, runId });
+    const id = await commitPaths(agent.memory.folder, ["."], { message: subject, author: agent.id, runId });
     if (id) addCommit(runId, { in: "memory", id, subject });
   } catch (error) {
-    console.error(`${agent.name}: committing run ${runId} failed:`, error instanceof Error ? error.message : error);
+    console.error(`${agent.id}: committing run ${runId} failed:`, error instanceof Error ? error.message : error);
   }
 }
 

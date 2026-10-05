@@ -178,7 +178,7 @@ resume, so it must not send, write or spend.
 | Tools | A description, a schema and one call. Typed at both ends. A tool that needs somebody signed in brings that with it. |
 | Human approvals | A run parks for days and carries on when somebody answers. |
 | Channels | Telegram, Slack, WhatsApp and email, one file each, and no dependency of their own. A question goes out where the person is. |
-| Memory | A folder of notes per agent, in one git repository of their own: one commit per run, under the agent's name. |
+| Memory | A folder of notes per agent, in one git repository of their own: one commit per run, under the agent's id. |
 | Self-improvement | An agent can rewrite its skills, jobs and instructions if you let it, never its code. Every change can be undone. |
 | Run history | Every step of every run, with its arguments and its answer. |
 | Cost tracking | Per step, per run, per job. |
@@ -193,7 +193,7 @@ every tool from the case.
 
 ```sh
 npm run test          # the jobs: does it do the thing
-npm run evals <name>  # the prompts: did the model decide well
+npm run evals <id>    # the prompts: did the model decide well
 ```
 
 ## Run it wherever Node runs
@@ -210,8 +210,9 @@ chloe.config.ts        the agents this copy runs, and every setting
 your-agent/agent.ts    what the agent is: its jobs, tools and channels
 ```
 
-An agent written for the AI SDK moves across as it is: its model and its
-tools go into `defineAgent` unchanged, and chloe's own loop runs them, so each
+An agent written for the AI SDK's `ToolLoopAgent` moves across as it is: its
+`id`, `model`, `instructions`, `tools`, `stopWhen` and `toolApproval` go into
+`defineAgent` unchanged, and chloe's own loop runs them, so each
 call is approved, budgeted and written down like any other.
 
 ```ts
@@ -221,7 +222,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 export default defineAgent({
-  name: "weather",
+  id: "weather",
   description: "Says what the weather is.",
   instructions: "Answer about the weather.",
   model: anthropic("claude-opus-5-5"),
@@ -282,8 +283,8 @@ that says where a credential comes from names the variable:
 ```sh
 npx chloe account                # set the one password
 npx chloe                        # the one process, on 127.0.0.1:3067
-npx chloe agent <name>           # talk to one agent
-npx chloe agent <name> <job>     # run one job now, without waiting for its cron line
+npx chloe agent <id>             # talk to one agent
+npx chloe agent <id> <job>       # run one job now, without waiting for its cron line
 npx chloe install                # run it as a service, so it survives a reboot
 ```
 

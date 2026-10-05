@@ -29,7 +29,7 @@ export interface RouteDoc {
 }
 
 interface Context {
-  agent(name: string): Agent;
+  agent(id: string): Agent;
   agents(): Map<string, Agent>;
 }
 
@@ -192,13 +192,13 @@ Install a package that offers a page and it takes over from here.</p>
 ${agents
   .map(
     (agent) => `<div class="card">
-  <h3><a href="/agents/${esc(agent.name)}">${esc(agent.label || agent.name)}</a>
+  <h3><a href="/agents/${esc(agent.id)}">${esc(agent.label || agent.id)}</a>
     ${hasChannel(agent, "api") ? '<span class="tag">on the api</span>' : ""}</h3>
   <p class="quiet">${esc(agent.description || "No description.")}</p>
   <p class="quiet"><code>${esc(agent.model)}</code> &middot; ${agent.jobs.length} job${
       agent.jobs.length === 1 ? "" : "s"
     } &middot; ${agent.skills.length} skill${agent.skills.length === 1 ? "" : "s"}
-    &middot; <a href="/agents/${esc(agent.name)}/memory">${esc(memoryLabel(agent))}</a></p>
+    &middot; <a href="/agents/${esc(agent.id)}/memory">${esc(memoryLabel(agent))}</a></p>
 </div>`,
   )
   .join("\n")}
@@ -212,12 +212,12 @@ ${agents
 }
 
 function agentPage(agent: Agent, context: Context): string {
-  const body = `<h1>${esc(agent.label || agent.name)}</h1>
+  const body = `<h1>${esc(agent.label || agent.id)}</h1>
 <p class="quiet">${esc(agent.description || "No description.")}</p>
 <p class="quiet">This page is read only. Its folder is on disk, and an edit there is live in under a second.</p>
 
 <table>
-  <tr><th>Name</th><td><code>${esc(agent.name)}</code></td></tr>
+  <tr><th>Name</th><td><code>${esc(agent.id)}</code></td></tr>
   <tr><th>Model</th><td><code>${esc(agent.model)}</code></td></tr>
   <tr><th>Channels</th><td>${
     agent.channels.length
@@ -259,14 +259,14 @@ ${agent.jobs
 ${
   hasChannel(agent, "api")
     ? `<p>It binds an api channel, so a token may talk to it and run its jobs.</p>
-<pre>curl -X POST http://127.0.0.1:3067/api/agents/${esc(agent.name)}/chat \\
+<pre>curl -X POST http://127.0.0.1:3067/api/agents/${esc(agent.id)}/chat \\
   -H "authorization: Bearer $CHLOE_TOKEN" \\
   -H "content-type: application/json" \\
   -d '{"prompt":"what is late?"}'</pre>`
     : `<p class="quiet">It has no api channel, so only a signed-in account can talk to it.
 Add <code>apiChannel()</code> to the channels in its definition to open it to a token.</p>`
 }`;
-  return shell(agent.label || agent.name, body);
+  return shell(agent.label || agent.id, body);
 }
 
 function tokensPage(context: Context): string {
@@ -323,13 +323,13 @@ load();
 
 async function memoryPage(agent: Agent, path: string, at: string): Promise<string> {
   const label = memoryLabel(agent);
-  const here = `/agents/${agent.name}/memory`;
+  const here = `/agents/${agent.id}/memory`;
 
   if (!path) {
     const tree = await memoryTree(agent, at);
     return shell(
-      `${agent.name}: ${label}`,
-      `<h1>${esc(agent.label || agent.name)}&rsquo;s ${esc(label.toLowerCase())}</h1>
+      `${agent.id}: ${label}`,
+      `<h1>${esc(agent.label || agent.id)}&rsquo;s ${esc(label.toLowerCase())}</h1>
 <p class="quiet"><code>${esc(agent.memory.folder)}</code>. Every file opened here is written to the audit log,
 which reading the same file from a shell is not. That difference is deliberate.</p>
 ${drawTree(here, tree)}`,
@@ -338,7 +338,7 @@ ${drawTree(here, tree)}`,
 
   // In a frame, under a pass, sandboxed. See pass.ts and framed() in http.ts:
   // the file runs its own script and cannot reach this page or the API.
-  const src = `/memory/${encodeURIComponent(makePass(agent.name))}/${path.split("/").map(encodeURIComponent).join("/")}`;
+  const src = `/memory/${encodeURIComponent(makePass(agent.id))}/${path.split("/").map(encodeURIComponent).join("/")}`;
   return shell(
     path,
     `<p class="quiet"><a href="${esc(here)}">${esc(label)}</a> / ${esc(path)}</p>
