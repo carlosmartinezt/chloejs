@@ -13,10 +13,11 @@
 // link, the second takes whatever the browser came back with. Where a dashboard
 // is catching the answer the second is never needed, and the first says so in
 // what it hands back rather than leaving the model to guess.
+import { tool } from "ai";
 import { z } from "zod";
 
 import { NeedsClient, finish, setupSteps, signInState, start } from "#chloe/services/googleService";
-import { defineTool, type Tools } from "#chloe/model/tool";
+import type { Tools } from "#chloe/model/tool";
 
 /**
  * Start a sign-in, and say where the last one stands.
@@ -25,8 +26,7 @@ import { defineTool, type Tools } from "#chloe/model/tool";
  * person is on a phone somewhere and this machine has no browser.
  */
 function googleSignIn() {
-  return defineTool({
-    id: "googleSignIn",
+  return tool({
     description:
       "Get the person signed in to Google, for the mail and anything else of theirs you can reach. Hands back a " +
       "link. Send them that link exactly as it is, tell them what it says to tell them, and stop: do not call this " +
@@ -91,8 +91,7 @@ function googleSignIn() {
  * one or the other and neither of them is wrong.
  */
 function finishGoogleSignIn() {
-  return defineTool({
-    id: "finishGoogleSignIn",
+  return tool({
     description:
       "Finish the Google sign-in you started, using what the person sent back: the whole address of the page " +
       "their browser landed on, or just the code out of it. Only after they have answered.",

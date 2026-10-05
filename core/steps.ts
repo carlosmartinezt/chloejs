@@ -16,6 +16,7 @@
 // spends, it does so twice.
 import { randomUUID } from "node:crypto";
 
+import { isStepCount, Output as Outputs, type InferGenerateOutput, type OutputInterface as Output, type StopCondition, type ToolApprovalConfiguration } from "ai";
 import { z } from "zod";
 
 import { deliver, owner as whoOwns } from "#chloe/model/ask";
@@ -27,9 +28,9 @@ import { oneLineSummary } from "#chloe/core/markdown";
 import type { Agent, Job } from "#chloe/load/load";
 import { modelFor } from "#chloe/model/choices";
 import { nameOf, type SdkModel } from "#chloe/model/key";
-import { ask as askModel, type Message } from "#chloe/model/model";
-import { loop, money } from "#chloe/core/turn";
-import { cannotRun, overviewsOf, type Approve, type Call, type ToolConfig, type Tools } from "#chloe/model/tool";
+import { ask as askModel, type Message, type ToolCall } from "#chloe/model/model";
+import { loop, money, type Decided } from "#chloe/core/turn";
+import { cannotRun, overviewsOf, type Call, type Tools } from "#chloe/model/tool";
 
 /** One finished step, and the record that lets it not run twice. */
 export interface Line {
@@ -68,19 +69,47 @@ interface Parked {
   confusions?: number;
   /** Set by the sweep when nobody answered in time. */
   late?: boolean;
+  /** Set when it is an agent step waiting on a call somebody has to approve: where to pick the loop up. */
+  agent?: AgentWait;
 }
+
+/** An agent step stopped at a call a person has to approve, as much as it takes to carry on from there. */
+interface AgentWait {
+  messages: Message[];
+  /** The call waiting for a yes, then the ones after it in the same answer. None of them have run. */
+  calls: ToolCall[];
+  /** Steps it had taken, which its `stopWhen` counts. */
+  steps: number;
+  /** What it had spent, which its `budget` counts. */
+  spent: number;
+  /** The calls it had made, for the line it writes when it finishes. */
+  record: Call[];
+  /** Which go it was on: the first, or the one after an answer that did not fit. */
+  attempt: number;
+  complaint: string;
+}
+
+/**
+ * The shape an answer has to be in: a zod schema, or an AI SDK output for the
+ * other shapes, `Output.choice({ options })` or `Output.array({ element })`.
+ * A schema is `Output.object({ schema })`, written shorter.
+ */
+export type Shape = z.ZodType | Output;
+
+/** What an answer in that shape is, once it has been read. */
+export type Answer<O extends Shape> = O extends z.ZodType ? z.infer<O> : O extends Output ? InferGenerateOutput<O> : never;
 
 /**
  * One question for a model, inside a workflow that stays code: you know what to
  * ask, and the answer has to come back in the shape you asked for.
  */
-export interface ModelStep<S extends z.ZodType> {
+export interface ModelStep<O extends Shape> {
   prompt: string;
-  /** The shape the answer has to be in. Free text cannot steer the next step. */
-  output: S;
+  /** The shape the answer has to be in. Free text cannot steer the next step, so `Output.text()` is refused. */
+  output: O;
   /** When this one step wants a model the rest of the job does not: a name, or an AI SDK model. */
   model?: string | SdkModel;
-  system?: string;
+  instructions?: string;
 }
 
 /**
@@ -89,35 +118,42 @@ export interface ModelStep<S extends z.ZodType> {
  * you know the steps, they are `step` calls, and when you know the question, it
  * is one `model` call.
  */
-export interface AgentStep<S extends z.ZodType = z.ZodType> {
+export interface AgentStep<O extends Shape = Shape, T extends Tools = Tools> {
   /** What you want done, not how to do it. */
-  goal: string;
-  /** Everything it may do. Nothing outside this list is reachable from inside. */
-  tools: ToolConfig[] | Tools;
-  /** The shape the final answer has to be in. Without one, you get its words. */
-  output?: S;
-  /** Most turns of the loop before it has to stop. Ten by default. */
-  maxSteps?: number;
+  prompt: string;
+  /** Everything it may do, made with the AI SDK's `tool()` and keyed by name. Nothing outside these is reachable from inside. */
+  tools: T;
+  /** The shape the final answer has to be in, as for a model step. Without one, you get its words. */
+  output?: O;
+  /**
+   * When it has to stop, as the AI SDK's `stopWhen`: `isStepCount(8)`,
+   * `hasToolCall("done")`, or a list of them. Ten steps that ran tools when it
+   * says nothing. Stopping before it finished is an error, not a half answer.
+   */
+  stopWhen?: StopCondition<NoInfer<T>> | StopCondition<NoInfer<T>>[];
   /**
    * What it may spend, in dollars, before it has to stop. Checked between
    * turns, so the turn that crosses the line is paid for and nothing after it
    * is: size it as the point where you want the step to give up, not as a
-   * ceiling it cannot pass. Without one, `maxSteps` is the only limit, and ten
+   * ceiling it cannot pass. Without one, `stopWhen` is the only limit, and ten
    * turns of a large model is not a small number. Going over is an error, like
    * running out of steps.
    */
   budget?: number;
   /**
-   * Asked before each tool runs, with the arguments the model chose. The tools
-   * say what it may do at all; this says which particular calls are allowed.
-   * It decides now, in code: to have a person decide, ask them with `ask`
-   * before the step and let this read the answer.
+   * The AI SDK's `toolApproval`, asked before each tool runs with the input
+   * the model chose: "approved", "denied" with a reason the model is told, or
+   * a function per tool. The tools say what it may do at all; this says which
+   * particular calls are allowed. A call that needs a person, by
+   * "user-approval" or the tool's own `needsApproval`, parks the run and asks
+   * its owner yes or no about that call, then carries on from it. A no, or
+   * nobody answering in two hours, refuses it.
    */
-  approve?: Approve;
+  toolApproval?: ToolApprovalConfiguration<NoInfer<T>, any>;
   /** When this step wants a model the rest of the job does not: a name, or an AI SDK model. */
   model?: string | SdkModel;
   /** What it should know before it starts. */
-  system?: string;
+  instructions?: string;
 }
 
 /**
@@ -165,10 +201,10 @@ export interface Work<State = Data, Args = Data> {
   /** Do something, once, and write down what it returned. */
   step<T>(name: string, fn: () => Promise<T> | T): Promise<T>;
   /** Ask a model one question and get an answer in the shape you asked for. */
-  model<S extends z.ZodType>(name: string, options: ModelStep<S>): Promise<z.infer<S>>;
+  model<O extends Shape>(name: string, options: ModelStep<O>): Promise<Answer<O>>;
   /** Hand a goal and some tools to a model and let it pick the order. The most autonomy, so the last resort. */
-  agent<S extends z.ZodType>(name: string, options: AgentStep<S> & { output: S }): Promise<z.infer<S>>;
-  agent(name: string, options: Omit<AgentStep, "output">): Promise<string>;
+  agent<O extends Shape, T extends Tools>(name: string, options: AgentStep<O, T> & { output: O }): Promise<Answer<O>>;
+  agent<T extends Tools>(name: string, options: Omit<AgentStep<Shape, T>, "output">): Promise<string>;
   /** Stop and wait for a person. The process may restart while it waits. */
   ask<S extends z.ZodType>(name: string, options: AskStep<S>): Promise<z.infer<S>>;
   /** The shared store. Survives a pause. */
@@ -385,7 +421,7 @@ async function drive(ctx: Ctx): Promise<Result> {
   const api: Work = {
     step: (name, fn) => once(ctx, name, "step", async () => ({ value: await fn() })),
     model: (name, options) => modelStep(ctx, name, options),
-    agent: ((name: string, options: AgentStep<z.ZodType>) => agentStep(ctx, name, options)) as Work["agent"],
+    agent: ((name: string, options: AgentStep) => agentStep(ctx, name, options)) as Work["agent"],
     ask: (name, options) => askStep(ctx, name, options),
     get state() {
       return ctx.state;
@@ -467,7 +503,9 @@ async function once<T>(
   }
 
   const began = Date.now();
-  let spent = 0;
+  // An agent step that waited on a person carries on with what it had spent and called.
+  const carried = ctx.parked?.seq === ctx.seq ? ctx.parked.agent : undefined;
+  let spent = carried?.spent ?? 0;
   /**
    * Charged to the run the moment it is spent, not when the step returns, so a
    * step that fails, or a run cut off part way through one, is still charged
@@ -478,7 +516,7 @@ async function once<T>(
     return (spent += amount);
   };
   /** Written as the step goes, for the same reason. */
-  const calls: Call[] = [];
+  const calls: Call[] = [...(carried?.record ?? [])];
   const outer = ctx.inside;
   ctx.inside = name;
   try {
@@ -506,6 +544,8 @@ async function once<T>(
     save(ctx);
     return value;
   } catch (error) {
+    // Waiting on a person is not finishing: the step is written down when it does.
+    if (error instanceof Waiting) throw error;
     // A step that failed is still a step that happened. What it spent and what
     // it called are written down before the run gives up, because that is what
     // somebody reading the failure needs.
@@ -527,10 +567,17 @@ async function once<T>(
 }
 
 /** One question, one shape, and the run priced for it. */
-function modelStep<S extends z.ZodType>(ctx: Ctx, name: string, options: ModelStep<S>): Promise<z.infer<S>> {
+function modelStep<O extends Shape>(ctx: Ctx, name: string, options: ModelStep<O>): Promise<Answer<O>> {
   return once(ctx, name, "model", async (charge) => {
     const using = options.model ? nameOf(options.model) : modelFor(ctx.agent, ctx.job);
-    const shape = shapeOf(options.output);
+    const output = outputOf(options.output);
+    const shape = await shapeOf(output);
+    if (!shape) {
+      throw new Error(
+        `model(${JSON.stringify(name)}) was given ${output.name} output. A model step answers in a shape, ` +
+          `a zod schema or an AI SDK output, because free text cannot steer the next step.`,
+      );
+    }
 
     // The shape goes in the words rather than in a provider flag, so this
     // works the same on every model the gateway can reach.
@@ -538,7 +585,7 @@ function modelStep<S extends z.ZodType>(ctx: Ctx, name: string, options: ModelSt
       {
         role: "system",
         content:
-          (options.system ? `${options.system}\n\n` : "") +
+          (options.instructions ? `${options.instructions}\n\n` : "") +
           "Answer with JSON and nothing else: no explanation, no code fence. " +
           `It has to fit this shape exactly:\n${JSON.stringify(shape)}`,
       },
@@ -554,9 +601,9 @@ function modelStep<S extends z.ZodType>(ctx: Ctx, name: string, options: ModelSt
       // left until the end.
       charge(answer.cost);
       ctx.model = using;
-      const checked = options.output.safeParse(unfence(answer.text));
-      if (checked.success) return { value: checked.data as z.infer<S>, note: using, prompt: options.prompt };
-      complaint = checked.error.issues.map((i) => `${i.path.join(".") || "the answer"} ${i.message}`).join("; ");
+      const checked = await parsed(output, answer.text);
+      if (checked.ok) return { value: checked.value as Answer<O>, note: using, prompt: options.prompt };
+      complaint = checked.why;
       messages.push({ role: "assistant", content: answer.text });
       messages.push({ role: "user", content: `That did not fit: ${complaint}. Answer again, JSON only.` });
     }
@@ -564,25 +611,23 @@ function modelStep<S extends z.ZodType>(ctx: Ctx, name: string, options: ModelSt
   });
 }
 
-/** Ten turns of the loop, unless the step says otherwise. */
-const AGENT_STEPS = 10;
+/** What stops an agent step when it says nothing: ten steps that ran tools. */
+const AGENT_STOP_WHEN = isStepCount(10);
 
 /**
  * The most autonomy a job can hand over, and the least of it that works is the
  * right amount. The model chooses the order and this runs what it asks for, so
- * the job keeps the limits: the tools are what it may do at all, `approve` is
- * which of those calls may run, and `maxSteps` and `budget` are how far it may
+ * the job keeps the limits: the tools are what it may do at all, `toolApproval` is
+ * which of those calls may run, and `stopWhen` and `budget` are how far it may
  * go before it has to stop.
  *
  * Every tool it ran is written into the run's line, and the whole step is
  * recorded once, so a run that resumes does not live through it twice.
  */
-function agentStep<S extends z.ZodType>(ctx: Ctx, name: string, options: AgentStep<S>): Promise<unknown> {
+function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O>): Promise<unknown> {
   return once<unknown>(ctx, name, "agent", async (charge, calls) => {
     const using = options.model ? nameOf(options.model) : modelFor(ctx.agent, ctx.job);
-    const tools: Tools = Array.isArray(options.tools)
-      ? Object.fromEntries(options.tools.map((one) => [one.id, one]))
-      : options.tools;
+    const tools = options.tools;
     for (const [id, one] of Object.entries(tools)) {
       const wrong = cannotRun(id, one);
       if (wrong) throw new Error(`agent(${JSON.stringify(name)}): ${wrong}`);
@@ -601,14 +646,22 @@ function agentStep<S extends z.ZodType>(ctx: Ctx, name: string, options: AgentSt
       );
     }
 
-    const shape = options.output ? shapeOf(options.output) : undefined;
-    const overviews = await overviewsOf(tools);
-    const messages: Message[] = [
+    const output = options.output ? outputOf(options.output) : undefined;
+    const shape = output ? await shapeOf(output) : undefined;
+    const waited = ctx.parked?.seq === ctx.seq ? ctx.parked : undefined;
+    const carried = waited?.agent;
+    if (waited && (!carried || waited.name !== name)) {
+      throw new Changed(
+        `This job changed while the run was waiting: step ${ctx.seq} was ${JSON.stringify(waited.name)} ` +
+          `and is now ${JSON.stringify(name)}. Start it again rather than carrying on from the middle.`,
+      );
+    }
+    const messages: Message[] = carried?.messages ?? [
       {
         role: "system",
         content: [
-          options.system,
-          overviews,
+          options.instructions,
+          await overviewsOf(tools),
           "You have a goal and some tools. Work out the order yourself: call a tool, read what comes back, " +
             "decide what to do next, and stop when the goal is met. Call nothing you were not given.",
           shape
@@ -618,32 +671,46 @@ function agentStep<S extends z.ZodType>(ctx: Ctx, name: string, options: AgentSt
           .filter(Boolean)
           .join("\n\n"),
       },
-      { role: "user", content: options.goal },
+      { role: "user", content: options.prompt },
     ];
 
-    const maxSteps = options.maxSteps ?? AGENT_STEPS;
-    let spent = 0;
-    let complaint = "";
+    const said = options.stopWhen ?? AGENT_STOP_WHEN;
+    const stopWhen = Array.isArray(said) ? said : [said];
+    let spent = carried?.spent ?? 0;
+    let complaint = carried?.complaint ?? "";
+    // A call that waited for a person, and what they said, when this is the run carrying on.
+    let resume: { calls: ToolCall[]; decided: Decided } | undefined;
+    let before = carried?.steps ?? 0;
+    if (waited && carried) {
+      const decided = await decision(ctx, waited);
+      resume = { calls: carried.calls, decided };
+      ctx.parked = undefined;
+    }
 
     const tooDear = (): Error =>
       new Error(
         `The agent step ${JSON.stringify(name)} spent ${money(spent)} of its ${money(options.budget ?? 0)} budget ` +
-          `without finishing. Raise budget, narrow the goal, or do the parts you already know as step calls.`,
+          `without finishing. Raise budget, narrow the prompt, or do the parts you already know as step calls.`,
       );
     const wrongShape = (): Error =>
       new Error(`The agent step ${JSON.stringify(name)} did not answer in the shape asked for: ${complaint}`);
 
     // Twice, and only over the shape: a model told exactly what did not fit
     // usually fixes it, and the tools it already ran are not run again.
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = carried?.attempt ?? 0; attempt < 2; attempt++) {
       if (options.budget !== undefined && spent >= options.budget) throw tooDear();
       const done = await loop({
         model: using,
         messages,
         tools,
-        maxSteps: attempt === 0 ? maxSteps : 1,
+        stopWhen: attempt === 0 ? stopWhen : [isStepCount(1)],
+        before,
         budget: options.budget === undefined ? undefined : options.budget - spent,
-        approve: options.approve,
+        toolApproval: options.toolApproval,
+        // Somebody to ask is the run's owner, as for `ask`. With nobody, a call
+        // that needs a person is refused.
+        canAsk: Boolean(ctx.owner),
+        resume,
         signal: ctx.signal,
         // Each turn and each call as it happens, rather than at the end, so a
         // step that fails half way through still says what it spent and ran.
@@ -653,27 +720,75 @@ function agentStep<S extends z.ZodType>(ctx: Ctx, name: string, options: AgentSt
         },
       });
       ctx.model = using;
+      resume = undefined;
 
+      if (done.stopped === "person" && done.waiting) {
+        await waitFor(ctx, name, done.waiting, { messages, calls: done.waiting.calls, steps: before + done.steps, spent, record: [...calls], attempt, complaint });
+      }
+      before = 0;
       if (done.stopped === "budget") throw tooDear();
       if (done.stopped === "steps") {
         if (attempt === 1) throw wrongShape();
         throw new Error(
-          `The agent step ${JSON.stringify(name)} ran out of steps after ${maxSteps} without finishing. ` +
-            `Raise maxSteps, narrow the goal, or do the parts you already know as step calls.`,
+          `The agent step ${JSON.stringify(name)} was stopped by its stopWhen after ${done.steps} steps without finishing. ` +
+            `Loosen stopWhen, narrow the prompt, or do the parts you already know as step calls.`,
         );
       }
 
-      if (!options.output) return { value: done.text, note: using, prompt: options.goal };
+      if (!shape) return { value: done.text, note: using, prompt: options.prompt };
 
-      const checked = options.output.safeParse(unfence(done.text));
-      if (checked.success) return { value: checked.data as z.infer<S>, note: using, prompt: options.goal };
-      complaint = checked.error.issues.map((i) => `${i.path.join(".") || "the answer"} ${i.message}`).join("; ");
+      const checked = await parsed(output!, done.text);
+      if (checked.ok) return { value: checked.value, note: using, prompt: options.prompt };
+      complaint = checked.why;
       if (attempt === 1) throw wrongShape();
       messages.push({ role: "assistant", content: done.text });
       messages.push({ role: "user", content: `That did not fit: ${complaint}. Answer again, JSON only.` });
     }
     throw new Error(`The agent step ${JSON.stringify(name)} did not finish.`);
   });
+}
+
+/**
+ * Park an agent step on a call somebody has to approve: write down where the
+ * loop was, send the run's owner the call to say yes or no to, and stop.
+ */
+async function waitFor(ctx: Ctx, name: string, waiting: { calls: ToolCall[]; reason: string; input: unknown }, agent: AgentWait): Promise<never> {
+  const tool = waiting.calls[0].function.name;
+  const input = JSON.stringify(waiting.input, null, 2);
+  const question =
+    `${ctx.agent.label ?? ctx.agent.name} wants to use ${tool} in ${JSON.stringify(name)}` +
+    `${waiting.reason ? `, which needs a yes: ${waiting.reason}` : ""}.\n` +
+    `${input.length > 1500 ? `${input.slice(0, 1500)}…` : input}\nShould it go ahead?`;
+  ctx.parked = {
+    seq: ctx.seq,
+    name,
+    who: ctx.owner,
+    question,
+    asked: new Date().toISOString(),
+    expires: new Date(Date.now() + minutes(WAIT) * 60_000).toISOString(),
+    agent,
+  };
+  save(ctx);
+  await deliver(ctx.owner, `${question}\n${hint(z.boolean())}`, ctx.agent.name, choices(z.boolean()));
+  throw new Waiting(`waiting on ${ctx.owner}`);
+}
+
+/**
+ * What the person said about the call an agent step waited on: yes, no, or
+ * nothing in time. An answer that is not a yes or a no is asked again, three
+ * times, and then counts as a no.
+ */
+async function decision(ctx: Ctx, waited: Parked): Promise<Decided> {
+  if (waited.late) return "late";
+  if (waited.reply === undefined) throw new Waiting(`waiting on ${waited.who}`);
+  const understood = understand(waited.reply, z.boolean());
+  if (understood.ok) return understood.value ? "yes" : "no";
+  const confusions = (waited.confusions ?? 0) + 1;
+  if (confusions > 3) return "no";
+  ctx.parked = { ...waited, reply: undefined, confusions };
+  save(ctx);
+  await deliver(waited.who, `I did not understand that. ${waited.question}\n${hint(z.boolean())}`, ctx.agent.name, choices(z.boolean()));
+  throw new Waiting(`waiting on ${waited.who}`);
 }
 
 /**
@@ -797,7 +912,7 @@ function understand(text: string, schema: z.ZodType): { ok: true; value: unknown
 
 /** One line telling the person what kind of answer fits. */
 function hint(schema: z.ZodType): string {
-  const shape = shapeOf(schema) as { type?: string; enum?: unknown[] };
+  const shape = schemaOf(schema) as { type?: string; enum?: unknown[] };
   if (shape.enum) return `(${shape.enum.join(", ")})`;
   if (shape.type === "boolean") return "(yes or no)";
   if (shape.type === "number" || shape.type === "integer") return "(a number)";
@@ -807,27 +922,49 @@ function hint(schema: z.ZodType): string {
 
 /** The answers that fit, when they can be listed. Each one is understood back by understand(). */
 function choices(schema: z.ZodType): string[] | undefined {
-  const shape = shapeOf(schema) as { type?: string; enum?: unknown[] };
+  const shape = schemaOf(schema) as { type?: string; enum?: unknown[] };
   if (shape.enum && shape.enum.length <= 8) return shape.enum.map(String);
   if (shape.type === "boolean") return ["yes", "no"];
   return undefined;
 }
 
-function shapeOf(schema: z.ZodType): Record<string, unknown> {
-  const shape = z.toJSONSchema(schema, { io: "output" }) as Record<string, unknown>;
-  delete shape.$schema;
+/** A shape as an AI SDK output: a zod schema is `Output.object` of it. */
+function outputOf(shape: Shape): Output {
+  return typeof (shape as Output).parseCompleteOutput === "function" ? (shape as Output) : Outputs.object({ schema: shape as z.ZodType });
+}
+
+/** The JSON schema an AI SDK output asks for, or nothing when it asks for text. */
+async function shapeOf(output: Output): Promise<Record<string, unknown> | undefined> {
+  const format = await output.responseFormat;
+  if (format?.type !== "json" || !format.schema) return undefined;
+  const { $schema: _, ...shape } = format.schema as Record<string, unknown>;
   return shape;
 }
 
-/** Whatever a model wrapped its JSON in. */
-function unfence(text: string): unknown {
+/**
+ * A model's answer read by the AI SDK output it was asked for, or what did not
+ * fit, in words the model is told on its second go.
+ */
+async function parsed(output: Output, text: string): Promise<{ ok: true; value: unknown } | { ok: false; why: string }> {
   const inside = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
+  const context = { response: { id: "", timestamp: new Date(), modelId: "" }, usage: {} as never, finishReason: "stop" as const };
   try {
-    return JSON.parse(inside);
-  } catch {
-    // A model that answered a string schema with a bare word still fits.
-    return inside;
+    return { ok: true, value: await output.parseCompleteOutput({ text: inside }, context) };
+  } catch (error) {
+    for (let cause: unknown = error; cause; cause = (cause as { cause?: unknown }).cause) {
+      const issues = (cause as { issues?: { path: PropertyKey[]; message: string }[] }).issues;
+      if (Array.isArray(issues)) return { ok: false, why: issues.map((i) => `${i.path.join(".") || "the answer"} ${i.message}`).join("; ") };
+      if ((cause as Error).name === "AI_JSONParseError") return { ok: false, why: "the answer was not JSON" };
+    }
+    return { ok: false, why: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/** A zod schema as JSON schema, for the answers a person can give to `ask`. */
+function schemaOf(schema: z.ZodType): Record<string, unknown> {
+  const shape = z.toJSONSchema(schema, { io: "output" }) as Record<string, unknown>;
+  delete shape.$schema;
+  return shape;
 }
 
 function minutes(within: string): number {

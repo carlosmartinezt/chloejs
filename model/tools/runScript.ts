@@ -5,16 +5,16 @@
 // saying when to use it. Neither is TypeScript and neither needs a restart.
 import { existsSync, readdirSync } from "node:fs";
 
+import { tool } from "ai";
 import { z } from "zod";
 
 import { agentDir } from "#chloe/core/paths";
 import { listScripts, runScripts as runOne } from "#chloe/services/scriptsService";
-import { defineTool, type Tools } from "#chloe/model/tool";
+import type { Tools } from "#chloe/model/tool";
 
 /** A tool that runs one file from that agent's own `scripts/` folder. */
 export function runScript(agent: string) {
-  return defineTool({
-    id: "runScript",
+  return tool({
     description:
       "Run one of your own scripts and return what it printed. Your skills say which script to " +
       "use and what its arguments mean. Use `list` to see what you have.",

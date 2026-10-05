@@ -19,11 +19,11 @@ export function memoryTools(): (agent: { name: string; memory: { folder: string;
     // to fail on one missing.
     mkdirSync(folder, { recursive: true });
     return {
-      listNotes: listIn({ root: folder, what }),
-      readNotes: readIn({ root: folder, what }),
-      searchNotes: searchIn({ root: folder, what }),
-      writeNotes: writeIn({ root: folder, what, commit: commit === true, author: name, memory: true }),
-      editNotes: editIn({ root: folder, what, commit: commit === true, author: name, memory: true }),
+      ...listIn({ root: folder, what }),
+      ...readIn({ root: folder, what }),
+      ...searchIn({ root: folder, what }),
+      ...writeIn({ root: folder, what, commit: commit === true, author: name, memory: true }),
+      ...editIn({ root: folder, what, commit: commit === true, author: name, memory: true }),
     };
   };
 }

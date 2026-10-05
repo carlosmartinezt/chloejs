@@ -35,6 +35,7 @@ import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
+import { hasToolCall, isStepCount, jsonSchema, Output, tool } from "ai";
 import { z } from "zod";
 
 import { about, failed, is } from "#chloe/ops/check";
@@ -84,6 +85,7 @@ const { reachBy } = await import("@chloejs/core");
 const { answer, db, sweep, waitingFor, waitingOn, work } = await import("@chloejs/core");
 type Agent = import("@chloejs/core").Agent;
 type Job = import("@chloejs/core").Job;
+type Line = import("@chloejs/core").Line;
 
 // The runtime's own site, so whether a page package happens to be installed in
 // this repo decides nothing here. A setting, so it is written rather than put in
@@ -247,10 +249,8 @@ about("an agent step: the goal is yours, the order is the model's");
 {
   asked = 0;
   answers.length = 0;
-  const { defineTool } = await import("@chloejs/core");
   const looked: string[] = [];
-  const look = defineTool({
-    id: "look",
+  const look = tool({
     description: "Look in one place.",
     inputSchema: z.object({ where: z.string() }),
     execute: ({ where }) => {
@@ -266,10 +266,10 @@ about("an agent step: the goal is yours, the order is the model's");
   );
   const job = codeJob("investigate", async (work) =>
     work.agent("work out what happened", {
-      goal: "Say why the site went down.",
-      tools: [look],
+      prompt: "Say why the site went down.",
+      tools: { look },
       output: z.object({ why: z.string() }),
-      maxSteps: 4,
+      stopWhen: isStepCount(4),
     }),
   );
   const result = await work({ agent: agentFor(job), job });
@@ -286,7 +286,6 @@ about("an agent written with the AI SDK's own model and tools");
   asked = 0;
   answers.length = 0;
   const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-  const { jsonSchema, tool } = await import("ai");
   const { defineAgent } = await import("@chloejs/core");
   const { resolveAgent } = await import("#chloe/load/load");
   const { turn } = await import("#chloe/core/turn");
@@ -358,20 +357,20 @@ about("an agent written with the AI SDK's own model and tools");
     name: "sdk-asking",
     tools: { pay: tool({ description: "Pay.", inputSchema: z.object({}), needsApproval: true, execute: async () => "paid" }) },
   });
-  is(
-    "a tool that wants approval is refused, rather than run without asking",
-    await resolveAgent(asking).then(() => "", (error: Error) => error.message.includes("pay has needsApproval")),
-    true,
-  );
+  const { approval } = await import("#chloe/model/tool");
+  const pay = (await resolveAgent(asking)).tools!.pay;
+  is("a tool that wants approval loads", typeof pay.execute, "function");
+  is("and wants a person", await approval({ pay }, "pay", {}, "1"), { person: "" });
+  is("unless toolApproval approves it first, as the AI SDK has it", await approval({ pay }, "pay", {}, "1", { pay: "approved" }), { run: true });
+  is("and toolApproval saying nothing leaves it to the tool", await approval({ pay }, "pay", {}, "1", () => "not-applicable"), { person: "" });
+  is("a denial's reason is what the model is told", await approval({ pay }, "pay", {}, "1", { pay: { type: "denied", reason: "not on Sundays" } }), { denied: "not on Sundays" });
 }
 
 about("an agent step that runs out of steps, and one with nothing to call");
 {
   asked = 0;
   answers.length = 0;
-  const { defineTool } = await import("@chloejs/core");
-  const wander = defineTool({
-    id: "wander",
+  const wander = tool({
     description: "Go round again.",
     inputSchema: z.object({}),
     execute: () => "still nothing",
@@ -380,13 +379,13 @@ about("an agent step that runs out of steps, and one with nothing to call");
   answers.push({ content: "", tool_calls: [asking] }, { content: "", tool_calls: [asking] }, { content: "", tool_calls: [asking] });
 
   const capped = codeJob("capped", async (work) =>
-    work.agent("go round", { goal: "Find something that is not there.", tools: [wander], maxSteps: 2 }),
+    work.agent("go round", { prompt: "Find something that is not there.", tools: { wander }, stopWhen: isStepCount(2) }),
   );
   const out = await work({ agent: agentFor(capped), job: capped }).then(() => "finished", (error: Error) => error.message);
-  is("it stops and says so rather than looping forever", out.includes("ran out of steps after 2"), true);
+  is("it stops and says so rather than looping forever", out.includes("stopped by its stopWhen after 2 steps"), true);
 
   const empty = codeJob("empty", async (work) =>
-    work.agent("with nothing", { goal: "Do something.", tools: [] }),
+    work.agent("with nothing", { prompt: "Do something.", tools: {} }),
   );
   const refused = await work({ agent: agentFor(empty), job: empty }).then(() => "", (error: Error) => error.message);
   is("an agent step with no tools is a model step, and says so", refused.includes("use model(...)"), true);
@@ -394,13 +393,36 @@ about("an agent step that runs out of steps, and one with nothing to call");
   answers.length = 0;
 }
 
+about("an agent step stopped by the AI SDK's own conditions, and outputs other than an object");
+{
+  asked = 0;
+  answers.length = 0;
+  const done = tool({ description: "Say it is done.", inputSchema: z.object({}), execute: () => "noted" });
+  answers.push({ content: "", tool_calls: [{ id: "1", type: "function", function: { name: "done", arguments: "{}" } }] });
+  const stopped = codeJob("stopped", async (work) =>
+    work.agent("finish", { prompt: "Finish.", tools: { done }, stopWhen: hasToolCall("done") }),
+  );
+  const out = await work({ agent: agentFor(stopped), job: stopped }).then(() => "finished", (error: Error) => error.message);
+  is("hasToolCall stops it after the step that made the call", out.includes("stopped by its stopWhen after 1 steps"), true);
+
+  answers.length = 0;
+  answers.push('{"result":"billing"}');
+  const picked = codeJob("picked", async (work) =>
+    work.model("pick", { prompt: "Which desk?", output: Output.choice({ options: ["billing", "sales"] }) }),
+  );
+  is("Output.choice comes back as the choice", (await work({ agent: agentFor(picked), job: picked })).text.includes("billing"), true);
+
+  const texty = codeJob("texty", async (work) => work.model("say", { prompt: "Say something.", output: Output.text() }));
+  const refused = await work({ agent: agentFor(texty), job: texty }).then(() => "", (error: Error) => error.message);
+  is("Output.text is refused in a model step, because free text cannot steer the next one", refused.includes("answers in a shape"), true);
+  answers.length = 0;
+}
+
 about("an agent step kept inside its budget");
 {
   asked = 0;
   answers.length = 0;
-  const { defineTool } = await import("@chloejs/core");
-  const wander = defineTool({
-    id: "wander",
+  const wander = tool({
     description: "Go round again.",
     inputSchema: z.object({}),
     execute: () => "still nothing",
@@ -410,7 +432,7 @@ about("an agent step kept inside its budget");
 
   // Two turns at $0.0002 each, against a budget that only covers one.
   const job = codeJob("dear", async (work) =>
-    work.agent("go round", { goal: "Find something expensive.", tools: [wander], budget: 0.0003, maxSteps: 9 }),
+    work.agent("go round", { prompt: "Find something expensive.", tools: { wander }, budget: 0.0003, stopWhen: isStepCount(9) }),
   );
   const result = await work({ agent: agentFor(job), job }).then(() => "finished", (error: Error) => error.message);
   is("it stops on the money, not only on the steps", result.includes("spent $0.0004 of its $0.0003 budget"), true);
@@ -429,8 +451,8 @@ about("an agent step kept inside its budget");
   answers.push("that is not the shape");
   const once = codeJob("once", async (work) =>
     work.agent("answer properly", {
-      goal: "Say how many.",
-      tools: [wander],
+      prompt: "Say how many.",
+      tools: { wander },
       output: z.object({ n: z.number() }),
       budget: 0.0002,
     }),
@@ -445,10 +467,8 @@ about("an agent step whose calls the job has to allow");
 {
   asked = 0;
   answers.length = 0;
-  const { defineTool } = await import("@chloejs/core");
   const looked: string[] = [];
-  const look = defineTool({
-    id: "look",
+  const look = tool({
     description: "Look in one place.",
     inputSchema: z.object({ where: z.string() }),
     execute: ({ where }) => {
@@ -469,12 +489,12 @@ about("an agent step whose calls the job has to allow");
 
   const job = codeJob("allowed", async (work) =>
     work.agent("work out what happened", {
-      goal: "Say why the site went down.",
-      tools: [look],
+      prompt: "Say why the site went down.",
+      tools: { look },
       output: z.object({ why: z.string() }),
       // The tool says it may look. This says where.
-      approve: ({ args }) => (args as { where: string }).where === "logs" || "only the logs are yours to read",
-      maxSteps: 4,
+      toolApproval: { look: ({ where }) => (where === "logs" ? "approved" : { type: "denied", reason: "only the logs are yours to read" }) },
+      stopWhen: isStepCount(4),
     }),
   );
   const result = await work({ agent: agentFor(job), job });
@@ -490,9 +510,7 @@ about("an approve that cannot answer, and a question from inside a step");
 {
   asked = 0;
   answers.length = 0;
-  const { defineTool } = await import("@chloejs/core");
-  const look = defineTool({
-    id: "look",
+  const look = tool({
     description: "Look in one place.",
     inputSchema: z.object({ where: z.string() }),
     execute: () => "nothing here",
@@ -506,9 +524,9 @@ about("an approve that cannot answer, and a question from inside a step");
   // guessing which way the job meant it.
   const gate = codeJob("gate", async (work) =>
     work.agent("work out what happened", {
-      goal: "Say why the site went down.",
-      tools: [look],
-      approve: () => {
+      prompt: "Say why the site went down.",
+      tools: { look },
+      toolApproval: () => {
         throw new Error("the rule itself is broken");
       },
     }),
@@ -525,15 +543,15 @@ about("an approve that cannot answer, and a question from inside a step");
     "nothing to report",
   );
   const flat = codeJob("flat", async (work) =>
-    work.agent("work out what happened", { goal: "Say why the site went down.", tools: [look], approve: () => false }),
+    work.agent("work out what happened", { prompt: "Say why the site went down.", tools: { look }, toolApproval: () => "denied" }),
   );
   const said = await work({ agent: agentFor(flat), job: flat });
   const told = (JSON.parse(row(said.runId).trace) as { calls?: { result: unknown; refused?: boolean }[] }[])[0];
   is("a refusal with no reason given still stops the call", told.calls?.[0].refused, true);
-  is("and says so in words the model can use", String(told.calls?.[0].result).includes("the job did not allow it"), true);
+  is("and says so in words the model can use", String(told.calls?.[0].result).includes("it was denied"), true);
 
   const priced = codeJob("priced", async (work) =>
-    work.agent("go round", { goal: "Spend nothing.", tools: [look], budget: 0 }),
+    work.agent("go round", { prompt: "Spend nothing.", tools: { look }, budget: 0 }),
   );
   const notANumber = await work({ agent: agentFor(priced), job: priced }).then(() => "", (error: Error) => error.message);
   is("a budget that is not an amount is refused before anything runs", notANumber.includes("dollars above zero"), true);
@@ -588,6 +606,64 @@ about("a job that waits for a person");
   is("the step after it ran once", restarted, 1);
   is("nothing is waiting now", waitingFor("test", "asking"), false);
   is("the ask is a line in the record", JSON.parse(row(done.runId).trace)[1].kind, "ask");
+}
+
+about("an agent step that stops for a person to approve a call");
+{
+  const paid: number[] = [];
+  let gathered = 0;
+  const pay = tool({
+    description: "Pay.",
+    inputSchema: z.object({ amount: z.number() }),
+    needsApproval: ({ amount }) => amount > 100,
+    execute: async ({ amount }) => {
+      paid.push(amount);
+      return "paid";
+    },
+  });
+  const both = {
+    content: "",
+    tool_calls: [
+      { id: "1", type: "function", function: { name: "pay", arguments: '{"amount":20}' } },
+      { id: "2", type: "function", function: { name: "pay", arguments: '{"amount":240}' } },
+    ],
+  };
+  const job = codeJob("paying", async (work) => {
+    await work.step("gather", () => ++gathered);
+    return work.agent("pay up", { prompt: "Pay what is owed.", tools: { pay } });
+  });
+  const agent = agentFor(job);
+  const agents = new Map([[agent.name, agent]]);
+
+  asked = 0;
+  answers.length = 0;
+  answers.push(both, "Paid both.");
+  const first = await work({ agent, job });
+  is("it parked on the call that needs a yes", first.parked, true);
+  is("the call before it ran, and that one did not", paid, [20]);
+  is("the owner was asked about that call, with what it would do", [sent.at(-1)?.includes('wants to use pay in "pay up"'), sent.at(-1)?.includes('"amount": 240')], [true, true]);
+  is("the job is held while it waits", waitingFor("test", "paying"), true);
+
+  const confused = await answer(first.runId, "hmm", agents);
+  is("an answer that is not a yes or a no is asked again", [confused.parked, sent.at(-1)?.startsWith("somebody: I did not understand that.")], [true, true]);
+
+  const done = await answer(first.runId, "yes", agents);
+  is("a yes runs it, and the step carries on to the end", [paid, done.text], [[20, 240], "Paid both."]);
+  is("the step before it did not run again", gathered, 1);
+  is("and the model was not asked again for what it had already said", asked, 2);
+  const line = (JSON.parse(row(done.runId).trace) as Line[])[1];
+  is("the agent step is one line, with every call it made", line.calls?.map((one) => (one.args as { amount: number }).amount), [20, 240]);
+  is("priced for both turns, the one before the wait and the one after", line.cost, 0.0004);
+
+  paid.length = 0;
+  asked = 0;
+  answers.push(both, "Paid the small one.");
+  const again = await work({ agent, job });
+  const said = await answer(again.runId, "no", agents);
+  is("a no refuses that call, and the model is told", [paid, said.text], [[20], "Paid the small one."]);
+  const refused = (JSON.parse(row(said.runId).trace) as Line[])[1].calls?.[1];
+  is("and the refusal is in the record", [refused?.refused, String(refused?.result).includes("the person asked said no")], [true, true]);
+  answers.length = 0;
 }
 
 about("a step that failed, on a run that carried on past it");
@@ -658,7 +734,7 @@ const shape = z.object({ unhealthy: z.array(z.string()), safe: z.boolean() });
 const asking = (id: string) =>
   codeJob(id, async ({ step, model }) => {
     const services = await step("gather", () => [{ name: "one", state: "failed" }]);
-    return model("what is wrong", { prompt: JSON.stringify(services), output: shape });
+    return model("what is wrong", { prompt: JSON.stringify(services), output: id === "wrapped" ? Output.object({ schema: shape }) : shape });
   });
 
 about("a model step that answers in the shape");
@@ -675,6 +751,10 @@ about("a model step that answers in the shape");
   is("the step that did not ask cost nothing", lines[0].cost, 0);
   is("the step that asked carries the cost", lines[1].cost, 0.0002);
   is("and is marked as the model step", lines[1].kind, "model");
+
+  answers.push('{"unhealthy":[],"safe":true}');
+  const wrapped = asking("wrapped");
+  is("the same schema as the AI SDK's Output.object reads the same", JSON.parse((await work({ agent: agentFor(wrapped), job: wrapped })).text), { unhealthy: [], safe: true });
 }
 
 about("a model step that has to be told again");
@@ -2985,10 +3065,8 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   const { CUT_OFF } = await import("#chloe/core/db");
   const { carryOn, stopped } = await import("#chloe/core/turn");
-  const { defineTool } = await import("@chloejs/core");
   const looked: string[] = [];
-  const look = defineTool({
-    id: "look",
+  const look = tool({
     description: "Look in one place.",
     inputSchema: z.object({ where: z.string() }),
     execute: ({ where }) => void looked.push(where),
@@ -3056,7 +3134,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
   const { carryOn, canCarryOn } = await import("#chloe/core/turn");
   const job: Job = { agent: "test", id: "morning", timezone: "UTC", prompt: "Look around.", files: [] };
-  const agent = { ...agentFor(job), maxSteps: 2 };
+  const agent = { ...agentFor(job), stopWhen: isStepCount(2) };
   const trace = [
     { step: 0, at: "", say: "Start with the logs.", wants: ["skill"], cost: 0.1 },
     { step: 0, at: "", tool: "skill", args: { name: "none" }, result: "No skill called none." },
@@ -3080,7 +3158,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   is("it is told it ran out of steps", shown.at(-3)?.content.startsWith("You ran out of steps"), true);
   is("and gets as many steps again, not what was left", [result.text, row("tired-turn").error, row("tired-turn").reply], ["All done.", null, "All done."]);
   const after = JSON.parse(row("tired-turn").trace) as { step: number; carried?: string }[];
-  is("the record says it was given more", after.find((one) => one.carried)?.carried, "It ran out of steps here, and was given 2 more to carry on.");
+  is("the record says it was given more", after.find((one) => one.carried)?.carried, "It ran out of steps here, and was given as many again to carry on.");
   is("its steps count from before", result.steps, 4);
 }
 

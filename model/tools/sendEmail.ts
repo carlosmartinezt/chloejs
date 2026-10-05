@@ -2,12 +2,13 @@
 //
 // The agent binds its own From line and its own recipients. All the model
 // writes is the subject and the body.
+import { tool } from "ai";
 import { z } from "zod";
 
 import { type EmailSender, deliverEmail } from "#chloe/services/emailService";
 import { writeFiles } from "#chloe/services/filesService";
 import { settings } from "#chloe/core/settings";
-import { defineTool, type Tools } from "#chloe/model/tool";
+import type { Tools } from "#chloe/model/tool";
 import { googleSignInTools } from "./google.ts";
 
 interface Options extends EmailSender {
@@ -31,8 +32,7 @@ export function sendEmail({ when, keep, ...sender }: Options) {
     // sign-in as much as reading does, so it comes with this too. Through any
     // other provider there is nothing to sign in to and nothing is added.
     ...(settings.email.provider === "gmail" ? googleSignInTools() : {}),
-    sendEmail: defineTool({
-      id: "sendEmail",
+    sendEmail: tool({
       description: `Send an email. ${when}`,
       inputSchema: z.object({
         subject: z.string().min(5).max(120),

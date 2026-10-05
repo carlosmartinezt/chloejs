@@ -10,6 +10,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { getCallSites } from "node:util";
 
+import type { StopCondition, ToolApprovalConfiguration } from "ai";
 import type { z } from "zod";
 
 import { MEMORIES, ROOT, setAgentDirs } from "#chloe/core/paths";
@@ -18,7 +19,7 @@ import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/
 import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
 import { nameOf, type SdkModel } from "#chloe/model/key";
-import { cannotRun, type ToolConfig, type Tools } from "#chloe/model/tool";
+import { cannotRun, type Tools } from "#chloe/model/tool";
 import { memoryTools } from "#chloe/model/tools/memory";
 import { ownFiles } from "#chloe/model/tools/ownFiles";
 import { runScripts } from "#chloe/model/tools/runScript";
@@ -92,18 +93,27 @@ export interface AgentConfig {
   /** `prompt("instructions.md")`, a path inside the agent's folder, or the words themselves. */
   instructions: string | Prompt;
   /**
-   * Each tool, or a set of them like readMail({ ... }). A model calls one by
-   * its id. What `features` turns on is added to these and not listed here.
-   * Tools made with the AI SDK's `tool()` go in as a set, `{ weather: tool({ ... }) }`,
-   * or as that set on its own instead of the list.
+   * Sets of tools made with the AI SDK's `tool()`, each keyed by the name a
+   * model calls it by: `{ weather: tool({ ... }) }`, or one of chloe's, like
+   * readMail({ ... }). One set on its own may stand in for the list. What
+   * `features` turns on is added to these and not listed here.
    */
-  tools?: (ToolConfig | Tools | Binding)[] | Tools;
+  tools?: (Tools | Binding)[] | Tools;
   /** Each job: one imported, or markdownJob("jobs/<id>.md") for one that is only a prompt. */
   jobs?: (JobConfig<any, any, any> | MarkdownJob)[];
   /** Each way in: `[telegramChannel({ ... }), apiChannel()]`. Each one carries its own name. */
   channels?: Channel[];
-  /** Times round the tool loop before a turn is stopped. */
-  maxSteps?: number;
+  /**
+   * What stops a turn, as the AI SDK's `stopWhen`: `isStepCount(20)`, or a list
+   * of conditions. Forty steps that ran tools when it says nothing.
+   */
+  stopWhen?: StopCondition<any> | StopCondition<any>[];
+  /**
+   * The AI SDK's `toolApproval`, asked before each tool a turn runs, after
+   * which each tool's own `needsApproval` is. A call that needs a person is
+   * refused, because nobody is asked in the middle of a turn.
+   */
+  toolApproval?: ToolApprovalConfiguration<any, any>;
 }
 
 /** An agent config with its folder worked out: what defineAgent returns and the loader reads. */
@@ -568,11 +578,10 @@ function featureTools(features: Features = {}, where: string): (Tools | Binding)
   ];
 }
 
-function toolsOf(list: (ToolConfig | Tools | Binding)[], home: Home, where: string): Tools {
+function toolsOf(list: (Tools | Binding)[], home: Home, where: string): Tools {
   const tools: Tools = {};
   for (const one of list) {
-    const some: Tools =
-      typeof one === "function" ? one(home) : typeof (one as ToolConfig).execute === "function" ? { [(one as ToolConfig).id]: one as ToolConfig } : (one as Tools);
+    const some = typeof one === "function" ? one(home) : one;
     for (const [id, each] of Object.entries(some)) {
       const wrong = cannotRun(id, each);
       if (wrong) throw new Error(`${where}: ${wrong}`);

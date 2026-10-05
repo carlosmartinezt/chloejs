@@ -1,9 +1,10 @@
 // The tool over openEmail() in channels/email.ts: beginning an email
 // conversation with one of the people the agent's email channel allows.
+import { tool } from "ai";
 import { z } from "zod";
 
 import { openEmail } from "#chloe/channels/email";
-import { defineTool, type Tools } from "#chloe/model/tool";
+import type { Tools } from "#chloe/model/tool";
 
 /**
  * A tool that emails somebody the agent's email channel allows, from an address
@@ -12,8 +13,7 @@ import { defineTool, type Tools } from "#chloe/model/tool";
  */
 export function startEmail({ when, channel = "email" }: { when: string; channel?: string }) {
   return (agent: { name: string }): Tools => ({
-    startEmail: defineTool({
-      id: "startEmail",
+    startEmail: tool({
       description:
         `Start an email conversation with someone. Their reply comes back to you as a message in that conversation. ${when}`,
       inputSchema: z.object({

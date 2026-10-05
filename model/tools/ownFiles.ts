@@ -1,34 +1,32 @@
 // The tools over services/ownFilesService.ts: an agent reading and changing
 // its own folder, as far as its definition allows. `selfImprovement` with a
 // `selfImprovement` in the definition turns them on.
+import { tool } from "ai";
 import { z } from "zod";
 
 import type { Home, OwnFileRules } from "#chloe/load/load";
 import { listOwn, readOwn, writeOwn } from "#chloe/services/ownFilesService";
-import { defineTool, type Tools } from "../tool.ts";
+import type { Tools } from "../tool.ts";
 
 /** listOwnFiles, readOwnFile and writeOwnFile, for the files `rules` lets it change. */
 export function ownFiles(rules: OwnFileRules): (agent: Home) => Tools {
   const endings = rules.files.map((one) => `.${one.replace(/^\./, "")}`).join(", ");
   const kept = rules.except?.length ? ` Never ${rules.except.join(", ")}.` : "";
   return (agent) => ({
-    listOwnFiles: defineTool({
-      id: "listOwnFiles",
+    listOwnFiles: tool({
       description:
         "List the files in your own folder (your instructions, skills and jobs), and which of them you can " +
         "change. Your memory is not in it: that is listNotes.",
       inputSchema: z.object({}),
       execute: () => listOwn(agent, rules),
     }),
-    readOwnFile: defineTool({
-      id: "readOwnFile",
+    readOwnFile: tool({
       description:
         "Read one file in your own folder, like instructions.md or jobs/morning-run.md. Read a file before you change it.",
       inputSchema: z.object({ path: z.string().describe("A path inside your folder, from listOwnFiles.") }),
       execute: ({ path }) => readOwn(agent, rules, path),
     }),
-    writeOwnFile: defineTool({
-      id: "writeOwnFile",
+    writeOwnFile: tool({
       description:
         `Change one file in your own folder, ending in ${endings}.${kept} This replaces the whole file, so read it ` +
         "first and include everything you want kept. A markdown file directly in skills/ is a skill, with name and " +

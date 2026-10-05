@@ -2,9 +2,10 @@
 //
 // Everything an agent, a job, a tool or a channel is written with is named
 // here, and nothing else in this folder is anybody's business. Import it as
-// "@chloejs/core": the lines below say the rest.
+// "@chloejs/core": the lines below say the rest. A tool is made with the AI
+// SDK's `tool()`, imported from "ai".
 //
-//   import { defineJob, defineTool, note } from "@chloejs/core";
+//   import { defineJob, note } from "@chloejs/core";
 //   import { run, deliverEmail } from "@chloejs/core/services";  // the work, for a job
 //   import { readMail } from "@chloejs/core/tools";  // the work, for a model
 //   import { telegramChannel } from "@chloejs/core/channels";  // reaching an agent
@@ -21,13 +22,13 @@ export { prompt, isPrompt, oneLineSummary, type Prompt } from "./core/markdown.t
 
 // A job: code first, with a model where a step needs judgement and an agent
 // where the order of the work cannot be known in advance.
-export { work, resume, answer, sweep, parkedRuns, waitingFor, waitingOn, checkArgs, WrongArgs, type AgentStep, type AskStep, type Data, type Envelope, type Line, type ModelStep, type ParkedRun, type Result as RunResult, type Work } from "./core/steps.ts";
+export { work, resume, answer, sweep, parkedRuns, waitingFor, waitingOn, checkArgs, WrongArgs, type AgentStep, type Answer, type AskStep, type Data, type Envelope, type Line, type ModelStep, type ParkedRun, type Shape, type Result as RunResult, type Work } from "./core/steps.ts";
 
 // A prompt: ask a model, run the tools it asked for, ask again.
 export { turn, type Result as TurnResult } from "./core/turn.ts";
 
 // What a model can be asked to do, and how it is asked.
-export { defineTool, type Approve, type Call, type ToolConfig, type Tools } from "./model/tool.ts";
+export { type Call, type Tools } from "./model/tool.ts";
 export { ask, learnModels, UsageLimit, type Attachment, type Message } from "./model/model.ts";
 
 // Reaching a person, and being reached back.

@@ -87,9 +87,9 @@ export default defineJob({
       if (!issue.needsInvestigation) continue;
 
       const found = await work.agent("investigate issue", {
-        goal: `Find out what went wrong for customer ${message.customer}, and recommend what to do.`,
-        tools: [getOrders, pastMessages],
-        maxSteps: 6,
+        prompt: `Find out what went wrong for customer ${message.customer}, and put it right if a refund will.`,
+        tools: { getOrders, pastMessages, refund },
+        stopWhen: isStepCount(6),
         budget: 0.05,
       });
 
@@ -127,9 +127,9 @@ line and a bigger number.
 ## Sometimes you know the goal, not the steps
 
 The model chooses the order. You choose what it can reach and how far it can
-go: `tools` is all it can reach, `approve` is which of those calls may run,
-`maxSteps` and `budget` are how far it can go and what it may spend, and
-`output` is the shape of the answer. Everything it did is on the run.
+go, in the AI SDK's own words: `tools` is all it can reach, `toolApproval` is
+which of those calls may run, `stopWhen` and chloe's `budget` are how far it
+can go and what it may spend, and `output` is the shape of the answer. Everything it did is on the run.
 
 ## Some decisions should not belong to a model
 
@@ -237,8 +237,9 @@ export default defineAgent({
 
 That model goes to Anthropic on `ANTHROPIC_API_KEY`, as the package reads it,
 whatever the routes in settings say. Its cost is its tokens at the price the
-gateway's public list gives. A tool with `needsApproval` is refused, because
-chloe asks with `approve` instead and would otherwise run it without asking.
+gateway's public list gives. A call to a tool with `needsApproval` stops the
+job and asks its owner yes or no, then carries on from that call with the
+answer.
 
 A setting is a choice about how the runtime behaves, so it goes in the config
 with the agents, where it is typed and committed:

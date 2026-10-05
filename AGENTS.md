@@ -166,9 +166,9 @@ money, takes longer, and can come back different tomorrow than it did today.
    ranking, writing the words.
 3. **`work.agent()`, when you know only what you want.** A goal and a set of
    tools, for work whose order depends on what the last answer said. The model
-   picks the order, inside the tools that step was handed, the calls `approve`
-   lets through, and the limits `maxSteps` and `budget` put on turns and on
-   spending.
+   picks the order, inside the tools that step was handed, the calls
+   `toolApproval` lets through, and the limits `stopWhen` and `budget` put on
+   turns and on spending.
 
 And `work.ask()`, which is the opposite of autonomy: the job stops and a person
 decides.
@@ -262,7 +262,8 @@ one name, which is what lets an agent have both of those bindings.
 **A tool is for a model and nothing else.** The work is a plain function in
 `services/`, published as `"@chloejs/core/services"`, and a job calls it from a step.
 `model/tools/` holds the wrappers over those functions, and a wrapper is
-a description, a schema and one call. Nothing in it does work. A tool's
+a description, a schema and one call, made with the AI SDK's `tool()` and handed
+back keyed by its name. Nothing in it does work. A tool's
 function is named like the tool it makes: `sendEmail()` makes `sendEmail`.
 A service's function is named for the work, `deliverEmail()`, and never
 takes a tool's name, so a job and a model never reach for the same one. A file in
@@ -376,15 +377,28 @@ loader refuses the other two. `run` is code and `markdown` is a prompt, and
 which one a job is is the most important thing about it.
 
 **A model step answers in a shape or the run fails.** `model(...)` takes a zod
-schema and validates against it, tells the model exactly what did not fit, and
-tries once more. Free text never reaches the next step's control flow. If you
+schema, or an AI SDK output for another shape (`Output.choice`, `Output.array`),
+reads the answer with it, tells the model exactly what did not fit, and tries
+once more. `Output.text()` is refused. Free text never reaches the next step's control flow. If you
 find yourself wanting the string, you wanted an agent step or a prompt.
 
 **An agent step is recorded once, limits and all.** It is a step like any other,
 so a run that parks and resumes does not live through the loop again. Reaching
-`maxSteps` or `budget` is an error that says which, not a quiet half answer.
-`approve` is asked before each call and a refusal goes back to the model as
-words rather than stopping the step. Three things are refused outright: an agent
+what `stopWhen` says or the `budget` is an error that says which, not a quiet
+half answer. `toolApproval`, then each tool's `needsApproval`, is asked before
+each call, and a refusal goes back to the model as words rather than stopping
+the step.
+
+**A call that needs a person parks the agent step, and nothing else does.**
+"user-approval", or a `needsApproval` that says yes, stops the loop before that
+call runs: the conversation so far, the calls not yet run, and what it has
+spent go into the parked run, and the run's owner is asked yes or no about that
+call. Their answer runs the job again from the top, every finished step
+replays, and the agent step picks its loop up at that call, so the model is not
+asked again for what it already said. A no, or no answer in two hours, refuses
+the call and the model carries on. The step is still one line, written when it
+finishes. A run with no owner refuses such a call, and a chat turn always does,
+because a turn does not park. Three things are refused outright: an agent
 step with no tools (that is a model step in disguise), a budget that is not an
 amount above zero, and an `ask` from inside any step, because a job pauses
 between steps and not inside one.

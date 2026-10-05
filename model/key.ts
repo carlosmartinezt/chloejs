@@ -4,7 +4,7 @@
 //
 // Tools are handed over as schemas with nothing to run, so the SDK hands the
 // calls back after one step and core/turn.ts runs them. That loop is where
-// approve, maxSteps, the budget and the per-step record are, so it stays ours.
+// toolApproval, stopWhen, the budget and the per-step record are, so it stays ours.
 
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError, generateText, jsonSchema, RetryError, tool, type LanguageModel, type LanguageModelUsage, type ModelMessage } from "ai";

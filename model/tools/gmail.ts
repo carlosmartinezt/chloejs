@@ -5,12 +5,13 @@
 // write. For reading, all the model chooses is how far back and how many. For
 // replying, it chooses which of the messages it has already listed and what to
 // say, and never the address.
+import { tool } from "ai";
 import { z } from "zod";
 
 import { markdownToHtml, markdownToText } from "#chloe/services/emailService";
 import { writeFiles } from "#chloe/services/filesService";
 import { readEmailMessages, readOneEmailMessage, replyGmail } from "#chloe/services/gmailService";
-import { defineTool, type Tools } from "#chloe/model/tool";
+import type { Tools } from "#chloe/model/tool";
 import { googleSignInTools } from "./google.ts";
 
 interface Options {
@@ -42,8 +43,7 @@ export function readMail({
   days = 7,
   id = "readMail",
 }: Options = {}): Tools {
-  const read = defineTool({
-    id,
+  const read = tool({
     description:
       `Read ${what}. Lists what is there; pass a messageId from that list to read one in full. ` +
       `You cannot change which mail this searches.`,
@@ -58,10 +58,10 @@ export function readMail({
         .optional()
         .describe("Read this one in full. Must be an id this tool already listed."),
     }),
-    execute: ({ days: back, limit, messageId }) =>
+    execute: async ({ days: back, limit, messageId }) =>
       messageId
-        ? readOneEmailMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
-        : readEmailMessages({ search, days: back ?? days, limit: limit ?? 10 }),
+        ? await readOneEmailMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
+        : await readEmailMessages({ search, days: back ?? days, limit: limit ?? 10 }),
   });
   return { [id]: read, ...googleSignInTools() };
 }
@@ -109,8 +109,7 @@ export function replyMail({
 }: ReplyOptions = {}) {
   return (agent: { name: string; memory: { folder: string; commit?: boolean | "each run" } }): Tools => ({
     ...googleSignInTools(),
-    [id]: defineTool({
-      id,
+    [id]: tool({
       description:
         `Reply to one message in ${what}, as the account that reads it, in that message's own thread. ` +
         `Pass a messageId the mail tool listed. It goes to whoever sent that message: you do not choose ` +

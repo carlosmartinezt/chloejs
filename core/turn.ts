@@ -3,6 +3,7 @@
 // wrong at four in the morning is only debuggable if that record exists.
 import { randomUUID } from "node:crypto";
 
+import { isStepCount, tool, type StopCondition, type ToolApprovalConfiguration } from "ai";
 import { z } from "zod";
 
 import { duringRun } from "#chloe/core/current";
@@ -13,7 +14,7 @@ import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
-import { check, describe, overviewsOf, run, type Approve, type Call, type ToolConfig, type Tools } from "#chloe/model/tool";
+import { approval, check, describe, overviewsOf, run, type Call, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 
 export interface Ask {
@@ -71,7 +72,14 @@ export function money(amount: number): string {
   return `$${amount.toFixed(4).replace(/(\.\d\d)0+$/, "$1")}`;
 }
 
-const MAX_STEPS = 40;
+/** What stops a turn when its agent's `stopWhen` says nothing: forty steps that ran tools. */
+const STOP_WHEN = isStepCount(40);
+
+/** An agent's `stopWhen` as a list, the way the loop checks it. */
+function stopWhenOf(agent: Agent): StopCondition<any>[] {
+  const said = agent.stopWhen ?? STOP_WHEN;
+  return Array.isArray(said) ? said : [said];
+}
 
 /**
  * Runs a prompt: ask a model, run the tools it asked for, put the answers
@@ -122,14 +130,13 @@ export async function carryOn({ agent, runId, signal }: { agent: Agent; runId: s
 
   const trace = JSON.parse(row.trace) as LoopStep[];
   const before = answers(trace);
-  const limit = agent.maxSteps ?? MAX_STEPS;
   const outOfSteps = row.why === "out of steps";
   const messages = [...(JSON.parse(row.context) as Message[]), ...replay(trace, row.why)];
   trace.push({
     step: before,
     at: new Date().toISOString(),
     carried: outOfSteps
-      ? `It ran out of steps here, and was given ${limit} more to carry on.`
+      ? "It ran out of steps here, and was given as many again to carry on."
       : "The service stopped here, and the run carried on from where it was.",
   });
   db.prepare("update runs set finished = null, error = null, trace = ? where id = ?").run(JSON.stringify(trace), runId);
@@ -143,7 +150,7 @@ export async function carryOn({ agent, runId, signal }: { agent: Agent; runId: s
     trace,
     job: row.job,
     source: row.source,
-    maxSteps: outOfSteps ? limit : Math.max(1, limit - before),
+    before: outOfSteps ? 0 : before,
     // Whatever changed in the memory since it stopped is mostly its own work,
     // so it goes in this run's commit rather than one of its own.
     carried: true,
@@ -253,7 +260,8 @@ async function go(options: {
   said?: Ask["said"];
   without?: string[];
   instead?: Ask["instead"];
-  maxSteps?: number;
+  /** Steps already taken, which the agent's `stopWhen` counts. */
+  before?: number;
   carried?: boolean;
   signal?: AbortSignal;
 }): Promise<Result> {
@@ -272,7 +280,9 @@ async function go(options: {
         model: options.model,
         messages: options.messages,
         tools,
-        maxSteps: options.maxSteps ?? agent.maxSteps ?? MAX_STEPS,
+        stopWhen: stopWhenOf(agent),
+        before: options.before,
+        toolApproval: agent.toolApproval,
         signal: options.signal,
         instead,
         onStep: (line) => {
@@ -334,14 +344,20 @@ export interface LoopStep {
  * Nothing here writes to the database: `turn` records a conversation and a
  * job's agent step records one line, and they both run this.
  *
- * `stopped` says which limit ended it, "steps" or "budget", and is false when
- * it finished. Hitting a limit is an answer and not a crash.
+ * `stopped` says what ended it, and is false when it finished. "steps" and
+ * "budget" are limits it hit, which is an answer and not a crash. "person" is
+ * a call somebody has to approve first: `waiting` is that call and the ones
+ * after it in the same answer, none of them run, and `messages` is the
+ * conversation to pick up from with `resume`.
  */
 export async function loop(options: {
   model: string;
   messages: Message[];
   tools: Tools;
-  maxSteps: number;
+  /** The AI SDK's stop conditions, checked after each step that ran tools, as `generateText` checks them. */
+  stopWhen: StopCondition<any>[];
+  /** Steps a run that carried on had already taken, which the conditions count. */
+  before?: number;
   /**
    * The most this may spend, in dollars. Checked between turns, because what a
    * turn costs is only known once it has been paid for, so the turn that goes
@@ -350,37 +366,68 @@ export async function loop(options: {
   budget?: number;
   signal?: AbortSignal;
   instead?: Ask["instead"];
-  /** Asked before each tool runs. Without one, everything it was given may run. */
-  approve?: Approve;
+  /** The AI SDK's `toolApproval`, asked before each tool runs. Without one, only each tool's `needsApproval` is. */
+  toolApproval?: ToolApprovalConfiguration<any, any>;
+  /**
+   * Whether a call that needs a person stops the loop to ask them. Without it
+   * such a call is refused, because there is nobody to wait for.
+   */
+  canAsk?: boolean;
+  /** Carrying on from a call that waited for a person: the calls left, the first being that one, and what was decided. */
+  resume?: { calls: ToolCall[]; decided: Decided };
   onStep?: (line: LoopStep) => void;
-}): Promise<{ text: string; steps: number; cost: number; calls: Result["calls"]; stopped: false | "steps" | "budget" }> {
+}): Promise<{
+  text: string;
+  steps: number;
+  cost: number;
+  calls: Result["calls"];
+  stopped: false | "steps" | "budget" | "person";
+  waiting?: { calls: ToolCall[]; reason: string; input: unknown };
+}> {
   const specs = await Promise.all(Object.entries(options.tools).map(([name, one]) => describe(name, one)));
   const calls: Result["calls"] = [];
   let cost = 0;
-  let steps = 0;
+  // What the stop conditions read: each step's text, the calls it made and what came back.
+  const taken: Taken[] = Array.from({ length: options.before ?? 0 }, () => ({ text: "", toolCalls: [], toolResults: [] }));
+  let resume = options.resume;
 
-  for (; steps < options.maxSteps; steps++) {
-    const answer = await ask({ model: options.model, messages: options.messages, tools: specs, signal: options.signal });
-    cost += answer.cost;
-    options.onStep?.({ step: steps, at: new Date().toISOString(), say: answer.text, ...(answer.dropped && { dropped: answer.dropped }), wants: answer.toolCalls.map((c) => c.function.name), cost: answer.cost });
+  for (let steps = 0; ; steps++) {
+    let toolCalls: ToolCall[];
+    const step: Taken = { text: "", toolCalls: [], toolResults: [] };
+    if (resume) {
+      toolCalls = resume.calls;
+    } else {
+      const answer = await ask({ model: options.model, messages: options.messages, tools: specs, signal: options.signal });
+      cost += answer.cost;
+      options.onStep?.({ step: steps, at: new Date().toISOString(), say: answer.text, ...(answer.dropped && { dropped: answer.dropped }), wants: answer.toolCalls.map((c) => c.function.name), cost: answer.cost });
 
-    if (answer.toolCalls.length === 0) {
-      return { text: answer.text, steps: steps + 1, cost, calls, stopped: false };
+      if (answer.toolCalls.length === 0) {
+        return { text: answer.text, steps: steps + 1, cost, calls, stopped: false };
+      }
+
+      // Out of money before running what it asked for, because running the tools
+      // only leads to a turn there is nothing left to pay for.
+      if (options.budget !== undefined && cost >= options.budget) {
+        return { text: `Stopped after spending ${money(cost)} without finishing.`, steps: steps + 1, cost, calls, stopped: "budget" };
+      }
+
+      // Has to go back exactly as it came, or the provider rejects the tool
+      // answers that follow it.
+      options.messages.push({ role: "assistant", content: answer.text, tool_calls: answer.toolCalls });
+      toolCalls = answer.toolCalls;
+      step.text = answer.text;
     }
 
-    // Out of money before running what it asked for, because running the tools
-    // only leads to a turn there is nothing left to pay for.
-    if (options.budget !== undefined && cost >= options.budget) {
-      return { text: `Stopped after spending ${money(cost)} without finishing.`, steps: steps + 1, cost, calls, stopped: "budget" };
-    }
-
-    // Has to go back exactly as it came, or the provider rejects the tool
-    // answers that follow it.
-    options.messages.push({ role: "assistant", content: answer.text, tool_calls: answer.toolCalls });
-
-    for (const call of answer.toolCalls) {
+    for (const [n, call] of toolCalls.entries()) {
       const at = new Date().toISOString();
-      const { output, args, failed, refused } = await runTool(options.tools, call, options.instead, options.approve);
+      const decided = resume && n === 0 ? resume.decided : undefined;
+      const ran = await runTool(options.tools, call, { instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided });
+      if ("person" in ran) {
+        return { text: "", steps, cost, calls, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
+      }
+      const { output, args, failed, refused } = ran;
+      step.toolCalls.push({ type: "tool-call", toolCallId: call.id, toolName: call.function.name, input: args });
+      step.toolResults.push({ type: "tool-result", toolCallId: call.id, toolName: call.function.name, input: args, output });
       calls.push({ tool: call.function.name, args, result: output, ...(refused && { refused }) });
       options.onStep?.({ step: steps, at, tool: call.function.name, args, result: clip(output), ...(failed && { failed }), ...(refused && { refused }) });
       options.messages.push({
@@ -389,11 +436,24 @@ export async function loop(options: {
         content: typeof output === "string" ? output : JSON.stringify(output),
       });
     }
-  }
+    resume = undefined;
+    taken.push(step);
 
-  // Out of steps is an answer, not a crash: an empty string here would read as
-  // nothing being wrong.
-  return { text: outOfStepsText(steps), steps, cost, calls, stopped: "steps" };
+    // Stopped while it still wanted to go on is an answer, not a crash: an
+    // empty string here would read as nothing being wrong.
+    const met = await Promise.all(options.stopWhen.map((one) => one({ steps: taken as never })));
+    if (met.some(Boolean)) return { text: outOfStepsText(steps + 1), steps: steps + 1, cost, calls, stopped: "steps" };
+  }
+}
+
+/** What a person said about a call that waited for them: yes, no, or nothing in time. */
+export type Decided = "yes" | "no" | "late";
+
+/** One step as the AI SDK's stop conditions read it. */
+interface Taken {
+  text: string;
+  toolCalls: { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }[];
+  toolResults: { type: "tool-result"; toolCallId: string; toolName: string; input: unknown; output: unknown }[];
 }
 
 /** What the trace says has been spent so far, for the record written as it goes. */
@@ -406,9 +466,8 @@ function costOf(trace: unknown[]): number {
 async function runTool(
   tools: Tools,
   call: ToolCall,
-  instead?: Ask["instead"],
-  approve?: Approve,
-): Promise<{ output: unknown; args: unknown; failed?: boolean; refused?: boolean }> {
+  how: { instead?: Ask["instead"]; toolApproval?: ToolApprovalConfiguration<any, any>; canAsk?: boolean; decided?: Decided },
+): Promise<{ output: unknown; args: unknown; failed?: boolean; refused?: boolean } | { person: string; args: unknown }> {
   const name = call.function.name;
   let args: unknown;
   try {
@@ -423,27 +482,33 @@ async function runTool(
   const checked = await check(one, args);
   if (!checked.ok) return { output: `${name} was called wrongly: ${checked.why}`, args, failed: true };
 
+  const refuse = (why: string) => ({
+    output: `${name} was not allowed: ${why}. Try another way, or finish with what you have.`,
+    args: checked.value,
+    refused: true,
+  });
+  if (how.decided === "no") return refuse("the person asked said no");
+  if (how.decided === "late") return refuse("nobody answered in time");
+
   // Asked once the arguments are known and before anything runs, because what
   // makes a call worth stopping is usually the arguments rather than the tool.
-  if (approve) {
-    let allowed: boolean | string;
+  // A call a person already said yes to is not asked about again.
+  if (how.decided !== "yes") {
+    let allowed: Awaited<ReturnType<typeof approval>>;
     try {
-      allowed = await approve({ tool: name, args: checked.value });
+      allowed = await approval(tools, name, checked.value, call.id, how.toolApproval);
     } catch (error) {
       throw new Error(`Deciding whether ${name} could run failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (allowed !== true) {
-      const why = typeof allowed === "string" && allowed.trim() !== "" ? allowed : "the job did not allow it";
-      return {
-        output: `${name} was not allowed: ${why}. Try another way, or finish with what you have.`,
-        args: checked.value,
-        refused: true,
-      };
+    if ("denied" in allowed) return refuse(allowed.denied);
+    if ("person" in allowed) {
+      if (how.canAsk) return { person: allowed.person, args: checked.value };
+      return refuse(`it needs a person to approve it, and nobody can be asked from here${allowed.person ? ` (${allowed.person})` : ""}`);
     }
   }
 
   try {
-    const output = instead ? await instead(name, checked.value) : await run(one, checked.value, call.id);
+    const output = how.instead ? await how.instead(name, checked.value) : await run(one, checked.value, call.id);
     return { output: output ?? { ok: true }, args: checked.value };
   } catch (error) {
     return { output: `${name} failed: ${error instanceof Error ? error.message : String(error)}`, args: checked.value, failed: true };
@@ -453,20 +518,19 @@ async function runTool(
 // The model sees each skill's name and one sentence, and opens the body only
 // when it applies. In the system prompt instead, every skill would cost its
 // full text on every step of every turn.
-function skillTool(skills: Skill[]): ToolConfig {
+function skillTool(skills: Skill[]) {
   const byName = new Map(skills.map((s) => [s.name, s]));
-  return {
-    id: "skill",
+  return tool({
     description:
       "Open one of your skills and read what it says. A skill tells you when to do something and " +
       "how. Open the skill before doing the thing it covers.",
     inputSchema: z.object({ name: z.string().describe("The skill's name, from the list in your instructions.") }),
-    execute: ({ name }: { name: string }) => {
+    execute: ({ name }) => {
       const found = byName.get(name);
       if (!found) throw new Error(`No skill called ${JSON.stringify(name)}. You have: ${[...byName.keys()].join(", ")}`);
       return found.body;
     },
-  };
+  });
 }
 
 /**
