@@ -265,10 +265,11 @@ the lines printed at startup ask it what is missing. So an agent says
 to fix mail, and a connector in an agent's own folder works the same with
 nothing added here. Google and Resend ship with the runtime.
 
-**A connector reaches its service with npm packages, never a program.** Google
-is Google's own small packages, one per service, and nothing beside chloe is
-installed. A service's tools that need no binding of chloe's own come from its
-MCP server instead.
+**A connector reaches its service with plain web requests, never a program
+and never a package of the service's own.** Google is `googleApi()` in
+`connectors/google/googleService.ts`, a `fetch` with the signed-in key, and
+nothing beside chloe is installed. A service's tools that need no binding of
+chloe's own come from its MCP server instead.
 
 **An agent's `connections` is the services it alone reaches.**
 `mcpConnection({ name, url, token })` in `connectors/mcp.ts` is a service's MCP

@@ -1,9 +1,10 @@
 // Signing in to Google, and holding that sign-in.
 //
-// One sign-in reaches mail, the calendar and the files, through Google's own
-// npm packages, so there is nothing to install beside chloe. What this file
-// owns is the sign-in itself: the two halves of it that somebody does from a
-// phone, and the one file the key is kept in afterwards.
+// One sign-in reaches mail, the calendar and the files, over Google's own web
+// addresses with plain requests, so there is nothing to install beside chloe.
+// What this file owns is the sign-in itself: the two halves of it that
+// somebody does from a phone, the one file the key is kept in afterwards, and
+// `googleApi()`, which every call to Google goes through.
 //
 // **The key is one file, `token.json` in the state folder, mode 600**, and
 // nothing asks a person for a passphrase. Two copies of one secret is how a
@@ -13,11 +14,9 @@
 // A sign-in is `start()`, which hands back a link, and `finish()`, which takes
 // what the link came back with. Whatever carries those two, a chat, Telegram or
 // the API, is the caller's business.
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-
-import { CodeChallengeMethod, OAuth2Client } from "google-auth-library";
 
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { STATE } from "#chloe/core/paths";
@@ -30,6 +29,10 @@ const TOKEN = join(GOOGLE, "token.json");
 
 /** A sign-in that has been started and not finished. */
 const PENDING = join(GOOGLE, "pending.json");
+
+/** Where a person approves, and where a code or a lasting key is traded for a key that opens Google for an hour. */
+const APPROVE = "https://accounts.google.com/o/oauth2/v2/auth";
+const TRADE = "https://oauth2.googleapis.com/token";
 
 /** What one sign-in asks Google for, by service. */
 export const SERVICES = "gmail,calendar,drive";
@@ -326,22 +329,25 @@ export async function start({ services = SERVICES }: { services?: string } = {})
   if (!account) {
     throw new Error("google.account is not set, so there is nobody to sign in. Put the address in chloe.config.ts's settings as `google: { account: \"you@gmail.com\" }`.");
   }
-  const { id, secret } = clientOf();
+  const { id } = clientOf();
   const to = callback();
   const redirect = to.url || PASTE_BACK;
-  const client = new OAuth2Client({ clientId: id, clientSecret: secret, redirectUri: redirect });
-  const { codeVerifier, codeChallenge } = await client.generateCodeVerifierAsync();
+  // PKCE: the code Google hands back only works with this, which never leaves the machine.
+  const verifier = randomBytes(32).toString("base64url");
   const state = randomBytes(16).toString("base64url");
-  const link = client.generateAuthUrl({
+  const link = `${APPROVE}?${new URLSearchParams({
+    client_id: id,
+    redirect_uri: redirect,
+    response_type: "code",
     access_type: "offline",
     prompt: "consent",
     login_hint: account,
-    scope: scopesFor(services),
+    scope: scopesFor(services).join(" "),
     state,
-    code_challenge_method: CodeChallengeMethod.S256,
-    code_challenge: codeChallenge,
-  });
-  writeSecret(PENDING, { account, services, redirect, state, verifier: codeVerifier!, started: new Date().toISOString() } satisfies Pending);
+    code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+    code_challenge_method: "S256",
+  })}`;
+  writeSecret(PENDING, { account, services, redirect, state, verifier, started: new Date().toISOString() } satisfies Pending);
   return { link, account, relayed: to.relayed, say: whatToDo(account, to) };
 }
 
@@ -417,16 +423,18 @@ export async function finish(answer: string): Promise<{ account: string; signedI
   }
   const code = codeFrom(answer, waiting);
   const { id, secret } = clientOf();
-  const client = new OAuth2Client({ clientId: id, clientSecret: secret, redirectUri: waiting.redirect });
-  let tokens;
-  try {
-    ({ tokens } = await client.getToken({ code, codeVerifier: waiting.verifier, redirect_uri: waiting.redirect }));
-  } catch (error) {
-    throw new Error(explain((error as Error).message));
-  }
-  if (!tokens.id_token) throw new Error("Google did not say who approved, so the sign-in was thrown away. Start it again.");
-  const who = (await client.verifyIdToken({ idToken: tokens.id_token, audience: id })).getPayload();
-  const approved = who?.email_verified ? (who.email ?? "").toLowerCase() : "";
+  const tokens = await trade({
+    grant_type: "authorization_code",
+    code,
+    code_verifier: waiting.verifier,
+    redirect_uri: waiting.redirect,
+    client_id: id,
+    client_secret: secret,
+  });
+  // Straight from Google over HTTPS with this client's secret, so what it says
+  // is Google's word, and only the client it was made for is checked.
+  const who = tokens.id_token ? idClaims(tokens.id_token) : undefined;
+  const approved = who?.aud === id && who.email_verified ? (who.email ?? "").toLowerCase() : "";
   if (approved !== waiting.account.toLowerCase()) {
     rmSync(PENDING, { force: true });
     throw new Error(
@@ -440,16 +448,48 @@ export async function finish(answer: string): Promise<{ account: string; signedI
       "Google approved but handed back no key that lasts, so nothing was saved. Start the sign-in again: it asks Google for one.",
     );
   }
-  writeSecret(TOKEN, { account: waiting.account, refresh_token: tokens.refresh_token, scope: tokens.scope ?? undefined, saved: new Date().toISOString() } satisfies Saved);
+  writeSecret(TOKEN, { account: waiting.account, refresh_token: tokens.refresh_token, scope: tokens.scope, saved: new Date().toISOString() } satisfies Saved);
+  opened = undefined;
   rmSync(PENDING, { force: true });
   return { account: waiting.account, signedIn: true };
 }
 
-/**
- * A client signed in as the account in settings, for Google's own packages to
- * call with. Thrown, in words an agent can act on, when there is no sign-in.
- */
-export function signedIn(): OAuth2Client {
+/** What Google's token address hands back. */
+interface Tokens {
+  access_token: string;
+  expires_in: number;
+  refresh_token?: string;
+  id_token?: string;
+  scope?: string;
+}
+
+/** A form posted to Google's token address, and what came back, or thrown in words an agent can act on. */
+async function trade(form: Record<string, string>): Promise<Tokens> {
+  const response = await fetch(TRADE, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(form),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(explain(text));
+  return JSON.parse(text) as Tokens;
+}
+
+/** What an ID token says, read without checking its signature: only for one straight from Google. */
+function idClaims(token: string): { aud?: string; email?: string; email_verified?: boolean } | undefined {
+  try {
+    return JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+/** The key that opens Google now, kept until a minute before it runs out. */
+let opened: { key: string; until: number; account: string } | undefined;
+
+/** A key that opens Google for the account in settings, traded for when the last one is about to run out. */
+async function accessKey(): Promise<string> {
   const held = saved();
   if (!held) {
     throw new Error(
@@ -458,29 +498,40 @@ export function signedIn(): OAuth2Client {
         : "Google cannot be reached: google.account is not set, so there is no account to read. A person has to set it. Do not retry.",
     );
   }
+  if (opened && opened.account === held.account && opened.until > Date.now()) return opened.key;
   const { id, secret } = clientOf();
-  const client = new OAuth2Client({ clientId: id, clientSecret: secret });
-  client.setCredentials({ refresh_token: held.refresh_token });
-  // Google may hand over a new key that lasts while refreshing, and the old one then stops working.
-  client.on("tokens", (fresh) => {
-    if (fresh.refresh_token) writeSecret(TOKEN, { ...held, refresh_token: fresh.refresh_token, saved: new Date().toISOString() });
-  });
-  return client;
+  const tokens = await trade({ grant_type: "refresh_token", refresh_token: held.refresh_token, client_id: id, client_secret: secret });
+  // Google may hand over a new lasting key, and then the old one stops working.
+  if (tokens.refresh_token) writeSecret(TOKEN, { ...held, refresh_token: tokens.refresh_token, saved: new Date().toISOString() });
+  opened = { key: tokens.access_token, until: Date.now() + (tokens.expires_in - 60) * 1000, account: held.account };
+  return opened.key;
 }
 
 /**
- * One call to Google, with any failure turned into words an agent can act on,
- * rather than letting "invalid_grant" reach a model that will retry it forever.
+ * One call to Google as the signed-in account: an address, its query, and a
+ * body sent as JSON. JSON back, or text when `text` is set. Any failure is
+ * thrown in words an agent can act on, rather than letting "invalid_grant"
+ * reach a model that will retry it forever.
  */
-export async function google<T>(call: () => Promise<T>): Promise<T> {
-  try {
-    return await call();
-  } catch (error) {
-    const text = (error as { response?: { data?: unknown } }).response?.data
-      ? JSON.stringify((error as { response: { data: unknown } }).response.data)
-      : (error as Error).message;
-    throw new Error(explain(text));
+export async function googleApi<T>(
+  url: string,
+  { method = "GET", query, body, text = false }: { method?: string; query?: Record<string, string | number | boolean | string[] | undefined>; body?: unknown; text?: boolean } = {},
+): Promise<T> {
+  const address = new URL(url);
+  for (const [name, value] of Object.entries(query ?? {})) {
+    if (value === undefined) continue;
+    for (const one of Array.isArray(value) ? value : [value]) address.searchParams.append(name, String(one));
   }
+  const response = await fetch(address, {
+    method,
+    headers: { authorization: `Bearer ${await accessKey()}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const said = await response.text();
+  if (response.status === 401) opened = undefined;
+  if (!response.ok) throw new Error(explain(said || `${response.status} ${response.statusText}`));
+  return (text ? said : said ? JSON.parse(said) : {}) as T;
 }
 
 /**

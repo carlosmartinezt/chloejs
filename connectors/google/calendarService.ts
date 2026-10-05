@@ -1,9 +1,28 @@
 // The calendar, as the signed-in account: the events on the calendars an agent
 // is bound to, and adding one. The calendars come from the binding, never from
 // the caller, and an event added here invites nobody.
-import { calendar as calendarApi, type calendar_v3 } from "@googleapis/calendar";
+import { googleApi, marked } from "./googleService.ts";
 
-import { google, marked, signedIn } from "./googleService.ts";
+/** Where the calendars are. */
+const CALENDARS = "https://www.googleapis.com/calendar/v3/calendars";
+
+/** A start or an end, as Google writes it: a time, or a day for all day. */
+interface When {
+  dateTime?: string;
+  date?: string;
+}
+
+/** One event, as Google hands it back. */
+interface GoogleEvent {
+  id?: string;
+  summary?: string;
+  start?: When;
+  end?: When;
+  location?: string;
+  description?: string;
+  attendees?: unknown[];
+  htmlLink?: string;
+}
 
 /** One event, as a list hands it back. */
 export interface CalendarEvent {
@@ -18,10 +37,6 @@ export interface CalendarEvent {
   /** How many people are on it, the account included. */
   people?: number;
   link?: string;
-}
-
-function calendarOf(): calendar_v3.Calendar {
-  return calendarApi({ version: "v3", auth: signedIn() });
 }
 
 /**
@@ -42,16 +57,9 @@ export async function listCalendarEvents({
   const to = new Date(from.getTime() + days * 86_400_000);
   const found = await Promise.all(
     calendars.map(async (calendar) => {
-      const { data } = await google(() =>
-        calendarOf().events.list({
-          calendarId: calendar,
-          timeMin: from.toISOString(),
-          timeMax: to.toISOString(),
-          singleEvents: true,
-          orderBy: "startTime",
-          maxResults: limit,
-        }),
-      );
+      const data = await googleApi<{ items?: GoogleEvent[] }>(`${CALENDARS}/${encodeURIComponent(calendar)}/events`, {
+        query: { timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: true, orderBy: "startTime", maxResults: limit },
+      });
       return (data.items ?? []).map(
         (one): CalendarEvent => ({
           id: one.id ?? "",
@@ -62,7 +70,7 @@ export async function listCalendarEvents({
           location: one.location ? marked(one.location) : undefined,
           details: one.description ? marked(one.description) : undefined,
           people: one.attendees?.length || undefined,
-          link: one.htmlLink ?? undefined,
+          link: one.htmlLink,
         }),
       );
     }),
@@ -72,7 +80,7 @@ export async function listCalendarEvents({
 }
 
 /** A time with its offset, `2026-10-06T15:00:00-04:00`, or a day, `2026-10-06`. */
-function when(value: string, what: string): calendar_v3.Schema$EventDateTime {
+function when(value: string, what: string): When {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return { date: value };
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(value)) return { dateTime: value };
   throw new Error(`${what} is a time with its offset, like 2026-10-06T15:00:00-04:00, or a day, like 2026-10-06.`);
@@ -97,12 +105,10 @@ export async function addCalendarEvent({
   location?: string;
   details?: string;
 }): Promise<{ added: true; id: string; link: string }> {
-  const { data } = await google(() =>
-    calendarOf().events.insert({
-      calendarId: calendar,
-      sendUpdates: "none",
-      requestBody: { summary: title, start: when(start, "start"), end: when(end, "end"), location, description: details },
-    }),
-  );
+  const data = await googleApi<GoogleEvent>(`${CALENDARS}/${encodeURIComponent(calendar)}/events`, {
+    method: "POST",
+    query: { sendUpdates: "none" },
+    body: { summary: title, start: when(start, "start"), end: when(end, "end"), location, description: details },
+  });
   return { added: true, id: data.id ?? "", link: data.htmlLink ?? "" };
 }

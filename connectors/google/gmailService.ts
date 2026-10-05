@@ -13,13 +13,11 @@
 // the model.
 //
 // The sign-in itself is googleService.ts, and every call out goes through
-// `google()` there, so one file holds it, renews it and explains it and this
+// `googleApi()` there, so one file holds it, renews it and explains it and this
 // one only reads mail.
-import { gmail as gmailApi, type gmail_v1 } from "@googleapis/gmail";
-
 import type { EmailProvider } from "#chloe/services/emailService";
 
-import { explain, google, marked, signedIn } from "./googleService.ts";
+import { explain, googleApi, marked } from "./googleService.ts";
 
 export { explain };
 
@@ -84,13 +82,29 @@ async function mayReach(
   return { query, allowed: messages.some((m) => m.id === messageId || m.threadId === messageId) };
 }
 
-/** Gmail, as the signed-in account. */
-function mailbox(): gmail_v1.Gmail {
-  return gmailApi({ version: "v1", auth: signedIn() });
+/** The signed-in account's mailbox. */
+const MAILBOX = "https://gmail.googleapis.com/gmail/v1/users/me";
+
+/** A part of a message, as Gmail hands it back: headers, a body, and parts inside it. */
+interface Part {
+  mimeType?: string;
+  filename?: string;
+  headers?: { name?: string; value?: string }[];
+  body?: { data?: string };
+  parts?: Part[];
+}
+
+/** One message, as Gmail hands it back. */
+interface GmailMessage {
+  id?: string;
+  threadId?: string;
+  labelIds?: string[];
+  snippet?: string;
+  payload?: Part;
 }
 
 /** A header's value by name, any case, or "". */
-function header(headers: gmail_v1.Schema$MessagePartHeader[] | undefined, name: string): string {
+function header(headers: Part["headers"], name: string): string {
   return headers?.find((one) => one.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
 }
 
@@ -121,9 +135,9 @@ export async function readEmailMessages({
 }
 
 /** The plain text of a message: its text part, else its HTML part with the tags taken off. */
-function textOf(part: gmail_v1.Schema$MessagePart | undefined): string {
+function textOf(part: Part | undefined): string {
   const decode = (data?: string | null) => (data ? Buffer.from(data, "base64url").toString("utf8") : "");
-  const find = (one: gmail_v1.Schema$MessagePart | undefined, type: string): string => {
+  const find = (one: Part | undefined, type: string): string => {
     if (!one) return "";
     if (one.mimeType === type && one.body?.data) return decode(one.body.data);
     for (const inner of one.parts ?? []) {
@@ -147,7 +161,7 @@ function textOf(part: gmail_v1.Schema$MessagePart | undefined): string {
 }
 
 /** The names of a message's attachments. */
-function attachmentsOf(part: gmail_v1.Schema$MessagePart | undefined): string[] {
+function attachmentsOf(part: Part | undefined): string[] {
   if (!part) return [];
   return [...(part.filename ? [part.filename] : []), ...(part.parts ?? []).flatMap(attachmentsOf)];
 }
@@ -178,8 +192,8 @@ export async function readOneEmailMessage({
         `List it again and use an id from that list.`,
     );
   }
-  const { data } = await google(() => mailbox().users.messages.get({ userId: "me", id: messageId, format: "full" }));
-  const headers = data.payload?.headers ?? undefined;
+  const data = await googleApi<GmailMessage>(`${MAILBOX}/messages/${encodeURIComponent(messageId)}`, { query: { format: "full" } });
+  const headers = data.payload?.headers;
   return {
     query,
     message: {
@@ -190,24 +204,24 @@ export async function readOneEmailMessage({
       to: marked(header(headers, "To")),
       subject: marked(header(headers, "Subject")),
       labels: data.labelIds ?? [],
-      attachments: attachmentsOf(data.payload ?? undefined),
-      body: marked(textOf(data.payload ?? undefined)),
+      attachments: attachmentsOf(data.payload),
+      body: marked(textOf(data.payload)),
     },
   };
 }
 
 async function search_(query: string, max: number): Promise<Message[]> {
-  const listed = await google(() => mailbox().users.messages.list({ userId: "me", q: query, maxResults: max }));
-  const ids = (listed.data.messages ?? []).flatMap((one) => (one.id ? [one.id] : []));
+  const listed = await googleApi<{ messages?: { id?: string }[] }>(`${MAILBOX}/messages`, { query: { q: query, maxResults: max } });
+  const ids = (listed.messages ?? []).flatMap((one) => (one.id ? [one.id] : []));
   return await Promise.all(
     ids.map(async (id) => {
-      const { data } = await google(() =>
-        mailbox().users.messages.get({ userId: "me", id, format: "metadata", metadataHeaders: ["Subject", "From", "Date"] }),
-      );
-      const headers = data.payload?.headers ?? undefined;
+      const data = await googleApi<GmailMessage>(`${MAILBOX}/messages/${encodeURIComponent(id)}`, {
+        query: { format: "metadata", metadataHeaders: ["Subject", "From", "Date"] },
+      });
+      const headers = data.payload?.headers;
       return {
         id,
-        threadId: data.threadId ?? undefined,
+        threadId: data.threadId,
         subject: header(headers, "Subject"),
         from: header(headers, "From"),
         date: header(headers, "Date"),
@@ -307,8 +321,8 @@ export async function sendGmail({
   from?: string;
 }): Promise<{ id: string }> {
   const raw = rawMail({ from, to, replyTo, subject, text, html });
-  const { data } = await google(() => mailbox().users.messages.send({ userId: "me", requestBody: { raw } }));
-  return { id: data.id ?? "" };
+  const sent = await googleApi<{ id?: string }>(`${MAILBOX}/messages/send`, { method: "POST", body: { raw } });
+  return { id: sent.id ?? "" };
 }
 
 /** The longest subject a reply will carry over. Longer than any real one. */
@@ -406,15 +420,10 @@ export async function replyGmail({
 
   // metadata, not full: the headers are all a reply needs, and the body of
   // somebody else's mail does not have to be read again to answer it.
-  const { data } = await google(() =>
-    mailbox().users.messages.get({
-      userId: "me",
-      id: messageId,
-      format: "metadata",
-      metadataHeaders: ["From", "Reply-To", "Subject", "Message-ID", "References"],
-    }),
-  );
-  const headers = data.payload?.headers ?? undefined;
+  const data = await googleApi<GmailMessage>(`${MAILBOX}/messages/${encodeURIComponent(messageId)}`, {
+    query: { format: "metadata", metadataHeaders: ["From", "Reply-To", "Subject", "Message-ID", "References"] },
+  });
+  const headers = data.payload?.headers;
   const { to, subject } = replyTo({
     from: header(headers, "From"),
     reply_to: header(headers, "Reply-To"),
@@ -423,10 +432,8 @@ export async function replyGmail({
   const original = header(headers, "Message-ID");
   const references = [header(headers, "References"), original].filter(Boolean).join(" ");
   const raw = rawMail({ to: [to], subject, text: body, html, inReplyTo: original || undefined, references: references || undefined });
-  const sent = await google(() =>
-    mailbox().users.messages.send({ userId: "me", requestBody: { raw, threadId: data.threadId ?? undefined } }),
-  );
-  return { sent: true, to, subject, id: sent.data.id ?? "" };
+  const sent = await googleApi<{ id?: string }>(`${MAILBOX}/messages/send`, { method: "POST", body: { raw, threadId: data.threadId } });
+  return { sent: true, to, subject, id: sent.id ?? "" };
 }
 
 /**

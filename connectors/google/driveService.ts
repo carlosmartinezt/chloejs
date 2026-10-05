@@ -6,9 +6,19 @@
 //
 // A Google Doc, Sheet or Slides is read as text, through Drive, so a Doc needs
 // nothing of its own.
-import { drive as driveApi, type drive_v3 } from "@googleapis/drive";
+import { googleApi, marked } from "./googleService.ts";
 
-import { google, marked, signedIn } from "./googleService.ts";
+/** Where the files are. */
+const FILES = "https://www.googleapis.com/drive/v3/files";
+
+/** One file, as Google hands it back. */
+interface GoogleFile {
+  id?: string;
+  name?: string;
+  mimeType?: string;
+  modifiedTime?: string;
+  webViewLink?: string;
+}
 
 /** One file, as a search hands it back. */
 export interface DriveFile {
@@ -36,10 +46,6 @@ function remember(search: string, files: DriveFile[]): void {
   }
 }
 
-function driveOf(): drive_v3.Drive {
-  return driveApi({ version: "v3", auth: signedIn() });
-}
-
 /** Words for a Drive query, with its quotes and backslashes escaped. */
 const quoted = (text: string) => `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 
@@ -56,23 +62,23 @@ export async function searchDriveFiles({
   const query = [search.trim() && `(${search.trim()})`, "trashed = false", text?.trim() && `fullText contains ${quoted(text.trim())}`]
     .filter(Boolean)
     .join(" and ");
-  const { data } = await google(() =>
-    driveOf().files.list({
+  const data = await googleApi<{ files?: GoogleFile[] }>(FILES, {
+    query: {
       q: query,
       pageSize: limit,
       orderBy: text ? undefined : "modifiedTime desc",
       fields: "files(id,name,mimeType,modifiedTime,webViewLink)",
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
-    }),
-  );
+    },
+  });
   const files = (data.files ?? []).map(
     (one): DriveFile => ({
       id: one.id ?? "",
       name: one.name ?? "",
       kind: one.mimeType ?? "",
-      modified: one.modifiedTime ?? undefined,
-      link: one.webViewLink ?? undefined,
+      modified: one.modifiedTime,
+      link: one.webViewLink,
     }),
   );
   remember(search, files);
@@ -108,16 +114,15 @@ export async function readDriveFile({
   if (!listed.get(search)?.has(fileId)) {
     throw new Error(`That file is not in ${what}, or has not been listed yet. Search first and use an id from that list.`);
   }
-  const { data: file } = await google(() => driveOf().files.get({ fileId, fields: "id,name,mimeType", supportsAllDrives: true }));
+  const at = `${FILES}/${encodeURIComponent(fileId)}`;
+  const file = await googleApi<GoogleFile>(at, { query: { fields: "id,name,mimeType", supportsAllDrives: true } });
   const kind = file.mimeType ?? "";
   const as = EXPORTS[kind];
   let text: string;
   if (as) {
-    const { data } = await google(() => driveOf().files.export({ fileId, mimeType: as }, { responseType: "text" }));
-    text = String(data);
+    text = await googleApi<string>(`${at}/export`, { query: { mimeType: as }, text: true });
   } else if (isText(kind)) {
-    const { data } = await google(() => driveOf().files.get({ fileId, alt: "media", supportsAllDrives: true }, { responseType: "text" }));
-    text = String(data);
+    text = await googleApi<string>(at, { query: { alt: "media", supportsAllDrives: true }, text: true });
   } else {
     throw new Error(`${file.name} is ${kind || "not text"}, which cannot be read as text. Say where it is instead.`);
   }

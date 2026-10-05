@@ -30,10 +30,10 @@ import type { Tools } from "./shared.ts";
 
   const was = settings.google.account;
   settings.google.account = "";
-  const { signedIn } = await import("#chloe/connectors/google/googleService");
+  const { googleApi } = await import("#chloe/connectors/google/googleService");
   let noAccount = "";
   try {
-    signedIn();
+    await googleApi("https://gmail.googleapis.com/gmail/v1/users/me/profile");
   } catch (error) {
     noAccount = (error as Error).message;
   }
@@ -290,5 +290,89 @@ import type { Tools } from "./shared.ts";
       refused = (error as Error).message;
     }
     is(`${what} is refused`, refused.length > 0, true);
+  }
+
+  about("a whole sign-in, and mail, against a stand-in for Google");
+  {
+    const { finish, start, signInState } = await import("#chloe/connectors/google/googleService");
+    const { readEmailMessages, readOneEmailMessage, replyGmail } = await import("#chloe/connectors/google/gmailService");
+    const before = { account: settings.google.account, client: settings.google.client, callback: settings.google.callback };
+    settings.google.account = "somebody@example.com";
+    settings.google.client = { web: { client_id: "the-id", client_secret: "the-secret" } };
+    settings.google.callback = "";
+    const idToken = (claims: object) => `x.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.y`;
+    let approvedBy = "somebody@example.com";
+    const traded: URLSearchParams[] = [];
+    const sent: { raw: string; threadId?: string }[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+      if (url.href === "https://oauth2.googleapis.com/token") {
+        const form = new URLSearchParams(String(init?.body));
+        traded.push(form);
+        if (form.get("grant_type") === "authorization_code") {
+          return json({ access_token: "a1", expires_in: 3600, refresh_token: "r1", id_token: idToken({ aud: "the-id", email: approvedBy, email_verified: true }) });
+        }
+        return json({ access_token: "a2", expires_in: 3600 });
+      }
+      if ((init?.headers as Record<string, string>)?.authorization !== "Bearer a2") return new Response("no", { status: 401 });
+      if (url.pathname.endsWith("/messages") && init?.method !== "POST") return json({ messages: [{ id: "m1" }] });
+      if (url.pathname.endsWith("/messages/m1")) {
+        return json({
+          id: "m1",
+          threadId: "t1",
+          snippet: "hello",
+          payload: {
+            headers: [
+              { name: "From", value: "Her <her@example.com>" },
+              { name: "Subject", value: "Lunch" },
+              { name: "Message-ID", value: "<1@example.com>" },
+            ],
+            mimeType: "text/plain",
+            body: { data: Buffer.from("Shall we?").toString("base64url") },
+          },
+        });
+      }
+      if (url.pathname.endsWith("/messages/send")) {
+        sent.push(JSON.parse(String(init?.body)));
+        return json({ id: "s1" });
+      }
+      return new Response("not here", { status: 404 });
+    }) as typeof fetch;
+    try {
+      await start();
+      approvedBy = "somebody-else@example.com";
+      let refused = "";
+      try {
+        await finish("the-code");
+      } catch (error) {
+        refused = (error as Error).message;
+      }
+      is("a sign-in approved by another account is thrown away", refused.includes("somebody-else@example.com"), true);
+      is("and nothing is kept", (await signInState()).ready, false);
+
+      approvedBy = "somebody@example.com";
+      await start();
+      is("one approved by the account in settings is kept", await finish("the-code"), { account: "somebody@example.com", signedIn: true });
+      is("with the code traded under its lock", (traded.at(-1)?.get("code_verifier")?.length ?? 0) > 40, true);
+      is("and the state says it is ready", (await signInState()).ready, true);
+
+      const listed = await readEmailMessages({ search: "in:inbox", days: 7, limit: 5 });
+      is("mail is listed with a key traded for the lasting one", listed.messages.map((one) => one.id), ["m1"]);
+      is("and what somebody else wrote is marked as theirs", listed.messages[0].subject?.includes("EXTERNAL_UNTRUSTED_CONTENT"), true);
+      const one = (await readOneEmailMessage({ search: "in:inbox", what: "the inbox", messageId: "m1" })).message as { body: string };
+      is("a message is read in full", one.body.includes("Shall we?"), true);
+
+      const reply = await replyGmail({ search: "in:inbox", what: "the inbox", messageId: "m1", body: "Yes, at one." });
+      is("a reply goes to the sender, with the subject answered", [reply.to, reply.subject], ["her@example.com", "Re: Lunch"]);
+      const mail = Buffer.from(sent[0].raw, "base64url").toString("utf8");
+      is("in the same thread", sent[0].threadId, "t1");
+      is("and threaded by its headers", mail.includes("In-Reply-To: <1@example.com>"), true);
+    } finally {
+      globalThis.fetch = real;
+      await (await import("node:fs/promises")).rm(join(process.env.CHLOE_STATE!, "google"), { recursive: true, force: true });
+      Object.assign(settings.google, before);
+    }
   }
 }

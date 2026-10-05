@@ -1,5 +1,5 @@
-// Google: one sign-in for the mail, the calendar and the files, through
-// Google's own packages. Every Gmail, Calendar and Drive tool needs it.
+// Google: one sign-in for the mail, the calendar and the files, over plain
+// web requests. Every Gmail, Calendar and Drive tool needs it.
 import { settings } from "#chloe/core/settings";
 import type { Connector } from "#chloe/connectors/connector";
 
