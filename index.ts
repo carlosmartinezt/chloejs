@@ -31,7 +31,7 @@ export { turn, type Result as TurnResult } from "./core/turn.ts";
 export { agentOf, type Call, type ChloeTool, type ToolContext, type Tools } from "./model/tool.ts";
 
 // An outside account or program a tool works through, for writing one of your own.
-export { NeedsSignIn, type Connector, type SignIn } from "./connectors/connector.ts";
+export { NeedsSignIn, type Connection, type SignIn } from "./connections/connection.ts";
 export { learnModels, UsageLimit, type Attachment } from "./model/model.ts";
 
 // Reaching a person, and being reached back.

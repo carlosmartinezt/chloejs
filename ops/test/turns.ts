@@ -203,12 +203,12 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, row } from "./shared.
 {
   about("a sign-in is the runtime's to run, never the model's");
 
-  const { NeedsSignIn } = await import("#chloe/connectors/connector");
+  const { NeedsSignIn } = await import("#chloe/connections/connection");
   const { receive } = await import("#chloe/channels/shared");
   const { recall } = await import("#chloe/model/memory");
   const link = "https://accounts.example/approve?scope=mail+files&state=s1";
   let signedIn = false;
-  const shop: import("@chloejs/core").Connector = {
+  const shop: import("@chloejs/core").Connection = {
     name: "shop",
     does: "The shop's orders.",
     settings: [],
@@ -243,10 +243,10 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, row } from "./shared.
   const before = asked;
   const first = await chat("any late orders?");
   is("a tool that needs a sign-in stops the turn, with no second model call", asked, before + 1);
-  is("and the reply is what failed, the connector's words, and its link as it made it", first?.text, `The shop cannot be reached: nobody has signed in.\n\nOpen this link and send me the code.\n\n${link}`);
+  is("and the reply is what failed, the connection's words, and its link as it made it", first?.text, `The shop cannot be reached: nobody has signed in.\n\nOpen this link and send me the code.\n\n${link}`);
 
   const wrong = await chat("code-wrong");
-  is("an answer the connector refuses is said, and no model is asked", [wrong?.text, asked], ["Google did not take that code.", before + 1]);
+  is("an answer the connection refuses is said, and no model is asked", [wrong?.text, asked], ["Google did not take that code.", before + 1]);
 
   answers.push({ content: "", tool_calls: [call] }, "One order is late.");
   const done = await chat("code-right");

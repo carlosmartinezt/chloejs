@@ -5,7 +5,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { readDriveFile, searchDriveFiles } from "./driveService.ts";
-import { google } from "./connector.ts";
+import { google } from "./connection.ts";
 
 interface Options {
   /**

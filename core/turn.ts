@@ -14,9 +14,9 @@ import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
-import { approval, check, connectorsOf, describe, overviewsOf, run, type Call, type ToolContext, type Tools } from "#chloe/model/tool";
+import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ToolContext, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
-import { NeedsSignIn } from "#chloe/connectors/connector";
+import { NeedsSignIn } from "#chloe/connections/connection";
 
 export interface Ask {
   agent: Agent;
@@ -299,7 +299,7 @@ async function go(options: {
     const steps = answers(trace);
     const cost = costOf(trace);
     // A sign-in somebody can do from here is an answer, not a failure: the
-    // runtime starts it and the reply is the connector's own words and link.
+    // runtime starts it and the reply is the connection's own words and link.
     const signIn = done.stopped === "sign-in" && done.signIn ? await signInReply(tools, done.signIn, Boolean(thread)) : undefined;
     if (done.stopped && !signIn) {
       fail(runId, done.text, steps, cost, trace);
@@ -321,15 +321,15 @@ async function go(options: {
 
 /**
  * What to send when a tool needs somebody to sign in: what failed, the
- * connector's own words, and its link exactly as it made it. Only in a
+ * connection's own words, and its link exactly as it made it. Only in a
  * conversation, where the answer can come back: a run with nobody to answer
  * it fails instead, saying so, because starting a sign-in nobody sees would
  * only replace the link somebody else is about to open.
  */
-async function signInReply(tools: Tools, needed: { connector: string; why: string }, canAnswer: boolean): Promise<string | undefined> {
-  const connector = connectorsOf(tools).find((one) => one.name === needed.connector);
-  if (!canAnswer || !connector?.signIn) return undefined;
-  const started = await connector.signIn.start();
+async function signInReply(tools: Tools, needed: { connection: string; why: string }, canAnswer: boolean): Promise<string | undefined> {
+  const connection = connectionsUsed(tools).find((one) => one.name === needed.connection);
+  if (!canAnswer || !connection?.signIn) return undefined;
+  const started = await connection.signIn.start();
   return [needed.why, started.say, started.link].filter(Boolean).join("\n\n");
 }
 
@@ -369,7 +369,7 @@ export interface LoopStep {
  * a call somebody has to approve first: `waiting` is that call and the ones
  * after it in the same answer, none of them run, and `messages` is the
  * conversation to pick up from with `resume`. "sign-in" is a tool that threw
- * `NeedsSignIn`: `signIn` says which connector, and the calls after it in the
+ * `NeedsSignIn`: `signIn` says which connection, and the calls after it in the
  * same answer are not run.
  */
 export async function loop(options: {
@@ -407,8 +407,8 @@ export async function loop(options: {
   calls: Result["calls"];
   stopped: false | "steps" | "budget" | "person" | "sign-in";
   waiting?: { calls: ToolCall[]; reason: string; input: unknown };
-  /** With "sign-in": the connector a tool needs somebody to sign in to, and what failed, in words. */
-  signIn?: { connector: string; why: string };
+  /** With "sign-in": the connection a tool needs somebody to sign in to, and what failed, in words. */
+  signIn?: { connection: string; why: string };
 }> {
   const specs = await Promise.all(Object.entries(options.tools).map(([name, one]) => describe(name, one)));
   const calls: Result["calls"] = [];
@@ -460,7 +460,7 @@ export async function loop(options: {
       // not asked again: it would only try to get round it.
       if (signIn) {
         const why = String(output).replace(/^[\w-]+ failed: /, "");
-        return { text: `${why} Somebody signs in from a chat with this agent, or from the dashboard.`, steps: steps + 1, cost, calls, stopped: "sign-in", signIn: { connector: signIn, why } };
+        return { text: `${why} Somebody signs in from a chat with this agent, or from the dashboard.`, steps: steps + 1, cost, calls, stopped: "sign-in", signIn: { connection: signIn, why } };
       }
       options.messages.push({
         role: "tool",
@@ -544,7 +544,7 @@ async function runTool(
     return { output: output ?? { ok: true }, args: checked.value };
   } catch (error) {
     const output = `${name} failed: ${error instanceof Error ? error.message : String(error)}`;
-    return { output, args: checked.value, failed: true, ...(error instanceof NeedsSignIn && { signIn: error.connector }) };
+    return { output, args: checked.value, failed: true, ...(error instanceof NeedsSignIn && { signIn: error.connection }) };
   }
 }
 

@@ -59,7 +59,7 @@ Nothing in source control may hold one. An address, a path or a name is not a
 secret and goes in the config.
 
 **A key reaches the runtime only where the config names it**, as
-`resend: { api_key: process.env.CHLOE_RESEND_API_KEY }`, so reading the config
+`connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } }`, so reading the config
 shows every key there is and where each comes from. The runtime never reads a
 key from the environment by itself: `KEYS` in `core/settings.ts` is the list,
 every agent's channel tokens included. `npx chloe setup` writes those lines,
@@ -220,7 +220,7 @@ reached. The rest is the runtime plus what a job commonly
 needs, in folders by what they do: `model/` is asking a model, and
 `model/tools/` inside it is the only thing a model can be handed,
 `load/` is what an agent and a job
-are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `cloud/` is the connection out to a dashboard somewhere else, `connectors/` is each outside account a tool works through, a folder each (Google, Resend), and an MCP server an agent connects to, `serve/` is the one port
+are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `cloud/` is the connection out to a dashboard somewhere else, `connections/` is each outside account a tool works through, a folder each (Google, Resend), and an MCP server an agent connects to, `serve/` is the one port
 and what it answers with, which is `/api` and nothing else (the routes, the
 login, and the folder behind the file tree): it serves no page, and an address
 that is not an API call is a 404, `core/` is the floor (paths, running a command, staying
@@ -251,33 +251,33 @@ The runtime is the floor everyone stands on, so nothing in it may name an agent
 or a person, and nothing in `model/tools/` or `channels/` exports a
 default: each exports a function that an agent binds.
 
-**An outside account or program is a connector, and the runtime never names
-one.** Each is a folder in `connectors/`: its tools, its services, and a
-`connector.ts` that is a `Connector` saying what it reads (`settings`), how
+**An outside account or program is a connection, and the runtime never names
+one.** Each is a folder in `connections/`: its tools, its services, and a
+`connection.ts` that is a `Connection` saying what it reads (`settings`), how
 somebody signs in (`signIn`), and what is missing before it works
 (`missing()`, in words). A tool that works through one says so with `needs`:
 every Gmail, Calendar and Drive tool is marked `needs: google`. The setup page
 and the lines printed at startup ask it what is missing. So an agent says
-`gmailReadEmail` and is done, and a connector in an agent's own folder works
+`gmailReadEmail` and is done, and a connection in an agent's own folder works
 the same with nothing added here. Google and Resend ship with the runtime.
 
-**A sign-in is code, and no model ever holds one.** A connector's service
+**A sign-in is code, and no model ever holds one.** A connection's service
 throws `NeedsSignIn` when signing in would fix what failed. The turn stops
-there, the runtime calls the connector's `signIn.start()` and sends its words
+there, the runtime calls the connection's `signIn.start()` and sends its words
 and its link exactly as made, and `receive()` hands the answer that comes back
 to `signIn.finish()` before any model sees it, then asks the interrupted
 request again. A run with nobody to answer starts nothing and fails saying who
 can sign in. Two tools that let the model do it were how a link reached
 somebody with the mail scopes rewritten out of it.
 
-**A connector reaches its service with plain web requests, never a program
+**A connection reaches its service with plain web requests, never a program
 and never a package of the service's own.** Google is `googleApi()` in
-`connectors/google/googleService.ts`, a `fetch` with the signed-in key, and
+`connections/google/googleService.ts`, a `fetch` with the signed-in key, and
 nothing beside chloe is installed. A service's tools that need no binding of
 chloe's own come from its MCP server instead.
 
 **An agent's `connections` is the services it alone reaches.**
-`mcpConnection({ name, url, token })` in `connectors/mcp.ts` is a service's MCP
+`mcpConnection({ name, url, token })` in `connections/mcp.ts` is a service's MCP
 server, the list of tools it publishes for models. Its tools are asked for as
 the agent loads and named like chloe's own (`github` and `list_issues` make
 `githubListIssues`), `tools` narrows them, and a server that does not answer
@@ -746,7 +746,7 @@ client made in the console as a desktop app may send its answer to any port on
 the machine and to no address on the internet. One made as a web application is
 the other way round, except that a loopback address is allowed as a named
 exception. So the sign-in that finishes by itself needs a web client, and
-`connectors/google/googleService.ts` asks Google to answer at one fixed loopback port
+`connections/google/googleService.ts` asks Google to answer at one fixed loopback port
 rather than a port picked per run, because a web client only accepts the exact
 addresses somebody registered and "any port" is not something you can register.
 A client file holding its id and secret loose, with neither an `installed` nor a
@@ -764,7 +764,7 @@ returned "nothing matched" for every search for weeks without anyone noticing. I
 rather than treating the failure as an empty result.
 
 **The runtime downloads no program and needs none but git and node.** What a
-connector needs comes from npm with chloe.
+connection needs comes from npm with chloe.
 
 ## What not to do
 

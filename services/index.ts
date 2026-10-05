@@ -10,10 +10,10 @@
 
 export { run, type Result } from "./runService.ts";
 export { markdownToHtml, markdownToText, deliverEmail, type EmailSender } from "./emailService.ts";
-export { readEmailMessages, readOneEmailMessage, sendGmail, type Message as Mail } from "#chloe/connectors/google/gmailService";
-export { NeedsClient, finish, setupSteps, signInState, start, type SignInState, type Started } from "#chloe/connectors/google/googleService";
-export { addCalendarEvent, listCalendarEvents, type CalendarEvent } from "#chloe/connectors/google/calendarService";
-export { readDriveFile, searchDriveFiles, type DriveFile } from "#chloe/connectors/google/driveService";
+export { readEmailMessages, readOneEmailMessage, sendGmail, type Message as Mail } from "#chloe/connections/google/gmailService";
+export { NeedsClient, finish, setupSteps, signInState, start, type SignInState, type Started } from "#chloe/connections/google/googleService";
+export { addCalendarEvent, listCalendarEvents, type CalendarEvent } from "#chloe/connections/google/calendarService";
+export { readDriveFile, searchDriveFiles, type DriveFile } from "#chloe/connections/google/driveService";
 export { editFiles, folderTree, listFiles, readFiles, searchFiles, writeFiles } from "./filesService.ts";
 export { listScripts, runScripts } from "./scriptsService.ts";
 export { readPage, htmlToText, feedToText, isPrivate, type Page } from "./webService.ts";

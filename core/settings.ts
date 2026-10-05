@@ -109,45 +109,55 @@ export interface Settings {
      */
     provider: EmailProvider;
   };
-  /** Sending mail through Resend. */
-  resend: {
-    /** The key an agent's mail is sent with. Without one, nothing is sent. */
-    api_key: string;
-  };
-  /** Signing in to Google, for the tools that reach mail, a calendar or files. */
-  google: {
-    /** The account that gets signed in, and the one a mail tool reads from. */
-    account: string;
-    /**
-     * What this copy signs in with, in whichever of the three forms is in
-     * front of you: the client Google's console downloads, pasted in here as
-     * it is, the path to that file, or its contents as one string.
-     *
-     * It keeps the console's own shape, a `web` or an `installed` section,
-     * because which of the two it is decides where Google will agree to send
-     * its answer and nothing else says which it is.
-     *
-     * There is no passphrase setting beside it: the runtime makes that
-     * itself, in the state folder. Two copies of one passphrase is how a
-     * sign-in that works comes to look like one that has expired.
-     */
-    client: string | Record<string, unknown>;
-    /**
-     * Where Google sends its answer. Empty and connected to a dashboard, the
-     * dashboard catches it and the sign-in finishes on its own. Empty and not
-     * connected, the answer goes to a port on this machine that the person's
-     * browser cannot reach, so they paste the address back instead.
-     */
-    callback: string;
-    /** The Analytics service account's key, handed to scripts as GA_KEY_FILE. */
-    GA_KEY_FILE: string;
-  };
-  /** Mail sent when somebody signs in from an address this copy has not seen. */
-  alerts: {
-    /** Where it goes. Empty means nothing is sent, and the sign-in is still recorded. */
-    email_to: string;
-    /** The From line, e.g. "Chloe <info@example.com>". */
-    email_from: string;
+  /**
+   * The outside accounts a tool works through, one section each. A tool names
+   * the one it needs, and the setup page lists what each is missing.
+   */
+  connections: {
+    /** Sending mail through Resend. */
+    resend: {
+      /** The key an agent's mail is sent with. Without one, nothing is sent. */
+      api_key: string;
+      /**
+       * Mail when somebody signs in from an address this copy has not seen,
+       * and when one is locked out for guessing. Always sent through Resend,
+       * whatever email.provider says, so it needs api_key. Off, the sign-in is
+       * still recorded.
+       */
+      alerts: boolean;
+      /** Where an alert goes, one address or several split by commas. */
+      email_to: string;
+      /** An alert's From line, e.g. "Chloe <info@example.com>", on a domain Resend sends for. */
+      email_from: string;
+    };
+    /** Signing in to Google, for the tools that reach mail, a calendar or files. */
+    google: {
+      /** The account that gets signed in, and the one a mail tool reads from. */
+      account: string;
+      /**
+       * What this copy signs in with, in whichever of the three forms is in
+       * front of you: the client Google's console downloads, pasted in here as
+       * it is, the path to that file, or its contents as one string.
+       *
+       * It keeps the console's own shape, a `web` or an `installed` section,
+       * because which of the two it is decides where Google will agree to send
+       * its answer and nothing else says which it is.
+       *
+       * There is no passphrase setting beside it: the runtime makes that
+       * itself, in the state folder. Two copies of one passphrase is how a
+       * sign-in that works comes to look like one that has expired.
+       */
+      client: string | Record<string, unknown>;
+      /**
+       * Where Google sends its answer. Empty and connected to a dashboard, the
+       * dashboard catches it and the sign-in finishes on its own. Empty and not
+       * connected, the answer goes to a port on this machine that the person's
+       * browser cannot reach, so they paste the address back instead.
+       */
+      callback: string;
+      /** The Analytics service account's key, handed to scripts as GA_KEY_FILE. */
+      GA_KEY_FILE: string;
+    };
   };
   /**
    * Each agent's own settings, under the name in its `agent.ts`. Read by that
@@ -230,9 +240,10 @@ export const DEFAULTS: Settings = {
     program: { claude: "claude", codex: "codex", opencode: "opencode" },
   },
   email: { provider: "resend" },
-  resend: { api_key: "" },
-  google: { account: "", client: "", callback: "", GA_KEY_FILE: "" },
-  alerts: { email_to: "", email_from: "" },
+  connections: {
+    resend: { api_key: "", alerts: true, email_to: "", email_from: "" },
+    google: { account: "", client: "", callback: "", GA_KEY_FILE: "" },
+  },
   agents: {},
   cloud: {
     api_key: "",
@@ -282,7 +293,7 @@ export type Declared = { [K in keyof Settings]?: Deep<Settings[K]> };
 
 /**
  * The name to give a secret in .env: `CHLOE_` and its path in capitals,
- * `CHLOE_RESEND_API_KEY` for `resend.api_key`, with a dash as an underscore and
+ * `CHLOE_CONNECTIONS_RESEND_API_KEY` for `connections.resend.api_key`, with a dash as an underscore and
  * a capital inside a word split off. Only a name to suggest: the runtime never
  * reads it, the config does.
  */
@@ -294,13 +305,13 @@ export function nameInEnv(path: string[]): string {
  * The settings that are secrets: a config hands each one over as
  * `process.env.SOME_NAME`, from .env. `agents` is every agent's channel tokens.
  */
-export const KEYS = ["model.key", "resend.api_key", "google.client", "cloud.api_key", "agents"];
+export const KEYS = ["model.key", "connections.resend.api_key", "connections.google.client", "cloud.api_key", "agents"];
 
 
 /**
  * Where a key goes, in words for whoever has to put it there: `in .env as
- * CHLOE_RESEND_API_KEY, and in chloe.config.ts's settings as
- * \`resend: { api_key: process.env.CHLOE_RESEND_API_KEY }\``.
+ * CHLOE_CONNECTIONS_RESEND_API_KEY, and in chloe.config.ts's settings as
+ * \`connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } }\``.
  */
 export function whereKeyGoes(path: string[]): string {
   const name = nameInEnv(path);
@@ -381,8 +392,8 @@ function wrong(defaults: unknown, said: unknown, path: string[] = []): string {
     return "";
   }
   if (said === undefined) return "";
-  // google.client is the one setting that is a string or the file's own shape.
-  if (path.join(".") === "google.client") {
+  // connections.google.client is the one setting that is a string or the file's own shape.
+  if (path.join(".") === "connections.google.client") {
     return typeof said === "string" || isGroup(said) ? "" : `${where} is the client file, its path, or its contents as one string.`;
   }
   if (Array.isArray(defaults)) {

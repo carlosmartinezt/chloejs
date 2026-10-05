@@ -2,7 +2,7 @@
 //
 // The caller supplies who it is from and who it is to. Which provider carries
 // it is email.provider in settings unless the caller names one, and each
-// provider reads its own section of .env for its key (CHLOE_RESEND_API_KEY for
+// provider reads its own section of .env for its key (CHLOE_CONNECTIONS_RESEND_API_KEY for
 // Resend). "none" in settings sends nothing at all, whoever names a provider.
 //
 // The tools a model reaches are gmailSendEmail and resendSendEmail, which call
@@ -10,8 +10,8 @@
 
 import { settings } from "#chloe/core/settings";
 
-import { gmailProvider } from "#chloe/connectors/google/gmailService";
-import { resendProvider } from "#chloe/connectors/resend/resendService";
+import { gmailProvider } from "#chloe/connections/google/gmailService";
+import { resendProvider } from "#chloe/connections/resend/resendService";
 
 /**
  * Who an agent's mail comes from, who it goes to, and the tag in front of

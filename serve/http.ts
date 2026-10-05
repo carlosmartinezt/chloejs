@@ -38,7 +38,7 @@ import {
 import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound } from "./errors.ts";
 import { recentWork } from "./recentWork.ts";
-import { finish as finishSignIn, signInState } from "#chloe/connectors/google/googleService";
+import { finish as finishSignIn, signInState } from "#chloe/connections/google/googleService";
 import { channelsOf, connectionsOf, signInOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import { type Caller, type Guest, caller, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, setCookie, signIn } from "./login.ts";
@@ -350,11 +350,11 @@ export const routes: Route[] = [
   },
   // A person at the page signing in, the same three functions a chat uses, so
   // there is one sign-in and two places to start it. `remote: "google"` is the
-  // switch for signing in from the cloud, whichever connector it is.
+  // switch for signing in from the cloud, whichever connection it is.
   {
     method: "POST",
     path: "/api/agents/:id/connections/:name/sign-in",
-    does: "Start the sign-in of one of its connectors, and hand back what to tell the person and the link to open.",
+    does: "Start the sign-in of one of its connections, and hand back what to tell the person and the link to open.",
     remote: "google",
     handle: async ({ response, context, params }) => json(response, await signInOf(context.agent(params.id), params.name).start()),
   },

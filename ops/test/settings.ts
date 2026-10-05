@@ -44,7 +44,7 @@ import { about, is } from "#chloe/ops/check";
     delete process.env.CHLOE_CLOUD_URL;
     delete process.env.CHLOE_CLOUD_API_KEY_NOT_NAMED;
   }
-  is("but one the config hands over is read", readSettings({ resend: { api_key: "re_x" } }).resend.api_key, "re_x");
+  is("but one the config hands over is read", readSettings({ connections: { resend: { api_key: "re_x" } } }).connections.resend.api_key, "re_x");
 
   // The config is type checked, so these are for a value handed over from .env
   // and for a config that is not TypeScript. Each one says what to set instead
@@ -68,8 +68,8 @@ import { about, is } from "#chloe/ops/check";
   is("a switch given a word is refused", said({ cloud: { remote: { write: "yes" } } }), "cloud.remote.write is true or false.");
   is("a list given a word is refused", said({ model: { models: "a,b" } }), "model.models is a list of words.");
   is("a group given a word is refused", said({ model: "claude" }), "model holds more settings, so it is an object.");
-  is("google.client takes the file's own shape", said({ google: { client: { web: { client_id: "x" } } } }), "");
-  is("and refuses what is neither that nor a path", said({ google: { client: 7 } }), "google.client is the client file, its path, or its contents as one string.");
+  is("connections.google.client takes the file's own shape", said({ connections: { google: { client: { web: { client_id: "x" } } } } }), "");
+  is("and refuses what is neither that nor a path", said({ connections: { google: { client: 7 } } }), "connections.google.client is the client file, its path, or its contents as one string.");
   is("a switch handed over as a word is refused too", said({ cloud: { remote: { write: "true" } } }), "cloud.remote.write is true or false.");
 
   let moved = "";
@@ -80,16 +80,17 @@ import { about, is } from "#chloe/ops/check";
   }
   is("cloud.key in the config is refused, and names the setting instead", moved.includes("cloud.api_key, not cloud.key"), true);
   is("and the dashboard's address is what it is unless somebody says", readSettings({}).cloud.url, "https://dashboard.chloejs.org");
+  is("sign-in alerts are on unless somebody says", readSettings({}).connections.resend.alerts, true);
 
   {
     // What loadAll does with the config's settings: into the same object
     // everything already holds.
     const { settings } = await import("@chloejs/core");
-    declareSettings({ alerts: { email_from: "chloe <x@example.com>" } });
-    is("what the config declares reaches the settings everything reads", settings.alerts.email_from, "chloe <x@example.com>");
+    declareSettings({ connections: { resend: { email_from: "chloe <x@example.com>" } } });
+    is("what the config declares reaches the settings everything reads", settings.connections.resend.email_from, "chloe <x@example.com>");
     is("and a setting it says nothing about is left at its default", settings.cloud.url, "https://dashboard.chloejs.org");
     declareSettings({ model: { preferredRoute: ["gateway"] } });
-    is("declaring again drops what the last one said", settings.alerts.email_from, "");
+    is("declaring again drops what the last one said", settings.connections.resend.email_from, "");
     // Back to what the test config says, which is where the stand-in gateway comes from.
     await (await import("@chloejs/core")).loadSettings();
   }
@@ -98,7 +99,7 @@ import { about, is } from "#chloe/ops/check";
 {
   about("the name a secret is given in .env");
   const { nameInEnv, whereKeyGoes } = await import("@chloejs/core");
-  is("a secret is CHLOE_ and its path, in capitals", nameInEnv(["resend", "api_key"]), "CHLOE_RESEND_API_KEY");
+  is("a secret is CHLOE_ and its path, in capitals", nameInEnv(["connections", "resend", "api_key"]), "CHLOE_CONNECTIONS_RESEND_API_KEY");
   is("a capital inside a word is split off", nameInEnv(["model", "gatewayUrl"]), "CHLOE_MODEL_GATEWAY_URL");
   is("a key's message says the .env name and the config line", whereKeyGoes(["agents", "test-agent", "telegram"]),
     'in .env as CHLOE_AGENTS_TEST_AGENT_TELEGRAM, and in chloe.config.ts\'s settings as `agents: { "test-agent": { telegram: process.env.CHLOE_AGENTS_TEST_AGENT_TELEGRAM } }`');

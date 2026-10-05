@@ -47,7 +47,7 @@ export async function runScripts(
   const memory = memoryDir(agent);
   const env: Record<string, string> = {
     ...(memory && { MEMORY_FOLDER: memory }),
-    ...(settings.google.GA_KEY_FILE && { GA_KEY_FILE: settings.google.GA_KEY_FILE }),
+    ...(settings.connections.google.GA_KEY_FILE && { GA_KEY_FILE: settings.connections.google.GA_KEY_FILE }),
   };
   const result = await run(`${dir}/${name}`, args, { timeoutMs, cwd: cwd ?? dir, env });
   return { script: name, args, ...result };

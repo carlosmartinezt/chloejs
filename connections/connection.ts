@@ -1,17 +1,17 @@
-// What a connector is: an outside account chloe works through, like Google or
+// What a connection is: an outside account chloe works through, like Google or
 // Resend. Each one is a folder in here with its tools, its services and a
-// `connector.ts` saying what it needs.
+// `connection.ts` saying what it needs.
 //
 // A tool that works through one names it as its `needs`, and the runtime learns
-// the rest from the connector and never by name: the setup page asks it what is
+// the rest from the connection and never by name: the setup page asks it what is
 // missing, and a sign-in is the runtime's to run, never the model's. When a
-// tool throws `NeedsSignIn`, the turn stops, the runtime starts the connector's
+// tool throws `NeedsSignIn`, the turn stops, the runtime starts the connection's
 // sign-in and sends its words and link as written, and the answer the person
-// sends back is caught by `receive()` before any model sees it. A connector in
+// sends back is caught by `receive()` before any model sees it. A connection in
 // an agent's own folder is the same shape and needs nothing from the runtime.
 
 /**
- * How somebody signs in to a connector from a chat. Three plain functions, run
+ * How somebody signs in to a connection from a chat. Three plain functions, run
  * by the runtime: a model never starts a sign-in, never copies its link and
  * never handles what comes back, because a model asked to copy a long link
  * rewrites it.
@@ -37,7 +37,7 @@ export interface SignIn {
  * An outside account a tool works through. A tool names it as its `needs`, and
  * the runtime asks it what is missing and runs its sign-in.
  */
-export interface Connector {
+export interface Connection {
   /** What the setup page calls it, and what `NeedsSignIn` names. */
   name: string;
   /** What it is for, in one line. */
@@ -51,17 +51,17 @@ export interface Connector {
 }
 
 /**
- * Thrown by a connector's service when what failed is fixed by signing in: no
+ * Thrown by a connection's service when what failed is fixed by signing in: no
  * sign-in, one that expired or was taken back, one not allowed to do this. A
  * turn that meets it stops and the runtime starts the sign-in itself, so the
  * message is for a person, not for a model to act on.
  */
 export class NeedsSignIn extends Error {
-  /** The `name` of the connector to sign in to. */
-  readonly connector: string;
-  constructor(connector: string, message: string) {
+  /** The `name` of the connection to sign in to. */
+  readonly connection: string;
+  constructor(connection: string, message: string) {
     super(message);
     this.name = "NeedsSignIn";
-    this.connector = connector;
+    this.connection = connection;
   }
 }

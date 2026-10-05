@@ -5,7 +5,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { addCalendarEvent, listCalendarEvents } from "./calendarService.ts";
-import { google } from "./connector.ts";
+import { google } from "./connection.ts";
 
 interface Options {
   /** The calendars it may see, by id. `primary` is the account's own. */

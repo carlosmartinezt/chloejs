@@ -10,38 +10,38 @@ import type { Tools } from "./shared.ts";
 
 {
   about("what Google says when a person has to sign in");
-  const { callback, codeFrom, explain, failure, signInState, SHOWS_THE_CODE, start } = await import("#chloe/connectors/google/googleService");
+  const { callback, codeFrom, explain, failure, signInState, SHOWS_THE_CODE, start } = await import("#chloe/connections/google/googleService");
   const { settings } = await import("@chloejs/core");
 
   // Every one of these is fixed by one sign-in, which the runtime starts when
   // it meets NeedsSignIn, so none of them may send anybody to the machine.
-  const { NeedsSignIn } = await import("#chloe/connectors/connector");
+  const { NeedsSignIn } = await import("#chloe/connections/connection");
   for (const [what, text] of [
     ["a sign-in Google has taken back", '{"error":"invalid_grant","error_description":"Token has been expired or revoked."}'],
     ["nobody having signed in yet", "no sign-in"],
     ["a sign-in that was not allowed this", "Request had insufficient authentication scopes."],
   ] as const) {
     const thrown = failure(text);
-    is(`${what} is a sign-in to do, for google`, thrown instanceof NeedsSignIn && thrown.connector, "google");
+    is(`${what} is a sign-in to do, for google`, thrown instanceof NeedsSignIn && thrown.connection, "google");
     is(`${what} does not send anybody to the box`, /auth login|on the box|paste/i.test(thrown.message), false);
   }
   is("a service switched off is not a sign-in to do", failure("Gmail API has not been used in project 1 before or it is disabled") instanceof NeedsSignIn, false);
 
   is("a service switched off in the console is not a sign-in either", explain("Gmail API has not been used in project 1 before or it is disabled").includes("Library"), true);
 
-  const was = settings.google.account;
-  settings.google.account = "";
-  const { googleApi } = await import("#chloe/connectors/google/googleService");
+  const was = settings.connections.google.account;
+  settings.connections.google.account = "";
+  const { googleApi } = await import("#chloe/connections/google/googleService");
   let noAccount = "";
   try {
     await googleApi("https://gmail.googleapis.com/gmail/v1/users/me/profile");
   } catch (error) {
     noAccount = (error as Error).message;
   }
-  is("no account is the one thing a sign-in cannot fix, so it names the setting", noAccount.includes("google.account"), true);
+  is("no account is the one thing a sign-in cannot fix, so it names the setting", noAccount.includes("connections.google.account"), true);
   const nobody = await signInState();
   is("and the state says so without running anything", nobody.ready, false);
-  is("naming the setting that is missing", nobody.missing.includes("google.account"), true);
+  is("naming the setting that is missing", nobody.missing.includes("connections.google.account"), true);
 
   let refused = "";
   try {
@@ -49,18 +49,18 @@ import type { Tools } from "./shared.ts";
   } catch (error) {
     refused = (error as Error).message;
   }
-  is("a sign-in with nobody to sign in is refused", refused.includes("google.account"), true);
-  settings.google.account = was;
+  is("a sign-in with nobody to sign in is refused", refused.includes("connections.google.account"), true);
+  settings.connections.google.account = was;
 
   about("where Google is told to send its answer");
-  const cloudWas = settings.google.callback;
+  const cloudWas = settings.connections.google.callback;
   const urlWas = settings.cloud.url;
 
   // Set outright, not left to whatever ran before this: the client decides the
   // address when nobody says one, so a case about the address has to pin it.
-  const clientWas = settings.google.client;
-  settings.google.callback = "";
-  settings.google.client = "";
+  const clientWas = settings.connections.google.client;
+  settings.connections.google.callback = "";
+  settings.connections.google.client = "";
   is("with no client and nothing set, the answer goes to this machine", callback().url, "");
   is("so somebody pastes it back", callback().relayed, false);
 
@@ -71,42 +71,42 @@ import type { Tools } from "./shared.ts";
 
   // With nothing said, the kind of client decides, because that is what decides
   // which addresses Google will take.
-  settings.google.client = { web: { client_id: "a", client_secret: "b" } };
+  settings.connections.google.client = { web: { client_id: "a", client_secret: "b" } };
   is("a web client gets the page that shows a code, unasked", callback().url, SHOWS_THE_CODE);
   is("and a cloud does not change that", callback().relayed, false);
-  settings.google.client = { installed: { client_id: "a", client_secret: "b" } };
+  settings.connections.google.client = { installed: { client_id: "a", client_secret: "b" } };
   is("a desktop client gets the loopback address, the only one Google will take", callback().url, "");
-  settings.google.client = "";
+  settings.connections.google.client = "";
   is("and with no client there is nothing to go on", callback().url, "");
-  settings.google.client = clientWas;
+  settings.connections.google.client = clientWas;
 
   // Said outright, for an address somebody opened themselves.
-  settings.google.callback = SHOWS_THE_CODE;
+  settings.connections.google.callback = SHOWS_THE_CODE;
   is("the page that shows a code is the address Google is told", callback().url, "https://chloejs.org/connected");
   is("and it is not relayed, because the person carries the code", callback().relayed, false);
 
   // The one address that does come back on its own, written out by hand, which is
   // how somebody opts into it. Recognised by the route's shape, so whatever the
   // workspace is called it is still that route.
-  settings.google.callback = "https://cloud.example/oauth/google/callback/personal";
+  settings.connections.google.callback = "https://cloud.example/oauth/google/callback/personal";
   is("a cloud's own route is relayed", callback().relayed, true);
-  settings.google.callback = "https://cloud.example/oauth/google/callback/anything-else";
+  settings.connections.google.callback = "https://cloud.example/oauth/google/callback/anything-else";
   is("whatever the workspace is called", callback().relayed, true);
-  settings.google.callback = "https://cloud.example/something/else";
+  settings.connections.google.callback = "https://cloud.example/something/else";
   is("and another address on the same cloud is not", callback().relayed, false);
-  settings.google.callback = "https://cloud.example/oauth/google/callback/personal";
+  settings.connections.google.callback = "https://cloud.example/oauth/google/callback/personal";
 
   // Switched off, the cloud would refuse the handing back, so it is a paste again.
   settings.cloud.remote.google = false;
   is("with the switch off, the same address needs a paste", callback().relayed, false);
   settings.cloud.remote.google = true;
 
-  settings.google.callback = cloudWas;
+  settings.connections.google.callback = cloudWas;
   settings.cloud.url = urlWas;
 
   about("what a reply reads off the message it is answering");
-  const { marked } = await import("#chloe/connectors/google/googleService");
-  const { rawMail, replyTo } = await import("#chloe/connectors/google/gmailService");
+  const { marked } = await import("#chloe/connections/google/googleService");
+  const { rawMail, replyTo } = await import("#chloe/connections/google/gmailService");
 
   // Somebody else's words on their way to a model are marked as theirs, with
   // an id fresh each time, so text inside cannot close a marker it did not open.
@@ -172,8 +172,8 @@ import type { Tools } from "./shared.ts";
   }
 
   about("what a Google tool brings with it");
-  const { gmailReadEmail, gmailSendEmail } = await import("#chloe/connectors/google/gmail");
-  const { resendSendEmail } = await import("#chloe/connectors/resend/resend");
+  const { gmailReadEmail, gmailSendEmail } = await import("#chloe/connections/google/gmail");
+  const { resendSendEmail } = await import("#chloe/connections/resend/resend");
 
   // A sign-in is the runtime's to run, so no model is handed one: a model asked
   // to copy a sign-in link rewrote it and left out the mail.
@@ -185,9 +185,9 @@ import type { Tools } from "./shared.ts";
   const sender = { when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] };
   is("resendSendEmail has nothing to sign in to", await toolsOf({ resendSendEmail: resendSendEmail(sender) }), ["resendSendEmail"]);
 
-  about("a connector of an agent's own");
+  about("a connection of an agent's own");
   const { connectionsOf } = await import("#chloe/serve/inside");
-  const shop: import("@chloejs/core").Connector = {
+  const shop: import("@chloejs/core").Connection = {
     name: "shop",
     does: "The shop's orders.",
     settings: ["agents.mail.shop"],
@@ -212,7 +212,7 @@ import type { Tools } from "./shared.ts";
   is("and a connection the agent does not have is not found", unknown.includes("no connection called"), true);
 
   about("what the person is told to do");
-  const { whatToDo } = await import("#chloe/connectors/google/googleService");
+  const { whatToDo } = await import("#chloe/connections/google/googleService");
 
   // Three endings, and these words are the whole of what the person
   // experiences. The one that reads as a fault is the default, so saying so
@@ -239,10 +239,10 @@ import type { Tools } from "./shared.ts";
 
   about("a sign-in that is started");
   {
-    const before = { account: settings.google.account, client: settings.google.client, callback: settings.google.callback };
-    settings.google.account = "somebody@example.com";
-    settings.google.client = { web: { client_id: "the-id", client_secret: "the-secret" } };
-    settings.google.callback = "";
+    const before = { account: settings.connections.google.account, client: settings.connections.google.client, callback: settings.connections.google.callback };
+    settings.connections.google.account = "somebody@example.com";
+    settings.connections.google.client = { web: { client_id: "the-id", client_secret: "the-secret" } };
+    settings.connections.google.callback = "";
     const started = await start();
     const link = new URL(started.link);
     is("the link is Google's", link.host, "accounts.google.com");
@@ -255,7 +255,7 @@ import type { Tools } from "./shared.ts";
     is("what the second half needs is written down", typeof pending.verifier === "string" && pending.state === link.searchParams.get("state"), true);
     const state = await signInState();
     is("and the state says it is waiting", [state.ready, state.waiting], [false, true]);
-    Object.assign(settings.google, before);
+    Object.assign(settings.connections.google, before);
   }
 
   about("what a person sends back");
@@ -287,12 +287,12 @@ import type { Tools } from "./shared.ts";
 
   about("a whole sign-in, and mail, against a stand-in for Google");
   {
-    const { finish, start, signInState } = await import("#chloe/connectors/google/googleService");
-    const { readEmailMessages, readOneEmailMessage, replyGmail } = await import("#chloe/connectors/google/gmailService");
-    const before = { account: settings.google.account, client: settings.google.client, callback: settings.google.callback };
-    settings.google.account = "somebody@example.com";
-    settings.google.client = { web: { client_id: "the-id", client_secret: "the-secret" } };
-    settings.google.callback = "";
+    const { finish, start, signInState } = await import("#chloe/connections/google/googleService");
+    const { readEmailMessages, readOneEmailMessage, replyGmail } = await import("#chloe/connections/google/gmailService");
+    const before = { account: settings.connections.google.account, client: settings.connections.google.client, callback: settings.connections.google.callback };
+    settings.connections.google.account = "somebody@example.com";
+    settings.connections.google.client = { web: { client_id: "the-id", client_secret: "the-secret" } };
+    settings.connections.google.callback = "";
     const idToken = (claims: object) => `x.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.y`;
     let approvedBy = "somebody@example.com";
     const everything = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly";
@@ -360,7 +360,7 @@ import type { Tools } from "./shared.ts";
       is("and nothing is kept for it either", (await signInState()).ready, false);
 
       granted = everything;
-      const { isAnswer } = await import("#chloe/connectors/google/googleService");
+      const { isAnswer } = await import("#chloe/connections/google/googleService");
       const { link: sentLink } = await start();
       const state = new URL(sentLink).searchParams.get("state");
       is("a code in Google's form is the answer to a waiting sign-in", isAnswer("4/0AXlqoi4qRgcvmk6CUrHYNhoeVWqkRv0RGZWY87"), true);
@@ -385,7 +385,7 @@ import type { Tools } from "./shared.ts";
     } finally {
       globalThis.fetch = real;
       await (await import("node:fs/promises")).rm(join(process.env.CHLOE_STATE!, "google"), { recursive: true, force: true });
-      Object.assign(settings.google, before);
+      Object.assign(settings.connections.google, before);
     }
   }
 }

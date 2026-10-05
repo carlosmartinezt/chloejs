@@ -23,31 +23,31 @@ export { fsEditFile, fsListFiles, fsReadFile, fsSearchFiles, fsWriteFile } from 
 
 // Gmail, as the person signed in to Google: reading the mail an agent is bound
 // to, answering one of those messages, and sending one. Each needs the google
-// connector, and the runtime runs its sign-in when one is needed, so there is
+// connection, and the runtime runs its sign-in when one is needed, so there is
 // nothing to add for that.
 //
 // gmailReplyEmail is the narrow one: it answers a message the agent has
 // already read, at that message's own address, so it cannot reach anybody who
 // has not written in. Prefer it over sending wherever the mail is a reply.
-export { gmailReadEmail, gmailReplyEmail, gmailSendEmail } from "#chloe/connectors/google/gmail";
+export { gmailReadEmail, gmailReplyEmail, gmailSendEmail } from "#chloe/connections/google/gmail";
 
 // The calendar, as the person signed in to Google: the events on the calendars
 // an agent is bound to, and adding one that invites nobody.
-export { calendarAddEvent, calendarListEvents } from "#chloe/connectors/google/calendar";
+export { calendarAddEvent, calendarListEvents } from "#chloe/connections/google/calendar";
 
 // Drive, as the person signed in to Google: finding files in the part an agent
 // is bound to, and reading one as text, a Google Doc included.
-export { driveReadFile, driveSearchFiles } from "#chloe/connectors/google/drive";
+export { driveReadFile, driveSearchFiles } from "#chloe/connections/google/drive";
 
 // Sending one email through Resend, on a key.
-export { resendSendEmail } from "#chloe/connectors/resend/resend";
+export { resendSendEmail } from "#chloe/connections/resend/resend";
 
 // Starting an email conversation, for an agent on the email channel.
 export { emailStartConversation } from "./email.ts";
 
 // A service's MCP server, for an agent's `connections`: the tools it publishes,
 // named like these.
-export { mcpConnection, type McpOptions } from "#chloe/connectors/mcp";
+export { mcpConnection, type McpOptions } from "#chloe/connections/mcp";
 
 // Reading a public web page.
 export { webReadPage } from "./web.ts";

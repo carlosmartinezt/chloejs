@@ -11,7 +11,7 @@
 //   1. Somebody not in allowFrom gets nothing. While allowFrom is empty, a
 //      private message is told the sender's id, which is what goes in it.
 //   2. The answer to a sign-in the runtime started (a code, or the address
-//      the browser landed on) goes to the connector that started it, and is
+//      the browser landed on) goes to the connection that started it, and is
 //      never shown to a model. What was asked before it is then asked again.
 //      An answer to a job waiting on this chat goes to that job.
 //   3. In a group, a message that is not for the agent is left alone, unless
@@ -37,8 +37,8 @@ import { models, UsageLimit } from "#chloe/model/model";
 import { clock, type Fired, ran } from "#chloe/core/clock";
 import { answer, waitingOn, WrongArgs } from "#chloe/core/steps";
 import { turn } from "#chloe/core/turn";
-import type { Connector } from "#chloe/connectors/connector";
-import { connectorsOf } from "#chloe/model/tool";
+import type { Connection } from "#chloe/connections/connection";
+import { connectionsUsed } from "#chloe/model/tool";
 
 /** One message, in the words every channel shares. */
 export interface Incoming {
@@ -145,7 +145,7 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
   const picking = modelCommand(text);
   if (picking) return { ...picked(agent, message, picking), steps: 0, cost: 0 };
 
-  const signingIn = text ? connectorsOf(agent.tools ?? {}).find((one) => one.signIn?.answers(text)) : undefined;
+  const signingIn = text ? connectionsUsed(agent.tools ?? {}).find((one) => one.signIn?.answers(text)) : undefined;
   if (signingIn) return during(working, () => signedIn(agent, message, signingIn, rules, whileWorking.send));
 
   const waiting = text ? waitingOn(`${channel}:${message.chat}`, agent.id) : undefined;
@@ -406,21 +406,21 @@ async function answered(agent: Agent, message: Incoming, runId: string, job: str
 }
 
 /**
- * The answer to a sign-in, finished by its connector. The code is kept out of
+ * The answer to a sign-in, finished by its connection. The code is kept out of
  * the conversation, and in one the request it interrupted is asked again, so
  * the person gets what they asked for rather than a note saying they may ask.
  */
-async function signedIn(agent: Agent, message: Incoming, connector: Connector, rules: Rules, send?: (text: string) => Promise<void>): Promise<Handled> {
+async function signedIn(agent: Agent, message: Incoming, connection: Connection, rules: Rules, send?: (text: string) => Promise<void>): Promise<Handled> {
   let done: string;
   try {
-    done = await connector.signIn!.finish(message.text);
+    done = await connection.signIn!.finish(message.text);
   } catch (error) {
     return { text: error instanceof Error ? error.message : String(error), steps: 0, cost: 0 };
   }
   if (!message.thread) return { text: done, steps: 0, cost: 0 };
-  remember(message.thread, "user", `(the ${connector.name} sign-in code)`);
+  remember(message.thread, "user", `(the ${connection.name} sign-in code)`);
   remember(message.thread, "assistant", done);
-  const after = await chatted(agent, { ...message, text: `I have signed in to ${connector.name}. Carry on with what I asked before.` }, rules, send);
+  const after = await chatted(agent, { ...message, text: `I have signed in to ${connection.name}. Carry on with what I asked before.` }, rules, send);
   return { ...after, text: `${done}\n\n${after.text}` };
 }
 

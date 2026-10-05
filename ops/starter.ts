@@ -105,7 +105,7 @@ const config = (agent: string) => `// Every agent this box runs, and how the run
 // \`settings\` is every choice, as deep as it goes, and what it leaves out is the
 // default. This file is in source control, so a password, key or token goes in
 // .env beside it, and is named here as \`process.env.\` and its name in .env:
-// \`resend: { api_key: process.env.CHLOE_RESEND_API_KEY }\`. chloe reads no key
+// \`connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } }\`. chloe reads no key
 // it is not handed here.
 import { defineConfig } from "@chloejs/core";
 

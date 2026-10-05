@@ -265,7 +265,7 @@ password, key and token, and nothing else.
 
 ```
 CHLOE_MODEL_KEY=...
-CHLOE_RESEND_API_KEY=re_...
+CHLOE_CONNECTIONS_RESEND_API_KEY=re_...
 CHLOE_AGENTS_TEMPO_TELEGRAM=123456789:ABC...
 ```
 
@@ -275,7 +275,7 @@ reads no key it is not handed there:
 ```ts
 settings: {
   model: { key: process.env.CHLOE_MODEL_KEY },
-  resend: { api_key: process.env.CHLOE_RESEND_API_KEY },
+  connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } },
   agents: { tempo: { telegram: process.env.CHLOE_AGENTS_TEMPO_TELEGRAM } },
 }
 ```

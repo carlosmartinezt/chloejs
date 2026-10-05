@@ -4,7 +4,7 @@
 // It is not in source control, and chloe.config.ts never holds one of them.
 //
 // The runtime reads no setting from here by itself: the config hands each one
-// over by name, as `process.env.CHLOE_RESEND_API_KEY`. The exceptions are where
+// over by name, as `process.env.CHLOE_CONNECTIONS_RESEND_API_KEY`. The exceptions are where
 // things are kept, CHLOE_STATE, CHLOE_MEMORY and CHLOE_DB, read before any config.
 //
 // A variable that was already in the real environment wins, so

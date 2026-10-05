@@ -7,7 +7,7 @@
 import { settings } from "#chloe/core/settings";
 import { modelFor } from "#chloe/model/choices";
 import { routeFor } from "#chloe/model/model";
-import { connectorsOf, descriptionOf } from "#chloe/model/tool";
+import { connectionsUsed, descriptionOf } from "#chloe/model/tool";
 import type { Agent } from "#chloe/load/load";
 import { collectsAt } from "#chloe/channels/whatsapp";
 import { BadRequest, NotFound } from "./errors.ts";
@@ -170,7 +170,7 @@ export function channelsOf(agent: Agent): Way[] {
 
 /**
  * What this agent can reach that is not on this box: where its thinking goes,
- * and each connector its tools work through, asked what is missing. A tool
+ * and each connection its tools work through, asked what is missing. A tool
  * that only touches this disk is not here, because nothing outside is involved
  * in it.
  */
@@ -192,28 +192,28 @@ export async function connectionsOf(agent: Agent): Promise<Way[]> {
           ready: null,
         },
   ];
-  for (const connector of new Set([...connectorsOf(agent.tools ?? {}), ...(agent.connections ?? [])])) {
-    const missing = await connector.missing().catch((error: Error) => [error.message]);
+  for (const connection of new Set([...connectionsUsed(agent.tools ?? {}), ...(agent.connections ?? [])])) {
+    const missing = await connection.missing().catch((error: Error) => [error.message]);
     out.push({
-      name: connector.name,
-      does: connector.does,
-      needs: connector.settings.join(", "),
+      name: connection.name,
+      does: connection.does,
+      needs: connection.settings.join(", "),
       ready: missing.length === 0,
       missing,
-      ...(connector.signIn && { signIn: true }),
+      ...(connection.signIn && { signIn: true }),
     });
   }
   return out;
 }
 
 /**
- * The sign-in of one of the agent's connectors, by name, with what either half
+ * The sign-in of one of the agent's connections, by name, with what either half
  * throws turned into a refusal in words, which is what the person needs to see.
  */
 export function signInOf(agent: Agent, name: string): { start: () => Promise<{ say: string; link?: string }>; finish: (answer: string) => Promise<string> } {
-  const connector = connectorsOf(agent.tools ?? {}).find((one) => one.name === name);
-  if (!connector?.signIn) throw new NotFound(`${agent.id} has no connection called ${JSON.stringify(name)} to sign in to.`);
-  const { signIn } = connector;
+  const connection = connectionsUsed(agent.tools ?? {}).find((one) => one.name === name);
+  if (!connection?.signIn) throw new NotFound(`${agent.id} has no connection called ${JSON.stringify(name)} to sign in to.`);
+  const { signIn } = connection;
   const said = <T>(work: () => Promise<T>) =>
     work().catch((error: Error) => {
       throw new BadRequest(error.message);

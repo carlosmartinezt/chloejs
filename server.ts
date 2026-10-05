@@ -15,13 +15,14 @@ import { settings, unclaimed } from "#chloe/core/settings";
 import { closeCutOff, trim } from "#chloe/core/db";
 import { loadAll, type Agent, type Running } from "#chloe/load/load";
 import { sdkModel } from "#chloe/model/key";
-import { connectorsOf } from "#chloe/model/tool";
+import { connectionsUsed } from "#chloe/model/tool";
 import { run } from "#chloe/services/runService";
 import { learnModels, runnable } from "#chloe/model/model";
 import { HOST, PORT, serve } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
 import { startCloud } from "#chloe/cloud/connect";
 import { hasAccount } from "#chloe/serve/login";
+import { alertsSay } from "#chloe/serve/alerts";
 
 let agents: Map<string, Agent> = await loadAll();
 
@@ -120,12 +121,12 @@ const outside = await connected();
 for (const line of startup(outside)) console.log(line);
 
 /**
- * Each connector the agents' tools need, with what it is missing, and git when
+ * Each connection the agents' tools need, with what it is missing, and git when
  * a memory is committed and there is none. Asked once, as it starts.
  */
 async function connected(): Promise<{ names: string[]; missing: string[] }> {
   const all = [...agents.values()];
-  const used = [...new Set(all.flatMap((agent) => [...connectorsOf(agent.tools ?? {}), ...(agent.connections ?? [])]))];
+  const used = [...new Set(all.flatMap((agent) => [...connectionsUsed(agent.tools ?? {}), ...(agent.connections ?? [])]))];
   const missing = (
     await Promise.all(
       used.map(async (one) =>
@@ -170,6 +171,7 @@ function startup(outside: { names: string[]; missing: string[] }): string[] {
 
   lines.push(row("Page", `http://${HOST}:${PORT}`));
   lines.push(under(hasAccount() ? "Forgot the password? Set a new one: npx chloe account" : "No password yet. Set one: npx chloe account"));
+  lines.push(row("Alerts", alertsSay()));
 
   lines.push(row("Cloud", cloudSays || `connecting to ${settings.cloud.url}`));
 
@@ -196,7 +198,7 @@ function startup(outside: { names: string[]; missing: string[] }): string[] {
   for (const job of jobs.slice(1)) lines.push(under(job));
 
   if (outside.names.length || outside.missing.length) {
-    lines.push(row("Connectors", outside.names.join(", ") || dim("none")));
+    lines.push(row("Connections", outside.names.join(", ") || dim("none")));
     for (const line of outside.missing) lines.push(under(line));
   }
 

@@ -6,7 +6,7 @@
 // it is. The answer the person sends back is matched by `answers()` and
 // finished by `finish()` before any model sees it. Where a dashboard catches
 // Google's answer there is nothing to send back, and `start()` says so.
-import type { SignIn } from "#chloe/connectors/connector";
+import type { SignIn } from "#chloe/connections/connection";
 
 import { NeedsClient, finish, isAnswer, setupSteps, start } from "./googleService.ts";
 

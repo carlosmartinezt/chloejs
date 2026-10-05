@@ -20,7 +20,7 @@ import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { cannotRun, type Tools } from "#chloe/model/tool";
-import type { McpConnection } from "#chloe/connectors/mcp";
+import type { McpConnection } from "#chloe/connections/mcp";
 import { memoryTools } from "#chloe/model/tools/memory";
 import { scriptTools } from "#chloe/model/tools/script";
 import { selfTools } from "#chloe/model/tools/self";
@@ -94,7 +94,7 @@ export interface AgentConfig {
    * Tools made with the AI SDK's `tool()`, keyed by the name a model calls
    * them by: `{ weather, gmailReadEmail: gmailReadEmail({ ... }) }`. Every tool is handed
    * `{ agent }` as its `context`. What `features` turns on is added to these
-   * and not listed here, and so is the sign-in of each connector a tool
+   * and not listed here, and so is the sign-in of each connection a tool
    * `needs`, like Google's beside gmailReadEmail.
    */
   tools?: Tools;

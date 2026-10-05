@@ -16,7 +16,7 @@
 import { createMCPClient } from "@ai-sdk/mcp";
 import { jsonSchema, tool } from "ai";
 
-import type { Connector } from "#chloe/connectors/connector";
+import type { Connection } from "#chloe/connections/connection";
 import type { Tools } from "#chloe/model/tool";
 
 export interface McpOptions {
@@ -38,8 +38,8 @@ export interface McpOptions {
   does?: string;
 }
 
-/** A connection is a connector the loader asks for its tools. */
-export interface McpConnection extends Connector {
+/** A service's MCP server: a connection that also hands the loader its tools. */
+export interface McpConnection extends Connection {
   tools(): Promise<Tools>;
 }
 

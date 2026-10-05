@@ -20,7 +20,7 @@ import { join } from "node:path";
 
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { STATE } from "#chloe/core/paths";
-import { NeedsSignIn } from "#chloe/connectors/connector";
+import { NeedsSignIn } from "#chloe/connections/connection";
 
 /** Everything Google, in one folder inside the state directory. */
 export const GOOGLE = join(STATE, "google");
@@ -86,7 +86,7 @@ function named(services: string[]): string {
 const PASTE_BACK = "http://127.0.0.1:33067/oauth2/callback";
 
 /**
- * The page that shows the person their code, and the address `google.callback`
+ * The page that shows the person their code, and the address `connections.google.callback`
  * is meant to be. One address for every copy of chloe there is, because the
  * person carries the code and so nothing here has to know which runtime the
  * answer belongs to.
@@ -171,16 +171,16 @@ function writeSecret(path: string, value: unknown): void {
 /** The kept sign-in, when it is for the account in settings. */
 function saved(): Saved | undefined {
   const held = readJson<Saved>(TOKEN);
-  const account = settings.google.account.trim().toLowerCase();
+  const account = settings.connections.google.account.trim().toLowerCase();
   return held?.refresh_token && account && held.account.toLowerCase() === account ? held : undefined;
 }
 
 /**
- * The client this copy signs in with, out of `google.client`: the file
+ * The client this copy signs in with, out of `connections.google.client`: the file
  * Google's console downloads, its path, or its contents as one string.
  */
 function clientOf(): { id: string; secret: string } {
-  const said = settings.google.client;
+  const said = settings.connections.google.client;
   const given = typeof said === "string" ? said.trim() : said;
   if (!given || (typeof given === "object" && Object.keys(given).length === 0)) throw new NeedsClient();
   let parsed: Record<string, unknown>;
@@ -188,11 +188,11 @@ function clientOf(): { id: string; secret: string } {
     parsed = given;
   } else {
     const text = given.startsWith("{") ? given : existsSync(given) ? readFileSync(given, "utf8") : undefined;
-    if (text === undefined) throw new Error(`google.client points at ${JSON.stringify(given)} and there is no file there.`);
+    if (text === undefined) throw new Error(`connections.google.client points at ${JSON.stringify(given)} and there is no file there.`);
     try {
       parsed = JSON.parse(text) as Record<string, unknown>;
     } catch {
-      throw new Error("google.client is not JSON: it is the file Google's console downloads, its path, or its contents.");
+      throw new Error("connections.google.client is not JSON: it is the file Google's console downloads, its path, or its contents.");
     }
   }
   return mustBeAClient(parsed);
@@ -213,13 +213,13 @@ function mustBeAClient(parsed: Record<string, unknown>): { id: string; secret: s
   if (inside?.client_id && inside.client_secret) return { id: inside.client_id, secret: inside.client_secret };
   if (parsed.client_id && parsed.client_secret) {
     throw new Error(
-      `google.client holds a client id and secret loose, and Google's console does not write them that way. ` +
+      `connections.google.client holds a client id and secret loose, and Google's console does not write them that way. ` +
         `Put them under "installed" for a client made as a desktop app, or under "web" for one made as a web ` +
         `application, and use the file the console downloaded if you still have it. Which of the two it is decides ` +
         `where Google will send its answer, so this is not a guess worth making for you.`,
     );
   }
-  throw new Error(`google.client is not a Google client file: it has neither an "installed" nor a "web" section with an id and a secret.`);
+  throw new Error(`connections.google.client is not a Google client file: it has neither an "installed" nor a "web" section with an id and a secret.`);
 }
 
 /**
@@ -240,7 +240,7 @@ function caughtByCloud(url: string): boolean {
  * Where Google is told to send its answer, and whether it comes back without
  * anybody carrying it.
  *
- * **The flow this is built for is the one with a code in it.** `google.callback`
+ * **The flow this is built for is the one with a code in it.** `connections.google.callback`
  * is `SHOWS_THE_CODE`, one address that is the same for everybody: the person
  * approves on their phone, lands on a page that shows a short code, and sends
  * that code back to the agent in the chat they started in. The code alone is no
@@ -262,7 +262,7 @@ function caughtByCloud(url: string): boolean {
  * back, so it is the last resort rather than the aim.
  */
 export function callback(): { url: string; relayed: boolean } {
-  const said = settings.google.callback.trim();
+  const said = settings.connections.google.callback.trim();
   if (said) return { url: said, relayed: caughtByCloud(said) };
   // A desktop client may answer to any port here and to nothing on the internet,
   // so for one of those the loopback address is the only one Google will take.
@@ -272,7 +272,7 @@ export function callback(): { url: string; relayed: boolean } {
 }
 
 /**
- * Which kind of client `google.client` holds, "web" or "installed", or "" when
+ * Which kind of client `connections.google.client` holds, "web" or "installed", or "" when
  * there is nothing readable there. Which it is decides where Google will agree to
  * send its answer, so it decides the address when nobody has said one.
  *
@@ -280,7 +280,7 @@ export function callback(): { url: string; relayed: boolean } {
  * this is only asked when a sign-in starts or the console walkthrough is printed.
  */
 export function clientKind(): "web" | "installed" | "" {
-  const said = settings.google.client;
+  const said = settings.connections.google.client;
   let held: Record<string, unknown> | undefined;
   if (said && typeof said === "object") {
     held = said as Record<string, unknown>;
@@ -305,10 +305,10 @@ export function clientKind(): "web" | "installed" | "" {
  * cheap enough for a job to check before it needs mail.
  */
 export async function signInState(): Promise<SignInState> {
-  const account = settings.google.account;
+  const account = settings.connections.google.account;
   const waiting = Boolean(readJson<Pending>(PENDING));
   if (!account) {
-    return { ready: false, account, missing: "google.account is not set, so there is no account to sign in", waiting };
+    return { ready: false, account, missing: "connections.google.account is not set, so there is no account to sign in", waiting };
   }
   const held = saved();
   if (held) {
@@ -356,9 +356,9 @@ function scopesFor(services: string): string[] {
  * asked for consent, because it only hands back a key that lasts when it asks.
  */
 export async function start({ services = SERVICES }: { services?: string } = {}): Promise<Started> {
-  const account = settings.google.account;
+  const account = settings.connections.google.account;
   if (!account) {
-    throw new Error("google.account is not set, so there is nobody to sign in. Put the address in chloe.config.ts's settings as `google: { account: \"you@gmail.com\" }`.");
+    throw new Error("connections.google.account is not set, so there is nobody to sign in. Put the address in chloe.config.ts's settings as `connections: { google: { account: \"you@gmail.com\" } }`.");
   }
   const { id } = clientOf();
   const to = callback();
@@ -555,9 +555,9 @@ let opened: { key: string; until: number; account: string } | undefined;
 async function accessKey(): Promise<string> {
   const held = saved();
   if (!held) {
-    throw settings.google.account
+    throw settings.connections.google.account
       ? failure("no sign-in")
-      : new Error("Google cannot be reached: google.account is not set, so there is no account to read. A person has to set it. Do not retry.");
+      : new Error("Google cannot be reached: connections.google.account is not set, so there is no account to read. A person has to set it. Do not retry.");
   }
   // A key that cannot reach everything is a sign-in to do again, said before
   // Google refuses it rather than after.
@@ -604,7 +604,7 @@ export async function googleApi<T>(
  * These words are here rather than in a README because the person is on a
  * phone in a chat, and an agent improvising the steps of somebody else's
  * console is an agent inventing menu names. Handed over whole when
- * `google.client` is not set, and that is the only time it is needed.
+ * `connections.google.client` is not set, and that is the only time it is needed.
  *
  * Reading mail is in Google's strictest tier, so a copy of this cannot be
  * signed in to without its own client. There is no way around that short of
@@ -630,7 +630,7 @@ export function setupSteps(): { steps: string[]; addresses: string[]; why: strin
         : to.url === SHOWS_THE_CODE
           ? "The chloejs.org one is the one that matters: with that registered, the page you land on shows you a short code to send back. Without it you get a browser error with the answer hidden in its address bar."
           : "The chloejs.org one is optional and worth it, if you make a Web application client: with that registered, the page you land on shows you a short code to send back, instead of a browser error with the answer hidden in its address bar.",
-      `Download the client file it gives you, and put its path or its contents ${whereKeyGoes(["google", "client"])}.`,
+      `Download the client file it gives you, and put its path or its contents ${whereKeyGoes(["connections", "google", "client"])}.`,
       "Then ask me for your mail again, and I will send you the link to approve.",
     ],
   };
@@ -655,7 +655,7 @@ export function explain(text: string): string {
     );
   }
   if (/invalid_client|unauthorized_client/i.test(text)) {
-    return "Google cannot be reached: Google refused this copy's client. A person checks google.client. Do not retry.";
+    return "Google cannot be reached: Google refused this copy's client. A person checks connections.google.client. Do not retry.";
   }
   return `Google could not be reached: ${text.trim().slice(0, 300)}`;
 }
