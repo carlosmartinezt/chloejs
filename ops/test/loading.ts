@@ -1,6 +1,6 @@
 // Loading agents and jobs: cron lines, notes, and what a job may import.
 
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
@@ -225,4 +225,44 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     if (source.includes('"@chloejs/core/tools/') || source.includes('"../tools/')) reaching.push(file.name);
   }
   is("every job calls the work itself", reaching, []);
+}
+
+{
+  about("a whole project in one file");
+
+  // chloe.config.ts may hold the agent and its jobs as well as the list, so a
+  // small agent is one file, run by `node chloe.config.ts` and by the server
+  // the same. Run as its own process, because the project is found from where
+  // node starts, and outside the runtime's folder with the package linked in,
+  // as an install would have it: a file inside the runtime is not imported
+  // afresh, so it would wait on itself.
+  const { execFileSync } = await import("node:child_process");
+  const { symlink } = await import("node:fs/promises");
+  const folder = await realpath(await mkdtemp(join(tmpdir(), "chloe-one-file-")));
+  await mkdir(join(folder, "node_modules", "@chloejs"), { recursive: true });
+  await symlink(join(import.meta.dirname, "../.."), join(folder, "node_modules", "@chloejs", "core"));
+  await writeFile(
+    join(folder, "chloe.config.ts"),
+    `import { defineAgent, defineConfig, defineJob, loadAll } from "@chloejs/core";
+const hello = defineJob({
+  id: "hello",
+  description: "Says hello.",
+  cron: "0 8 * * 1-5",
+  run: async (work) => ({ said: await work.step("say it", () => "hello") }),
+});
+const agent = defineAgent({ id: "one", description: "One file.", instructions: "Be brief.", model: "m", jobs: [hello] });
+export default defineConfig({ agents: [agent], settings: { email: { provider: "none" } } });
+if (import.meta.main) {
+  const { text } = await agent.run({ job: hello });
+  const loaded = (await loadAll()).get("one")!;
+  console.log(JSON.stringify({ text, cron: loaded.jobs[0].cron, folder: loaded.folder }));
+}
+`,
+  );
+  const out = execFileSync(process.execPath, [...process.execArgv, "chloe.config.ts"], { cwd: folder, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const said = JSON.parse(out.trim().split("\n").at(-1)!);
+  is("its job runs from the file itself", JSON.parse(said.text), { said: "hello" });
+  is("and the server would find the same job on the clock", said.cron, "0 8 * * 1-5");
+  is("with the agent's folder the one the file is in", said.folder, folder);
+  await rm(folder, { recursive: true, force: true });
 }

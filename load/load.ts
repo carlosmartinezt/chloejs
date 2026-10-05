@@ -212,7 +212,17 @@ export interface Config {
   settings?: DeclaredSettings;
 }
 
-/** The default export of chloe.config.ts: every agent to run, and the settings. */
+/**
+ * The default export of chloe.config.ts: every agent to run, and the settings.
+ *
+ * The agents and their jobs may be written in that file too, so a small one is
+ * a whole project in one file. `node chloe.config.ts` runs it, and a line in it
+ * guarded by `import.meta.main` runs only then, not when the server reads it:
+ *
+ * ```ts
+ * if (import.meta.main) console.log(await agent.run({ job: hello }));
+ * ```
+ */
 export function defineConfig(config: Config): Config {
   return config;
 }

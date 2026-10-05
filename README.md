@@ -210,6 +210,10 @@ chloe.config.ts        the agents this copy runs, and every setting
 your-agent/agent.ts    what the agent is: its jobs, tools and channels
 ```
 
+A small agent can be one file: write it and its jobs in `chloe.config.ts`
+itself, and `node chloe.config.ts` runs it. See
+[One file](https://chloejs.org/docs/start#one-file).
+
 An agent written for the AI SDK's `ToolLoopAgent` moves across as it is: its
 `id`, `model`, `instructions`, `tools`, `stopWhen` and `toolApproval` go into
 `defineAgent` unchanged, and chloe's own loop runs them, so each
