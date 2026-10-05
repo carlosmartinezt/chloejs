@@ -22,17 +22,17 @@
 export { fsEditFile, fsListFiles, fsReadFile, fsSearchFiles, fsWriteFile } from "./fs.ts";
 
 // Gmail, as the person signed in to Google: reading the mail an agent is bound
-// to, answering one of those messages, and sending one. Each is marked
-// `needs: "google"`, and the loader adds the sign-in beside it, so there is nothing
-// to add for that.
+// to, answering one of those messages, and sending one. Each needs the google
+// connector, and the loader adds its sign-in beside it, so there is nothing to
+// add for that.
 //
 // gmailReplyEmail is the narrow one: it answers a message the agent has
 // already read, at that message's own address, so it cannot reach anybody who
 // has not written in. Prefer it over sending wherever the mail is a reply.
-export { gmailReadEmail, gmailReplyEmail, gmailSendEmail } from "./gmail.ts";
+export { gmailReadEmail, gmailReplyEmail, gmailSendEmail } from "#chloe/connectors/google/gmail";
 
 // Sending one email through Resend, on a key.
-export { resendSendEmail } from "./resend.ts";
+export { resendSendEmail } from "#chloe/connectors/resend/resend";
 
 // Starting an email conversation, for an agent on the email channel.
 export { emailStartConversation } from "./email.ts";

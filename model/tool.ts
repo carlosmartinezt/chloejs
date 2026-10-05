@@ -1,6 +1,8 @@
 import { asSchema, type Tool, type ToolApprovalConfiguration, type ToolApprovalStatus } from "ai";
 import { z } from "zod";
 
+import type { Connector } from "#chloe/connectors/connector";
+
 import type { ToolSpec } from "./model.ts";
 
 /**
@@ -11,15 +13,20 @@ import type { ToolSpec } from "./model.ts";
  * `overview` is what the tool reaches right now, in a few lines (the folders of
  * a memory, the tables of a database), put at the top of every turn and agent
  * step it is handed to, so the model starts out knowing where things are. Asked
- * again each time, never kept. `needs` is the account it works through, which
- * the setup page checks for: `needs: "google"` also makes the loader add
- * `googleSignIn` and `googleSignInComplete` beside it, so an agent that can
- * read mail can get somebody signed in to read it.
+ * again each time, never kept. `needs` is the connector it works through: the
+ * setup page asks that connector what is missing, and the loader adds the
+ * connector's sign-in beside the tool, so an agent that can read mail can get
+ * somebody signed in to read it.
  */
-export type ChloeTool = Tool & { overview?: () => Promise<string> | string; needs?: "google" | "resend" };
+export type ChloeTool = Tool & { overview?: () => Promise<string> | string; needs?: Connector };
 
 /** Tools keyed by the name the model calls them by. */
 export type Tools = Record<string, ChloeTool>;
+
+/** The connectors these tools work through, each once, in the order first met. */
+export function connectorsOf(tools: Tools): Connector[] {
+  return [...new Set(Object.values(tools).flatMap((one) => (one.needs ? [one.needs] : [])))];
+}
 
 /**
  * The overviews of these tools, one after another, for the top of a prompt.

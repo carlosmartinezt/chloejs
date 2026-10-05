@@ -15,6 +15,8 @@ import { settings, unclaimed } from "#chloe/core/settings";
 import { closeCutOff, trim } from "#chloe/core/db";
 import { loadAll, type Agent, type Running } from "#chloe/load/load";
 import { sdkModel } from "#chloe/model/key";
+import { connectorsOf } from "#chloe/model/tool";
+import { run } from "#chloe/services/runService";
 import { learnModels, runnable } from "#chloe/model/model";
 import { HOST, PORT, serve } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
@@ -114,7 +116,28 @@ function firstWord(within: number): Promise<void> {
 
 await firstWord(1500);
 started = true;
-for (const line of startup()) console.log(line);
+const outside = await connected();
+for (const line of startup(outside)) console.log(line);
+
+/**
+ * Each connector the agents' tools need, with what it is missing, and git when
+ * a memory is committed and there is none. Asked once, as it starts.
+ */
+async function connected(): Promise<{ names: string[]; missing: string[] }> {
+  const all = [...agents.values()];
+  const used = [...new Set(all.flatMap((agent) => connectorsOf(agent.tools ?? {})))];
+  const missing = (
+    await Promise.all(
+      used.map(async (one) =>
+        (await one.missing().catch((error: Error) => [error.message])).map((line) => `${one.name}: ${line}`),
+      ),
+    )
+  ).flat();
+  if (all.some((agent) => agent.memory.commit) && (await run("git", ["--version"])).exitCode !== 0) {
+    missing.push("git: not installed, so no memory is committed. Install git.");
+  }
+  return { names: used.map((one) => one.name), missing };
+}
 
 /** One row of the block at startup: a label, and what there is to say about it. */
 function row(label: string, said: string): string {
@@ -140,7 +163,7 @@ function byRoute(route: string): string {
  * reports something missing carries the command that fixes it, because a person
  * reading this is usually about to go looking for one.
  */
-function startup(): string[] {
+function startup(outside: { names: string[]; missing: string[] }): string[] {
   const lines = ["", bold("Chloe is running."), ""];
 
   lines.push(row("Agents", [...agents.keys()].join(", ") || dim("none yet. Write one in agents/, and list it in chloe.config.ts")));
@@ -172,6 +195,11 @@ function startup(): string[] {
   );
   lines.push(row("Jobs", jobs.length ? jobs[0] : dim("none yet")));
   for (const job of jobs.slice(1)) lines.push(under(job));
+
+  if (outside.names.length || outside.missing.length) {
+    lines.push(row("Connectors", outside.names.join(", ") || dim("none")));
+    for (const line of outside.missing) lines.push(under(line));
+  }
 
   // Node reads an agent file as CommonJS first when the project does not say,
   // which works until the day a file happens to parse both ways.

@@ -1,4 +1,4 @@
-// The tools over services/gmailService.ts: reading the mail an agent is bound
+// The tools over gmailService.ts: reading the mail an agent is bound
 // to, answering one of those messages, and sending one as the signed-in person.
 //
 // The binding lives in the agent's config, not in anything the model can
@@ -10,9 +10,11 @@ import { z } from "zod";
 
 import { markdownToHtml, markdownToText } from "#chloe/services/emailService";
 import { writeFiles } from "#chloe/services/filesService";
-import { readEmailMessages, readOneEmailMessage, replyGmail } from "#chloe/services/gmailService";
+import { readEmailMessages, readOneEmailMessage, replyGmail } from "./gmailService.ts";
 import { agentOf } from "#chloe/model/tool";
-import { sendingTool, type SendOptions } from "./email.ts";
+import { sendingTool, type SendOptions } from "#chloe/model/tools/email";
+
+import { google } from "./connector.ts";
 
 interface Options {
   /**
@@ -31,7 +33,7 @@ interface Options {
  * A tool that reads the mail the agent is bound to. The search is the
  * binding's, and the model chooses only how far back and how many.
  *
- * It is marked `needs: "google"`, so the agent gets the Google sign-in beside it:
+ * It needs the google connector, so the agent gets the Google sign-in beside it:
  * mail that cannot be read because nobody has signed in is not a different
  * problem from mail. Nothing to add, and no way to have one without the other.
  */
@@ -60,7 +62,7 @@ export function gmailReadEmail({
         ? await readOneEmailMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
         : await readEmailMessages({ search, days: back ?? days, limit: limit ?? 10 }),
   });
-  return Object.assign(read, { needs: "google" as const });
+  return Object.assign(read, { needs: google });
 }
 
 interface ReplyOptions extends Options {
@@ -154,7 +156,7 @@ export function gmailReplyEmail({
       return { ...sent, copy: kept.path };
     },
   });
-  return Object.assign(reply, { needs: "google" as const });
+  return Object.assign(reply, { needs: google });
 }
 
 /**
@@ -162,5 +164,5 @@ export function gmailReplyEmail({
  * given, which has to be that account or an alias Google verified for it.
  */
 export function gmailSendEmail(options: SendOptions) {
-  return Object.assign(sendingTool("gmail", options), { needs: "google" as const });
+  return Object.assign(sendingTool("gmail", options), { needs: google });
 }

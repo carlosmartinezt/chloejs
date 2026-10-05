@@ -219,7 +219,7 @@ reached. The rest is the runtime plus what a job commonly
 needs, in folders by what they do: `model/` is asking a model, and
 `model/tools/` inside it is the only thing a model can be handed,
 `load/` is what an agent and a job
-are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `cloud/` is the connection out to a dashboard somewhere else, `serve/` is the one port
+are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `cloud/` is the connection out to a dashboard somewhere else, `connectors/` is each outside account or program a tool works through, a folder each (Google, Resend), `serve/` is the one port
 and what it answers with, which is `/api` and nothing else (the routes, the
 login, and the folder behind the file tree): it serves no page, and an address
 that is not an API call is a 404, `core/` is the floor (paths, running a command, staying
@@ -250,12 +250,18 @@ The runtime is the floor everyone stands on, so nothing in it may name an agent
 or a person, and nothing in `model/tools/` or `channels/` exports a
 default: each exports a function that an agent binds.
 
-**A tool that needs somebody signed in brings that with it.** `gmailReadEmail`,
-`gmailReplyEmail` and `gmailSendEmail` are marked `needs: "google"`, and the loader
-adds the two tools that get a person signed in to Google beside any tool so
-marked. So an agent says `gmailReadEmail` and is
-done, rather than remembering to add the sign-in beside it, and there is no way
-to have mail without the means to fix mail.
+**An outside account or program is a connector, and the runtime never names
+one.** Each is a folder in `connectors/`: its tools, its services, and a
+`connector.ts` that is a `Connector` saying what it reads (`settings`), how
+somebody signs in (`signIn`), and what is missing before it works
+(`missing()`, in words). A tool that works through one says so with `needs`:
+`gmailReadEmail`, `gmailReplyEmail` and `gmailSendEmail` are marked
+`needs: google`. From that the loader adds the connector's sign-in beside the
+tool, and the setup page and the lines printed at startup ask it what is
+missing. So an agent says `gmailReadEmail` and is done, there is no way to
+have mail without the means to fix mail, and a connector in an agent's own
+folder works the same with nothing added here. A program a connector needs
+is a `Program` checked by `findProgram()` in `connectors/program.ts`.
 
 **A tool is for a model and nothing else.** The work is a plain function in
 `services/`, published as `"@chloejs/core/services"`, and a job calls it from a step.
@@ -712,7 +718,7 @@ client made in the console as a desktop app may send its answer to any port on
 the machine and to no address on the internet. One made as a web application is
 the other way round, except that a loopback address is allowed as a named
 exception. So the sign-in that finishes by itself needs a web client, and
-`services/googleService.ts` asks Google to answer at one fixed loopback port
+`connectors/google/googleService.ts` asks Google to answer at one fixed loopback port
 rather than a port picked per run, because a web client only accepts the exact
 addresses somebody registered and "any port" is not something you can register.
 A client file holding its id and secret loose, with neither an `installed` nor a
@@ -729,6 +735,10 @@ seventeen days of unreadable mail before anybody looked.
 **Do not assume a program is installed.** A tool that assumed `rg` was there
 returned "nothing matched" for every search for weeks without anyone noticing. If a command might be missing, check for it and say so
 rather than treating the failure as an empty result.
+
+**The runtime downloads no program.** One that a connector needs, like gog
+for Google, is installed by the person, and a call that finds none says what
+to install and where, as `findProgram()` does.
 
 ## What not to do
 

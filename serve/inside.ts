@@ -7,7 +7,7 @@
 import { settings } from "#chloe/core/settings";
 import { modelFor } from "#chloe/model/choices";
 import { routeFor } from "#chloe/model/model";
-import { descriptionOf } from "#chloe/model/tool";
+import { connectorsOf, descriptionOf } from "#chloe/model/tool";
 import type { Agent } from "#chloe/load/load";
 import { collectsAt } from "#chloe/channels/whatsapp";
 
@@ -18,12 +18,14 @@ export interface Way {
   /** What it is, in one line. */
   does: string;
   /**
-   * Which setting carries its credentials, as a path into the settings, or
-   * empty when it needs none. Never the value.
+   * Which settings it reads, as paths into the settings, comma separated, or
+   * empty when it needs none. Never the values.
    */
   needs: string;
-  /** Whether that setting is filled in. Null when there is nothing to fill in. */
+  /** Whether it is set up. Null when there is nothing to set up. */
   ready: boolean | null;
+  /** What is missing before it works, one line each, when it says. */
+  missing?: string[];
   /** How it was set up, as the agent's definition wrote it. Never a credential. */
   settings?: { name: string; value: string }[];
 }
@@ -104,7 +106,6 @@ export function toolsOf(agent: Agent): { name: string; does: string }[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Whether a setting has anything in it. */
 /** Whether a setting has been filled in. An object counts when it has anything in it. */
 const filled = (value: string | Record<string, unknown> | undefined): boolean =>
   typeof value === "object" ? Object.keys(value).length > 0 : Boolean(value && value.trim());
@@ -166,10 +167,11 @@ export function channelsOf(agent: Agent): Way[] {
 
 /**
  * What this agent can reach that is not on this box: where its thinking goes,
- * and whichever of its tools leave the machine. A tool that only touches this
- * disk is not here, because nothing outside is involved in it.
+ * and each connector its tools work through, asked what is missing. A tool
+ * that only touches this disk is not here, because nothing outside is involved
+ * in it.
  */
-export function connectionsOf(agent: Agent): Way[] {
+export async function connectionsOf(agent: Agent): Promise<Way[]> {
   const model = modelFor(agent);
   const route = routeFor(model);
   const out: Way[] = [
@@ -187,20 +189,14 @@ export function connectionsOf(agent: Agent): Way[] {
           ready: null,
         },
   ];
-  if (Object.values(agent.tools ?? {}).some((one) => one.needs === "resend")) {
+  for (const connector of connectorsOf(agent.tools ?? {})) {
+    const missing = await connector.missing().catch((error: Error) => [error.message]);
     out.push({
-      name: "resend",
-      does: "Where its mail is sent. Without a key nothing is sent and nothing fails.",
-      needs: "resend.api_key",
-      ready: filled(settings.resend.api_key),
-    });
-  }
-  if (Object.values(agent.tools ?? {}).some((one) => one.needs === "google")) {
-    out.push({
-      name: "google",
-      does: "The account its mail is read and sent as. Somebody still has to sign in once, which the agent can ask them to do.",
-      needs: "google.account",
-      ready: filled(settings.google.account) && filled(settings.google.client),
+      name: connector.name,
+      does: connector.does,
+      needs: connector.settings.join(", "),
+      ready: missing.length === 0,
+      missing,
     });
   }
   return out;

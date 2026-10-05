@@ -970,7 +970,7 @@ about("a model step that never fits");
 
 {
   about("what Google says when a person has to sign in");
-  const { asLink, callback, explain, signInState, SHOWS_THE_CODE, start } = await import("#chloe/services/googleService");
+  const { asLink, callback, explain, signInState, SHOWS_THE_CODE, start } = await import("#chloe/connectors/google/googleService");
   const { settings } = await import("@chloejs/core");
 
   // Every one of these is fixed by one sign-in, and a sign-in is something the
@@ -1060,7 +1060,7 @@ about("a model step that never fits");
   settings.cloud.url = urlWas;
 
   about("whose sign-in came back");
-  const { addressesIn } = await import("#chloe/services/googleService");
+  const { addressesIn } = await import("#chloe/connectors/google/googleService");
 
   // The People API's own shape, and the flatter one.
   is(
@@ -1090,8 +1090,8 @@ about("a model step that never fits");
   is("and so does something that is not JSON", addressesIn("not json"), []);
 
   about("what a reply reads off the message it is answering");
-  const { unwrapped } = await import("#chloe/services/googleService");
-  const { replyTo } = await import("#chloe/services/gmailService");
+  const { unwrapped } = await import("#chloe/connectors/google/googleService");
+  const { replyTo } = await import("#chloe/connectors/google/gmailService");
 
   // gog marks the text it fetched as somebody else's words, field by field, so
   // a subject comes back wrapped and the address beside it does not. Reading a
@@ -1162,8 +1162,8 @@ about("a model step that never fits");
   }
 
   about("what a Google tool brings with it");
-  const { gmailReadEmail, gmailSendEmail } = await import("#chloe/model/tools/gmail");
-  const { resendSendEmail } = await import("#chloe/model/tools/resend");
+  const { gmailReadEmail, gmailSendEmail } = await import("#chloe/connectors/google/gmail");
+  const { resendSendEmail } = await import("#chloe/connectors/resend/resend");
 
   // Nobody should have to remember to add the sign-in. An agent that can read
   // mail can get itself signed in to read mail, and that is one decision.
@@ -1185,8 +1185,25 @@ about("a model step that never fits");
   ]);
   is("resendSendEmail has nothing to sign in to", await toolsOf({ resendSendEmail: resendSendEmail(sender) }), ["resendSendEmail"]);
 
+  about("a connector of an agent's own");
+  const { tool: makeTool } = await import("ai");
+  const { connectionsOf } = await import("#chloe/serve/inside");
+  const shop: import("@chloejs/core").Connector = {
+    name: "shop",
+    does: "The shop's orders.",
+    settings: ["agents.mail.shop"],
+    signIn: () => ({ shopSignIn: makeTool({ description: "Sign in to the shop.", inputSchema: z.object({}), execute: async () => ({}) }) }),
+    missing: async () => ["nobody has signed in to the shop"],
+  };
+  const orders = Object.assign(makeTool({ description: "Read the orders.", inputSchema: z.object({}), execute: async () => [] }), { needs: shop });
+  is("its sign-in comes with the tool that needs it", await toolsOf({ shopReadOrders: orders }), ["shopReadOrders", "shopSignIn"]);
+  const reached = await connectionsOf({ id: "mail", model: "m", tools: { shopReadOrders: orders, again: orders } } as any);
+  is("the setup page lists it once, with what is missing", reached.filter((one) => one.name === "shop"), [
+    { name: "shop", does: "The shop's orders.", needs: "agents.mail.shop", ready: false, missing: ["nobody has signed in to the shop"] },
+  ]);
+
   about("what the person is told to do");
-  const { whatToDo } = await import("#chloe/services/googleService");
+  const { whatToDo } = await import("#chloe/connectors/google/googleService");
 
   // Three endings, and these words are the whole of what the person
   // experiences. The one that reads as a fault is the default, so saying so
@@ -1236,7 +1253,7 @@ about("a model step that never fits");
   is("and code= in front of it is not part of the code", new URL(asLink("code=xyz", waiting)).searchParams.get("code"), "xyz");
 
   about("the second half of a sign-in is given what the first half was");
-  const { finishArgs } = await import("#chloe/services/googleService");
+  const { finishArgs } = await import("#chloe/connectors/google/googleService");
 
   // What this is guarding: gog folds --force-consent into what it checks the
   // saved state against, in both directions, and answers "manual auth state
@@ -3294,6 +3311,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await writeFile(`${folder}/work/long.html`, `start\n${"x".repeat(1000)} mercor\nend`);
   const long = await searchFiles(folder, "mercor", "work/long.html", { around: 1 });
   is("a very long line is cut", long.results[0].split("\n")[2].length < 320, true);
+  await writeFile(`${folder}/work/costs.txt`, "card fee (3.5%)\ncard fee 345");
+  is("the text is matched as written, not as a pattern", (await searchFiles(folder, "(3.5%)")).results, ["work/costs.txt:1:card fee (3.5%)"]);
+  await writeFile(`${folder}/work/photo.jpg`, Buffer.from([0xff, 0xd8, 0, 0x6d, 0x65, 0x72, 0x63, 0x6f, 0x72]));
+  is("and a file that is not text is not searched", (await searchFiles(folder, "mercor", "work/photo.jpg")).matches, 0);
 }
 
 {

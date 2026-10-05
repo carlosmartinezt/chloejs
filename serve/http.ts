@@ -38,7 +38,7 @@ import {
 import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound } from "./errors.ts";
 import { recentWork } from "./recentWork.ts";
-import { finish as finishSignIn, signInState, start as startSignIn } from "#chloe/services/googleService";
+import { finish as finishSignIn, signInState, start as startSignIn } from "#chloe/connectors/google/googleService";
 import { channelsOf, connectionsOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import { type Caller, type Guest, caller, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, setCookie, signIn } from "./login.ts";
@@ -346,7 +346,7 @@ export const routes: Route[] = [
     does: "What it can reach that is not on this box, and whether each is set up. Never the credentials.",
     token: true,
     remote: "read",
-    handle: ({ response, context, params }) => json(response, connectionsOf(context.agent(params.id))),
+    handle: async ({ response, context, params }) => json(response, await connectionsOf(context.agent(params.id))),
   },
   {
     method: "GET",

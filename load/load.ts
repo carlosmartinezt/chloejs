@@ -19,8 +19,7 @@ import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/
 import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
 import { nameOf, type SdkModel } from "#chloe/model/key";
-import { cannotRun, type Tools } from "#chloe/model/tool";
-import { googleSignInTools } from "#chloe/model/tools/google";
+import { cannotRun, connectorsOf, type Tools } from "#chloe/model/tool";
 import { memoryTools } from "#chloe/model/tools/memory";
 import { scriptTools } from "#chloe/model/tools/script";
 import { selfTools } from "#chloe/model/tools/self";
@@ -94,8 +93,8 @@ export interface AgentConfig {
    * Tools made with the AI SDK's `tool()`, keyed by the name a model calls
    * them by: `{ weather, gmailReadEmail: gmailReadEmail({ ... }) }`. Every tool is handed
    * `{ agent }` as its `context`. What `features` turns on is added to these
-   * and not listed here, and so is the Google sign-in beside a tool marked
-   * `needs: "google"`.
+   * and not listed here, and so is the sign-in of each connector a tool
+   * `needs`, like Google's beside gmailReadEmail.
    */
   tools?: Tools;
   /** Each job: one imported, or markdownJob("jobs/<id>.md") for one that is only a prompt. */
@@ -576,7 +575,7 @@ function featureTools(features: Features = {}, home: Home, where: string): Tools
   };
 }
 
-/** The agent's tools, checked, with the Google sign-in beside any tool marked `needs: "google"`. */
+/** The agent's tools, checked, with the sign-in of each connector one of them needs. */
 function toolsOf(tools: Tools, where: string): Tools {
   if (Array.isArray(tools) || typeof tools !== "object") {
     throw new Error(`${where}: tools is one object keyed by name, like { weather, gmailReadEmail: gmailReadEmail({ ... }) }.`);
@@ -585,7 +584,8 @@ function toolsOf(tools: Tools, where: string): Tools {
     const wrong = cannotRun(id, each);
     if (wrong) throw new Error(`${where}: ${wrong}`);
   }
-  return Object.values(tools).some((one) => one.needs === "google") ? { ...googleSignInTools(), ...tools } : tools;
+  const signIn = connectorsOf(tools).map((one) => one.signIn?.() ?? {});
+  return Object.assign({}, ...signIn, tools);
 }
 
 async function skillsIn(dir: string): Promise<Skill[]> {

@@ -8,13 +8,15 @@
 // fetching a single message re-runs the same search first and refuses an id
 // that is not in it.
 //
-// The tool a model reaches is model/tools/gmail.ts, which calls this
+// The tool a model reaches is gmail.ts beside it, which calls this
 // with the same binding, so a job does not get a wider search for skipping
 // the model.
 //
-// The sign-in itself is services/googleService.ts, and every call out goes
+// The sign-in itself is googleService.ts, and every call out goes
 // through `gog()` there, so one file holds it, renews it and explains it and
 // this one only reads mail.
+import type { EmailProvider } from "#chloe/services/emailService";
+
 import { explain, gog, unwrapped } from "./googleService.ts";
 
 export { explain };
@@ -303,3 +305,17 @@ export async function replyGmail({
   const parsed = JSON.parse(sent || "{}") as { id?: string; messageId?: string };
   return { sent: true, to, subject, id: parsed.id ?? parsed.messageId ?? "" };
 }
+
+/**
+ * Sends as the person, through the Google sign-in this copy already has.
+ *
+ * No key and no second account: whoever is signed in is who it comes from. So
+ * the From line has to be that account or an alias Google has verified for it,
+ * and anything else is refused. A reply comes back to their own mailbox, which
+ * is the reason to pick this over Resend and the reason not to.
+ */
+export const gmailProvider: EmailProvider = {
+  async send({ from, to, replyTo, subject, body, html }) {
+    return await sendGmail({ from, to, replyTo, subject, text: body, html });
+  },
+};

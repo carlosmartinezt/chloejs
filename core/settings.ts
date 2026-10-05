@@ -152,10 +152,8 @@ export interface Settings {
      * browser cannot reach, so they paste the address back instead.
      */
     callback: string;
-    /** The gog program to use. Empty means find one, or fetch one into the state folder. */
+    /** The gog program to use, as a path. Empty means the `gog` on the PATH. */
     gog: string;
-    /** Which gog release to fetch when this machine has none new enough. */
-    version: string;
     /** The Analytics service account's key, handed to scripts as GA_KEY_FILE. */
     GA_KEY_FILE: string;
   };
@@ -254,7 +252,7 @@ export const DEFAULTS: Settings = {
   },
   email: { provider: "resend" },
   resend: { api_key: "" },
-  google: { account: "", client: "", callback: "", gog: "", version: "", GA_KEY_FILE: "" },
+  google: { account: "", client: "", callback: "", gog: "", GA_KEY_FILE: "" },
   alerts: { email_to: "", email_from: "" },
   agents: {},
   cloud: {

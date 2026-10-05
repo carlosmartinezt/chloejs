@@ -1,9 +1,9 @@
 // Getting signed in to Google, for an agent that has to guide somebody who is
 // not at this machine.
 //
-// **Nothing binds these on their own.** They come with whatever needs Google:
-// gmailReadEmail, gmailReplyEmail and gmailSendEmail are marked `needs: "google"`,
-// and the loader adds these beside them. An agent that can read mail can get
+// **Nothing binds these on their own.** They are the google connector's
+// sign-in, and the loader adds them beside any tool that needs it:
+// gmailReadEmail, gmailReplyEmail and gmailSendEmail. An agent that can read mail can get
 // itself signed in to read mail, which is one decision and not two, and there
 // is nothing to remember to add. Signing in is not a thing an agent does, it is part of the thing it
 // does.
@@ -16,7 +16,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import { NeedsClient, finish, setupSteps, signInState, start } from "#chloe/services/googleService";
+import { NeedsClient, finish, setupSteps, signInState, start } from "./googleService.ts";
 import type { Tools } from "#chloe/model/tool";
 
 /**
@@ -102,7 +102,7 @@ function googleSignInComplete() {
   });
 }
 
-/** The sign-in, which the loader adds to an agent with a tool marked `needs: "google"`. Never bound on its own. */
+/** The google connector's sign-in, which the loader adds to an agent with a tool that needs it. Never bound on its own. */
 export function googleSignInTools(): Tools {
   return { googleSignIn: googleSignIn(), googleSignInComplete: googleSignInComplete() };
 }

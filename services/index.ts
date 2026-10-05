@@ -10,8 +10,8 @@
 
 export { run, type Result } from "./runService.ts";
 export { markdownToHtml, markdownToText, deliverEmail, type EmailSender } from "./emailService.ts";
-export { readEmailMessages, readOneEmailMessage, sendGmail, type Message as Mail } from "./gmailService.ts";
-export { NeedsClient, addressesIn, ensureGog, finish, finishArgs, setupSteps, signInState, start, type SignInState, type Started } from "./googleService.ts";
+export { readEmailMessages, readOneEmailMessage, sendGmail, type Message as Mail } from "#chloe/connectors/google/gmailService";
+export { NeedsClient, addressesIn, ensureGog, finish, finishArgs, setupSteps, signInState, start, type SignInState, type Started } from "#chloe/connectors/google/googleService";
 export { editFiles, folderTree, listFiles, readFiles, searchFiles, writeFiles } from "./filesService.ts";
 export { listScripts, runScripts } from "./scriptsService.ts";
 export { readPage, htmlToText, feedToText, isPrivate, type Page } from "./webService.ts";

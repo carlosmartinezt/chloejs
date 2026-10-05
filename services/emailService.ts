@@ -10,7 +10,8 @@
 
 import { settings } from "#chloe/core/settings";
 
-import { sendGmail } from "./gmailService.ts";
+import { gmailProvider } from "#chloe/connectors/google/gmailService";
+import { resendProvider } from "#chloe/connectors/resend/resendService";
 
 /**
  * Who an agent's mail comes from, who it goes to, and the tag in front of
@@ -49,37 +50,6 @@ export interface EmailProvider {
   send(email: Email): Promise<{ id?: string }>;
 }
 
-const resend: EmailProvider = {
-  async send({ from, to, replyTo, subject, body, html }) {
-    const key = settings.resend.api_key;
-    if (!key) throw new Error("No Resend key. Put it in .env as CHLOE_RESEND_API_KEY.");
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to, reply_to: replyTo, subject, text: body, html }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!response.ok) {
-      throw new Error(`Resend refused the message (${response.status}): ${await response.text()}`);
-    }
-    return (await response.json()) as { id?: string };
-  },
-};
-
-/**
- * Sends as the person, through the Google sign-in this copy already has.
- *
- * No key and no second account: whoever is signed in is who it comes from. So
- * the From line has to be that account or an alias Google has verified for it,
- * and anything else is refused. A reply comes back to their own mailbox, which
- * is the reason to pick this over Resend and the reason not to.
- */
-const gmail: EmailProvider = {
-  async send({ from, to, replyTo, subject, body, html }) {
-    return await sendGmail({ from, to, replyTo, subject, text: body, html });
-  },
-};
-
 /**
  * Carries nothing: the subject and who it was for go to the log and the
  * message is dropped. What a test run and a box with no mail account use, so
@@ -93,7 +63,7 @@ const none: EmailProvider = {
 };
 
 /** Every provider email.provider can name. Adding one is an entry here and in the settings schema. */
-const providers: Record<typeof settings.email.provider, EmailProvider> = { resend, gmail, none };
+const providers: Record<typeof settings.email.provider, EmailProvider> = { resend: resendProvider, gmail: gmailProvider, none };
 
 /** A provider that actually sends. */
 export type SendingProvider = Exclude<typeof settings.email.provider, "none">;

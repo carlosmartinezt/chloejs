@@ -10,9 +10,9 @@
 // skill, which is text you can edit, not code that needs a restart.
 //
 // What they do enforce is the edge of the folder, through confine().
-import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 import { confine, unreachable } from "#chloe/core/confine";
 import { commitPaths, noteCommit, type Place } from "./historyService.ts";
@@ -108,7 +108,8 @@ export async function readFiles(
 }
 
 /**
- * Search a folder for text, case-insensitive. `folder` narrows it. Paths in
+ * Search a folder for text, case-insensitive and as written, not as a
+ * pattern. `folder` narrows it, to a folder or one file. Paths in
  * the results are relative to `root`, the way the other functions here take
  * them. With `around`, each match comes with that many lines either side, and
  * matches close together in one file share one block, so a match can often be
@@ -119,42 +120,52 @@ export async function readFiles(
 export async function searchFiles(root: string, query: string, folder?: string, { around = 0 }: { around?: number } = {}) {
   const base = realpathSync(root);
   const target = folder ? confine(root, folder) : base;
-  // ripgrep if the box has it, grep otherwise. An earlier version assumed
-  // ripgrep, and when it was not installed every search quietly answered
-  // "nothing matched", which reads exactly like a subject he never wrote
-  // about. A search that cannot run has to say so.
-  const attempts: Array<[string, string[]]> = [
-    ["rg", ["-i", "--no-heading", "--with-filename", "--line-number", "--max-count", "5", "--glob", "!.git", "--", query, target]],
-    ["grep", ["-rIHin", "--exclude-dir=.git", "--max-count=5", "-e", query, target]],
-  ];
-  for (const [file, args] of attempts) {
-    const r = await run(file, args, { timeoutMs: 60_000 });
-    // grep and rg both exit 1 for "no matches", which is an answer. Only a
-    // missing binary (127) means try the next one.
-    if (r.exitCode === 127) continue;
-    const found = r.stdout
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => {
-        const m = /^(.*?):(\d+):(.*)$/s.exec(line);
-        return m ? { path: relative(base, m[1]), line: Number(m[2]), text: m[3] } : undefined;
-      })
-      // The folders no file tool may open are not searched into either.
-      .filter((m): m is { path: string; line: number; text: string } => m !== undefined && !m.path.split(sep).some(unreachable));
-    const kept = found.slice(0, around > 0 ? 30 : 80);
-    return {
-      searchedWith: file,
-      matches: found.length,
-      results: around > 0 ? await withLinesAround(root, kept, around) : kept.map((m) => `${m.path}:${m.line}:${m.text}`),
-      note:
-        found.length === 0
-          ? "Nothing matched. Try the words he would have written."
-          : found.length > kept.length
-            ? `Only the first ${kept.length} of ${found.length} matches. Narrow it with folder or a longer phrase.`
-            : undefined,
-    };
+  const wanted = query.toLowerCase();
+  const found: Array<{ path: string; line: number; text: string }> = [];
+  for (const file of await filesUnder(target)) {
+    const text = await readFile(file, "utf8").catch(() => "");
+    // A file with a NUL in its start is not text, as grep has it.
+    if (text.slice(0, 8000).includes("\0")) continue;
+    let inFile = 0;
+    for (const [i, line] of text.split("\n").entries()) {
+      if (!line.toLowerCase().includes(wanted)) continue;
+      found.push({ path: relative(base, file), line: i + 1, text: line });
+      if (++inFile === 5) break;
+    }
   }
-  throw new Error("Neither rg nor grep is on this box, so nothing can be searched.");
+  const kept = found.slice(0, around > 0 ? 30 : 80);
+  return {
+    matches: found.length,
+    results: around > 0 ? await withLinesAround(root, kept, around) : kept.map((m) => `${m.path}:${m.line}:${m.text}`),
+    note:
+      found.length === 0
+        ? "Nothing matched. Try the words he would have written."
+        : found.length > kept.length
+          ? `Only the first ${kept.length} of ${found.length} matches. Narrow it with folder or a longer phrase.`
+          : undefined,
+  };
+}
+
+/** Largest file a search reads, in bytes. Bigger ones are left out rather than read into memory. */
+const SEARCHED = 20_000_000;
+
+/**
+ * Every file under `target`, or `target` itself when it is a file, in name
+ * order. Links are not followed, and the folders no file tool may open are
+ * not searched into.
+ */
+async function filesUnder(target: string): Promise<string[]> {
+  const top = await stat(target);
+  if (top.isFile()) return top.size <= SEARCHED ? [target] : [];
+  const files: string[] = [];
+  const entries = await readdir(target, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (unreachable(entry.name)) continue;
+    const path = join(target, entry.name);
+    if (entry.isDirectory()) files.push(...(await filesUnder(path)));
+    else if (entry.isFile() && (await stat(path)).size <= SEARCHED) files.push(path);
+  }
+  return files;
 }
 
 /**
