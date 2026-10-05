@@ -23,8 +23,8 @@ export { fsEditFile, fsListFiles, fsReadFile, fsSearchFiles, fsWriteFile } from 
 
 // Gmail, as the person signed in to Google: reading the mail an agent is bound
 // to, answering one of those messages, and sending one. Each needs the google
-// connector, and the loader adds its sign-in beside it, so there is nothing to
-// add for that.
+// connector, and the runtime runs its sign-in when one is needed, so there is
+// nothing to add for that.
 //
 // gmailReplyEmail is the narrow one: it answers a message the agent has
 // already read, at that message's own address, so it cannot reach anybody who

@@ -33,9 +33,9 @@ interface Options {
  * A tool that reads the mail the agent is bound to. The search is the
  * binding's, and the model chooses only how far back and how many.
  *
- * It needs the google connector, so the agent gets the Google sign-in beside it:
- * mail that cannot be read because nobody has signed in is not a different
- * problem from mail. Nothing to add, and no way to have one without the other.
+ * It needs the google connector, so when nobody has signed in the runtime
+ * sends the sign-in itself: mail that cannot be read because nobody has signed
+ * in is not a different problem from mail, and there is nothing to add.
  */
 export function gmailReadEmail({
   search = "in:inbox",

@@ -5,11 +5,28 @@
 // a bearer header. So a box with a subscription and no gateway credit runs the
 // agents through here instead. The route "claude" in settings picks it.
 //
-// The CLI's own tools and loop are switched off: see cli.ts for why and how.
+// The CLI's own tools and loop are switched off: see cli.ts for why. A turn's
+// tools are handed over as real ones instead, through `toolServer.ts`, which
+// runs nothing: the CLI stops after the model's first answer, and the calls in
+// it are read from the CLI's record as data. A model trained to call tools
+// asks that way however it is told, and asked to write requests as text it
+// sometimes did, and what the reading missed was sent to the person.
+import { randomUUID } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { settings } from "#chloe/core/settings";
 
-import { asText, invoke, readReply } from "./cli.ts";
-import { type Answer, type Ask, UsageLimit } from "./model.ts";
+import { asText, invoke } from "./cli.ts";
+import { type Answer, type Ask, type ToolCall, UsageLimit } from "./model.ts";
+
+/** What the CLI calls a tool from the server it is handed, which is named "chloe". */
+const PREFIX = "mcp__chloe__";
+
+/** The server, beside this file: the .ts in a clone, the .js in an install, where Node strips no types. */
+const SERVER = fileURLToPath(new URL(`./toolServer.${import.meta.url.endsWith(".ts") ? "ts" : "js"}`, import.meta.url));
 
 /**
  * The CLI names a model without a provider in front of it, and writes a version
@@ -55,8 +72,50 @@ function isLimit(answer: CliAnswer): boolean {
 }
 
 export async function viaClaude({ model, messages, tools, signal }: Ask): Promise<Answer> {
-  const { system, transcript } = asText({ messages, tools });
+  const { system, transcript } = asText({ messages, tools, native: true });
+  const folder = tools?.length ? await mkdtemp(join(tmpdir(), "chloe-claude-")) : "";
+  try {
+    return await asked({ model, system, transcript, messages, tools, signal, folder });
+  } finally {
+    if (folder) await rm(folder, { recursive: true, force: true });
+  }
+}
 
+/** One event of the CLI's stream-json record. */
+interface Event {
+  type?: string;
+  message?: { content?: { type?: string; text?: string; name?: string; input?: unknown }[] };
+}
+
+/**
+ * What the model said and asked for, out of the CLI's record: the text and
+ * tool calls of every answer it gave, and the result line it ends on. Only
+ * calls to the tools it was handed count.
+ */
+export function readStream(out: string): { answer?: CliAnswer; said: string; calls: ToolCall[] } {
+  const said: string[] = [];
+  const calls: ToolCall[] = [];
+  let answer: CliAnswer | undefined;
+  for (const line of out.split("\n")) {
+    let event: Event & CliAnswer;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (event.type === "result") answer = event;
+    if (event.type !== "assistant") continue;
+    for (const block of event.message?.content ?? []) {
+      if (block.type === "text" && block.text?.trim()) said.push(block.text.trim());
+      if (block.type === "tool_use" && block.name?.startsWith(PREFIX)) {
+        calls.push({ id: randomUUID(), type: "function", function: { name: block.name.slice(PREFIX.length), arguments: JSON.stringify(block.input ?? {}) } });
+      }
+    }
+  }
+  return { answer, said: said.join("\n\n"), calls };
+}
+
+async function asked({ model, system, transcript, messages, tools, signal, folder }: Ask & { system: string; transcript: string; folder: string }): Promise<Answer> {
   const args = [
     "-p",
     "--output-format",
@@ -73,6 +132,16 @@ export async function viaClaude({ model, messages, tools, signal }: Ask): Promis
     "--system-prompt",
     system,
   ];
+
+  // The tools, as a server the CLI starts, allowed by name, and one answer:
+  // the CLI would otherwise go on to a second one with a result nobody ran.
+  if (tools?.length) {
+    const specs = join(folder, "tools.json");
+    const servers = join(folder, "servers.json");
+    await writeFile(specs, JSON.stringify(tools));
+    await writeFile(servers, JSON.stringify({ mcpServers: { chloe: { type: "stdio", command: process.execPath, args: [SERVER, specs] } } }));
+    args.push("--mcp-config", servers, "--allowedTools", ...tools.map((one) => `${PREFIX}${one.name}`), "--max-turns", "1");
+  }
 
   // Files cannot go in plain text, so a turn with any is sent as one message
   // of blocks instead, which the CLI only takes as stream-json. Its last line
@@ -93,9 +162,10 @@ export async function viaClaude({ model, messages, tools, signal }: Ask): Promis
         },
       }) + "\n"
     : transcript;
-  if (files.length) {
-    args.splice(args.indexOf("--output-format"), 2, "--input-format", "stream-json", "--output-format", "stream-json", "--verbose");
-  }
+  // The record of each answer, which is where a tool call is, comes only as stream-json.
+  const streamed = files.length > 0 || Boolean(tools?.length);
+  if (streamed) args.splice(args.indexOf("--output-format"), 2, "--output-format", "stream-json", "--verbose");
+  if (files.length) args.push("--input-format", "stream-json");
 
   const cli = settings.model.program.claude;
   const { code, out, err } = await invoke(cli, args, input, {
@@ -104,29 +174,39 @@ export async function viaClaude({ model, messages, tools, signal }: Ask): Promis
     env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: MOST },
   });
   let answer: CliAnswer | undefined;
-  try {
-    answer = JSON.parse(files.length ? out.trim().split("\n").pop()! : out) as CliAnswer;
-  } catch {
-    if (code === 0) throw new Error(`Model call refused: claude did not answer with JSON: ${out.slice(0, 500)}`);
+  let read: ReturnType<typeof readStream> | undefined;
+  if (streamed) {
+    read = readStream(out);
+    answer = read.answer;
+    if (!answer && code === 0) throw new Error(`Model call refused: claude did not end with a result: ${out.slice(0, 500)}`);
+  } else {
+    try {
+      answer = JSON.parse(out) as CliAnswer;
+    } catch {
+      if (code === 0) throw new Error(`Model call refused: claude did not answer with JSON: ${out.slice(0, 500)}`);
+    }
   }
+  // Stopped after one answer because it asked for tools, which is the point of
+  // that limit, and not a failure.
+  const asking = Boolean(read?.calls.length) && answer?.subtype === "error_max_turns";
   if (answer && isLimit(answer)) {
     const said = answer.result?.trim() ? ` It says: ${answer.result.trim()}` : "";
     throw new UsageLimit(`I have hit the usage limit on the Claude plan, so I cannot answer until it resets.${said}`);
   }
   // On a failure the CLI still prints its JSON, and the reason is in result,
   // after a long run of counters that a cut at 500 characters loses.
-  if (code !== 0) {
+  if (code !== 0 && !asking) {
     throw new Error(`Model call refused: claude exited ${code}: ${(answer?.result || err || out).slice(0, 500)}`);
   }
-  if (!answer || answer.is_error || typeof answer.result !== "string") {
+  if (!answer || (!asking && (answer.is_error || typeof answer.result !== "string"))) {
     throw new Error(`Model call refused: ${answer?.subtype ?? "no result"}: ${String(answer?.result ?? "").slice(0, 500)}`);
   }
 
-  const { said, calls, dropped } = tools?.length ? readReply(answer.result, tools) : { said: answer.result, calls: [] };
   return {
-    text: said,
-    toolCalls: calls,
-    ...(dropped && { dropped }),
+    // With tools the words are those of the answer itself, never the result
+    // line, which on a stop for tools is empty.
+    text: read && tools?.length ? read.said : (answer.result ?? ""),
+    toolCalls: read?.calls ?? [],
     // What it would have cost on the API. A subscription is not billed per
     // call, so this prices the run rather than charging it.
     cost: answer.total_cost_usd ?? 0,

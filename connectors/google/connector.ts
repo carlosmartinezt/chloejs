@@ -4,13 +4,13 @@ import { settings } from "#chloe/core/settings";
 import type { Connector } from "#chloe/connectors/connector";
 
 import { signInState } from "./googleService.ts";
-import { googleSignInTools } from "./signIn.ts";
+import { googleSignIn } from "./signIn.ts";
 
 export const google: Connector = {
   name: "google",
-  does: "The account its mail, calendar and files are reached as. Somebody signs in once, which the agent can ask them to do.",
+  does: "The account its mail, calendar and files are reached as. Somebody signs in once, from a chat with the agent or from the dashboard.",
   settings: ["google.account", "google.client"],
-  signIn: googleSignInTools,
+  signIn: googleSignIn,
   async missing() {
     const client = settings.google.client;
     const filled = typeof client === "object" ? Object.keys(client).length > 0 : Boolean(client?.trim());

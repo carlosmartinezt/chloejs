@@ -6,7 +6,8 @@
 // against its schema and writes every call down. A model that quietly read a
 // file would leave nothing in the run record, which is the one thing this repo
 // will not give up. So the tools are described in the prompt and asked for as
-// JSON, and this file is how.
+// JSON, and this file is how. The claude route does not: its tools are real
+// tool calls through `toolServer.ts`, and only the transcript is written here.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
@@ -36,7 +37,7 @@ export function protocol(tools: ToolSpec[]): string {
   ].join("\n");
 }
 
-function render(message: Message, names: Map<string, string>): string {
+function render(message: Message, names: Map<string, string>, native: boolean): string {
   if (message.role === "tool") {
     // Named when the answer asked for several, so each result can be told
     // apart; a single call keeps the plain heading it always had.
@@ -44,6 +45,13 @@ function render(message: Message, names: Map<string, string>): string {
     return `${name ? `[result of ${name}]` : "[result]"}\n${message.content}`;
   }
   if (message.role === "assistant") {
+    // Where tools are real calls, a past one is said in words: a request
+    // written out the way a transcript shows it would be copied as text, and
+    // text asks for nothing.
+    if (native) {
+      const asked = (message.tool_calls ?? []).map((c) => `(called ${c.function.name} with ${c.function.arguments || "{}"})`);
+      return [`[you]`, message.content, ...asked].filter(Boolean).join("\n");
+    }
     // Written exactly as protocol() asks for one. A model copies the shape it
     // sees in the transcript over the shape the rules describe, and a call
     // copied in any other shape is read as its answer and sent to the user.
@@ -66,18 +74,23 @@ function parsedArguments(raw: string): unknown {
 /**
  * A request as two pieces of text: the instructions (every system message,
  * then the tools) and the conversation so far, one turn after another.
+ * `native` is for a route that hands the tools over as real ones, so they are
+ * not described here and a past call is written in words.
  */
-export function asText({ messages, tools }: { messages: Message[]; tools?: ToolSpec[] }): { system: string; transcript: string } {
+export function asText({ messages, tools, native = false }: { messages: Message[]; tools?: ToolSpec[]; native?: boolean }): {
+  system: string;
+  transcript: string;
+} {
   const system = [
     ...messages.filter((m) => m.role === "system").map((m) => m.content),
-    ...(tools?.length ? [protocol(tools)] : []),
+    ...(tools?.length && !native ? [protocol(tools)] : []),
   ].join("\n\n");
   let names = new Map<string, string>();
   const transcript = messages
     .filter((m) => m.role !== "system")
     .map((m) => {
       if (m.role === "assistant") names = new Map((m.tool_calls ?? []).map((c) => [c.id, c.function.name]));
-      return render(m, names);
+      return render(m, names, native);
     })
     .join("\n\n");
   return { system, transcript };

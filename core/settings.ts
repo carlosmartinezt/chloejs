@@ -205,10 +205,11 @@ export interface Settings {
       /** Write: a file, a memory file, an answer to a parked job, a model pick. */
       write: boolean;
       /**
-       * Let the dashboard hand back the answer to a Google sign-in this
-       * runtime started, so nobody has to paste a code. Nothing else about
-       * Google comes through it, and a code that does not match the sign-in
-       * this runtime is waiting for is refused.
+       * Let the dashboard start and finish a connection's sign-in, and hand
+       * back the answer to a Google sign-in this runtime started, so nobody
+       * has to paste a code. Nothing else about Google comes through it, and
+       * a code that does not match the sign-in this runtime is waiting for is
+       * refused.
        * Requires a callback set to: https://dashboard.chloejs.org/oauth/google/callback/<workspace>
        */
       google: boolean;

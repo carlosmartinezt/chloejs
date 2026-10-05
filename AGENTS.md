@@ -258,12 +258,19 @@ one.** Each is a folder in `connectors/`: its tools, its services, and a
 `connector.ts` that is a `Connector` saying what it reads (`settings`), how
 somebody signs in (`signIn`), and what is missing before it works
 (`missing()`, in words). A tool that works through one says so with `needs`:
-every Gmail, Calendar and Drive tool is marked `needs: google`. From that the
-loader adds the connector's sign-in beside the tool, and the setup page and
-the lines printed at startup ask it what is missing. So an agent says
-`gmailReadEmail` and is done, there is no way to have mail without the means
-to fix mail, and a connector in an agent's own folder works the same with
-nothing added here. Google and Resend ship with the runtime.
+every Gmail, Calendar and Drive tool is marked `needs: google`. The setup page
+and the lines printed at startup ask it what is missing. So an agent says
+`gmailReadEmail` and is done, and a connector in an agent's own folder works
+the same with nothing added here. Google and Resend ship with the runtime.
+
+**A sign-in is code, and no model ever holds one.** A connector's service
+throws `NeedsSignIn` when signing in would fix what failed. The turn stops
+there, the runtime calls the connector's `signIn.start()` and sends its words
+and its link exactly as made, and `receive()` hands the answer that comes back
+to `signIn.finish()` before any model sees it, then asks the interrupted
+request again. A run with nobody to answer starts nothing and fails saying who
+can sign in. Two tools that let the model do it were how a link reached
+somebody with the mail scopes rewritten out of it.
 
 **A connector reaches its service with plain web requests, never a program
 and never a package of the service's own.** Google is `googleApi()` in
@@ -349,7 +356,13 @@ OpenAI models over a key is the gateway route: put `gateway` first in
 Nothing about a model's name decides which account pays for it.
 
 Each CLI route is one file the shape of `model/claude.ts` with the CLI's own
-tools switched off, and `model/cli.ts` is what they share. A CLI that carries one
+tools switched off, and `model/cli.ts` is what they share. The claude route
+hands a turn's tools over as real ones, through `model/toolServer.ts`, a
+server that runs nothing, and stops the CLI after the model's first answer, so
+every call is read from the CLI's record as data. Codex and opencode still
+describe the tools in words and read requests back out of the reply, which is a
+guess, and what it misses reaches the person as words: move them over when
+their CLIs can be tried. A CLI that carries one
 provider says so in its own `cliModel`; opencode carries whatever it is signed in
 to, so `opencodeModels()` asks it rather than the runtime deciding, once per
 process because `routeFor` cannot wait two seconds. `CHLOE_MODEL_PREFER=` in

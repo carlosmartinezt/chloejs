@@ -19,7 +19,7 @@ import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/
 import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
 import { nameOf, type SdkModel } from "#chloe/model/key";
-import { cannotRun, connectorsOf, type Tools } from "#chloe/model/tool";
+import { cannotRun, type Tools } from "#chloe/model/tool";
 import type { McpConnection } from "#chloe/connectors/mcp";
 import { memoryTools } from "#chloe/model/tools/memory";
 import { scriptTools } from "#chloe/model/tools/script";
@@ -608,7 +608,7 @@ function featureTools(features: Features = {}, home: Home, where: string): Tools
   };
 }
 
-/** The agent's tools, checked, with the sign-in of each connector one of them needs. */
+/** The agent's tools, checked. */
 function toolsOf(tools: Tools, where: string): Tools {
   if (Array.isArray(tools) || typeof tools !== "object") {
     throw new Error(`${where}: tools is one object keyed by name, like { weather, gmailReadEmail: gmailReadEmail({ ... }) }.`);
@@ -617,8 +617,7 @@ function toolsOf(tools: Tools, where: string): Tools {
     const wrong = cannotRun(id, each);
     if (wrong) throw new Error(`${where}: ${wrong}`);
   }
-  const signIn = connectorsOf(tools).map((one) => one.signIn?.() ?? {});
-  return Object.assign({}, ...signIn, tools);
+  return tools;
 }
 
 async function skillsIn(dir: string): Promise<Skill[]> {

@@ -728,6 +728,8 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
       }
       before = 0;
       if (done.stopped === "budget") throw tooDear();
+      // A job has nobody to send a link to, so it ends saying what is needed.
+      if (done.stopped === "sign-in") throw new Error(done.text);
       if (done.stopped === "steps") {
         if (attempt === 1) throw wrongShape();
         throw new Error(

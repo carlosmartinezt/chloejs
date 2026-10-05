@@ -14,8 +14,9 @@ import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
-import { approval, check, describe, overviewsOf, run, type Call, type ToolContext, type Tools } from "#chloe/model/tool";
+import { approval, check, connectorsOf, describe, overviewsOf, run, type Call, type ToolContext, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
+import { NeedsSignIn } from "#chloe/connectors/connector";
 
 export interface Ask {
   agent: Agent;
@@ -297,21 +298,39 @@ async function go(options: {
     // A run that carried on has steps and spending from before it stopped.
     const steps = answers(trace);
     const cost = costOf(trace);
-    if (done.stopped) {
+    // A sign-in somebody can do from here is an answer, not a failure: the
+    // runtime starts it and the reply is the connector's own words and link.
+    const signIn = done.stopped === "sign-in" && done.signIn ? await signInReply(tools, done.signIn, Boolean(thread)) : undefined;
+    if (done.stopped && !signIn) {
       fail(runId, done.text, steps, cost, trace);
       await committed({ error: done.text });
       return { runId, text: done.text, steps, cost, calls };
     }
-    finish(runId, done.text, steps, cost, trace);
-    await committed({ summary: oneLineSummary(done.text) });
-    if (thread) remember(thread, "assistant", done.text, calls);
-    return { runId, text: done.text, steps, cost, calls };
+    const text = signIn ?? done.text;
+    finish(runId, text, steps, cost, trace);
+    await committed({ summary: oneLineSummary(text) });
+    if (thread) remember(thread, "assistant", text, calls);
+    return { runId, text, steps, cost, calls };
   } catch (error) {
     const why = String(error instanceof Error ? error.message : error);
     fail(runId, why, answers(trace), costOf(trace), trace);
     await committed({ error: why });
     throw error;
   }
+}
+
+/**
+ * What to send when a tool needs somebody to sign in: what failed, the
+ * connector's own words, and its link exactly as it made it. Only in a
+ * conversation, where the answer can come back: a run with nobody to answer
+ * it fails instead, saying so, because starting a sign-in nobody sees would
+ * only replace the link somebody else is about to open.
+ */
+async function signInReply(tools: Tools, needed: { connector: string; why: string }, canAnswer: boolean): Promise<string | undefined> {
+  const connector = connectorsOf(tools).find((one) => one.name === needed.connector);
+  if (!canAnswer || !connector?.signIn) return undefined;
+  const started = await connector.signIn.start();
+  return [needed.why, started.say, started.link].filter(Boolean).join("\n\n");
 }
 
 /** The text and tool calls a model saw before it began, without attachment bytes. */
@@ -349,7 +368,9 @@ export interface LoopStep {
  * "budget" are limits it hit, which is an answer and not a crash. "person" is
  * a call somebody has to approve first: `waiting` is that call and the ones
  * after it in the same answer, none of them run, and `messages` is the
- * conversation to pick up from with `resume`.
+ * conversation to pick up from with `resume`. "sign-in" is a tool that threw
+ * `NeedsSignIn`: `signIn` says which connector, and the calls after it in the
+ * same answer are not run.
  */
 export async function loop(options: {
   model: string;
@@ -384,8 +405,10 @@ export async function loop(options: {
   steps: number;
   cost: number;
   calls: Result["calls"];
-  stopped: false | "steps" | "budget" | "person";
+  stopped: false | "steps" | "budget" | "person" | "sign-in";
   waiting?: { calls: ToolCall[]; reason: string; input: unknown };
+  /** With "sign-in": the connector a tool needs somebody to sign in to, and what failed, in words. */
+  signIn?: { connector: string; why: string };
 }> {
   const specs = await Promise.all(Object.entries(options.tools).map(([name, one]) => describe(name, one)));
   const calls: Result["calls"] = [];
@@ -428,11 +451,17 @@ export async function loop(options: {
       if ("person" in ran) {
         return { text: "", steps, cost, calls, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
       }
-      const { output, args, failed, refused } = ran;
+      const { output, args, failed, refused, signIn } = ran;
       step.toolCalls.push({ type: "tool-call", toolCallId: call.id, toolName: call.function.name, input: args });
       step.toolResults.push({ type: "tool-result", toolCallId: call.id, toolName: call.function.name, input: args, output });
       calls.push({ toolName: call.function.name, input: args, output, ...(refused && { refused }) });
       options.onStep?.({ step: steps, at, tool: call.function.name, args, result: clip(output), ...(failed && { failed }), ...(refused && { refused }) });
+      // Fixed by somebody signing in, which the runtime starts, so the model is
+      // not asked again: it would only try to get round it.
+      if (signIn) {
+        const why = String(output).replace(/^[\w-]+ failed: /, "");
+        return { text: `${why} Somebody signs in from a chat with this agent, or from the dashboard.`, steps: steps + 1, cost, calls, stopped: "sign-in", signIn: { connector: signIn, why } };
+      }
       options.messages.push({
         role: "tool",
         tool_call_id: call.id,
@@ -470,7 +499,7 @@ async function runTool(
   tools: Tools,
   call: ToolCall,
   how: { context: ToolContext; instead?: Ask["instead"]; toolApproval?: ToolApprovalConfiguration<any, any>; canAsk?: boolean; decided?: Decided },
-): Promise<{ output: unknown; args: unknown; failed?: boolean; refused?: boolean } | { person: string; args: unknown }> {
+): Promise<{ output: unknown; args: unknown; failed?: boolean; refused?: boolean; signIn?: string } | { person: string; args: unknown }> {
   const name = call.function.name;
   let args: unknown;
   try {
@@ -514,7 +543,8 @@ async function runTool(
     const output = how.instead ? await how.instead(name, checked.value) : await run(one, checked.value, call.id, how.context);
     return { output: output ?? { ok: true }, args: checked.value };
   } catch (error) {
-    return { output: `${name} failed: ${error instanceof Error ? error.message : String(error)}`, args: checked.value, failed: true };
+    const output = `${name} failed: ${error instanceof Error ? error.message : String(error)}`;
+    return { output, args: checked.value, failed: true, ...(error instanceof NeedsSignIn && { signIn: error.connector }) };
   }
 }
 

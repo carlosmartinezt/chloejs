@@ -10,21 +10,22 @@ import type { Tools } from "./shared.ts";
 
 {
   about("what Google says when a person has to sign in");
-  const { callback, codeFrom, explain, signInState, SHOWS_THE_CODE, start } = await import("#chloe/connectors/google/googleService");
+  const { callback, codeFrom, explain, failure, signInState, SHOWS_THE_CODE, start } = await import("#chloe/connectors/google/googleService");
   const { settings } = await import("@chloejs/core");
 
-  // Every one of these is fixed by one sign-in, and a sign-in is something the
-  // agent starts itself, so none of them may send anybody to the machine.
+  // Every one of these is fixed by one sign-in, which the runtime starts when
+  // it meets NeedsSignIn, so none of them may send anybody to the machine.
+  const { NeedsSignIn } = await import("#chloe/connectors/connector");
   for (const [what, text] of [
     ["a sign-in Google has taken back", '{"error":"invalid_grant","error_description":"Token has been expired or revoked."}'],
     ["nobody having signed in yet", "no sign-in"],
     ["a sign-in that was not allowed this", "Request had insufficient authentication scopes."],
   ] as const) {
-    const said = explain(text);
-    is(`${what} points at the tool`, said.includes("googleSignIn"), true);
-    is(`${what} says not to retry`, said.includes("do not retry"), true);
-    is(`${what} does not send anybody to the box`, /auth login|on the box|paste/i.test(said), false);
+    const thrown = failure(text);
+    is(`${what} is a sign-in to do, for google`, thrown instanceof NeedsSignIn && thrown.connector, "google");
+    is(`${what} does not send anybody to the box`, /auth login|on the box|paste/i.test(thrown.message), false);
   }
+  is("a service switched off is not a sign-in to do", failure("Gmail API has not been used in project 1 before or it is disabled") instanceof NeedsSignIn, false);
 
   is("a service switched off in the console is not a sign-in either", explain("Gmail API has not been used in project 1 before or it is disabled").includes("Library"), true);
 
@@ -174,32 +175,14 @@ import type { Tools } from "./shared.ts";
   const { gmailReadEmail, gmailSendEmail } = await import("#chloe/connectors/google/gmail");
   const { resendSendEmail } = await import("#chloe/connectors/resend/resend");
 
-  // Nobody should have to remember to add the sign-in. An agent that can read
-  // mail can get itself signed in to read mail, and that is one decision.
+  // A sign-in is the runtime's to run, so no model is handed one: a model asked
+  // to copy a sign-in link rewrote it and left out the mail.
   const { defineAgent: define } = await import("@chloejs/core");
   const { resolveAgent: resolve } = await import("#chloe/load/load");
   const toolsOf = async (tools: Tools) =>
     Object.keys((await resolve(define({ id: "mail", folder: await mkdtemp(join(tmpdir(), "chloe-mail-")), model: "m", description: "", instructions: "Hi.", features: { memory: false }, tools }))).tools ?? {}).sort();
-  is("gmailReadEmail comes with the sign-in", await toolsOf({ gmailReadEmail: gmailReadEmail({ search: "in:inbox" }) }), [
-    "gmailReadEmail",
-    "googleSignIn",
-    "googleSignInComplete",
-  ]);
-
+  is("gmailReadEmail comes with no sign-in tool", await toolsOf({ gmailReadEmail: gmailReadEmail({ search: "in:inbox" }) }), ["gmailReadEmail"]);
   const sender = { when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] };
-  is("gmailSendEmail does too", await toolsOf({ gmailSendEmail: gmailSendEmail(sender) }), [
-    "gmailSendEmail",
-    "googleSignIn",
-    "googleSignInComplete",
-  ]);
-  const { calendarListEvents } = await import("#chloe/connectors/google/calendar");
-  const { driveReadFile } = await import("#chloe/connectors/google/drive");
-  is("and so do the calendar and Drive, with one sign-in between them", await toolsOf({ calendarListEvents: calendarListEvents(), driveReadFile: driveReadFile() }), [
-    "calendarListEvents",
-    "driveReadFile",
-    "googleSignIn",
-    "googleSignInComplete",
-  ]);
   is("resendSendEmail has nothing to sign in to", await toolsOf({ resendSendEmail: resendSendEmail(sender) }), ["resendSendEmail"]);
 
   about("a connector of an agent's own");
@@ -208,15 +191,25 @@ import type { Tools } from "./shared.ts";
     name: "shop",
     does: "The shop's orders.",
     settings: ["agents.mail.shop"],
-    signIn: () => ({ shopSignIn: tool({ description: "Sign in to the shop.", inputSchema: z.object({}), execute: async () => ({}) }) }),
+    signIn: { start: async () => ({ say: "Open this.", link: "https://shop.example/sign-in" }), answers: () => false, finish: async () => "Signed in." },
     missing: async () => ["nobody has signed in to the shop"],
   };
   const orders = Object.assign(tool({ description: "Read the orders.", inputSchema: z.object({}), execute: async () => [] }), { needs: shop });
-  is("its sign-in comes with the tool that needs it", await toolsOf({ shopReadOrders: orders }), ["shopReadOrders", "shopSignIn"]);
+  is("its tools are what the agent named, and no more", await toolsOf({ shopReadOrders: orders }), ["shopReadOrders"]);
   const reached = await connectionsOf({ id: "mail", model: "m", tools: { shopReadOrders: orders, again: orders } } as any);
   is("the setup page lists it once, with what is missing", reached.filter((one) => one.name === "shop"), [
-    { name: "shop", does: "The shop's orders.", needs: "agents.mail.shop", ready: false, missing: ["nobody has signed in to the shop"] },
+    { name: "shop", does: "The shop's orders.", needs: "agents.mail.shop", ready: false, missing: ["nobody has signed in to the shop"], signIn: true },
   ]);
+  const { signInOf } = await import("#chloe/serve/inside");
+  const shopper = { id: "mail", model: "m", tools: { shopReadOrders: orders } } as any;
+  is("the page starts the same sign-in a chat does", await signInOf(shopper, "shop").start(), { say: "Open this.", link: "https://shop.example/sign-in" });
+  let unknown = "";
+  try {
+    signInOf(shopper, "bank");
+  } catch (error) {
+    unknown = (error as Error).message;
+  }
+  is("and a connection the agent does not have is not found", unknown.includes("no connection called"), true);
 
   about("what the person is told to do");
   const { whatToDo } = await import("#chloe/connectors/google/googleService");
@@ -302,6 +295,8 @@ import type { Tools } from "./shared.ts";
     settings.google.callback = "";
     const idToken = (claims: object) => `x.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.y`;
     let approvedBy = "somebody@example.com";
+    const everything = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly";
+    let granted = everything;
     const traded: URLSearchParams[] = [];
     const sent: { raw: string; threadId?: string }[] = [];
     const real = globalThis.fetch;
@@ -312,7 +307,7 @@ import type { Tools } from "./shared.ts";
         const form = new URLSearchParams(String(init?.body));
         traded.push(form);
         if (form.get("grant_type") === "authorization_code") {
-          return json({ access_token: "a1", expires_in: 3600, refresh_token: "r1", id_token: idToken({ aud: "the-id", email: approvedBy, email_verified: true }) });
+          return json({ access_token: "a1", expires_in: 3600, refresh_token: "r1", scope: granted, id_token: idToken({ aud: "the-id", email: approvedBy, email_verified: true }) });
         }
         return json({ access_token: "a2", expires_in: 3600 });
       }
@@ -353,7 +348,25 @@ import type { Tools } from "./shared.ts";
       is("and nothing is kept", (await signInState()).ready, false);
 
       approvedBy = "somebody@example.com";
+      granted = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.readonly";
       await start();
+      refused = "";
+      try {
+        await finish("the-code");
+      } catch (error) {
+        refused = (error as Error).message;
+      }
+      is("a sign-in Google allowed less than it asked for is not kept", refused.includes("without mail and the calendar"), true);
+      is("and nothing is kept for it either", (await signInState()).ready, false);
+
+      granted = everything;
+      const { isAnswer } = await import("#chloe/connectors/google/googleService");
+      const { link: sentLink } = await start();
+      const state = new URL(sentLink).searchParams.get("state");
+      is("a code in Google's form is the answer to a waiting sign-in", isAnswer("4/0AXlqoi4qRgcvmk6CUrHYNhoeVWqkRv0RGZWY87"), true);
+      is("so is the page's address with its state", isAnswer(`https://chloejs.org/connected?code=4/abc&state=${state}`), true);
+      is("but not one with another sign-in's state", isAnswer("https://chloejs.org/connected?code=4/abc&state=other"), false);
+      is("and never a word, which goes to the model", [isAnswer("hello"), isAnswer("check my gmail")], [false, false]);
       is("one approved by the account in settings is kept", await finish("the-code"), { account: "somebody@example.com", signedIn: true });
       is("with the code traded under its lock", (traded.at(-1)?.get("code_verifier")?.length ?? 0) > 40, true);
       is("and the state says it is ready", (await signInState()).ready, true);

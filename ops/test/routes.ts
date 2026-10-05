@@ -272,7 +272,45 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     const { viaClaude } = await import("#chloe/model/claude");
     const said = await viaClaude({ model: "anthropic/claude-sonnet-5", messages: [{ role: "user", content: "hi" }] } as any);
     is("the claude route caps each answer", said.text, "16000");
+
+    // With tools, they are real tool calls through the server beside the
+    // route, and the calls are read from the CLI's record, never from words.
+    // The stand-in answers in that record only when it was handed the server
+    // and told to stop after one answer.
+    const record = [
+      '{"type":"assistant","message":{"content":[{"type":"text","text":"=\\"gmailReadEmail\\""},{"type":"tool_use","name":"mcp__chloe__gmailReadEmail","input":{"days":7}},{"type":"tool_use","name":"Bash","input":{}}]}}',
+      '{"type":"result","subtype":"error_max_turns","is_error":true,"result":"","total_cost_usd":0.001}',
+    ].join("\n");
+    await writeFile(join(bin, "record.jsonl"), `${record}\n`);
+    const toolCli = await fake(
+      "claude-tools",
+      `cat >/dev/null; case "$*" in *--mcp-config*--max-turns\\ 1*) cat "${join(bin, "record.jsonl")}" ;; *) printf '{"result":"no tools","is_error":false}' ;; esac`,
+    );
+    pin(toolCli, anyCli, opencodeCli);
+    const tools = [{ name: "gmailReadEmail", description: "Read mail.", parameters: { type: "object", properties: { days: { type: "number" } } } }];
+    const asked = await viaClaude({ model: "anthropic/claude-sonnet-5", messages: [{ role: "user", content: "mail?" }], tools } as any);
+    is("with tools, a call is read from the record", asked.toolCalls.map((c) => [c.function.name, c.function.arguments]), [["gmailReadEmail", '{"days":7}']]);
+    is("only a call to a tool it was handed", asked.toolCalls.length, 1);
+    is("and words are only words, whatever they look like", asked.text, '="gmailReadEmail"');
+    is("stopping after one answer to ask is not a failure", asked.cost, 0.001);
     pin(anyCli, anyCli, opencodeCli);
+
+    const { spawn } = await import("node:child_process");
+    const specs = join(bin, "tools.json");
+    await writeFile(specs, JSON.stringify(tools));
+    const server = spawn(process.execPath, [join(import.meta.dirname, "../../model/toolServer.ts"), specs]);
+    const heard: string[] = [];
+    server.stdout.on("data", (chunk: Buffer) => heard.push(...chunk.toString().split("\n").filter(Boolean)));
+    server.stdin.write('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}\n');
+    server.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n');
+    server.stdin.write('{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n');
+    server.stdin.write('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"gmailReadEmail","arguments":{}}}\n');
+    for (let i = 0; i < 100 && heard.length < 3; i++) await new Promise((done) => setTimeout(done, 20));
+    server.kill();
+    const answers = heard.map((one) => JSON.parse(one));
+    is("the tool server answers who it is", answers[0]?.result?.serverInfo?.name, "chloe");
+    is("lists the tools it was handed, with their arguments", answers[1]?.result?.tools, [{ name: "gmailReadEmail", description: "Read mail.", inputSchema: tools[0].parameters }]);
+    is("and runs nothing when one is called", answers[2]?.result?.content?.[0]?.text.startsWith("Asked for."), true);
 
     pin("/nowhere/claude", "/nowhere/codex", "/nowhere/opencode");
     is("a route with no program is not set up, and a key is still the gateway", settings.model.prefer.filter(runnable), ["gateway"]);

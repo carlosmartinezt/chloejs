@@ -14,9 +14,9 @@ import type { ToolSpec } from "./model.ts";
  * a memory, the tables of a database), put at the top of every turn and agent
  * step it is handed to, so the model starts out knowing where things are. Asked
  * again each time, never kept. `needs` is the connector it works through: the
- * setup page asks that connector what is missing, and the loader adds the
- * connector's sign-in beside the tool, so an agent that can read mail can get
- * somebody signed in to read it.
+ * setup page asks that connector what is missing, and when the tool throws
+ * `NeedsSignIn` the runtime runs that connector's sign-in, so an agent that can
+ * read mail can get somebody signed in to read it.
  */
 export type ChloeTool = Tool & { overview?: () => Promise<string> | string; needs?: Connector };
 

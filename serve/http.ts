@@ -38,8 +38,8 @@ import {
 import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound } from "./errors.ts";
 import { recentWork } from "./recentWork.ts";
-import { finish as finishSignIn, signInState, start as startSignIn } from "#chloe/connectors/google/googleService";
-import { channelsOf, connectionsOf, toolsOf } from "./inside.ts";
+import { finish as finishSignIn, signInState } from "#chloe/connectors/google/googleService";
+import { channelsOf, connectionsOf, signInOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import { type Caller, type Guest, caller, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
@@ -347,6 +347,27 @@ export const routes: Route[] = [
     token: true,
     remote: "read",
     handle: async ({ response, context, params }) => json(response, await connectionsOf(context.agent(params.id))),
+  },
+  // A person at the page signing in, the same three functions a chat uses, so
+  // there is one sign-in and two places to start it. `remote: "google"` is the
+  // switch for signing in from the cloud, whichever connector it is.
+  {
+    method: "POST",
+    path: "/api/agents/:id/connections/:name/sign-in",
+    does: "Start the sign-in of one of its connectors, and hand back what to tell the person and the link to open.",
+    remote: "google",
+    handle: async ({ response, context, params }) => json(response, await signInOf(context.agent(params.id), params.name).start()),
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/connections/:name/finish",
+    does: "Finish that sign-in with what the person got back: the code, or the address the browser landed on.",
+    takes: '{"answer": "4/0A..."}',
+    remote: "google",
+    handle: async ({ request, response, context, params }) => {
+      const { answer } = await body(request, z.object({ answer: z.string().trim().min(1) }));
+      json(response, { said: await signInOf(context.agent(params.id), params.name).finish(answer) });
+    },
   },
   {
     method: "GET",
@@ -944,22 +965,15 @@ export const routes: Route[] = [
     remote: "write",
     handle: ({ response, context, params }) => json(response, agentSeen(context.agent(params.id))),
   },
-  // Getting signed in to Google. Starting one is the agent's own tool; these
-  // two are for a person at the page and for the dashboard handing back the
-  // answer, so that nobody has to copy a code off a page that will not load.
+  // Where Google stands, and the dashboard handing back Google's answer, so
+  // nobody has to copy a code. A sign-in starts from a chat or from a
+  // connection's own route above.
   {
     method: "GET",
     path: "/api/google",
     does: "Whether Google can be reached: which account, what is missing, and whether a sign-in is waiting for its answer.",
     remote: "read",
     handle: async ({ response }) => json(response, await signInState()),
-  },
-  {
-    method: "POST",
-    path: "/api/google/sign-in",
-    does: "Start a sign-in, over one that already works too, and hand back the link for the person to open.",
-    remote: "google",
-    handle: async ({ response }) => json(response, await startSignIn()),
   },
   {
     method: "POST",

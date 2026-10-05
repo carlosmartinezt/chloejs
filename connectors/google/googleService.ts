@@ -20,6 +20,7 @@ import { join } from "node:path";
 
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { STATE } from "#chloe/core/paths";
+import { NeedsSignIn } from "#chloe/connectors/connector";
 
 /** Everything Google, in one folder inside the state directory. */
 export const GOOGLE = join(STATE, "google");
@@ -47,6 +48,31 @@ const SCOPES: Record<string, string[]> = {
   calendar: ["https://www.googleapis.com/auth/calendar.events"],
   drive: ["https://www.googleapis.com/auth/drive.readonly"],
 };
+
+/** What each service is called when telling somebody what a sign-in cannot reach. */
+const NAMES: Record<string, string> = { gmail: "mail", calendar: "the calendar", drive: "files" };
+
+/**
+ * The services, out of those asked for, that a sign-in was not allowed, read
+ * from the scopes Google says it granted. Google lets a person untick a box on
+ * its approval page, and a link that lost a scope on its way to them asks for
+ * less, so a sign-in that went through is not one that reaches everything.
+ * Empty when Google said nothing about scopes.
+ */
+function notGranted(services: string, scope: string | undefined): string[] {
+  if (scope === undefined) return [];
+  const granted = new Set(scope.split(/\s+/));
+  return services
+    .split(",")
+    .map((one) => one.trim())
+    .filter((one) => SCOPES[one]?.some((each) => !granted.has(each)));
+}
+
+/** "mail and files", for services by their names in settings. */
+function named(services: string[]): string {
+  const words = services.map((one) => NAMES[one] ?? one);
+  return words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}` : (words[0] ?? "");
+}
 
 /**
  * The loopback address Google is told to send the answer to when nothing
@@ -284,7 +310,12 @@ export async function signInState(): Promise<SignInState> {
   if (!account) {
     return { ready: false, account, missing: "google.account is not set, so there is no account to sign in", waiting };
   }
-  if (saved()) return { ready: true, account, missing: "", waiting: false };
+  const held = saved();
+  if (held) {
+    const short = notGranted(SERVICES, held.scope);
+    if (!short.length) return { ready: true, account, missing: "", waiting: false };
+    return { ready: false, account, missing: `the saved sign-in cannot reach ${named(short)}, so somebody signs in again`, waiting };
+  }
   try {
     clientOf();
   } catch (error) {
@@ -403,6 +434,27 @@ export function codeFrom(answer: string, waiting: Pending): string {
 }
 
 /**
+ * Whether a message is the answer to the sign-in that is waiting: the address
+ * the browser landed on, carrying that sign-in's `state`, or a code in the
+ * form Google writes one. Strict, because a message this claims is never seen
+ * by the model, and reads only the file the waiting sign-in is in.
+ */
+export function isAnswer(text: string): boolean {
+  const waiting = readJson<Pending>(PENDING);
+  if (!waiting) return false;
+  const said = text.trim();
+  if (/^https?:\/\/\S+$/i.test(said)) {
+    try {
+      const url = new URL(said);
+      return url.searchParams.get("state") === waiting.state && (url.searchParams.has("code") || url.searchParams.has("error"));
+    } catch {
+      return false;
+    }
+  }
+  return /^(?:code=)?4\/[\w.~-]{20,}$/.test(said);
+}
+
+/**
  * Finish a sign-in with whatever came back from the browser.
  *
  * Takes the whole address, or just the code out of it, because a person on a
@@ -423,6 +475,8 @@ export async function finish(answer: string): Promise<{ account: string; signedI
   }
   const code = codeFrom(answer, waiting);
   const { id, secret } = clientOf();
+  // A code works once and for a few minutes, and Google's own words for a bad
+  // one are the words for an expired sign-in, which is not what happened.
   const tokens = await trade({
     grant_type: "authorization_code",
     code,
@@ -430,6 +484,8 @@ export async function finish(answer: string): Promise<{ account: string; signedI
     redirect_uri: waiting.redirect,
     client_id: id,
     client_secret: secret,
+  }).catch((error: Error) => {
+    throw new Error(`Google did not take that code, so nothing was saved. A code works once and for a few minutes. (${error.message})`);
   });
   // Straight from Google over HTTPS with this client's secret, so what it says
   // is Google's word, and only the client it was made for is checked.
@@ -441,6 +497,13 @@ export async function finish(answer: string): Promise<{ account: string; signedI
       approved
         ? `That sign-in was approved by ${approved} and not by ${waiting.account}, so it was thrown away. Sign in again with that account.`
         : `That sign-in could not be checked against ${waiting.account}, so it was thrown away.`,
+    );
+  }
+  const short = notGranted(waiting.services, tokens.scope);
+  if (short.length) {
+    rmSync(PENDING, { force: true });
+    throw new Error(
+      `Google approved the sign-in without ${named(short)}, so it was not kept. On Google's page every box has to be ticked. Sign in again.`,
     );
   }
   if (!tokens.refresh_token) {
@@ -463,7 +526,7 @@ interface Tokens {
   scope?: string;
 }
 
-/** A form posted to Google's token address, and what came back, or thrown in words an agent can act on. */
+/** A form posted to Google's token address, and what came back, or thrown in words, as `NeedsSignIn` when signing in fixes it. */
 async function trade(form: Record<string, string>): Promise<Tokens> {
   const response = await fetch(TRADE, {
     method: "POST",
@@ -472,7 +535,7 @@ async function trade(form: Record<string, string>): Promise<Tokens> {
     signal: AbortSignal.timeout(30_000),
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(explain(text));
+  if (!response.ok) throw failure(text);
   return JSON.parse(text) as Tokens;
 }
 
@@ -492,12 +555,13 @@ let opened: { key: string; until: number; account: string } | undefined;
 async function accessKey(): Promise<string> {
   const held = saved();
   if (!held) {
-    throw new Error(
-      settings.google.account
-        ? explain("no sign-in")
-        : "Google cannot be reached: google.account is not set, so there is no account to read. A person has to set it. Do not retry.",
-    );
+    throw settings.google.account
+      ? failure("no sign-in")
+      : new Error("Google cannot be reached: google.account is not set, so there is no account to read. A person has to set it. Do not retry.");
   }
+  // A key that cannot reach everything is a sign-in to do again, said before
+  // Google refuses it rather than after.
+  if (notGranted(SERVICES, held.scope).length) throw failure("insufficient scope");
   if (opened && opened.account === held.account && opened.until > Date.now()) return opened.key;
   const { id, secret } = clientOf();
   const tokens = await trade({ grant_type: "refresh_token", refresh_token: held.refresh_token, client_id: id, client_secret: secret });
@@ -510,8 +574,8 @@ async function accessKey(): Promise<string> {
 /**
  * One call to Google as the signed-in account: an address, its query, and a
  * body sent as JSON. JSON back, or text when `text` is set. Any failure is
- * thrown in words an agent can act on, rather than letting "invalid_grant"
- * reach a model that will retry it forever.
+ * thrown in words rather than as "invalid_grant", and one that a sign-in fixes
+ * as `NeedsSignIn`, which stops a turn before a model can retry it.
  */
 export async function googleApi<T>(
   url: string,
@@ -530,7 +594,7 @@ export async function googleApi<T>(
   });
   const said = await response.text();
   if (response.status === 401) opened = undefined;
-  if (!response.ok) throw new Error(explain(said || `${response.status} ${response.statusText}`));
+  if (!response.ok) throw failure(said || `${response.status} ${response.statusText}`);
   return (text ? said : said ? JSON.parse(said) : {}) as T;
 }
 
@@ -567,26 +631,22 @@ export function setupSteps(): { steps: string[]; addresses: string[]; why: strin
           ? "The chloejs.org one is the one that matters: with that registered, the page you land on shows you a short code to send back. Without it you get a browser error with the answer hidden in its address bar."
           : "The chloejs.org one is optional and worth it, if you make a Web application client: with that registered, the page you land on shows you a short code to send back, instead of a browser error with the answer hidden in its address bar.",
       `Download the client file it gives you, and put its path or its contents ${whereKeyGoes(["google", "client"])}.`,
-      "Tell me when that is done and I will send you the link to approve.",
+      "Then ask me for your mail again, and I will send you the link to approve.",
     ],
   };
 }
 
 /**
- * Turn Google's own failures into something an agent can act on. Every one of
- * these but the last two is fixed by one sign-in, and a sign-in is something
- * the agent can start itself, so none of them tells anybody to go to the box.
+ * Turn Google's own failures into words. The first three are fixed by one
+ * sign-in, which the runtime starts itself when it meets `NeedsSignIn`, so
+ * their words say what happened and never what to do about it. The other two
+ * need a person in Google's console, and say so.
  */
 export function explain(text: string): string {
-  const sign = "Start a sign-in with googleSignIn, send the person the link, and do not retry this until they answer.";
-  if (/invalid_grant|expired or revoked/i.test(text)) {
-    return `Google cannot be reached: the saved sign-in has expired or was taken back. ${sign}`;
-  }
-  if (/no sign-in|no refresh token/i.test(text)) {
-    return `Google cannot be reached: nobody has signed in on this copy. ${sign}`;
-  }
+  if (/invalid_grant|expired or revoked/i.test(text)) return "Google cannot be reached: the saved sign-in has expired or was taken back.";
+  if (/no sign-in|no refresh token/i.test(text)) return "Google cannot be reached: nobody has signed in on this copy.";
   if (/insufficient.*(scope|permission)|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(text)) {
-    return `Google cannot be reached: the sign-in was not allowed to do this. ${sign}`;
+    return "Google cannot be reached: the sign-in was not allowed to do this.";
   }
   if (/has not been used in project|is disabled|SERVICE_DISABLED/i.test(text)) {
     return (
@@ -598,6 +658,12 @@ export function explain(text: string): string {
     return "Google cannot be reached: Google refused this copy's client. A person checks google.client. Do not retry.";
   }
   return `Google could not be reached: ${text.trim().slice(0, 300)}`;
+}
+
+/** Google's failure as one to throw: `NeedsSignIn` when signing in fixes it, so the runtime starts one. */
+export function failure(text: string): Error {
+  const said = explain(text);
+  return /expired or was taken back|nobody has signed in|not allowed to do this/.test(said) ? new NeedsSignIn("google", said) : new Error(said);
 }
 
 /**

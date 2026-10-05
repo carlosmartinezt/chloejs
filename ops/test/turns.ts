@@ -198,3 +198,64 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, row } from "./shared.
   is("on, what it said on the way is sent first", [onTheWay, chatty?.text], [["Let me check."], "All fine."]);
   is("and kept in the conversation", recall("test/while").map((m) => m.content).slice(-3), ["how is it?", "Let me check.", "All fine."]);
 }
+
+
+{
+  about("a sign-in is the runtime's to run, never the model's");
+
+  const { NeedsSignIn } = await import("#chloe/connectors/connector");
+  const { receive } = await import("#chloe/channels/shared");
+  const { recall } = await import("#chloe/model/memory");
+  const link = "https://accounts.example/approve?scope=mail+files&state=s1";
+  let signedIn = false;
+  const shop: import("@chloejs/core").Connector = {
+    name: "shop",
+    does: "The shop's orders.",
+    settings: [],
+    signIn: {
+      start: async () => ({ say: "Open this link and send me the code.", link }),
+      answers: (text) => text.startsWith("code-"),
+      finish: async (text) => {
+        if (text !== "code-right") throw new Error("Google did not take that code.");
+        signedIn = true;
+        return "Signed in to the shop.";
+      },
+    },
+    missing: async () => (signedIn ? [] : ["nobody has signed in"]),
+  };
+  const orders = Object.assign(
+    tool({
+      description: "Read the orders.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!signedIn) throw new NeedsSignIn("shop", "The shop cannot be reached: nobody has signed in.");
+        return ["one late order"];
+      },
+    }),
+    { needs: shop },
+  );
+  const agent = { ...agentFor(codeJob("unused", async () => ({}))), tools: { shopReadOrders: orders } };
+  const call = { id: "1", type: "function", function: { name: "shopReadOrders", arguments: "{}" } };
+  const chat = (text: string) =>
+    receive(agent, { channel: "test", chat: "s", thread: "test/sign-in", from: { id: "1", name: "Me" }, text, private: true });
+
+  answers.push({ content: "", tool_calls: [call] });
+  const before = asked;
+  const first = await chat("any late orders?");
+  is("a tool that needs a sign-in stops the turn, with no second model call", asked, before + 1);
+  is("and the reply is what failed, the connector's words, and its link as it made it", first?.text, `The shop cannot be reached: nobody has signed in.\n\nOpen this link and send me the code.\n\n${link}`);
+
+  const wrong = await chat("code-wrong");
+  is("an answer the connector refuses is said, and no model is asked", [wrong?.text, asked], ["Google did not take that code.", before + 1]);
+
+  answers.push({ content: "", tool_calls: [call] }, "One order is late.");
+  const done = await chat("code-right");
+  is("the right one signs in, then what was asked is asked again", done?.text, "Signed in to the shop.\n\nOne order is late.");
+  is("the code is kept out of the conversation", recall("test/sign-in").some((one) => one.content.includes("code-right")), false);
+
+  signedIn = false;
+  const { turn } = await import("#chloe/core/turn");
+  answers.push({ content: "", tool_calls: [call] });
+  const alone = await turn({ agent, prompt: "any late orders?", source: "schedule" });
+  is("a run with nobody to answer starts no sign-in, and says who can", alone.text.includes("signs in from a chat") && !alone.text.includes(link), true);
+}

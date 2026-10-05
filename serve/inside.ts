@@ -10,6 +10,7 @@ import { routeFor } from "#chloe/model/model";
 import { connectorsOf, descriptionOf } from "#chloe/model/tool";
 import type { Agent } from "#chloe/load/load";
 import { collectsAt } from "#chloe/channels/whatsapp";
+import { BadRequest, NotFound } from "./errors.ts";
 
 /** One way in or one way out, said the same way so one page draws both. */
 export interface Way {
@@ -26,6 +27,8 @@ export interface Way {
   ready: boolean | null;
   /** What is missing before it works, one line each, when it says. */
   missing?: string[];
+  /** Whether somebody can sign in to it from the page. */
+  signIn?: boolean;
   /** How it was set up, as the agent's definition wrote it. Never a credential. */
   settings?: { name: string; value: string }[];
 }
@@ -197,7 +200,23 @@ export async function connectionsOf(agent: Agent): Promise<Way[]> {
       needs: connector.settings.join(", "),
       ready: missing.length === 0,
       missing,
+      ...(connector.signIn && { signIn: true }),
     });
   }
   return out;
+}
+
+/**
+ * The sign-in of one of the agent's connectors, by name, with what either half
+ * throws turned into a refusal in words, which is what the person needs to see.
+ */
+export function signInOf(agent: Agent, name: string): { start: () => Promise<{ say: string; link?: string }>; finish: (answer: string) => Promise<string> } {
+  const connector = connectorsOf(agent.tools ?? {}).find((one) => one.name === name);
+  if (!connector?.signIn) throw new NotFound(`${agent.id} has no connection called ${JSON.stringify(name)} to sign in to.`);
+  const { signIn } = connector;
+  const said = <T>(work: () => Promise<T>) =>
+    work().catch((error: Error) => {
+      throw new BadRequest(error.message);
+    });
+  return { start: () => said(() => signIn.start()), finish: (answer) => said(() => signIn.finish(answer)) };
 }
