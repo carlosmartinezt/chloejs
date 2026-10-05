@@ -38,6 +38,16 @@ interface CliAnswer {
   api_error_status?: number | null;
 }
 
+/**
+ * The most one answer may be, in tokens. A model now and then loops on its own
+ * tool syntax instead of answering, and goes on until the limit, which by
+ * default takes ten minutes. At this the CLI cuts it within about a minute and
+ * asks the model to carry on, up to three times, and fails the call when every
+ * try is cut. It keeps only the last try's text, so this sits far above any
+ * real answer: those are a few thousand.
+ */
+const MOST = "16000";
+
 /** A plan that has run out answers 429, or says "limit" in place of a reply. */
 function isLimit(answer: CliAnswer): boolean {
   if (answer.api_error_status === 429) return true;
@@ -91,6 +101,7 @@ export async function viaClaude({ model, messages, tools, signal }: Ask): Promis
   const { code, out, err } = await invoke(cli, args, input, {
     signal,
     missing: `The claude route needs ${JSON.stringify(cli)} on the path. Install Claude Code, or put it on the path.`,
+    env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: MOST },
   });
   let answer: CliAnswer | undefined;
   try {

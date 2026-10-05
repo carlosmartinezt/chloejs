@@ -265,6 +265,15 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     is("and the first of a list is the one it forces", routeFor("anthropic/claude-sonnet-5"), "opencode");
     delete process.env.CHLOE_MODEL_PREFER;
 
+    // A model now and then loops on its own tool syntax until the most an
+    // answer may be, which by default takes ten minutes.
+    const capped = await fake("claude-capped", 'cat >/dev/null; printf \'{"result":"%s","is_error":false}\' "$CLAUDE_CODE_MAX_OUTPUT_TOKENS"');
+    pin(capped, anyCli, opencodeCli);
+    const { viaClaude } = await import("#chloe/model/claude");
+    const said = await viaClaude({ model: "anthropic/claude-sonnet-5", messages: [{ role: "user", content: "hi" }] } as any);
+    is("the claude route caps each answer", said.text, "16000");
+    pin(anyCli, anyCli, opencodeCli);
+
     pin("/nowhere/claude", "/nowhere/codex", "/nowhere/opencode");
     is("a route with no program is not set up, and a key is still the gateway", settings.model.prefer.filter(runnable), ["gateway"]);
     pin(anyCli, anyCli, opencodeCli);
