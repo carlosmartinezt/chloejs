@@ -207,9 +207,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   const { cliModel } = await import("#chloe/model/claude");
   const { forgetOpencodeModels, readOpencode } = await import("#chloe/model/opencode");
   const { settings } = await import("@chloejs/core");
-  const forced = process.env.CHLOE_MODEL_PREFER;
   const before = structuredClone(settings.model);
-  delete process.env.CHLOE_MODEL_PREFER;
 
   // Every CLI is a stand-in, so what is on the path decides nothing here. The
   // opencode one answers `models` with two lines, which is how it says what it
@@ -229,7 +227,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   };
 
   try {
-    Object.assign(settings.model, { prefer: ["claude", "codex", "opencode", "gateway"], routes: {}, key: "", models: [] });
+    Object.assign(settings.model, { preferredRoute: ["claude", "codex", "opencode", "gateway"], key: "", models: [] });
     pin(anyCli, anyCli, opencodeCli);
     is("the first route that carries the provider wins, so anthropic is the subscription", routeFor("anthropic/claude-sonnet-5"), "claude");
     is("and openai is the plan, because claude cannot carry it", routeFor("openai/gpt-6-luna"), "codex");
@@ -247,23 +245,14 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     pin(anyCli, anyCli, opencodeCli);
     is("and with it set up again the key is not reached for", routeFor("anthropic/claude-sonnet-5"), "claude");
 
-    // Claude or Codex on an API key rather than a subscription: put the gateway
-    // first, for everything, or in model.routes for one provider.
-    settings.model.prefer = ["gateway", "claude", "codex", "opencode"];
+    // Claude or Codex on an API key rather than a subscription: put the gateway first.
+    settings.model.preferredRoute = ["gateway", "claude", "codex", "opencode"];
     is("the gateway first sends anthropic over the key", routeFor("anthropic/claude-sonnet-5"), "gateway");
     is("and openai too", routeFor("openai/gpt-6-luna"), "gateway");
-    settings.model.prefer = ["claude", "codex", "opencode", "gateway"];
-    settings.model.routes = { anthropic: "gateway" };
-    is("one provider over the key, the rest on their subscription", [routeFor("anthropic/claude-sonnet-5"), routeFor("openai/gpt-6-luna")], ["gateway", "codex"]);
-
-    settings.model.routes = { openai: "gateway" };
-    is("a provider's own route wins over the order", routeFor("openai/gpt-6-luna"), "gateway");
-    settings.model.routes = {};
-    process.env.CHLOE_MODEL_PREFER = "gateway";
-    is("and the environment wins over everything, for one run", routeFor("anthropic/claude-sonnet-5"), "gateway");
-    process.env.CHLOE_MODEL_PREFER = "opencode,gateway";
-    is("and the first of a list is the one it forces", routeFor("anthropic/claude-sonnet-5"), "opencode");
-    delete process.env.CHLOE_MODEL_PREFER;
+    settings.model.preferredRoute = ["claude", "codex", "opencode", "gateway"];
+    process.env.CHLOE_MODEL_PREFERRED_ROUTE = "gateway";
+    is("the environment is not read", routeFor("anthropic/claude-sonnet-5"), "claude");
+    delete process.env.CHLOE_MODEL_PREFERRED_ROUTE;
 
     // A model now and then loops on its own tool syntax until the most an
     // answer may be, which by default takes ten minutes.
@@ -313,9 +302,9 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     is("and runs nothing when one is called", answers[2]?.result?.content?.[0]?.text.startsWith("Asked for."), true);
 
     pin("/nowhere/claude", "/nowhere/codex", "/nowhere/opencode");
-    is("a route with no program is not set up, and a key is still the gateway", settings.model.prefer.filter(runnable), ["gateway"]);
+    is("a route with no program is not set up, and a key is still the gateway", settings.model.preferredRoute.filter(runnable), ["gateway"]);
     pin(anyCli, anyCli, opencodeCli);
-    is("and the order is what the startup line reports", settings.model.prefer.filter(runnable), ["claude", "codex", "opencode", "gateway"]);
+    is("and the order is what the startup line reports", settings.model.preferredRoute.filter(runnable), ["claude", "codex", "opencode", "gateway"]);
 
     is("the codex cli is handed the name alone", codexModel("openai/gpt-6-luna"), "gpt-6-luna");
     let refused = "";
@@ -371,8 +360,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     is("and an error line is the error, in its words", broke, "Model call refused: opencode: no model");
 
     // What is on offer is what this box can run: a route with no program is left out.
-    process.env.CHLOE_MODEL_PREFER = "";
-    Object.assign(settings.model, { prefer: ["claude", "codex", "opencode", "gateway"], routes: {}, key: "", models: ["openai/gpt-6-luna", "anthropic/claude-sonnet-5", "openai/gpt-6-luna"] });
+    Object.assign(settings.model, { preferredRoute: ["claude", "codex", "opencode", "gateway"], key: "", models: ["openai/gpt-6-luna", "anthropic/claude-sonnet-5", "openai/gpt-6-luna"] });
     pin("/nowhere/claude", "/nowhere/codex", "/nowhere/opencode");
     is("nothing is offered when no route is set up", models(), []);
     pin("/nowhere/claude", anyCli, "/nowhere/opencode");
@@ -391,7 +379,6 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     await rm(bin, { recursive: true, force: true });
   } finally {
     Object.assign(settings.model, before);
-    process.env.CHLOE_MODEL_PREFER = forced;
   }
 }
 

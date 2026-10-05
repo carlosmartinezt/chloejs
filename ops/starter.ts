@@ -66,18 +66,18 @@ export function starterFiles(agent: string): Starter[] {
  * The line in the starter config that setup replaces with the model it chose.
  * Somebody's own config does not have it, and is told what to add instead.
  */
-export const STARTER_MODEL_LINE = '// model: { default: "anthropic/claude-sonnet-5" },';
+export const STARTER_MODEL_LINE = '// model: { defaultModel: "anthropic/claude-sonnet-5" },';
 
 /**
  * The model settings setup chose, as the line that goes in chloe.config.ts.
- * `prefer` arrives comma separated and is written as a list. `key` is the name
+ * `preferredRoute` arrives comma separated and is written as a list. `key` is the name
  * in .env the gateway key is read from, written as `process.env.` that name.
  *
- *   modelLine({ default: "openai/gpt-6-luna" })  // model: { default: "openai/gpt-6-luna" },
+ *   modelLine({ defaultModel: "openai/gpt-6-luna" })  // model: { defaultModel: "openai/gpt-6-luna" },
  */
 export function modelLine(model: Record<string, string>, key?: string): string {
   const fields = Object.entries(model).map(([one, value]) =>
-    one === "prefer" ? `prefer: ${JSON.stringify(value.split(","))}` : `${one}: ${JSON.stringify(value)}`,
+    one === "preferredRoute" ? `preferredRoute: ${JSON.stringify(value.split(","))}` : `${one}: ${JSON.stringify(value)}`,
   );
   if (key) fields.push(`key: process.env.${key}`);
   return `model: { ${fields.join(", ")} },`;
@@ -131,7 +131,7 @@ export default defineAgent({
   id: "${agent}",
   description: "The agent npx chloe setup wrote. Make it yours.",
   instructions: prompt("instructions.md"),
-  // Which model it asks is model.default in chloe.config.ts, so it is written
+  // Which model it asks is model.defaultModel in chloe.config.ts, so it is written
   // once for every agent. Name one here to give this agent its own.
   jobs: [dailyNote, markdownJob("jobs/summary.md")],
 });

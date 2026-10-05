@@ -32,14 +32,14 @@ import { work } from "./shared.ts";
   is("and lists it, because an agent not on the list does not exist", config.includes("agents: [watcher]"), true);
   is("it has the line setup puts the chosen model in", config.includes(STARTER_MODEL_LINE), true);
   is(
-    "and the model goes in as a setting, with prefer as a list",
-    modelLine({ default: "anthropic/claude-sonnet-5", prefer: "gateway,claude" }),
-    'model: { default: "anthropic/claude-sonnet-5", prefer: ["gateway","claude"] },',
+    "and the model goes in as a setting, with preferredRoute as a list",
+    modelLine({ defaultModel: "anthropic/claude-sonnet-5", preferredRoute: "gateway,claude" }),
+    'model: { defaultModel: "anthropic/claude-sonnet-5", preferredRoute: ["gateway","claude"] },',
   );
   is(
     "and the key is named where it is read from, never written in",
-    modelLine({ default: "openrouter/free" }, "CHLOE_MODEL_KEY"),
-    'model: { default: "openrouter/free", key: process.env.CHLOE_MODEL_KEY },',
+    modelLine({ defaultModel: "openrouter/free" }, "CHLOE_MODEL_KEY"),
+    'model: { defaultModel: "openrouter/free", key: process.env.CHLOE_MODEL_KEY },',
   );
   const cloudLine = "cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY },";
   const withCloud = withSetting(config, cloudLine);
@@ -65,19 +65,19 @@ import { work } from "./shared.ts";
   // Set here rather than left to the config, because the project this suite runs
   // in may declare one, and both halves of this are about what happens when it
   // does and when it does not.
-  const was = settings.model.default;
-  settings.model.default = "";
+  const was = settings.model.defaultModel;
+  settings.model.defaultModel = "";
   const refused = await resolveAgent(definition).then(() => "", (error: Error) => error.message);
-  is("with no model.default set, an agent that names none is refused", refused.includes("does not say which model"), true);
+  is("with no model.defaultModel set, an agent that names none is refused", refused.includes("does not say which model"), true);
 
-  // model.default, which is where the model a new project chose is written down
+  // model.defaultModel, which is where the model a new project chose is written down
   // once for every agent.
-  settings.model.default = "anthropic/claude-haiku-4.5";
+  settings.model.defaultModel = "anthropic/claude-haiku-4.5";
   const agent = await resolveAgent(definition);
   is("the agent it wrote loads", agent.id, "watcher");
   is("its words come from the file beside it", agent.instructions.startsWith("You are watcher."), true);
   is("it names no model, so it asks the one in settings", definition.model, undefined);
-  is("and that is what it loads with", agent.model, settings.model.default);
+  is("and that is what it loads with", agent.model, settings.model.defaultModel);
   is("it has both kinds of job", agent.jobs.map((one) => one.id), ["daily-note", "summary"]);
   is("the code one has a cron line", agent.jobs[0].cron, "0 8 * * *");
   is("and asks no model", Boolean(agent.jobs[0].run), true);
@@ -103,6 +103,6 @@ import { work } from "./shared.ts";
   const onWhatsApp = await resolveAgent((await import(pathToFileURL(join(folder, "with-channel.ts")).href)).default);
   is("and the agent it wrote is on that channel", onWhatsApp.channels.map((one) => one.name), ["whatsapp"]);
 
-  settings.model.default = was;
+  settings.model.defaultModel = was;
   await rm(folder, { recursive: true, force: true });
 }

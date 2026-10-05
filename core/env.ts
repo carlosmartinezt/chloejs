@@ -3,8 +3,9 @@
 // This is where a secret goes: every password, key and token, and nothing else.
 // It is not in source control, and chloe.config.ts never holds one of them.
 //
-// Every setting can be set here, under CHLOE_ and its path in capitals, and what
-// is here beats what the config declares.
+// The runtime reads no setting from here by itself: the config hands each one
+// over by name, as `process.env.CHLOE_RESEND_API_KEY`. The exceptions are where
+// things are kept, CHLOE_STATE, CHLOE_MEMORY and CHLOE_DB, read before any config.
 //
 // A variable that was already in the real environment wins, so
 // `CHLOE_CLOUD_API_KEY=... npx chloe` still beats the file. Read again when the file

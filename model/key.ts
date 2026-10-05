@@ -103,7 +103,7 @@ function gateway(apiKey: string): (id: string) => LanguageModel {
   let streamed = 0;
   return createOpenAICompatible({
     name: "gateway",
-    baseURL: settings.model.gateway.replace(/\/chat\/completions\/?$/, ""),
+    baseURL: settings.model.gatewayUrl.replace(/\/chat\/completions\/?$/, ""),
     apiKey,
     includeUsage: true,
     metadataExtractor: {
@@ -168,7 +168,7 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal }
     if (!settings.model.key) {
       throw new Error(
         `No gateway key. Put it ${whereKeyGoes(["model", "key"])}. ` +
-          "To run on a subscription instead, put that route first in model.prefer, or route the provider in model.routes.",
+          "To run on a subscription instead, put that route first in model.preferredRoute.",
       );
     }
     reach = gateway(settings.model.key)(model);

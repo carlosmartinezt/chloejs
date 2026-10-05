@@ -68,7 +68,7 @@ export interface AgentConfig {
    * A model's name, like "anthropic/claude-sonnet-5", which goes by whichever
    * route settings pick for it. Or an AI SDK model, like
    * `anthropic("claude-opus-5-5")`, which goes straight to that provider as
-   * its package was set up. Unsaid, it is `model.default` in settings, and an
+   * its package was set up. Unsaid, it is `model.defaultModel` in settings, and an
    * agent with neither is refused as it loads.
    */
   model?: string | SdkModel;
@@ -144,12 +144,11 @@ export interface Config {
   agents: Defined[];
   /**
    * Any setting, as deep as it goes: the model to ask, who carries the mail,
-   * what a dashboard may do. Everything it leaves out is the default, and an
-   * environment variable beats whatever it says.
+   * what a dashboard may do. Everything it leaves out is the default.
    *
    * This file is in source control, so a key is named here as
    * `process.env.SOME_NAME` and its value goes in .env. The runtime reads no
-   * key from the environment by itself.
+   * setting from the environment by itself.
    */
   settings?: Declared;
 }
@@ -365,7 +364,7 @@ export interface ChannelRoute {
  * read, its tools bound, its skills loaded and its jobs resolved.
  */
 export interface Agent extends Omit<Defined, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model" | "connections"> {
-  /** Its own, or `model.default` in settings. Always there once loaded. */
+  /** Its own, or `model.defaultModel` in settings. Always there once loaded. */
   model: string;
   /** Always there once loaded, with its folder worked out. See memoryFolder. */
   memory: Memory & { folder: string };
@@ -412,7 +411,7 @@ function shown(folder: string): string {
 /** Every agent chloe.config.ts lists, by id. */
 export async function loadAll(): Promise<Map<string, Agent>> {
   const { config, listed } = await readConfig();
-  declareSettings(config.settings, listed.map((one) => one?.id).filter(Boolean));
+  declareSettings(config.settings);
 
   const folders = new Map<string, string>();
   const memories = new Map<string, string>();
@@ -454,7 +453,7 @@ async function readConfig(): Promise<{ config: Config; listed: Defined[] }> {
  */
 export async function loadSettings(): Promise<void> {
   const { config, listed } = await readConfig();
-  declareSettings(config.settings, listed.map((one) => one?.id).filter(Boolean));
+  declareSettings(config.settings);
 }
 
 /** Every agent's id, in the order `chloe.config.ts` lists them. */
@@ -510,8 +509,8 @@ export async function runJob(options: {
 export async function resolveAgent(definition: Defined): Promise<Agent> {
   const { id, folder } = definition;
   const where = `${id} (${shown(folder)})`;
-  const model = definition.model ? nameOf(definition.model) : configured.model.default;
-  if (!model) throw new Error(`${where} does not say which model, and model.default in settings names none.`);
+  const model = definition.model ? nameOf(definition.model) : configured.model.defaultModel;
+  if (!model) throw new Error(`${where} does not say which model, and model.defaultModel in settings names none.`);
   if (!definition.instructions) throw new Error(`${where} has no instructions. Add instructions: prompt("instructions.md").`);
 
   const { tools, jobs, channels, connections, ...rest } = definition;

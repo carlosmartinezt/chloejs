@@ -178,27 +178,27 @@ async function theModel(): Promise<string> {
     { key: "later" as const, what: "nothing yet" },
   ]);
 
-  // No `prefer` written for these: a subscription is already ahead of a key in
+  // No `preferredRoute` written for these: a subscription is already ahead of a key in
   // the order, so choosing one is choosing the model it runs.
-  if (choice === "claude") return await settle({ default: "anthropic/claude-sonnet-5" });
-  if (choice === "codex") return await settle({ default: "openai/gpt-6-luna" });
+  if (choice === "claude") return await settle({ defaultModel: "anthropic/claude-sonnet-5" });
+  if (choice === "codex") return await settle({ defaultModel: "openai/gpt-6-luna" });
   if (choice === "opencode") {
     const { opencodeModels } = await import("#chloe/model/opencode");
     const [first] = opencodeModels();
     if (!first) {
       console.log("\nopencode is here but signed in to nothing. Run: opencode providers");
-      return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free", naming: "openrouter/free" });
+      return await settle({ defaultModel: "openrouter/free", gatewayUrl: OPENROUTER, judgeModel: "openrouter/free", namingModel: "openrouter/free" });
     }
     const asked = (await ask(`Which of opencode's models? (${first}) `)).trim();
-    return await settle({ default: asked || first });
+    return await settle({ defaultModel: asked || first });
   }
 
   if (choice === "held") {
-    const asked = (await ask(`Which model? (${settings.model.default || "openrouter/free"}) `)).trim();
-    const model = asked || settings.model.default || "openrouter/free";
+    const asked = (await ask(`Which model? (${settings.model.defaultModel || "openrouter/free"}) `)).trim();
+    const model = asked || settings.model.defaultModel || "openrouter/free";
     // The key stays under the name it has, and the config names that.
     return await settle(
-      { default: model, gateway: model.startsWith("openrouter/") ? OPENROUTER : settings.model.gateway },
+      { defaultModel: model, gatewayUrl: model.startsWith("openrouter/") ? OPENROUTER : settings.model.gatewayUrl },
       undefined,
       held,
     );
@@ -206,21 +206,21 @@ async function theModel(): Promise<string> {
 
   // Something loadable either way: an agent that names no model and has no
   // default is refused as it loads, so a project with no key would not start.
-  if (choice === "later") return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free", naming: "openrouter/free" });
+  if (choice === "later") return await settle({ defaultModel: "openrouter/free", gatewayUrl: OPENROUTER, judgeModel: "openrouter/free", namingModel: "openrouter/free" });
 
   if (choice === "free") {
     console.log("\nMake a key at https://openrouter.ai/keys. A free account with no card is enough.");
     console.log("openrouter/free is one model id that picks a free model and only ones that can call a tool.");
     const key = (await askHidden("Paste the key (or Enter to do it later): ")).trim();
-    return await settle({ default: "openrouter/free", gateway: OPENROUTER, judge: "openrouter/free", naming: "openrouter/free" }, key || undefined);
+    return await settle({ defaultModel: "openrouter/free", gatewayUrl: OPENROUTER, judgeModel: "openrouter/free", namingModel: "openrouter/free" }, key || undefined);
   }
 
-  const gateway = (await ask(`Which gateway? (${settings.model.gateway}) `)).trim() || settings.model.gateway;
+  const gateway = (await ask(`Which gateway? (${settings.model.gatewayUrl}) `)).trim() || settings.model.gatewayUrl;
   const model = (await ask("Which model, provider first, like anthropic/claude-sonnet-5? ")).trim();
   const key = (await askHidden("Paste the key: ")).trim();
   // The gateway first, because somebody who just pasted a key meant to use it,
   // and a subscription on this box would otherwise be ahead of it in the order.
-  return await settle({ default: model, gateway, prefer: "gateway,claude,codex,opencode" }, key);
+  return await settle({ defaultModel: model, gatewayUrl: gateway, preferredRoute: "gateway,claude,codex,opencode" }, key);
 }
 
 /**
@@ -233,15 +233,13 @@ async function theModel(): Promise<string> {
  * not write is somebody's own and is told rather than edited.
  */
 async function settle(model: Record<string, string>, key?: string, named = "CHLOE_MODEL_KEY"): Promise<string> {
-  const { declareSettings, nameInEnv, reloadSettings } = await import("#chloe/core/settings");
-  // Left by an earlier run of setup, and .env beats the config, so the old
-  // choice would quietly win over the one just made.
-  dropFromEnv(["default", "gateway", "prefer", "judge", "naming"].map((one) => nameInEnv(["model", one])));
+  const { declareSettings } = await import("#chloe/core/settings");
+  const { loadEnv } = await import("#chloe/core/env");
   if (key) {
     putInEnv(named, key);
     written(".env", `${named}, mode 600`);
   }
-  reloadSettings();
+  loadEnv();
 
   const line = modelLine(model, named);
   const configFile = join(HERE, "chloe.config.ts");
@@ -261,16 +259,15 @@ async function settle(model: Record<string, string>, key?: string, named = "CHLO
     agents?: { id?: string }[];
   };
   const settings = declared.settings ?? {};
-  const prefer = model.prefer ? { prefer: model.prefer.split(",") } : {};
+  const preferredRoute = model.preferredRoute ? { preferredRoute: model.preferredRoute.split(",") } : {};
   declareSettings(
-    { ...settings, model: { ...(settings.model as object), ...model, ...prefer, key: process.env[named] } } as Parameters<typeof declareSettings>[0],
-    (declared.agents ?? []).map((one) => one?.id ?? "").filter(Boolean),
+    { ...settings, model: { ...(settings.model as object), ...model, ...preferredRoute, key: process.env[named] } } as Parameters<typeof declareSettings>[0],
   );
 
   // Asked of the runtime rather than worked out here, so this cannot disagree
   // with what the first job will find: a key for the gateway, the program for a CLI.
   const { routeFor, runnable } = await import("#chloe/model/model");
-  const asking = model.default;
+  const asking = model.defaultModel;
   if (!runnable(routeFor(asking))) {
     console.log(`\nNothing here can run ${asking} yet, so nothing was asked.`);
     console.log(`Put a key in .env as ${named} when you have one, and it can.`);
@@ -472,19 +469,6 @@ function sayWhatNext(id: string, model: string): void {
     ])}`,
   );
   console.log("\nWhat to write next, and every setting there is: https://chloejs.org/docs/start");
-}
-
-/**
- * Takes these names out of .env beside chloe.config.ts, if they are there.
- */
-function dropFromEnv(names: string[]): void {
-  const path = join(HERE, ".env");
-  if (!existsSync(path)) return;
-  const held = readFileSync(path, "utf8").split("\n");
-  const kept = held.filter((line) => !names.some((name) => line.trim().startsWith(`${name}=`)));
-  if (kept.length === held.length) return;
-  writeFileSync(path, kept.join("\n"));
-  written(".env", `${names.filter((name) => held.some((line) => line.trim().startsWith(`${name}=`))).join(", ")} taken out, now in chloe.config.ts`);
 }
 
 /**

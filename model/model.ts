@@ -11,7 +11,7 @@
 //             Never set in settings: naming the model in code is what says it.
 //   gateway   the Vercel AI Gateway over HTTP, any model, on a key, charged per
 //             call. Any gateway that speaks the chat-completions shape works by
-//             setting model.gateway.
+//             setting model.gatewayUrl.
 //
 // The last two go through the AI SDK, in key.ts.
 //
@@ -23,7 +23,7 @@ import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";
 
 import type { Agent } from "#chloe/load/load";
-import { nameInEnv, settingInEnv, settings } from "#chloe/core/settings";
+import { settings } from "#chloe/core/settings";
 
 import { viaClaude } from "./claude.ts";
 import { viaCodex } from "./codex.ts";
@@ -31,7 +31,7 @@ import { anySdkModel, learnPrices, sdkModel, viaKey } from "./key.ts";
 import { forgetOpencodeModels, opencodeModels, viaOpencode } from "./opencode.ts";
 
 export type { Route } from "#chloe/core/settings";
-import { ROUTES, type Route } from "#chloe/core/settings";
+import type { Route } from "#chloe/core/settings";
 
 /** The provider in front of a model's name. A name with none is Anthropic's, the way the CLIs write it. */
 export function providerOf(model: string): string {
@@ -56,9 +56,8 @@ export type Reach = Route | "direct";
 
 /**
  * The route a model goes by: "direct" when an agent's file gave it as an AI SDK
- * model, since the code said exactly how. Otherwise `model.routes` for its provider, else the first
- * entry in `model.prefer` that can carry that provider and is set up here. The
- * environment settles it for a whole run, so it beats a provider's own route.
+ * model, since the code said exactly how. Otherwise the first entry in
+ * `model.preferredRoute` that can carry that provider and is set up here.
  *
  * Nothing is left when a box has no credential at all, and then it is the
  * gateway, which says a key is missing rather than handing a model name to a CLI
@@ -67,19 +66,7 @@ export type Reach = Route | "direct";
 export function routeFor(model: string): Reach {
   if (sdkModel(model)) return "direct";
   const provider = providerOf(model);
-  const forced = settingInEnv(process.env, ["model", "prefer"]);
-  if (forced) {
-    const first = forced.split(",").map((one) => one.trim()).filter(Boolean)[0] ?? "";
-    return checked(first, nameInEnv(["model", "prefer"]));
-  }
-  const byProvider = settings.model.routes[provider];
-  if (byProvider) return byProvider;
-  return settings.model.prefer.find((route) => carries(route, provider) && runnable(route)) ?? "gateway";
-}
-
-function checked(value: string, where: string): Route {
-  if ((ROUTES as readonly string[]).includes(value)) return value as Route;
-  throw new Error(`${where} is ${JSON.stringify(value)}. It is ${ROUTES.map((one) => JSON.stringify(one)).join(", ")}.`);
+  return settings.model.preferredRoute.find((route) => carries(route, provider) && runnable(route)) ?? "gateway";
 }
 
 function gatewayKey(): string {
@@ -144,7 +131,7 @@ export async function learnModels(): Promise<void> {
   if (!key) fromGateway = [];
   if (!key && !anySdkModel()) return;
   try {
-    const response = await fetch(settings.model.gateway.replace(/\/chat\/completions\/?$/, "/models"), {
+    const response = await fetch(settings.model.gatewayUrl.replace(/\/chat\/completions\/?$/, "/models"), {
       headers: key ? { authorization: `Bearer ${key}` } : {},
       signal: AbortSignal.timeout(20_000),
     });

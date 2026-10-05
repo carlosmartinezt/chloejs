@@ -175,15 +175,14 @@ function startup(outside: { names: string[]; missing: string[] }): string[] {
 
   // Every route in the order they are tried, those this box is set up for only,
   // so the line says what will actually be used and not what was asked for.
-  const ready = settings.model.prefer.filter((one) => runnable(one));
-  const routed = Object.entries(settings.model.routes).map(([provider, one]) => `${provider} by ${byRoute(one)}`);
-  // An AI SDK model goes by its own package, whatever the routes say.
+  const ready = settings.model.preferredRoute.filter((one) => runnable(one));
+  // An AI SDK model goes by its own package, whatever preferredRoute says.
   const given = [...new Set([...agents.values()].flatMap((agent) => [agent.model, ...agent.jobs.flatMap((job) => (job.model ? [job.model] : []))]))].filter((one) => sdkModel(one));
-  const reached = [...ready.map(byRoute), ...routed, ...(given.length ? [`${given.join(", ")} by the AI SDK`] : [])];
+  const reached = [...ready.map(byRoute), ...(given.length ? [`${given.join(", ")} by the AI SDK`] : [])];
   lines.push(row("AI models", reached.length ? reached.join("; ") : "not set up"));
   if (!ready.length && !given.length) {
     lines.push(under(
-      `Nothing in model.prefer is set up here (${settings.model.prefer.join(", ")}). Set one up: npx chloe setup`,
+      `Nothing in model.preferredRoute is set up here (${settings.model.preferredRoute.join(", ")}). Set one up: npx chloe setup`,
     ));
   }
 

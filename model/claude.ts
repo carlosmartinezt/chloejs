@@ -40,7 +40,7 @@ export function cliModel(model: string): string {
   if (provider !== "anthropic") {
     throw new Error(
       `The claude route can only run Anthropic models, and this one asks for ${JSON.stringify(model)}. ` +
-        `Either change the model or route its provider elsewhere in model.routes.`,
+        `Either change the model or put a route that carries it ahead in model.preferredRoute.`,
     );
   }
   return model.slice(at + 1).replace(/\./g, "-");

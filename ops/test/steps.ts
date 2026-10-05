@@ -7,7 +7,7 @@ import { hasToolCall, isStepCount, jsonSchema, Output, tool } from "ai";
 import { z } from "zod";
 import { about, failed, is } from "#chloe/ops/check";
 import type { Job, Line } from "./shared.ts";
-import { agentFor, answer, answers, asked, codeJob, db, lastAsked, row, sent, startCounting, sweep, timePasses, waitingFor, waitingOn, work } from "./shared.ts";
+import { agentFor, answer, answers, asked, codeJob, db, gatewayUrl, lastAsked, row, sent, startCounting, sweep, timePasses, waitingFor, waitingOn, work } from "./shared.ts";
 
 about("a job with no model in it");
 {
@@ -180,7 +180,7 @@ about("an agent written with the AI SDK's own model and tools");
   const { learnPrices, priced } = await import("#chloe/model/key");
 
   // A provider package pointed at the stand-in, as anthropic("...") would be at Anthropic.
-  const standIn = createOpenAICompatible({ name: "standin", baseURL: process.env.CHLOE_MODEL_GATEWAY!.replace(/\/chat\/completions$/, "") });
+  const standIn = createOpenAICompatible({ name: "standin", baseURL: gatewayUrl.replace(/\/chat\/completions$/, "") });
   const asked_: string[] = [];
   const definition = defineAgent({
     id: "sdk",

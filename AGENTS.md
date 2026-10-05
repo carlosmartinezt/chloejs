@@ -73,40 +73,38 @@ already checked by tsc and the comments then reach the editor of whoever is
 writing the config: zod's inference keeps a comment on a leaf and drops it on a
 group.
 
-`core/env.ts` reads `.env` into the environment before any setting is read, and a
-variable already in the real environment wins, so
-`CHLOE_MODEL_PREFER=gateway npx chloe` still beats the file.
+`core/env.ts` reads `.env` into the environment before the config is read, and
+a variable already in the real environment wins over the file.
 
 What belongs to one agent, its channels' tokens, is under `agents` and that
 agent's id, read by the id the agent has when the channel starts:
 `agents: { tempo: { telegram: process.env.CHLOE_AGENTS_TEMPO_TELEGRAM } }`.
 
 **The config reaches `core/settings.ts` and not the other way round.** The
-exported `settings` is filled in at import from the defaults and the environment,
-and `loadAll()` calls `declareSettings` before it resolves an agent. So nothing
-in `core/` has to know what an agent or a config is, and the one consequence is
-that `state`, `memory`, `db` and `node` are read inside that window, at the top
-of `core/paths.ts` and `core/db.ts`, so those four are read from the environment
-and declaring them does nothing.
+exported `settings` is the defaults at import, and `loadAll()` calls
+`declareSettings` before it resolves an agent. So nothing in `core/` has to know
+what an agent or a config is.
 
-**Every setting that is not a key has a name in the environment**, `CHLOE_`
-and its path in capitals: `CHLOE_CLOUD_URL`, `CHLOE_CLOUD_REMOTE_WRITE`,
-`CHLOE_MODEL_PREFER`. `nameInEnv` works it out from `DEFAULTS`, so a setting
-added there has one without anybody writing it down, and `readSettings` merges
-them over the config, one setting at a time. A key has one too, as the name to
-give it in `.env`, and is not read by it. Text is read as the type the default has: a list on commas, a switch as
-`true` or `false` and refused when it is neither. What is left over from a zod
-schema is `wrong()`, which refuses a key that names no setting, a value of the
-wrong kind, and one outside `ONE_OF`, and says what there was to set instead.
-Each enum is one `as const` list that both the type and that check are read off,
-so the words cannot disagree with the type. A setting has one name and no
-older one.
+**The runtime reads no setting from the environment.** A setting is what the
+config says, or the default, and nothing else, so reading the config shows the
+whole of it. To keep any value out of the file, the config hands it over as
+`process.env.SOME_NAME`, the same as a key. `nameInEnv` only suggests that name
+for a secret, `CHLOE_` and its path in capitals with a capital inside a word
+split off. Where things are kept is not a setting: `CHLOE_STATE`, `CHLOE_MEMORY`
+and `CHLOE_DB` are read at the top of `core/paths.ts` and `core/db.ts`, before
+any config is, and need a restart. The test suite runs inside whichever project
+installed the runtime, so `ops/test/shared.ts` holds its own settings over that
+project's config with `holdSettings`, rather than through the environment.
 
-A setting is read from `settings`, never from `process.env`: the environment is
-already merged in, and every variable the runtime reads is a setting, so there
-is no other name to look for. `settingInEnv` is for the one place that cares
-where a value came from, a route meant for one run beating a provider's own. A
-config may hand a setting the variable itself, `cloud: { api_key:
+`wrong()` refuses a key that names no setting, a value of the wrong kind, and
+one outside `ONE_OF`, and says what there was to set instead. The config is
+type checked, so that is for a value handed over from `.env` and for a config
+that is not TypeScript. Each enum is one `as const` list that both the type and
+that check are read off, so the words cannot disagree with the type. A setting
+has one name and no older one.
+
+A setting is read from `settings`, never from `process.env`. A config hands a
+secret over as the variable itself, `cloud: { api_key:
 process.env.CHLOE_CLOUD_API_KEY }`, which is how it says where a credential
 comes from without holding one, and a setting given `undefined` is one it did
 not say. The workspace key for a Chloe Cloud is `cloud.api_key`, and a config that names
@@ -342,9 +340,8 @@ npm run evals <agent>  # the prompts: did the model decide well
 ```
 
 Which route a call goes by is decided in `model/model.ts` from the provider in
-front of the model's name: `model.routes` for that provider if it names one,
-else the first entry in `model.prefer` that can carry the provider and is set up
-here. Four routes: the Claude Code CLI on a Claude subscription, the Codex CLI on
+front of the model's name: the first entry in `model.preferredRoute` that can
+carry the provider and is set up here. Four routes: the Claude Code CLI on a Claude subscription, the Codex CLI on
 a ChatGPT plan, the opencode CLI on whatever it is signed in to, and the gateway
 on a key, charged per call. The default order is that one, so a subscription is
 spent before a key is, and the gateway is last because it is the only one that
@@ -352,7 +349,7 @@ can carry any provider.
 
 **A subscription and an API key are both ways to the same model.** Anthropic or
 OpenAI models over a key is the gateway route: put `gateway` first in
-`model.prefer` for all of them, or name it in `model.routes` for one provider.
+`model.preferredRoute`.
 Nothing about a model's name decides which account pays for it.
 
 Each CLI route is one file the shape of `model/claude.ts` with the CLI's own
@@ -365,8 +362,7 @@ guess, and what it misses reaches the person as words: move them over when
 their CLIs can be tried. A CLI that carries one
 provider says so in its own `cliModel`; opencode carries whatever it is signed in
 to, so `opencodeModels()` asks it rather than the runtime deciding, once per
-process because `routeFor` cannot wait two seconds. `CHLOE_MODEL_PREFER=` in
-front of a command still forces one route for one run.
+process because `routeFor` cannot wait two seconds.
 
 What somebody may pick from is `models()`. `model.models` is a shortlist, and
 empty means ask each route what it carries: `opencode models`, and the gateway's
@@ -520,7 +516,7 @@ several jobs; one named `jobs/<id>.ts` is listed as the job's file on the page,
 and a `jobs/<id>.md` beside it as its words. Paths given to
 `prompt()` and `markdownJob()` are inside the agent's folder.
 
-**An agent that names no model asks `model.default` in settings.** That is what
+**An agent that names no model asks `model.defaultModel` in settings.** That is what
 `npx chloe setup` writes, so a project has the model it chose in one place. An
 agent with neither is refused as it loads rather than at its first model call.
 

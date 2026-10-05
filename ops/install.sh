@@ -69,7 +69,7 @@ esac
 SETTINGS=$(cd "$ROOT" && node $CONDITION --input-type=module -e '
   const { loadSettings, settings } = await import("@chloejs/core");
   await loadSettings();
-  console.log(settings.node || "-", settings.model.prefer.join(",") || "-");
+  console.log(settings.node || "-", settings.model.preferredRoute.join(",") || "-");
 ') || {
   echo "the settings could not be read. The error is above." >&2
   exit 1
@@ -88,8 +88,8 @@ done
 
 [ -n "$CLIBIN" ] || case ",$PREFER," in
   *,gateway,*) ;;
-  *) echo "model.prefer is \"$PREFER\" and none of those commands is on the path. Install one," >&2
-     echo "or put \"gateway\" in model.prefer, the key in .env as CHLOE_MODEL_KEY, and model: { key: process.env.CHLOE_MODEL_KEY } in chloe.config.ts." >&2
+  *) echo "model.preferredRoute is \"$PREFER\" and none of those commands is on the path. Install one," >&2
+     echo "or put \"gateway\" in model.preferredRoute, the key in .env as CHLOE_MODEL_KEY, and model: { key: process.env.CHLOE_MODEL_KEY } in chloe.config.ts." >&2
      exit 1 ;;
 esac
 

@@ -1,21 +1,21 @@
-// Settings: the config, the environment, and the .env file.
+// Settings: the config, and the .env file it reads secrets from.
 
 import { about, is } from "#chloe/ops/check";
 
 {
   about("settings, and what wins");
-  const { declareSettings, nameInEnv, readSettings } = await import("@chloejs/core");
+  const { declareSettings, readSettings } = await import("@chloejs/core");
 
-  const base = { model: { prefer: ["gateway" as const], judge: "a" } };
-  is("a default fills in what the config does not mention", readSettings(base, {}).model.gateway, "https://ai-gateway.vercel.sh/v1/chat/completions");
-  is("what the config says is what it says", readSettings(base, {}).model.prefer, ["gateway"]);
-  is("and one key declared leaves its neighbours alone", readSettings(base, {}).model.judge, "a");
-  is("a setting nobody set is empty rather than missing", readSettings({}, {}).node, "");
-  is("each agent's own settings are under its name", readSettings({ agents: { tempo: { telegram: "t" } } }, {}).agents.tempo.telegram, "t");
-  is("and what it does not say is empty", readSettings({ agents: { tempo: { telegram: "t" } } }, {}).agents.tempo.slack.app_token, "");
+  const base = { model: { preferredRoute: ["gateway" as const], judgeModel: "a" } };
+  is("a default fills in what the config does not mention", readSettings(base).model.gatewayUrl, "https://ai-gateway.vercel.sh/v1/chat/completions");
+  is("what the config says is what it says", readSettings(base).model.preferredRoute, ["gateway"]);
+  is("and one key declared leaves its neighbours alone", readSettings(base).model.judgeModel, "a");
+  is("a setting nobody set is empty rather than missing", readSettings({}).node, "");
+  is("each agent's own settings are under its name", readSettings({ agents: { tempo: { telegram: "t" } } }).agents.tempo.telegram, "t");
+  is("and what it does not say is empty", readSettings({ agents: { tempo: { telegram: "t" } } }).agents.tempo.slack.app_token, "");
   let misspelt = "";
   try {
-    readSettings({ agents: { tempo: { telegarm: "t" } } } as never, {});
+    readSettings({ agents: { tempo: { telegarm: "t" } } } as never);
   } catch (error) {
     misspelt = error instanceof Error ? error.message : "";
   }
@@ -32,29 +32,34 @@ import { about, is } from "#chloe/ops/check";
   // a credential comes from without holding one.
   is(
     "a setting handed a variable nothing set is one the config did not say",
-    readSettings({ cloud: { url: process.env.NOTHING_SETS_THIS } }, {}).cloud.url,
+    readSettings({ cloud: { url: process.env.NOTHING_SETS_THIS } }).cloud.url,
     "https://dashboard.chloejs.org",
   );
-  is("and the workspace key is a setting like any other", readSettings({ cloud: { api_key: "chl_workspace_x" } }, {}).cloud.api_key, "chl_workspace_x");
-  // A key is read only where the config names it, so the config shows every one.
-  is("a key is never read from the environment by itself", readSettings({}, { CHLOE_CLOUD_API_KEY: "chl_from_env" }).cloud.api_key, "");
-  is("nor a channel's token", readSettings({}, { CHLOE_AGENTS_TEMPO_TELEGRAM: "t" }).agents, {});
-  is("but one the config hands over is read", readSettings({ resend: { api_key: "re_x" } }, { CHLOE_RESEND_API_KEY: "re_y" }).resend.api_key, "re_x");
+  is("and the workspace key is a setting like any other", readSettings({ cloud: { api_key: "chl_workspace_x" } }).cloud.api_key, "chl_workspace_x");
+  // Nothing is read from the environment by itself, so the config shows every value.
+  {
+    process.env.CHLOE_CLOUD_URL = "https://env";
+    process.env.CHLOE_CLOUD_API_KEY_NOT_NAMED = "chl_from_env";
+    is("a setting is never read from the environment by itself", readSettings({}).cloud.url, "https://dashboard.chloejs.org");
+    delete process.env.CHLOE_CLOUD_URL;
+    delete process.env.CHLOE_CLOUD_API_KEY_NOT_NAMED;
+  }
+  is("but one the config hands over is read", readSettings({ resend: { api_key: "re_x" } }).resend.api_key, "re_x");
 
-  // The config is type checked, so these are for a value out of the environment
+  // The config is type checked, so these are for a value handed over from .env
   // and for a config that is not TypeScript. Each one says what to set instead
   // of what shape failed, which is the whole reason this is not a parser.
-  const said = (declared: unknown, env: Record<string, string> = {}) => {
+  const said = (declared: unknown) => {
     try {
-      readSettings(declared as never, env);
+      readSettings(declared as never);
       return "";
     } catch (error) {
       return error instanceof Error ? error.message.split("\n").slice(1).join(" ") : "";
     }
   };
   is("a setting that is not a choice is refused, and the choices are named",
-    said({ model: { prefer: ["telepathy"] } }),
-    'model.prefer has "telepathy" in it, and each one is "claude", "codex", "opencode", "gateway".');
+    said({ model: { preferredRoute: ["telepathy"] } }),
+    'model.preferredRoute has "telepathy" in it, and each one is "claude", "codex", "opencode", "gateway".');
   is("a key that is no setting is refused, and says what there is",
     said({ modle: {} }).startsWith("settings.modle is not a setting. Under settings there is model,"), true);
   is("a misspelt key under an agent names the agent, not a star",
@@ -63,81 +68,40 @@ import { about, is } from "#chloe/ops/check";
   is("a switch given a word is refused", said({ cloud: { remote: { write: "yes" } } }), "cloud.remote.write is true or false.");
   is("a list given a word is refused", said({ model: { models: "a,b" } }), "model.models is a list of words.");
   is("a group given a word is refused", said({ model: "claude" }), "model holds more settings, so it is an object.");
-  is("a route is checked like the setting it is", said({ model: { routes: { openai: "telepathy" } } }).startsWith("model.routes.openai is"), true);
   is("google.client takes the file's own shape", said({ google: { client: { web: { client_id: "x" } } } }), "");
   is("and refuses what is neither that nor a path", said({ google: { client: 7 } }), "google.client is the client file, its path, or its contents as one string.");
-  is("a switch out of the environment is checked the same way", said({}, { CHLOE_CLOUD_REMOTE_WRITE: "true" }), "");
+  is("a switch handed over as a word is refused too", said({ cloud: { remote: { write: "true" } } }), "cloud.remote.write is true or false.");
 
   let moved = "";
   try {
-    readSettings({ cloud: { key: "chl_workspace_x" } } as never, {});
+    readSettings({ cloud: { key: "chl_workspace_x" } } as never);
   } catch (error) {
     moved = error instanceof Error ? error.message : "";
   }
   is("cloud.key in the config is refused, and names the setting instead", moved.includes("cloud.api_key, not cloud.key"), true);
-  is("and the dashboard's address is what it is unless somebody says", readSettings({}, {}).cloud.url, "https://dashboard.chloejs.org");
+  is("and the dashboard's address is what it is unless somebody says", readSettings({}).cloud.url, "https://dashboard.chloejs.org");
 
   {
     // What loadAll does with the config's settings: into the same object
-    // everything already holds, and the environment still over the top.
-    //
-    // The variable is taken out first, because this suite runs from whichever
-    // project installed the runtime and that project's .env may well set it. A
-    // declaration it beats is a declaration this cannot see.
+    // everything already holds.
     const { settings } = await import("@chloejs/core");
-    const name = nameInEnv(["alerts", "email_from"]);
-    const inEnv = process.env[name];
-    delete process.env[name];
     declareSettings({ alerts: { email_from: "chloe <x@example.com>" } });
     is("what the config declares reaches the settings everything reads", settings.alerts.email_from, "chloe <x@example.com>");
     is("and a setting it says nothing about is left at its default", settings.cloud.url, "https://dashboard.chloejs.org");
-    declareSettings({ model: { prefer: ["gateway"] } });
+    declareSettings({ model: { preferredRoute: ["gateway"] } });
     is("declaring again drops what the last one said", settings.alerts.email_from, "");
-    if (inEnv !== undefined) process.env[name] = inEnv;
-  }
-  {
-    // CHLOE_MODEL_GATEWAY is set in shared.ts, for the stand-in gateway.
-    const { settings } = await import("@chloejs/core");
-    declareSettings({ model: { gateway: "https://declared" } });
-    is("the environment beats what the config declares", settings.model.gateway, process.env.CHLOE_MODEL_GATEWAY);
-    // Back to what the test config says, which is where the gateway key comes from.
+    // Back to what the test config says, which is where the stand-in gateway comes from.
     await (await import("@chloejs/core")).loadSettings();
   }
 }
 
 {
-  about("a setting out of the environment");
-  const { readSettings, nameInEnv } = await import("@chloejs/core");
-
-  is("a setting is CHLOE_ and its path, in capitals", nameInEnv(["resend", "api_key"]), "CHLOE_RESEND_API_KEY");
-  is(
-    "the environment beats the config",
-    readSettings({ cloud: { url: "https://declared" } }, { CHLOE_CLOUD_URL: "https://env" }).cloud.url,
-    "https://env",
-  );
-  is(
-    "and beats one key without clearing its neighbours",
-    readSettings({ cloud: { sync: { runs: false } } }, { CHLOE_CLOUD_URL: "https://env" }).cloud.sync.runs,
-    false,
-  );
-  is("a switch reads as a switch", readSettings({}, { CHLOE_CLOUD_REMOTE_WRITE: "true" }).cloud.remote.write, true);
-  is("and the switches beside it are left alone", readSettings({}, { CHLOE_CLOUD_REMOTE_WRITE: "true" }).cloud.remote.memory, false);
-  is("a list is written with commas", readSettings({}, { CHLOE_MODEL_MODELS: "one/a, one/b" }).model.models, ["one/a", "one/b"]);
-  is("a route is named after its provider", readSettings({}, { CHLOE_MODEL_ROUTES_OPENAI: "codex" }).model.routes.openai, "codex");
-  is("a name from before every setting had one is not read", readSettings({}, { MODEL_VIA: "codex" }).model.prefer, ["claude", "codex", "opencode", "gateway"]);
-  const { whereKeyGoes } = await import("@chloejs/core");
+  about("the name a secret is given in .env");
+  const { nameInEnv, whereKeyGoes } = await import("@chloejs/core");
+  is("a secret is CHLOE_ and its path, in capitals", nameInEnv(["resend", "api_key"]), "CHLOE_RESEND_API_KEY");
+  is("a capital inside a word is split off", nameInEnv(["model", "gatewayUrl"]), "CHLOE_MODEL_GATEWAY_URL");
   is("a key's message says the .env name and the config line", whereKeyGoes(["agents", "test-agent", "telegram"]),
     'in .env as CHLOE_AGENTS_TEST_AGENT_TELEGRAM, and in chloe.config.ts\'s settings as `agents: { "test-agent": { telegram: process.env.CHLOE_AGENTS_TEST_AGENT_TELEGRAM } }`');
-
-  let switched = "";
-  try {
-    readSettings({}, { CHLOE_CLOUD_REMOTE_WRITE: "please" });
-  } catch (error) {
-    switched = error instanceof Error ? error.message : "";
-  }
-  is("a switch that is neither is refused, not read as off", switched, 'CHLOE_CLOUD_REMOTE_WRITE is "please", and a switch is true or false.');
-
-
 }
 
 {

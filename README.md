@@ -249,7 +249,7 @@ with the agents, where it is typed and committed:
 export default defineConfig({
   agents: [tempo],
   settings: {
-    model: { default: "anthropic/claude-sonnet-5" },
+    model: { defaultModel: "anthropic/claude-sonnet-5" },
     email: { provider: "resend" },
   },
 })
@@ -280,13 +280,11 @@ settings: {
 }
 ```
 
-Every other setting has a name there too, `CHLOE_` and its path in capitals,
-so one run can be changed by hand (`CHLOE_CLOUD_REMOTE_WRITE=false npx chloe`),
-but a choice that should last belongs in the config. A variable beats the
-config, a list is written with commas, and a switch that is neither `true` nor
-`false` is refused at startup rather than read as off. `state`, `memory`, `db`
-and `node` are read before the config is, so those four are only read from
-there.
+The runtime reads no other setting from the environment: a setting is what the
+config says, or its default. Any value can be kept in `.env` the same way, by
+handing it over as `process.env` and a name. Where things are kept is the one
+exception, `CHLOE_STATE`, `CHLOE_MEMORY` and `CHLOE_DB`, read before the config
+is.
 
 ```sh
 npx chloe account                # set the one password

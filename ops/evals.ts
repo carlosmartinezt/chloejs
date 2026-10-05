@@ -55,7 +55,7 @@ const PASS = { calls: 1, expectations: 0.8 } as const;
  * when it is needed, because the config declares it and `loadAll` below is what
  * reads the config.
  */
-const judge = () => settings.model.judge;
+const judge = () => settings.model.judgeModel;
 
 /**
  * Answer one tool call from the case.

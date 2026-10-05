@@ -6,27 +6,14 @@
 // answers whatever the case says, so a model step is exercised without
 // spending anything, and mail goes to the log.
 //
-// These are set rather than declared, because the environment beats the config:
-// a box whose chloe.config.ts prefers "claude" would otherwise run every
-// case against a real subscription, slowly, and score differently from the
-// next box.
+// Where things are kept is read from the environment as the runtime loads, so
+// it is set here before any import. The rest is held over the config further
+// down, because the suite runs inside whichever project installed the runtime,
+// and that project's config would otherwise run every case against a real
+// subscription and send real mail.
 process.env.CHLOE_DB = ":memory:";
-// Folders of their own, so a case that writes state (an account) or a note
-// cannot land in the real ones. Set before any import, like the database above.
 process.env.CHLOE_STATE = (await import("node:fs")).mkdtempSync(`${(await import("node:os")).tmpdir()}/chloe-test-`);
 process.env.CHLOE_MEMORY = `${process.env.CHLOE_STATE}/memory`;
-process.env.CHLOE_OWNER = "test:somebody";
-// A key is read only where the config names it, and the test config names this.
-process.env.CHLOE_MODEL_KEY = "test";
-process.env.CHLOE_MODEL_PREFER = "gateway";
-// Signing in and getting locked out both mail, and the addresses used here are
-// made up. Without this the suite sends two real emails on a box that has a
-// mail key, because the alert settings are read from the same file.
-process.env.CHLOE_EMAIL_PROVIDER = "none";
-// What opencode can run is read by asking it, so an opencode on the path would
-// put somebody's own models into what the cases expect. The routing cases point
-// this at a stand-in of their own.
-process.env.CHLOE_MODEL_PROGRAM_OPENCODE = "/nowhere/opencode";
 
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -72,14 +59,28 @@ export const gateway = createServer((request, response) => {
   });
 });
 await new Promise<void>((done) => gateway.listen(0, "127.0.0.1", done));
-process.env.CHLOE_MODEL_GATEWAY = `http://127.0.0.1:${(gateway.address() as { port: number }).port}/v1/chat/completions`;
+export const gatewayUrl = `http://127.0.0.1:${(gateway.address() as { port: number }).port}/v1/chat/completions`;
 
 // Imported after the environment is set, and by hand rather than with a plain
 // import, because those are hoisted above the lines above: core/db.ts would
 // read CHLOE_DB before it was set and every case would write into the real
 // run history. That is not hypothetical, it happened while this was written.
 export const { answer, db, reachBy, sweep, waitingFor, waitingOn, work } = await import("@chloejs/core");
-// The test config hands over the gateway key, as a project's own config would.
+(await import("#chloe/core/settings")).holdSettings({
+  model: {
+    key: "test",
+    preferredRoute: ["gateway"],
+    gatewayUrl,
+    // What opencode can run is read by asking it, so an opencode on the path
+    // would put somebody's own models into what the cases expect. The routing
+    // cases point this at a stand-in of their own.
+    program: { opencode: "/nowhere/opencode" },
+  },
+  // Signing in and getting locked out both mail, and the addresses used here
+  // are made up.
+  email: { provider: "none" },
+  owner: "test:somebody",
+});
 await (await import("@chloejs/core")).loadSettings();
 export type Agent = import("@chloejs/core").Agent;
 export type Job = import("@chloejs/core").Job;

@@ -1,43 +1,34 @@
 // Every setting, and what it is when nobody says.
 //
-// Two places, read in this order, each one winning over the one before:
+// Two places, read in this order, the second winning over the first:
 //
 //   the types below    the default, and the documentation
 //   chloe.config.ts    `settings: { ... }` in defineConfig, in source control
-//   the environment    .env beside chloe.config.ts, and the real environment,
-//                      for every setting that is not a key
 //
-// A choice about how the runtime behaves goes in the config, where it is typed
-// and committed. A secret goes in .env, mode 600: every password, key and
-// token, and nothing else. Nothing in source control may hold one.
-//
-// **A key is read only where the config names it**, as
+// The runtime reads no setting from the environment. A choice about how it
+// behaves goes in the config, where it is typed and committed. A secret goes in
+// .env, mode 600, and the config hands it over by name, as
 // `cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`, so reading the config
-// shows every key there is and where each comes from. The runtime never reads
-// one from the environment by itself. KEYS is the list. A setting the config
-// says is undefined is one it did not say.
+// shows every secret there is and where each comes from. Anything else can be
+// handed over the same way when somebody wants it out of the file. KEYS is the
+// list of settings that are secrets. A setting the config says is undefined is
+// one it did not say.
 //
-// Every other setting also has a name in the environment, CHLOE_ and its path
-// in capitals: CHLOE_CLOUD_URL, CHLOE_MODEL_PREFER. That is for one run, like
-// `CHLOE_MODEL_PREFER=gateway npm run evals`, and for where things are kept.
-//
-// `state`, `memory`, `db` and `node` are read before any config is loaded, at
-// the top of core/paths.ts and core/db.ts, so those four are read from the
-// environment and declaring them does nothing. Where things are kept needs a
-// restart either way.
+// Where things are kept (CHLOE_STATE, CHLOE_MEMORY, CHLOE_DB) is not a setting:
+// core/paths.ts and core/db.ts read it before any config is loaded.
 //
 // The config reaches this file and not the other way round: `loadAll()` calls
 // `declareSettings` before it resolves an agent, so nothing in core/ has to
 // know what an agent or a config is.
-// First, so .env is in the environment before anything reads a setting.
-import { loadEnv } from "./env.ts";
+// First, so .env is in the environment before the config is read.
+import "./env.ts";
 
 /**
  * How a model is reached, and so which account pays for it. "claude" is the
  * Claude Code CLI on a Claude subscription, "codex" the Codex CLI on a ChatGPT
  * plan, "opencode" the opencode CLI on whatever it is signed in to, and
  * "gateway" is HTTP on a key, charged per call. The list is also what a value
- * out of the environment is checked against, so the words and the type cannot
+ * handed over from .env is checked against, so the words and the type cannot
  * disagree.
  */
 export const ROUTES = ["claude", "codex", "opencode", "gateway"] as const;
@@ -75,20 +66,14 @@ export interface Settings {
      * Written by `npx chloe setup`, so a new project has the model it chose in
      * one place rather than in every agent.
      */
-    default: string;
+    defaultModel: string;
     /**
      * Which way of reaching a model to try first, then next. The first one that
      * can carry the model's provider and is set up here is the one it goes by,
      * so a Claude subscription is used before a key that charges per call. A
      * route this box has no credential for is skipped.
      */
-    prefer: Route[];
-    /**
-     * The route one provider's models always go by, like `{ openai: "codex" }`,
-     * whatever `prefer` says. For the rare case where the order is wrong for
-     * one provider only.
-     */
-    routes: Record<string, Route>;
+    preferredRoute: Route[];
     /**
      * The shortlist somebody may pick from for a chat, an agent or a job, on top
      * of the ones the agents already name. Empty asks each route what it has
@@ -98,17 +83,17 @@ export interface Settings {
      */
     models: string[];
     /** Any gateway that speaks the OpenAI chat-completions shape. */
-    gateway: string;
+    gatewayUrl: string;
     /** The gateway's key. Empty means no gateway, so via "" picks the CLI. */
     key: string;
     /** Who marks an eval. Cheaper than the agent being marked, on purpose. */
-    judge: string;
+    judgeModel: string;
     /**
      * Who names a conversation started on the page, from the first thing said
      * in it, while the agent answers. Small and quick on purpose. Empty leaves
      * them unnamed, and the list calls each by when it last moved.
      */
-    naming: string;
+    namingModel: string;
     /**
      * The program each CLI route runs, for one installed under another name or
      * somewhere off the path. A route whose program is not there is skipped.
@@ -121,7 +106,6 @@ export interface Settings {
      * Who carries an agent's mail. Its key is in that provider's own
      * section. "none" writes the message to the log and sends nothing, which
      * is what a test run and a box with no mail account use.
-     * CHLOE_EMAIL_PROVIDER overrides it for one run.
      */
     provider: EmailProvider;
   };
@@ -183,7 +167,7 @@ export interface Settings {
      * `cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`.
      */
     api_key: string;
-    /** Where the cloud is. CHLOE_CLOUD_URL beats it. Point it at your own by setting this. */
+    /** Where the cloud is. Point it at your own by setting this. */
     url: string;
     /** What is sent up as it happens, so the dashboard can show it when this runtime is offline. */
     sync: {
@@ -223,12 +207,6 @@ export interface Settings {
    * is how a broken dashboard is told from a broken runtime.
    */
   page: Page;
-  /** Everything the agents keep: their folders and the run history. Empty means data/ inside the repo. */
-  state: string;
-  /** The run history and the conversations. Empty means agents.db inside the state folder. */
-  db: string;
-  /** Where the memories are, one folder per agent. Empty means memory/ inside the state folder. */
-  memory: string;
   /** Which node the unit runs. Empty means whichever is on the path at install. */
   node: string;
 }
@@ -240,16 +218,15 @@ export interface Settings {
  */
 export const DEFAULTS: Settings = {
   model: {
-    default: "",
+    defaultModel: "",
     // A subscription before a key that charges per call, and the gateway last
     // because it is the only one that can carry any provider.
-    prefer: [...ROUTES],
-    routes: {},
+    preferredRoute: [...ROUTES],
     models: [],
-    gateway: "https://ai-gateway.vercel.sh/v1/chat/completions",
+    gatewayUrl: "https://ai-gateway.vercel.sh/v1/chat/completions",
     key: "",
-    judge: "anthropic/claude-sonnet-5",
-    naming: "anthropic/claude-haiku-4.5",
+    judgeModel: "anthropic/claude-sonnet-5",
+    namingModel: "anthropic/claude-haiku-4.5",
     program: { claude: "claude", codex: "codex", opencode: "opencode" },
   },
   email: { provider: "resend" },
@@ -265,9 +242,6 @@ export const DEFAULTS: Settings = {
   },
   owner: "",
   page: "",
-  state: "",
-  db: "",
-  memory: "",
   node: "",
 };
 
@@ -280,22 +254,19 @@ const AGENT_DEFAULTS: AgentSettings = {
 
 /**
  * A setting holding entries whose names somebody chose, and what one entry is
- * when nobody says. A variable's name is split on these fields, and an entry is
- * filled in from this, so `CHLOE_AGENTS_TEMPO_TELEGRAM` leaves tempo's Slack
- * tokens empty rather than missing. `*` means an entry is one plain value.
+ * when nobody says. An entry is filled in from this, so an agent that says only
+ * `telegram` has empty Slack tokens rather than missing ones.
  */
-const RECORDS: Record<string, unknown> = {
+const RECORDS: Record<string, AgentSettings> = {
   agents: AGENT_DEFAULTS,
-  "model.routes": "*",
 };
 
 /**
  * The values a setting is allowed to take, where it is not any string. Read off
- * the same lists the types come from. `*` stands for a record's entries.
+ * the same lists the types come from. `*` stands for each item of a list.
  */
 const ONE_OF: Record<string, readonly string[]> = {
-  "model.prefer.*": ROUTES,
-  "model.routes.*": ROUTES,
+  "model.preferredRoute.*": ROUTES,
   "email.provider": EMAIL_PROVIDERS,
   page: PAGES,
 };
@@ -305,30 +276,26 @@ type Deep<T> = T extends string | number | boolean | unknown[] ? T | undefined :
 
 /**
  * What `chloe.config.ts` may declare: any part of the shape above, as deep as
- * it goes. What it leaves out is the default, and the environment beats
- * whatever it says.
+ * it goes. What it leaves out is the default.
  */
 export type Declared = { [K in keyof Settings]?: Deep<Settings[K]> };
 
 /**
- * The name a setting has in the environment: `CHLOE_` and its path in
- * capitals, `CHLOE_CLOUD_URL` for `cloud.url`, with a dash as an underscore. Worked out from the shape above,
- * so a setting added there has one without anybody writing it down. A key has
- * one too, as the name to give it in .env, but it is read only where the config
- * names it.
+ * The name to give a secret in .env: `CHLOE_` and its path in capitals,
+ * `CHLOE_RESEND_API_KEY` for `resend.api_key`, with a dash as an underscore and
+ * a capital inside a word split off. Only a name to suggest: the runtime never
+ * reads it, the config does.
  */
 export function nameInEnv(path: string[]): string {
-  return ["CHLOE", ...path].join("_").toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+  return ["CHLOE", ...path.map((part) => part.replace(/([a-z0-9])([A-Z])/g, "$1_$2"))].join("_").toUpperCase().replace(/[^A-Z0-9_]/g, "_");
 }
 
 /**
- * The settings that are keys, never read from the environment by the runtime:
- * a config hands each one over as `process.env.SOME_NAME`. `agents` is every
- * agent's channel tokens.
+ * The settings that are secrets: a config hands each one over as
+ * `process.env.SOME_NAME`, from .env. `agents` is every agent's channel tokens.
  */
 export const KEYS = ["model.key", "resend.api_key", "google.client", "cloud.api_key", "agents"];
 
-const isKey = (path: string[]): boolean => KEYS.includes(path.join("."));
 
 /**
  * Where a key goes, in words for whoever has to put it there: `in .env as
@@ -344,30 +311,17 @@ export function whereKeyGoes(path: string[]): string {
   return `in .env as ${name}, and in chloe.config.ts's settings as \`${literal}\``;
 }
 
-/** The environment, as this file reads it: the real one, or a made-up one in a test. */
-type Env = Record<string, string | undefined>;
-
-/**
- * What the environment holds for one setting, or nothing. Always nothing for a
- * key. `settings` already has this merged in, so this is for the few places
- * that care that it came from the environment rather than from a file, like a
- * route meant for one run.
- */
-export function settingInEnv(env: Env, path: string[]): string | undefined {
-  return isKey(path) ? undefined : env[nameInEnv(path)];
-}
-
 const isGroup = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 
-/** Whether a path holds entries somebody named, like `agents` or `model.routes`. */
-function recordAt(path: string[]): unknown {
+/** Whether a path holds entries somebody named, like `agents`. */
+function recordAt(path: string[]): AgentSettings | undefined {
   return RECORDS[path.join(".")];
 }
 
 /**
  * The defaults with what was said written over them, one setting at a time, so
- * declaring `model.prefer` leaves `model.gateway` alone. A record's entry is filled
+ * declaring `model.preferredRoute` leaves `model.gatewayUrl` alone. A record's entry is filled
  * in from the shape of one entry, so what an entry does not say is empty rather
  * than missing.
  */
@@ -377,7 +331,7 @@ function fill(defaults: unknown, said: unknown, path: string[] = []): unknown {
     if (!isGroup(said)) return isGroup(defaults) ? { ...defaults } : {};
     const out: Record<string, unknown> = { ...(isGroup(defaults) ? defaults : {}) };
     for (const [name, value] of Object.entries(said)) {
-      out[name] = entry === "*" ? value : fill(entry, value, [...path, "*"]);
+      out[name] = fill(entry, value, [...path, "*"]);
     }
     return out;
   }
@@ -393,7 +347,7 @@ function fill(defaults: unknown, said: unknown, path: string[] = []): unknown {
  * What is wrong with a value, or "" when nothing is. Checks three things: a key
  * that names no setting, a value of the wrong kind, and one outside the list of
  * what that setting may be. `chloe.config.ts` is type checked, so this is for a
- * value out of the environment and for a config that is not TypeScript.
+ * value handed over from .env and for a config that is not TypeScript.
  */
 function wrong(defaults: unknown, said: unknown, path: string[] = []): string {
   // A setting handed `process.env.SOMETHING` that nothing set is one the config
@@ -408,7 +362,7 @@ function wrong(defaults: unknown, said: unknown, path: string[] = []): string {
   if (entry !== undefined) {
     if (!isGroup(said)) return `${where} holds an entry per name, so it is an object.`;
     for (const [name, value] of Object.entries(said)) {
-      const found = entry === "*" ? wrong("", value, [...path, "*"]) : wrong(entry, value, [...path, "*"]);
+      const found = wrong(entry, value, [...path, "*"]);
       // Every mention of it, because the message names the entry twice: what is
       // wrong, and what there was to set.
       if (found) return found.split(`${path.join(".")}.*`).join(`${path.join(".")}.${name}`);
@@ -442,146 +396,12 @@ function wrong(defaults: unknown, said: unknown, path: string[] = []): string {
   return typeof said === typeof defaults ? "" : `${where} is ${typeof defaults === "boolean" ? "true or false" : `a ${typeof defaults}`}.`;
 }
 
-function asTyped(name: string, was: unknown, text: string): unknown {
-  if (typeof was === "boolean") {
-    if (["true", "yes", "on", "1"].includes(text.trim().toLowerCase())) return true;
-    if (["false", "no", "off", "0"].includes(text.trim().toLowerCase())) return false;
-    throw new Error(`${name} is ${JSON.stringify(text)}, and a switch is true or false.`);
-  }
-  if (typeof was === "number") {
-    const found = Number(text.trim());
-    if (Number.isNaN(found)) throw new Error(`${name} is ${JSON.stringify(text)}, and it has to be a number.`);
-    return found;
-  }
-  if (Array.isArray(was)) {
-    return text
-      .split(",")
-      .map((one) => one.trim())
-      .filter(Boolean);
-  }
-  return text;
-}
-
-/** A value written into an object by its path, making the groups above it as it goes. */
-function setIn(into: Record<string, unknown>, path: string[], value: unknown): Record<string, unknown> {
-  let at = into;
-  for (const key of path.slice(0, -1)) {
-    if (!isGroup(at[key])) at[key] = {};
-    at = at[key] as Record<string, unknown>;
-  }
-  at[path[path.length - 1]] = value;
-  return into;
-}
-
-/** Every leaf under a group, as paths. */
-function leaves(group: Record<string, unknown>, path: string[] = []): string[][] {
-  return Object.entries(group).flatMap(([key, value]) => (isGroup(value) ? leaves(value, [...path, key]) : [[...path, key]]));
-}
-
 /**
- * The fields one entry of a record has, like an agent's `telegram` and
- * `slack.bot_token`, read off the shape of one entry in RECORDS. A record whose
- * entries are plain values, like `model.routes`, has none, and then everything
- * after the prefix is the key.
+ * What was declared, filled in from the defaults and checked. Takes the
+ * declaration rather than reading it, so it can be tested without a disk.
  */
-function fieldsOf(path: string[]): string[][] {
-  const entry = recordAt(path);
-  return isGroup(entry) ? leaves(entry) : [];
-}
-
-/**
- * A record's entries out of the environment: `CHLOE_AGENTS_<id>_TELEGRAM`.
- * The field is matched off the end, longest first, so an agent whose name has
- * an underscore in it still reads as one name. The key is lower case, which is
- * what an agent folder and a provider are, unless something already spells it
- * another way.
- */
-function entries(env: Env, path: string[], already: Record<string, unknown>, spellings: string[]): [string[], unknown][] {
-  const prefix = `${nameInEnv(path)}_`;
-  const fields = fieldsOf(path)
-    .map((field) => ({ field, tail: `_${field.join("_").toUpperCase()}` }))
-    .sort((a, b) => b.tail.length - a.tail.length);
-  const out: [string[], unknown][] = [];
-  for (const [name, text] of Object.entries(env)) {
-    if (!name.startsWith(prefix) || text === undefined) continue;
-    const rest = name.slice(prefix.length);
-    if (fields.length === 0) {
-      out.push([[...path, named(rest, already, spellings)], text]);
-      continue;
-    }
-    const one = fields.find(({ tail }) => rest.endsWith(tail) && rest.length > tail.length);
-    if (!one) {
-      throw new Error(`${name} names no setting. Under ${path.join(".")} a name ends in ${fields.map(({ tail }) => tail).join(", ")}.`);
-    }
-    out.push([[...path, named(rest.slice(0, -one.tail.length), already, spellings), ...one.field], text]);
-  }
-  return out;
-}
-
-/** The group at a path in what was declared, or nothing there. */
-function groupIn(declared: Record<string, unknown>, path: string[]): Record<string, unknown> {
-  let at: unknown = declared;
-  for (const key of path) {
-    if (!isGroup(at)) return {};
-    at = at[key];
-  }
-  return isGroup(at) ? at : {};
-}
-
-/**
- * The key as something that already knows it spells it, matching on capitals and
- * treating a dash as an underscore, because a variable's name can hold neither.
- * Two places know: the config, where the key may already be written out, and the
- * `spellings` handed in, which is how an agent called `test-agent` is found by
- * CHLOE_AGENTS_TEST_AGENT_TELEGRAM. Otherwise it is what was written, in lower
- * case, and the server says the entry names no agent.
- */
-function named(from: string, already: Record<string, unknown>, spellings: string[]): string {
-  const same = (key: string) => key.toUpperCase().replace(/-/g, "_") === from;
-  return Object.keys(already).find(same) ?? spellings.find(same) ?? from.toLowerCase();
-}
-
-/**
- * Everything the environment says, as paths and values ready to write in. The
- * shape comes from the schema's own defaults, so every setting is here and the
- * text is read as the type that setting has.
- */
-export function fromEnv(env: Env, declared: Record<string, unknown>, spellings: string[] = []): [string[], unknown][] {
-  const out: [string[], unknown][] = [];
-  const walk = (group: Record<string, unknown>, path: string[]): void => {
-    for (const [key, was] of Object.entries(group)) {
-      const here = [...path, key];
-      if (isKey(here)) continue;
-      // A group the schema fills nothing into is a record: its keys are names
-      // somebody chose, like an agent's, so they are read off the variables.
-      if (isGroup(was) && Object.keys(was).length === 0) {
-        out.push(...entries(env, here, groupIn(declared, here), spellings));
-        continue;
-      }
-      if (isGroup(was)) {
-        walk(was, here);
-        continue;
-      }
-      const text = settingInEnv(env, here);
-      if (text !== undefined) out.push([here, asTyped(nameInEnv(here), was, text)]);
-    }
-  };
-  walk(DEFAULTS as unknown as Record<string, unknown>, []);
-  return out;
-}
-
-/**
- * What was declared, the environment over the top, and the lot checked. Takes
- * the declaration rather than reading it, so it can be tested without a disk
- * and so the order that wins is one readable line.
- */
-export function readSettings(declared: unknown, env: Env = process.env, spellings: string[] = []): Settings {
-  // Cloned, because the declaration belongs to whoever wrote chloe.config.ts
-  // and the environment is written in on top of it.
-  const merged = structuredClone(declared ?? {}) as Record<string, unknown>;
-  // Last, so a variable beats the config, and one setting at a time: setting
-  // cloud.url in the environment leaves the rest of cloud alone.
-  for (const [path, value] of fromEnv(env, merged, spellings)) setIn(merged, path, value);
+export function readSettings(declared: unknown): Settings {
+  const merged = (declared ?? {}) as Record<string, unknown>;
   // Said rather than passed over, because a key that silently stops being read
   // is a runtime that silently leaves its dashboard.
   if ((merged.cloud as Record<string, unknown> | undefined)?.key !== undefined) {
@@ -592,46 +412,46 @@ export function readSettings(declared: unknown, env: Env = process.env, spelling
   return fill(DEFAULTS, merged) as Settings;
 }
 
-/** What `chloe.config.ts` declared, kept so the environment can be read again over it. */
-let declared: Declared = {};
-
-/** The agent ids of the last declaration, so a variable can find one with a dash in it. */
-let spellings: string[] = [];
-
 /**
  * The settings in force: the schema's defaults, then what `chloe.config.ts`
- * declares, then the environment. Read a value when it is needed rather than
- * keeping a copy, because `declareSettings` and `reloadSettings` both write
- * into this same object.
- *
- * Until the first `declareSettings`, which is the first `loadAll()`, this is the
- * defaults and the environment. `state`, `memory` and `node` are read in that
- * window, which is why those three are environment only.
+ * declares. Read a value when it is needed rather than keeping a copy, because
+ * `declareSettings` writes into this same object. Until the first
+ * `declareSettings`, which is the first `loadAll()`, this is the defaults.
  */
 export const settings: Settings = readSettings({});
 
-/**
- * The settings `chloe.config.ts` declares, read with the environment over them
- * into the same `settings` everything already holds. Called by `loadAll()`
- * before any agent is resolved. `agents` is their names, so a variable can find
- * one with a dash in it, which a variable's name cannot hold. Throws, and
- * changes nothing, when what it is given is not valid.
- */
-export function declareSettings(said: Declared | undefined, agents: string[] = []): void {
-  const found = readSettings(said ?? {}, process.env, agents);
-  declared = said ?? {};
-  spellings = agents;
-  Object.assign(settings, found);
+/** What the config declared last, kept so `holdSettings` can go over it again. */
+let declared: Declared = {};
+
+/** What the test suite holds over the config, so a run never reaches a real account. Empty outside it. */
+let held: Declared = {};
+
+/** `over` written onto `under`, one setting at a time, neither of them changed. */
+function over(under: unknown, top: unknown): unknown {
+  if (!isGroup(under) || !isGroup(top)) return top === undefined ? under : top;
+  const out: Record<string, unknown> = { ...under };
+  for (const [key, value] of Object.entries(top)) out[key] = over(under[key], value);
+  return out;
 }
 
 /**
- * Read .env again, and the declared settings with it, into the same `settings`.
- * The server calls this when .env changes. Throws, and changes nothing, when
- * what comes out is not valid.
+ * The settings `chloe.config.ts` declares, into the same `settings` everything
+ * already holds. Called by `loadAll()` before any agent is resolved. Throws, and
+ * changes nothing, when what it is given is not valid.
  */
-export function reloadSettings(): void {
-  loadEnv();
-  Object.assign(settings, readSettings(declared, process.env, spellings));
+export function declareSettings(said: Declared | undefined): void {
+  Object.assign(settings, readSettings(over(said ?? {}, held)));
+  declared = said ?? {};
+}
+
+/**
+ * Settings the test suite keeps over whatever the config says, every time it is
+ * declared. The suite runs inside the project that installed the runtime, so
+ * without this it would run on that project's subscription and send its mail.
+ */
+export function holdSettings(these: Declared): void {
+  held = these;
+  declareSettings(declared);
 }
 
 /** The entries in `agents` that name none of these agents: usually one that was renamed. */

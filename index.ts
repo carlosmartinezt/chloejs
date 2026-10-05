@@ -40,7 +40,7 @@ export { canReach, deliver, owner, reachBy, split, type Send } from "./model/ask
 // The floor: where things are, what the box was told, staying inside a
 // folder, a small file an agent keeps, the history.
 export { agentDir, MEMORIES, ROOT, STATE } from "./core/paths.ts";
-export { declareSettings, KEYS, nameInEnv, readSettings, reloadSettings, settingInEnv, settings, unclaimed, whereKeyGoes, type Declared, type Settings } from "./core/settings.ts";
+export { declareSettings, KEYS, nameInEnv, readSettings, settings, unclaimed, whereKeyGoes, type Declared, type Settings } from "./core/settings.ts";
 export { confine } from "./core/confine.ts";
 export { note, type Note } from "./core/notes.ts";
 export { copyDatabase, DATABASE, db, trim } from "./core/db.ts";

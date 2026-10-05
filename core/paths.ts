@@ -4,12 +4,13 @@
 // agent writes is in its memory, and never here.
 //
 // STATE and MEMORIES are read as this file loads, which is before any config is,
-// so CHLOE_STATE and CHLOE_MEMORY are environment only. Where things are kept
-// needs a restart either way.
+// so they come from the environment, CHLOE_STATE and CHLOE_MEMORY, and are not
+// settings. Where things are kept needs a restart either way.
 import { join } from "node:path";
 
+// First, so a CHLOE_STATE in .env is read.
+import "./env.ts";
 import { ROOT } from "./root.ts";
-import { settings } from "./settings.ts";
 
 export { ROOT };
 
@@ -52,7 +53,7 @@ export function agentDir(id: string): string {
  * rewritten every run. Unset, this is `data/` inside the repo, which git
  * ignores, so a second clone keeps its own state. `git clean -x` would delete it.
  */
-export const STATE = settings.state || `${ROOT}/data`;
+export const STATE = process.env.CHLOE_STATE || `${ROOT}/data`;
 
 /**
  * Where the memories are: one folder per agent, and one git repository holding
@@ -61,4 +62,4 @@ export const STATE = settings.state || `${ROOT}/data`;
  * ignored folder holds everything this box keeps. It is a repository of its own
  * even so: what the agents write is in git, and nothing else in STATE ever is.
  */
-export const MEMORIES = settings.memory || `${STATE}/memory`;
+export const MEMORIES = process.env.CHLOE_MEMORY || `${STATE}/memory`;

@@ -16,7 +16,7 @@ const ASKED =
  * before, and the reason is in the log.
  */
 export async function nameThread(thread: string, prompt: string): Promise<void> {
-  const model = settings.model.naming;
+  const model = settings.model.namingModel;
   if (!model) return;
   try {
     const { text } = await ask({

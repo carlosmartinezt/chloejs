@@ -53,8 +53,7 @@
   "files": [
     "bin",
     "dist",
-    "ops/install.sh",
-    "settings.example.json"
+    "ops/install.sh"
   ],
   "engines": {
     "node": ">=22.18.0"
