@@ -211,7 +211,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     if (!file.isFile() || !file.name.endsWith(".ts")) continue;
     if (!file.parentPath.endsWith("/jobs")) continue;
     const source = await readFile(join(file.parentPath, file.name), "utf8");
-    if (source.includes('"@chloejs/core/tools"') || source.includes('"../tools/')) reaching.push(file.name);
+    if (source.includes('"@chloejs/core/tools/') || source.includes('"../tools/')) reaching.push(file.name);
   }
   is("every job calls the work itself", reaching, []);
 }

@@ -92,10 +92,10 @@ export interface AgentConfig {
   instructions: string | Prompt;
   /**
    * Tools made with the AI SDK's `tool()`, keyed by the name a model calls
-   * them by: `{ weather, gmailReadEmail: gmailReadEmail({ ... }) }`. Every tool is handed
+   * them by: `{ weather, gmailReadEmail: gmail.readEmail({ ... }) }`. Every tool is handed
    * `{ agent }` as its `context`. What `features` turns on is added to these
    * and not listed here, and so is the sign-in of each connection a tool
-   * `needs`, like Google's beside gmailReadEmail.
+   * `needs`, like Google's beside gmail.readEmail.
    */
   tools?: Tools;
   /** Each job: one imported, or markdownJob("jobs/<id>.md") for one that is only a prompt. */
@@ -610,7 +610,7 @@ function featureTools(features: Features = {}, home: Home, where: string): Tools
 /** The agent's tools, checked. */
 function toolsOf(tools: Tools, where: string): Tools {
   if (Array.isArray(tools) || typeof tools !== "object") {
-    throw new Error(`${where}: tools is one object keyed by name, like { weather, gmailReadEmail: gmailReadEmail({ ... }) }.`);
+    throw new Error(`${where}: tools is one object keyed by name, like { weather, gmailReadEmail: gmail.readEmail({ ... }) }.`);
   }
   for (const [id, each] of Object.entries(tools)) {
     const wrong = cannotRun(id, each);

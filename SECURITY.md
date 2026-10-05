@@ -6,7 +6,7 @@ carlosmartinezt@gmail.com rather than in an issue.
 Two things are worth knowing before you write a tool.
 
 **A tool that reads private material is bound, not asked.** The mail search
-behind `gmailReadEmail`, and the folder behind the memory tools, come from the agent's
+behind `gmail.readEmail`, and the folder behind the memory tools, come from the agent's
 own binding in its `agent.ts`. The model chooses only how far back and how many.
 Reading one item re-runs that same search and refuses anything that is not in
 it. A query a model can write is a filter and not a boundary: it widens the

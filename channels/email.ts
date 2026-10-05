@@ -10,7 +10,7 @@
 //
 // Each conversation has its own address, `reply-<id>@<the dashboard's domain>`,
 // made for one person. The agent starts one with `openEmail()` (or the
-// `emailStartConversation` tool, or a job's `ask("email:<address>")`), and the person's
+// `email.startConversation` tool, or a job's `ask("email:<address>")`), and the person's
 // replies to that address come back here as messages in that conversation.
 //
 // A reply reaches the dashboard through its mail worker, and waits in this

@@ -1,6 +1,9 @@
 // The tools over driveService.ts: finding files in the part of Drive an agent
 // is bound to, and reading one as text. The binding lives in the agent's
 // config, and the model chooses only the words to look for.
+//
+//   import * as drive from "@chloejs/core/tools/drive";
+//   tools: { driveSearchFiles: drive.searchFiles({ search }), driveReadFile: drive.readFile({ search }) }
 import { tool } from "ai";
 import { z } from "zod";
 
@@ -20,9 +23,9 @@ interface Options {
 
 /**
  * A tool that finds files in the part of Drive the agent is bound to. Give it
- * the same `search` as the agent's `driveReadFile`.
+ * the same `search` as the agent's `readFile`.
  */
-export function driveSearchFiles({ search = "", what = "Drive" }: Options = {}) {
+export function searchFiles({ search = "", what = "Drive" }: Options = {}) {
   const find = tool({
     description: `Find files in ${what}, newest first, or by words in them. You cannot change which files this searches.`,
     inputSchema: z.object({
@@ -35,7 +38,7 @@ export function driveSearchFiles({ search = "", what = "Drive" }: Options = {}) 
 }
 
 /** A tool that reads one file the search listed, as text: a Doc, a Sheet, Slides or a text file. */
-export function driveReadFile({ search = "", what = "Drive" }: Options = {}) {
+export function readFile({ search = "", what = "Drive" }: Options = {}) {
   const read = tool({
     description: `Read one file in ${what} as text: a Google Doc, Sheet or Slides, or a text file. Pass an id driveSearchFiles listed.`,
     inputSchema: z.object({

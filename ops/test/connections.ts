@@ -10,7 +10,7 @@ import { about, is } from "#chloe/ops/check";
 {
   about("an MCP connection");
   const { defineAgent } = await import("@chloejs/core");
-  const { mcpConnection } = await import("@chloejs/core/tools");
+  const { mcpConnection } = await import("@chloejs/core/connections");
   const { resolveAgent } = await import("#chloe/load/load");
   const { connectionsOf } = await import("#chloe/serve/inside");
   const { run } = await import("#chloe/model/tool");

@@ -58,6 +58,16 @@ in `.env` beside it, mode 600: every password, key and token, and nothing else.
 Nothing in source control may hold one. An address, a path or a name is not a
 secret and goes in the config.
 
+**Designed for everyone who will use it, not for the first user.** The question
+behind every change is what the best design is for the runtime as a whole,
+worked out from the principles in this file. How one install happens to use a
+feature today is evidence, not the answer. When that install asks for a
+change, find the design that would be right for everyone, and if that differs
+from the quick fix, build the design or say so before building anything. An
+option added because one agent needed it, a second record of a fact the
+runtime already keeps, a tool that does two things: each is cheap to add and
+dear to take back once it is published.
+
 **A key reaches the runtime only where the config names it**, as
 `connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } }`, so reading the config
 shows every key there is and where each comes from. The runtime never reads a
@@ -257,8 +267,8 @@ one.** Each is a folder in `connections/`: its tools, its services, and a
 somebody signs in (`signIn`), and what is missing before it works
 (`missing()`, in words). A tool that works through one says so with `needs`:
 every Gmail, Calendar and Drive tool is marked `needs: google`. The setup page
-and the lines printed at startup ask it what is missing. So an agent says
-`gmailReadEmail` and is done, and a connection in an agent's own folder works
+and the lines printed at startup ask it what is missing. So an agent binds
+`gmail.readEmail` and is done, and a connection in an agent's own folder works
 the same with nothing added here. Google and Resend ship with the runtime.
 
 **A sign-in is code, and no model ever holds one.** A connection's service
@@ -290,13 +300,20 @@ tools of chloe's own, bound to what one agent may see.
 `model/tools/` holds the wrappers over those functions, and a wrapper is
 a description, a schema and one call, made with the AI SDK's `tool()`. Each
 function returns one tool, and the agent's `tools` object gives it the name the
-model calls it by: `{ gmailReadEmail: gmailReadEmail({ ... }) }`. Nothing in it does work. A tool that needs to know
+model calls it by: `{ gmailReadEmail: gmail.readEmail({ ... }) }`. Nothing in it does work. A tool that needs to know
 which agent it runs for reads `agentOf(context)`: every tool is handed
-`{ agent }` as the AI SDK's `context`, so no tool is made per agent. A tool's
-function is named like the tool it makes: `resendSendEmail()` makes
-`resendSendEmail`. A tool's name is where it reaches, then a verb and a noun:
-`gmailReadEmail`, `fsListFiles`, `memoryWriteFile`, `selfReadFile`,
-`scriptRun`, `webReadPage`.
+`{ agent }` as the AI SDK's `context`, so no tool is made per agent.
+
+**One entrance per set of tools, and the entrance is the first word of the
+name.** Gmail's are `@chloejs/core/tools/gmail`, read as `import * as gmail`, and
+each function is the verb and the noun: `gmail.readEmail()`, `resend.sendEmail()`,
+`web.readPage()`. So importing the web tools never loads Google's, and two
+services can each have a `sendEmail`. The name a model sees is the key the agent
+gives it, by convention the two run together: `gmailReadEmail`, `fsListFiles`,
+`memoryWriteFile`, `selfReadFile`, `scriptRun`, `webReadPage`. An entrance is
+the tools' own file (Gmail's is `connections/google/gmail.ts`), so everything
+that file exports is published: what several tools share goes in a file that is
+not an entrance, like `model/tools/sending.ts`.
 A service's function is named for the work, `deliverEmail()`, and never
 takes a tool's name, so a job and a model never reach for the same one. A file in
 `services/` is named for what it reaches, `<thing>Service.ts`. Where more than
@@ -496,13 +513,16 @@ package can import itself. Every entrance has a branch per condition in
 `package.json`: `chloe-source` for the `.ts` in this repo, the default for the
 `dist/` that is published. That is why this repo's own scripts all say
 `node --conditions=chloe-source`, and why `ops/install.sh` adds it when the
-install is a symlink to a clone. Seven entrances and no others: `@chloejs/core`,
-`@chloejs/core/services` for the work a job does, `@chloejs/core/tools` for a tool to
-bind, `@chloejs/core/channels` for a channel to bind, `@chloejs/core/scorers` for
+install is a symlink to a clone. The entrances are `exports` in `package.json`
+and there are no others: `@chloejs/core`,
+`@chloejs/core/services` for the work a job does, `@chloejs/core/tools/<name>` for
+a tool to bind (`gmail`, `calendar`, `drive`, `resend`, `email`, `web`, `fs`),
+`@chloejs/core/channels` for a channel to bind, `@chloejs/core/connections` for
+an MCP server, `@chloejs/core/scorers` for
 marking a run, `@chloejs/core/timer` for when a job runs (`every`, and cron lines on
-their own), and `@chloejs/core/test` for testing a job. Adding a name to an entrance's
-index file (`index.ts`, `services/index.ts`, `model/tools/index.ts`,
-`channels/index.ts`) is publishing it, and taking one
+their own), and `@chloejs/core/test` for testing a job. Adding a name to an
+entrance's file (`index.ts`, `services/index.ts`, `channels/index.ts`,
+`connections/index.ts`, or a tool's own file) is publishing it, and taking one
 away is a break, so anything not on those lists is free to move. Inside
 the runtime the files reach each other by `#chloe/`, which `package.json`
 maps, with no extension (`#chloe/core/db`, not `#chloe/core/db.ts`, which tsc
@@ -542,7 +562,7 @@ prompt, and the second is skipped rather than queued. A job that takes longer th
 run less often than its cron line says.
 
 **A tool that reads someone's mail or notes is bound, not asked.** The search a
-tool like `gmailReadEmail` runs comes from the agent's own binding, and the agent
+tool like `gmail.readEmail` runs comes from the agent's own binding, and the agent
 chooses only how far back and how many. Reading one item re-runs that same
 search and refuses anything that is not in it. A query an agent can write is a
 filter, not a boundary: it widens the moment a turn goes wrong, and by then it

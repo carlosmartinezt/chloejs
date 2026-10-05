@@ -29,10 +29,45 @@
       "types": "./dist/timer/index.d.ts",
       "default": "./dist/timer/index.js"
     },
-    "./tools": {
-      "chloe-source": "./model/tools/index.ts",
-      "types": "./dist/model/tools/index.d.ts",
-      "default": "./dist/model/tools/index.js"
+    "./tools/gmail": {
+      "chloe-source": "./connections/google/gmail.ts",
+      "types": "./dist/connections/google/gmail.d.ts",
+      "default": "./dist/connections/google/gmail.js"
+    },
+    "./tools/calendar": {
+      "chloe-source": "./connections/google/calendar.ts",
+      "types": "./dist/connections/google/calendar.d.ts",
+      "default": "./dist/connections/google/calendar.js"
+    },
+    "./tools/drive": {
+      "chloe-source": "./connections/google/drive.ts",
+      "types": "./dist/connections/google/drive.d.ts",
+      "default": "./dist/connections/google/drive.js"
+    },
+    "./tools/resend": {
+      "chloe-source": "./connections/resend/resend.ts",
+      "types": "./dist/connections/resend/resend.d.ts",
+      "default": "./dist/connections/resend/resend.js"
+    },
+    "./tools/email": {
+      "chloe-source": "./model/tools/email.ts",
+      "types": "./dist/model/tools/email.d.ts",
+      "default": "./dist/model/tools/email.js"
+    },
+    "./tools/web": {
+      "chloe-source": "./model/tools/web.ts",
+      "types": "./dist/model/tools/web.d.ts",
+      "default": "./dist/model/tools/web.js"
+    },
+    "./tools/fs": {
+      "chloe-source": "./model/tools/fs.ts",
+      "types": "./dist/model/tools/fs.d.ts",
+      "default": "./dist/model/tools/fs.js"
+    },
+    "./connections": {
+      "chloe-source": "./connections/index.ts",
+      "types": "./dist/connections/index.d.ts",
+      "default": "./dist/connections/index.js"
     },
     "./test": {
       "chloe-source": "./ops/check.ts",

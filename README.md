@@ -323,9 +323,11 @@ ops/         cli.ts, which is `npx chloe`, and what it runs: the tests, the
 test-agent/  the agent the tests load. Not published
 ```
 
-Seven entrances and no others: `@chloejs/core`, `@chloejs/core/services`,
-`@chloejs/core/tools`, `@chloejs/core/channels`, `@chloejs/core/scorers`,
-`@chloejs/core/timer` and `@chloejs/core/test`.
+The entrances, and no others: `@chloejs/core`, `@chloejs/core/services`,
+`@chloejs/core/channels`, `@chloejs/core/connections`, `@chloejs/core/scorers`,
+`@chloejs/core/timer`, `@chloejs/core/test`, and one per set of tools:
+`@chloejs/core/tools/gmail`, `/calendar`, `/drive`, `/resend`, `/email`, `/web`
+and `/fs`.
 
 ## Use code when you know what to do. Use AI when you do not.
 

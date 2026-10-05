@@ -5,6 +5,9 @@
 // write. For reading, all the model chooses is how far back and how many. For
 // replying, it chooses which of the messages it has already listed and what to
 // say, and never the address.
+//
+//   import * as gmail from "@chloejs/core/tools/gmail";
+//   tools: { gmailReadEmail: gmail.readEmail({ search: "in:inbox" }) }
 import { tool } from "ai";
 import { z } from "zod";
 
@@ -12,9 +15,11 @@ import { markdownToHtml, markdownToText } from "#chloe/services/emailService";
 import { writeFiles } from "#chloe/services/filesService";
 import { readEmailMessages, readOneEmailMessage, replyGmail } from "./gmailService.ts";
 import { agentOf } from "#chloe/model/tool";
-import { sendingTool, type SendOptions } from "#chloe/model/tools/email";
+import { sendingTool, type SendOptions } from "#chloe/model/tools/sending";
 
 import { google } from "./connection.ts";
+
+export type { SendOptions };
 
 interface Options {
   /**
@@ -37,7 +42,7 @@ interface Options {
  * sends the sign-in itself: mail that cannot be read because nobody has signed
  * in is not a different problem from mail, and there is nothing to add.
  */
-export function gmailReadEmail({
+export function readEmail({
   search = "in:inbox",
   what = "mail in the inbox",
   days = 7,
@@ -94,10 +99,10 @@ interface ReplyOptions extends Options {
  * choosing is the whole risk, and the only reliable answer is for the address
  * not to be an input.
  *
- * Give it the same `search` as the agent's `gmailReadEmail`, so the mail it can
+ * Give it the same `search` as the agent's `readEmail`, so the mail it can
  * answer is exactly the mail that search lists.
  */
-export function gmailReplyEmail({
+export function replyEmail({
   search = "in:inbox",
   what = "mail in the inbox",
   days = 7,
@@ -163,6 +168,6 @@ export function gmailReplyEmail({
  * Sends mail as the person signed in to Google, from the address the agent was
  * given, which has to be that account or an alias Google verified for it.
  */
-export function gmailSendEmail(options: SendOptions) {
+export function sendEmail(options: SendOptions) {
   return Object.assign(sendingTool("gmail", options), { needs: google });
 }

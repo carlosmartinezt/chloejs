@@ -5,7 +5,7 @@
 // provider reads its own section of .env for its key (CHLOE_CONNECTIONS_RESEND_API_KEY for
 // Resend). "none" in settings sends nothing at all, whoever names a provider.
 //
-// The tools a model reaches are gmailSendEmail and resendSendEmail, which call
+// The tools a model reaches are gmail.sendEmail and resend.sendEmail, which call
 // this. A job calls this directly, from a step.
 
 import { settings } from "#chloe/core/settings";

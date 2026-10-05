@@ -1,11 +1,14 @@
 // The tool over services/webService.ts: reading one public web page.
+//
+//   import * as web from "@chloejs/core/tools/web";
+//   tools: { webReadPage: web.readPage() }
 import { tool } from "ai";
 import { z } from "zod";
 
-import { readPage } from "#chloe/services/webService";
+import * as webService from "#chloe/services/webService";
 
 /** A tool that reads one public web page as plain text. */
-export function webReadPage() {
+export function readPage() {
   return tool({
     description:
       "Read a public web page as plain text. Links come back as `[text](url)`: to follow one, pass that url " +
@@ -17,6 +20,6 @@ export function webReadPage() {
       url: z.url(),
       from: z.number().int().min(0).optional().describe("Where to start, from the last slice's `next`."),
     }),
-    execute: ({ url, from }) => readPage(url, from ?? 0),
+    execute: ({ url, from }) => webService.readPage(url, from ?? 0),
   });
 }

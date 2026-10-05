@@ -172,8 +172,8 @@ import type { Tools } from "./shared.ts";
   }
 
   about("what a Google tool brings with it");
-  const { gmailReadEmail, gmailSendEmail } = await import("#chloe/connections/google/gmail");
-  const { resendSendEmail } = await import("#chloe/connections/resend/resend");
+  const gmail = await import("@chloejs/core/tools/gmail");
+  const resend = await import("@chloejs/core/tools/resend");
 
   // A sign-in is the runtime's to run, so no model is handed one: a model asked
   // to copy a sign-in link rewrote it and left out the mail.
@@ -181,9 +181,9 @@ import type { Tools } from "./shared.ts";
   const { resolveAgent: resolve } = await import("#chloe/load/load");
   const toolsOf = async (tools: Tools) =>
     Object.keys((await resolve(define({ id: "mail", folder: await mkdtemp(join(tmpdir(), "chloe-mail-")), model: "m", description: "", instructions: "Hi.", features: { memory: false }, tools }))).tools ?? {}).sort();
-  is("gmailReadEmail comes with no sign-in tool", await toolsOf({ gmailReadEmail: gmailReadEmail({ search: "in:inbox" }) }), ["gmailReadEmail"]);
+  is("gmailReadEmail comes with no sign-in tool", await toolsOf({ gmailReadEmail: gmail.readEmail({ search: "in:inbox" }) }), ["gmailReadEmail"]);
   const sender = { when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] };
-  is("resendSendEmail has nothing to sign in to", await toolsOf({ resendSendEmail: resendSendEmail(sender) }), ["resendSendEmail"]);
+  is("resendSendEmail has nothing to sign in to", await toolsOf({ resendSendEmail: resend.sendEmail(sender) }), ["resendSendEmail"]);
 
   about("a connection of an agent's own");
   const { connectionsOf } = await import("#chloe/serve/inside");

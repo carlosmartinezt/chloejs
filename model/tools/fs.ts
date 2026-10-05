@@ -2,10 +2,13 @@
 //
 // An agent binds each one to a root it is allowed to see, and names that
 // folder in plain words for the description.
+//
+//   import * as fs from "@chloejs/core/tools/fs";
+//   tools: { fsReadFile: fs.readFile({ root: "/srv/notes", what: "the shared notes" }) }
 import { tool } from "ai";
 import { z } from "zod";
 
-import { editFiles, folderTree, listFiles, readFiles, searchFiles, writeFiles } from "#chloe/services/filesService";
+import * as files from "#chloe/services/filesService";
 
 /** `what` names the folder in the tool's description, e.g. "the shared notes". */
 interface Folder {
@@ -18,16 +21,16 @@ interface Folder {
  * overview is the folder's folders, two levels down, so a model knows the
  * layout before its first call.
  */
-export function fsListFiles({ root, what }: Folder) {
+export function listFiles({ root, what }: Folder) {
   const list = tool({
     description: `List a folder in ${what}, so you can find the right file before reading it. Start here rather than guessing at a path.`,
     inputSchema: z.object({
       path: z.string().optional().describe("Folder to list. Omit for the top level."),
     }),
-    execute: ({ path }) => listFiles(root, path),
+    execute: ({ path }) => files.listFiles(root, path),
   });
   const overview = async () => {
-    const tree = await folderTree(root);
+    const tree = await files.folderTree(root);
     if (!tree.length) return "";
     return (
       `## The folders in ${what}\n\n` +
@@ -44,7 +47,7 @@ export function fsListFiles({ root, what }: Folder) {
  * how many characters an unranged read returns before it is cut at a line
  * and says so: 40,000 (about 10,000 tokens) unless the binding says otherwise.
  */
-export function fsReadFile({ root, what, limit = 40_000 }: Folder & { limit?: number }) {
+export function readFile({ root, what, limit = 40_000 }: Folder & { limit?: number }) {
   return tool({
     description:
       `Read one file from ${what}, or part of it. Read before answering, and read before writing: guessing ` +
@@ -55,7 +58,7 @@ export function fsReadFile({ root, what, limit = 40_000 }: Folder & { limit?: nu
       from: z.number().int().min(1).optional().describe("First line to read, counting from 1."),
       lines: z.number().int().min(1).optional().describe("How many lines to read from there."),
     }),
-    execute: ({ path, from, lines }) => readFiles(root, path, { from, lines, limit }),
+    execute: ({ path, from, lines }) => files.readFiles(root, path, { from, lines, limit }),
   });
 }
 
@@ -64,7 +67,7 @@ export function fsReadFile({ root, what, limit = 40_000 }: Folder & { limit?: nu
  * many lines either side of each match come back with it: 2 unless the
  * binding says otherwise.
  */
-export function fsSearchFiles({ root, what, around = 2 }: Folder & { around?: number }) {
+export function searchFiles({ root, what, around = 2 }: Folder & { around?: number }) {
   return tool({
     description:
       `Search ${what} for text, and return each match with the lines around it and their line numbers. ` +
@@ -74,7 +77,7 @@ export function fsSearchFiles({ root, what, around = 2 }: Folder & { around?: nu
       query: z.string().min(2).describe("Text to look for, case-insensitive."),
       folder: z.string().optional().describe("Narrow to one folder. Omit to search everything."),
     }),
-    execute: ({ query, folder }) => searchFiles(root, query, folder, { around }),
+    execute: ({ query, folder }) => files.searchFiles(root, query, folder, { around }),
   });
 }
 
@@ -83,7 +86,7 @@ export function fsSearchFiles({ root, what, around = 2 }: Folder & { around?: nu
  * `author` when there is one. `memory` says this folder is the agent's memory,
  * so the run writing it lists the commit.
  */
-export function fsWriteFile({
+export function writeFile({
   root,
   what,
   commit = false,
@@ -103,12 +106,12 @@ export function fsWriteFile({
       message: z.string().optional().describe("Commit message saying what changed. Required here."),
     }),
     execute: ({ path, content, append, message }) =>
-      writeFiles(root, path, content, { commit, message, append, author, in: memory ? "memory" : undefined }),
+      files.writeFiles(root, path, content, { commit, message, append, author, in: memory ? "memory" : undefined }),
   });
 }
 
-/** A tool that changes one part of a file in that folder. `commit`, `author` and `memory` are as for fsWriteFile. */
-export function fsEditFile({
+/** A tool that changes one part of a file in that folder. `commit`, `author` and `memory` are as for writeFile. */
+export function editFile({
   root,
   what,
   commit = false,
@@ -129,6 +132,6 @@ export function fsEditFile({
       message: z.string().optional().describe("Commit message saying what changed. Required here."),
     }),
     execute: ({ path, old, new: replacement, message }) =>
-      editFiles(root, path, old, replacement, { commit, message, author, in: memory ? "memory" : undefined }),
+      files.editFiles(root, path, old, replacement, { commit, message, author, in: memory ? "memory" : undefined }),
   });
 }

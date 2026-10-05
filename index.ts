@@ -7,7 +7,7 @@
 //
 //   import { defineJob, note } from "@chloejs/core";
 //   import { run, deliverEmail } from "@chloejs/core/services";  // the work, for a job
-//   import { gmailReadEmail } from "@chloejs/core/tools";  // the work, for a model
+//   import * as gmail from "@chloejs/core/tools/gmail";  // the work, for a model
 //   import { telegramChannel } from "@chloejs/core/channels";  // reaching an agent
 //   import { calls, expectations } from "@chloejs/core/scorers";  // marking a run
 //

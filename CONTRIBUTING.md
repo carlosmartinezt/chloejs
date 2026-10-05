@@ -19,9 +19,10 @@ back:
 - **A tool is for a model and nothing else.** The work is a plain function in
   `services/`, published as `@chloejs/core/services`, and a job calls it from a step. A tool
   is a description, a schema and one call over it.
-- **Adding a name to `index.ts` or `model/tools/index.ts` is
-  publishing it**, and taking one away is a break. Anything not on those lists
-  is free to move.
+- **Adding a name to an entrance is publishing it**, and taking one away is
+  a break. The entrances are `exports` in `package.json`: an index file, or
+  for a set of tools the tools' own file, so every name that file exports is
+  published. Anything else is free to move.
 - **Before adding a model step, say in one sentence what judgement it makes.**
   If the sentence is a rule, write the rule.
 - **Plain words, short sentences, no jargon.** In prose, in code, and in command

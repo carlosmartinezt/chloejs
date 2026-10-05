@@ -19,6 +19,7 @@ import { jsonSchema, tool } from "ai";
 import type { Connection } from "#chloe/connections/connection";
 import type { Tools } from "#chloe/model/tool";
 
+/** What `mcpConnection` is given: which server, its key, and which of its tools. */
 export interface McpOptions {
   /** What it is called, and the first word of every tool it brings: `github`. */
   name: string;

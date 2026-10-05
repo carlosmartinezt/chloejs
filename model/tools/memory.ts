@@ -4,7 +4,7 @@
 // has them: the loader adds them, so an agent's `tools` never lists them.
 import { mkdirSync } from "node:fs";
 
-import { fsEditFile, fsListFiles, fsReadFile, fsSearchFiles, fsWriteFile } from "./fs.ts";
+import * as fs from "./fs.ts";
 import type { Tools } from "../tool.ts";
 
 /**
@@ -19,11 +19,11 @@ export function memoryTools(): (agent: { id: string; memory: { folder: string; c
     // to fail on one missing.
     mkdirSync(folder, { recursive: true });
     return {
-      memoryListFiles: fsListFiles({ root: folder, what }),
-      memoryReadFile: fsReadFile({ root: folder, what }),
-      memorySearchFiles: fsSearchFiles({ root: folder, what }),
-      memoryWriteFile: fsWriteFile({ root: folder, what, commit: commit === true, author: id, memory: true }),
-      memoryEditFile: fsEditFile({ root: folder, what, commit: commit === true, author: id, memory: true }),
+      memoryListFiles: fs.listFiles({ root: folder, what }),
+      memoryReadFile: fs.readFile({ root: folder, what }),
+      memorySearchFiles: fs.searchFiles({ root: folder, what }),
+      memoryWriteFile: fs.writeFile({ root: folder, what, commit: commit === true, author: id, memory: true }),
+      memoryEditFile: fs.editFile({ root: folder, what, commit: commit === true, author: id, memory: true }),
     };
   };
 }

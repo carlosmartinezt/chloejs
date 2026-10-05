@@ -1,6 +1,9 @@
 // The tools over calendarService.ts: reading the events on the calendars an
 // agent is bound to, and adding one. The binding is in the agent's config, and
 // the model chooses only the dates, and what the event it adds says.
+//
+//   import * as calendar from "@chloejs/core/tools/calendar";
+//   tools: { calendarListEvents: calendar.listEvents({ calendars: ["primary"] }) }
 import { tool } from "ai";
 import { z } from "zod";
 
@@ -17,7 +20,7 @@ interface Options {
 }
 
 /** A tool that lists the events on the calendars the agent is bound to. */
-export function calendarListEvents({ calendars = ["primary"], what = "the calendar", days = 7 }: Options = {}) {
+export function listEvents({ calendars = ["primary"], what = "the calendar", days = 7 }: Options = {}) {
   const list = tool({
     description: `List the events on ${what}, soonest first. You cannot change which calendars this reads.`,
     inputSchema: z.object({
@@ -35,7 +38,7 @@ export function calendarListEvents({ calendars = ["primary"], what = "the calend
  * A tool that adds one event to the calendar it is bound to. It invites
  * nobody, so nothing reaches anybody else.
  */
-export function calendarAddEvent({ calendar = "primary", what = "the calendar", when = "" }: { calendar?: string; what?: string; when?: string } = {}) {
+export function addEvent({ calendar = "primary", what = "the calendar", when = "" }: { calendar?: string; what?: string; when?: string } = {}) {
   const add = tool({
     description:
       `Add one event to ${what}. It invites nobody and sends nothing.${when ? ` ${when}` : ""}`,
