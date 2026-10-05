@@ -20,6 +20,8 @@ export interface JobConfig<
   State = Data,
   Result = unknown,
   Args = Data,
+  /** What `args` takes before it parses, so `agent.run` can check `input` as it is written. */
+  ArgsIn = Args,
 > {
   /**
    * What the run history files it under, and what `npm run agent` and the
@@ -61,7 +63,7 @@ export interface JobConfig<
    * A job with a cron line and a required field cannot run on that line, so
    * give those fields a default.
    */
-  args?: z.ZodType<Args>;
+  args?: z.ZodType<Args, ArgsIn>;
   /**
    * A zod schema for the shared store every step can read and write. `work.state`
    * starts as what it parses `{}` into, so a field with a default starts filled.
@@ -109,6 +111,7 @@ export function defineJob<
   State = Data,
   Result = unknown,
   Args = Data,
->(definition: JobConfig<State, Result, Args>): JobConfig<State, Result, Args> {
+  ArgsIn = Args,
+>(definition: JobConfig<State, Result, Args, ArgsIn>): JobConfig<State, Result, Args, ArgsIn> {
   return definition;
 }

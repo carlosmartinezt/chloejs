@@ -234,7 +234,7 @@ import { agentFor, asked, codeJob, ownPage, row, sent, work } from "./shared.ts"
 {
   about("what a job is started with");
 
-  const { work: runJob, checkArgs, WrongArgs } = await import("#chloe/core/steps");
+  const { work, checkArgs, WrongArgs } = await import("#chloe/core/steps");
 
   const takes = z.object({
     customer: z.string().min(1),
@@ -251,10 +251,10 @@ import { agentFor, asked, codeJob, ownPage, row, sent, work } from "./shared.ts"
     args: takes,
   } as Job);
 
-  await runJob({ agent: reader, job: reader.jobs[0], input: { customer: "c-12" } });
+  await work({ agent: reader, job: reader.jobs[0], input: { customer: "c-12" } });
   is("the job is handed what it was started with", saw, { customer: "c-12", source: "somewhere", times: 1 });
 
-  await runJob({ agent: reader, job: reader.jobs[0], input: { customer: "x", source: "shop", times: "3" } });
+  await work({ agent: reader, job: reader.jobs[0], input: { customer: "x", source: "shop", times: "3" } });
   is("a query string's strings are coerced by the shape", saw, { customer: "x", source: "shop", times: 3 });
 
   // The point of checking before the run exists: the caller is told, rather
@@ -276,22 +276,22 @@ import { agentFor, asked, codeJob, ownPage, row, sent, work } from "./shared.ts"
   // along outside args, so sending it is never a mistake. Anything else is,
   // because quietly dropping it would read as the job ignoring them.
   const plain = agentFor(codeJob("plain", async () => ({})));
-  const saidHello = await runJob({ agent: plain, job: plain.jobs[0], input: { text: "hello" } })
+  const saidHello = await work({ agent: plain, job: plain.jobs[0], input: { text: "hello" } })
     .then(() => "allowed")
     .catch((error: unknown) => (error instanceof WrongArgs ? "refused" : "wrong error"));
   is("a message on its own is not args", saidHello, "allowed");
-  const sentAnyway = await runJob({ agent: plain, job: plain.jobs[0], input: { customer: "c-12" } })
+  const sentAnyway = await work({ agent: plain, job: plain.jobs[0], input: { customer: "c-12" } })
     .then(() => "allowed")
     .catch((error: unknown) => (error instanceof WrongArgs ? "refused" : "wrong error"));
   is("a job with no args shape is not started with anything else", sentAnyway, "refused");
-  is("and starting it with nothing is fine", (await runJob({ agent: plain, job: plain.jobs[0] })).steps >= 0, true);
+  is("and starting it with nothing is fine", (await work({ agent: plain, job: plain.jobs[0] })).steps >= 0, true);
 
   // Written on the run row rather than held in memory, which is what lets a
   // run that stopped to ask somebody come back to the same input.
-  const kept = await runJob({ agent: reader, job: reader.jobs[0], input: { customer: "kept", text: "a message" } });
+  const kept = await work({ agent: reader, job: reader.jobs[0], input: { customer: "kept", text: "a message" } });
   is("the run records what it was started with", JSON.parse(row(kept.runId).args), { customer: "kept", source: "somewhere", times: 1 });
   is("and the message beside it", JSON.parse(row(kept.runId).input).text, "a message");
-  is("and a run the clock started records nothing", row((await runJob({ agent: plain, job: plain.jobs[0] })).runId).args, "{}");
+  is("and a run the clock started records nothing", row((await work({ agent: plain, job: plain.jobs[0] })).runId).args, "{}");
 }
 
 {

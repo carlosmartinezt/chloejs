@@ -22,6 +22,12 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   is("an agent's folder is the one it is written in, unless it says", here.folder, import.meta.dirname);
   is("and it can say", defineAgent({ ...here, id: here.id, folder: "/elsewhere" }).folder, "/elsewhere");
 
+  const { default: test } = await import(pathToFileURL(join(import.meta.dirname, "../../test-agent/agent.ts")).href);
+  const { default: hello } = await import(pathToFileURL(join(import.meta.dirname, "../../test-agent/jobs/hello.ts")).href);
+  is("an agent runs its own job", (await test.run({ job: hello })).text, "hello");
+  answers.push("Hi back.");
+  is("and is asked one thing", (await test.ask({ prompt: "Hi." })).text, "Hi back.");
+
   const all = await loadAll().then((found) => found, (error: Error) => error);
   is("every agent loads", all instanceof Error ? all.message : null, null);
   for (const agent of all instanceof Error ? [] : all.values()) {

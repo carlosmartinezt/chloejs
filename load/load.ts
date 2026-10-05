@@ -25,7 +25,8 @@ import { memoryTools } from "#chloe/model/tools/memory";
 import { scriptTools } from "#chloe/model/tools/script";
 import { selfTools } from "#chloe/model/tools/self";
 import { makeRepo } from "#chloe/services/historyService";
-import { work, type Data, type Result as RunResult, type Work } from "#chloe/core/steps";
+import { work, type Data, type Envelope, type Result as RunResult, type Work } from "#chloe/core/steps";
+import { turn, type Result as TurnResult } from "#chloe/core/turn";
 
 export const CONFIG = `${ROOT}/chloe.config.ts`;
 
@@ -124,18 +125,76 @@ export interface AgentConfig {
 /** An agent config with its folder worked out: what defineAgent returns and the loader reads. */
 export interface DefinedAgent extends AgentConfig {
   folder: string;
+  /**
+   * Runs one of this agent's code jobs in this process and waits for it to
+   * finish:
+   *
+   * ```ts
+   * import chloe from "./agent.ts";
+   * import checkWeather from "./jobs/check-weather.ts";
+   * const { text } = await chloe.run({ job: checkWeather, input: { location: "London" } });
+   * ```
+   *
+   * `input` is what the job is started with, as the API would send it: the
+   * message keys (`text`, `from` and the rest) go to `work.input` and the rest
+   * is checked against the job's `args`, by the editor as it is written and
+   * again before the run begins. `source` is "terminal" unless it says. The
+   * run is written to the run history like any other. Loads every agent first,
+   * so it is for a script, not for a loop.
+   */
+  run<ArgsIn>(options: RunOptions<ArgsIn>): Promise<RunResult>;
+  /**
+   * Asks this agent one thing and waits for its answer, as a channel would:
+   * its instructions, its tools and its memory, until it stops asking for
+   * tools.
+   *
+   * ```ts
+   * const { text } = await chloe.ask({ prompt: "What is on my plate this week?" });
+   * ```
+   *
+   * Without `thread` it starts fresh. With one, it reads that conversation
+   * first and the question and answer are added to it. `source` is "terminal"
+   * unless it says. The turn is written to the run history like any other.
+   * Loads every agent first, so it is for a script, not for a loop.
+   */
+  ask(options: AskOptions): Promise<TurnResult>;
 }
+
+/** What `agent.ask` takes. */
+export interface AskOptions {
+  prompt: string;
+  thread?: string;
+  source?: string;
+  signal?: AbortSignal;
+}
+
+/** What `agent.run` takes. `input` may be left out only when the job's `args` need nothing. */
+export type RunOptions<ArgsIn> = {
+  job: JobConfig<any, any, any, ArgsIn>;
+  source?: string;
+  signal?: AbortSignal;
+} & ({} extends ArgsIn ? { input?: ArgsIn & Partial<Envelope> } : { input: ArgsIn & Partial<Envelope> });
 
 /** Declares an agent. List it in chloe.config.ts for it to run. */
 export function defineAgent(definition: AgentConfig): DefinedAgent {
-  if (definition.folder) return { ...definition, folder: definition.folder };
+  const run = async (options: RunOptions<unknown>): Promise<RunResult> => {
+    const agent = await load(definition.id);
+    const job = agent.jobs.find((one) => one.id === options.job.id);
+    if (!job) throw new Error(`${agent.id} has no job called ${JSON.stringify(options.job.id)}. It has: ${agent.jobs.map((one) => one.id).join(", ")}.`);
+    return work({ agent, job, input: options.input, source: options.source ?? "terminal", signal: options.signal });
+  };
+  const ask = async (options: AskOptions): Promise<TurnResult> => {
+    const agent = await load(definition.id);
+    return turn({ ...options, agent, source: options.source ?? "terminal" });
+  };
+  if (definition.folder) return { ...definition, folder: definition.folder, run, ask };
   // [0] is this function, [1] is whoever called it.
   const caller = getCallSites()[1]?.scriptName ?? "";
   if (!caller.startsWith("file:") && !caller.startsWith("/")) {
     throw new Error(`defineAgent could not tell which file ${definition.id} is written in. Give it folder: import.meta.dirname.`);
   }
   const file = caller.startsWith("file:") ? fileURLToPath(caller) : caller;
-  return { ...definition, folder: dirname(file) };
+  return { ...definition, folder: dirname(file), run, ask };
 }
 
 /** What chloe.config.ts exports: every agent this box runs, and how it behaves. */
@@ -363,7 +422,7 @@ export interface ChannelRoute {
  * One agent as the runtime holds it: the definition with its instructions
  * read, its tools bound, its skills loaded and its jobs resolved.
  */
-export interface Agent extends Omit<DefinedAgent, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model" | "connections"> {
+export interface Agent extends Omit<DefinedAgent, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model" | "connections" | "run" | "ask"> {
   /** Its own, or `model.defaultModel` in settings. Always there once loaded. */
   model: string;
   /** Always there once loaded, with its folder worked out. See memoryFolder. */
@@ -470,38 +529,6 @@ export async function load(id: string): Promise<Agent> {
 }
 
 /**
- * Runs one of an agent's code jobs in this process and waits for it to finish.
- * `agent` is its id or what `defineAgent` returned, `job` its id or what
- * `defineJob` returned:
- *
- * ```ts
- * import chloe from "./agent.ts";
- * import checkWeather from "./jobs/check-weather.ts";
- * await runJob({ agent: chloe, job: checkWeather, input: { location: "London" } });
- * ```
- *
- * `input` is what the job is started with, as the API would send it: the
- * message keys go to `work.input` and the rest is checked against the job's
- * `args`. `source` is "terminal" unless it says. The run is written to the run
- * history like any other. Loads every agent first, so it is for a script, not
- * for a loop.
- */
-export async function runJob(options: {
-  agent: string | { id: string };
-  job: string | { id: string };
-  input?: Record<string, unknown>;
-  source?: string;
-  signal?: AbortSignal;
-}): Promise<RunResult> {
-  const agentId = typeof options.agent === "string" ? options.agent : options.agent.id;
-  const jobId = typeof options.job === "string" ? options.job : options.job.id;
-  const agent = await load(agentId);
-  const job = agent.jobs.find((one) => one.id === jobId);
-  if (!job) throw new Error(`${agentId} has no job called ${JSON.stringify(jobId)}. It has: ${agent.jobs.map((one) => one.id).join(", ")}.`);
-  return work({ agent, job, input: options.input, source: options.source ?? "terminal", signal: options.signal });
-}
-
-/**
  * One declared agent as the runtime uses it: its words read, its jobs loaded,
  * its tools bound and its memory folder worked out. `loadAll` calls this for
  * every agent in chloe.config.ts.
@@ -513,7 +540,7 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
   if (!model) throw new Error(`${where} does not say which model, and model.defaultModel in settings names none.`);
   if (!definition.instructions) throw new Error(`${where} has no instructions. Add instructions: prompt("instructions.md").`);
 
-  const { tools, jobs, channels, connections, ...rest } = definition;
+  const { tools, jobs, channels, connections, run, ask, ...rest } = definition;
   // Worked out once, here, so the site, the memory tool and a job's
   // work.memory all mean the same folder without any of them saying it again.
   const memory = {
