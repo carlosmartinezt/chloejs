@@ -118,9 +118,11 @@ db.exec("create table if not exists seen (agent text primary key, at text not nu
 
 /**
  * The columns a run is listed by: GET /api/runs, an agent's log, and what is
- * sent to a dashboard. The trace, the state and the prompt are left to GET /api/runs/:id.
+ * sent to a dashboard. Only the start of the prompt, enough for a line; the
+ * trace, the state and the whole prompt are left to GET /api/runs/:id.
  */
-export const RUN_COLUMNS = "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary, archived";
+export const RUN_COLUMNS =
+  "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary, archived, substr(prompt, 1, 200) as prompt";
 
 /** One commit a run made: in the agent's memory, or in the repo its own folder is in. */
 export interface RunCommit {
