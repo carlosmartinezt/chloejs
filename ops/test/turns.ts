@@ -1,0 +1,200 @@
+// Runs that stopped part way, and what a conversation remembers.
+
+import { isStepCount, tool } from "ai";
+import { z } from "zod";
+import { about, is } from "#chloe/ops/check";
+import type { Job } from "./shared.ts";
+import { agentFor, answers, asked, codeJob, db, lastAsked, row } from "./shared.ts";
+
+{
+  about("runs a stop cut off");
+
+  const { closeCutOff } = await import("#chloe/core/db");
+  const insert = db.prepare(
+    "insert into runs (id, agent, started, finished, source, model, prompt, parked) values (?, 'stopped', ?, ?, 'x', 'code', '', ?)",
+  );
+  const now = new Date().toISOString();
+  // Earlier cases leave runs open in this database, and they are not what is being counted.
+  db.prepare("update runs set finished = coalesce(finished, ?) where parked is null").run(now);
+  insert.run("cut", now, null, null);
+  insert.run("waiting", now, null, "{}");
+  insert.run("done", now, now, null);
+  is("one was cut off", closeCutOff(), 1);
+  is("it ends, saying why", row("cut").error, "Cut off: the service stopped while this was running.");
+  is("a run waiting on a person is left waiting", row("waiting").finished, null);
+  is("a finished run is left as it was", row("done").error, null);
+}
+
+{
+  about("a job's prompt the service stopped carries on from where it was");
+
+  const { CUT_OFF } = await import("#chloe/core/db");
+  const { carryOn, stopped } = await import("#chloe/core/turn");
+  const looked: string[] = [];
+  const look = tool({
+    description: "Look in one place.",
+    inputSchema: z.object({ where: z.string() }),
+    execute: ({ where }) => void looked.push(where),
+  });
+  const job: Job = { agent: "test", id: "morning", timezone: "UTC", prompt: "Look around.", files: [] };
+  const agent = { ...agentFor(job), tools: { look } };
+  // Two answers: one whose call finished, then one cut off while its first of two calls ran.
+  const trace = [
+    { step: 0, at: "", say: "Start with the logs.", wants: ["look"], cost: 0.1 },
+    { step: 0, at: "", tool: "look", args: { where: "logs" }, result: "all quiet" },
+    { step: 1, at: "", say: "Now the site.", wants: ["look", "look"], cost: 0.1 },
+  ];
+  const context = [
+    { role: "system", content: "You are a test." },
+    { role: "user", content: "Look around." },
+  ];
+  const insert = db.prepare(
+    "insert into runs (id, agent, started, finished, source, job, model, prompt, kind, error, context, trace) values (?, 'test', ?, ?, 'schedule', ?, 'anthropic/claude-haiku-4.5', '', ?, ?, ?, ?)",
+  );
+  const now = new Date().toISOString();
+  insert.run("stopped-turn", now, now, "morning", "turn", CUT_OFF, JSON.stringify(context), JSON.stringify(trace));
+  insert.run("failed-turn", now, now, "morning", "turn", "the model said no", JSON.stringify(context), "[]");
+  insert.run("stopped-chat", now, now, null, "turn", CUT_OFF, JSON.stringify(context), "[]");
+
+  let why = "";
+  try {
+    stopped("failed-turn");
+  } catch (error) {
+    why = (error as Error).message;
+  }
+  is("a run that failed on its own does not carry on", why, "Only a run the service stopped in the middle of, or one that ran out of steps, can carry on.");
+  why = "";
+  try {
+    stopped("stopped-chat");
+  } catch (error) {
+    why = (error as Error).message;
+  }
+  is("nor does a conversation", why, "Only a job's prompt can carry on, and this run is not one.");
+
+  answers.length = 0;
+  answers.push("All done.");
+  const result = await carryOn({ agent, runId: "stopped-turn" });
+  const shown = lastAsked as { role: string; content: string; tool_calls?: { function: { name: string; arguments: string } }[]; tool_call_id?: string }[];
+  is("it is handed what it began with, then what it did", shown.map((one) => one.role), ["system", "user", "assistant", "tool", "assistant", "user"]);
+  is("with the call that finished, as it was made", shown[2].tool_calls?.map((one) => [one.function.name, one.function.arguments]), [["look", '{"where":"logs"}']]);
+  is("and what it said back", shown[3].content, "all quiet");
+  is("the answer cut off keeps its words and no calls", [shown[4].content, shown[4].tool_calls], ["Now the site.", undefined]);
+  is("and it is told what did not finish", shown[5].content.includes("You had asked for look, look, which did not finish"), true);
+  is("the same run finishes", [result.runId, row("stopped-turn").finished !== null, row("stopped-turn").error, row("stopped-turn").reply], ["stopped-turn", true, null, "All done."]);
+  const after = JSON.parse(row("stopped-turn").trace) as { step: number; say?: string; carried?: string }[];
+  is("the record says where it picked up", after.filter((one) => one.carried).map((one) => one.step), [2]);
+  is("its steps and spending count from before", [result.steps, after.at(-1)?.step, after.at(-1)?.say], [3, 2, "All done."]);
+  is("nothing ran again by itself", looked, []);
+  why = "";
+  try {
+    stopped("stopped-turn");
+  } catch (error) {
+    why = (error as Error).message;
+  }
+  is("and once finished it does not carry on twice", why, "Only a run the service stopped in the middle of, or one that ran out of steps, can carry on.");
+}
+
+{
+  about("a job's prompt that ran out of steps carries on with as many again");
+
+  const { carryOn, canCarryOn } = await import("#chloe/core/turn");
+  const job: Job = { agent: "test", id: "morning", timezone: "UTC", prompt: "Look around.", files: [] };
+  const agent = { ...agentFor(job), stopWhen: isStepCount(2) };
+  const trace = [
+    { step: 0, at: "", say: "Start with the logs.", wants: ["skillRead"], cost: 0.1 },
+    { step: 0, at: "", tool: "skillRead", args: { name: "none" }, result: "No skill called none." },
+    { step: 1, at: "", say: "Now the site.", wants: ["skillRead"], cost: 0.1 },
+    { step: 1, at: "", tool: "skillRead", args: { name: "none" }, result: "No skill called none." },
+  ];
+  const context = [
+    { role: "system", content: "You are a test." },
+    { role: "user", content: "Look around." },
+  ];
+  const now = new Date().toISOString();
+  db.prepare(
+    "insert into runs (id, agent, started, finished, source, job, model, prompt, kind, error, context, trace) values ('tired-turn', 'test', ?, ?, 'schedule', 'morning', 'anthropic/claude-haiku-4.5', '', 'turn', 'Stopped after 2 steps without finishing.', ?, ?)",
+  ).run(now, now, JSON.stringify(context), JSON.stringify(trace));
+  is("the page is told why it can carry on", canCarryOn("tired-turn"), "out of steps");
+
+  answers.length = 0;
+  answers.push({ content: "One more look.", tool_calls: [{ id: "c1", type: "function", function: { name: "skillRead", arguments: '{"name":"none"}' } }] }, "All done.");
+  const result = await carryOn({ agent, runId: "tired-turn" });
+  const shown = lastAsked as { role: string; content: string }[];
+  is("it is told it ran out of steps", shown.at(-3)?.content.startsWith("You ran out of steps"), true);
+  is("and gets as many steps again, not what was left", [result.text, row("tired-turn").error, row("tired-turn").reply], ["All done.", null, "All done."]);
+  const after = JSON.parse(row("tired-turn").trace) as { step: number; carried?: string }[];
+  is("the record says it was given more", after.find((one) => one.carried)?.carried, "It ran out of steps here, and was given as many again to carry on.");
+  is("its steps count from before", result.steps, 4);
+}
+
+{
+  about("a conversation remembers which tools a reply used");
+
+  const { recall, remember } = await import("#chloe/model/memory");
+  remember("test/tools", "user", "What board am I on?");
+  remember("test/tools", "assistant", "Board 210.", [
+    { toolName: "webReadPage", input: { url: "https://example.com/pairings" } },
+    { toolName: "memoryWriteFile", input: { path: "chess.html", content: "x".repeat(1000) } },
+  ]);
+  remember("test/tools", "assistant", "Anything else?");
+  const told = recall("test/tools", { limit: 10, tools: true });
+  is("the next turn sees the calls, then the reply", told.map((one) => one.role), ["user", "assistant", "tool", "tool", "assistant", "assistant"]);
+  is("in the shape a turn's own calls take", told[1].tool_calls?.[0].function, { name: "webReadPage", arguments: '{"url":"https://example.com/pairings"}' });
+  is("a whole file written is cut short", JSON.parse(told[1].tool_calls![1].function.arguments).content.length, 303);
+  is("each call is answered, or a provider refuses the history", told[2].tool_call_id, told[1].tool_calls?.[0].id);
+  is("the reply itself is left as it was", told[4].content, "Board 210.");
+  is("a reply that called nothing is too", told[5].content, "Anything else?");
+  is("the page shows only the words", recall("test/tools").map((one) => one.content), ["What board am I on?", "Board 210.", "Anything else?"]);
+
+  // How much of a conversation is shown: a count, and an age.
+  const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
+  db.prepare("insert into messages (thread, role, content, at) values ('test/old', 'user', 'long ago', ?)").run(old);
+  remember("test/old", "user", "yesterday-ish");
+  remember("test/old", "assistant", "just now");
+  is("the last few, oldest first", recall("test/old", { limit: 2 }).map((m) => m.content), ["yesterday-ish", "just now"]);
+  is("and none older than the days given", recall("test/old", { days: 30 }).map((m) => m.content), ["yesterday-ish", "just now"]);
+  is("which are still there when nothing limits the age", recall("test/old").length, 3);
+
+  // What a turn is shown is its channel's chatHistory.
+  answers.push("Noted.");
+  const { receive } = await import("#chloe/channels/shared");
+  const brief = agentFor(codeJob("unused", async () => ({})));
+  const askedBefore = asked;
+  await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "and today?", private: true }, { chatHistory: { messages: 1 } });
+  const shownTo = lastAsked.filter((m) => m.role !== "system").map((m) => m.content);
+  is("a channel's chatHistory is what a turn on it is shown", shownTo, ["just now", "and today?"]);
+  answers.push("Fresh start.");
+  const cleared = await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "/clear", private: true });
+  is("/clear confirms the conversation was cleared", cleared?.text, "Conversation cleared.");
+  is("/clear does not ask the model", asked, askedBefore + 1);
+  is("/clear leaves this chat with no recalled messages", recall("test/old"), []);
+  await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "new topic", private: true });
+  is("the next message starts without the old conversation", lastAsked.filter((m) => m.role !== "system").map((m) => m.content), ["new topic"]);
+  const context = JSON.parse((db.prepare("select context from runs order by started desc limit 1").get() as { context: string }).context);
+  is("the run keeps the messages the model saw", context.map((one: { role: string; content: string }) => [one.role, one.content]), [
+    ["system", (lastAsked.find((one) => one.role === "system")?.content ?? "")],
+    ["user", "new topic"],
+  ]);
+  const system = lastAsked.find((m) => m.role === "system")?.content ?? "";
+  is("a turn on a channel is told who it is talking to, and to say you", system.includes('You are talking with Me on test, directly. Write to them as "you"'), true);
+  is("and not that its lines on the way are sent, when they are not", system.includes("sent to them straight away"), false);
+
+  // What the model writes on its way to an answer is sent as it goes only when
+  // the channel asks for it, and always before the answer.
+  const look = { id: "1", type: "function", function: { name: "look_around", arguments: "{}" } };
+  const onTheWay: string[] = [];
+  const talk = (sendWhileWorking: boolean) =>
+    receive(brief, { channel: "test", chat: "w", thread: "test/while", from: { id: "1", name: "Me" }, text: "how is it?", private: true },
+      { sendWhileWorking }, { send: async (text) => void onTheWay.push(text) });
+  answers.push({ content: "Let me check.", tool_calls: [look] }, "All fine.");
+  await talk(true);
+  is("with sendWhileWorking on, it is told its lines on the way reach them", lastAsked.find((m) => m.role === "system")?.content.includes("sent to them straight away"), true);
+  onTheWay.length = 0;
+  answers.push({ content: "Let me check.", tool_calls: [look] }, "All fine.");
+  const quiet = await talk(false);
+  is("off, only the answer comes back", [onTheWay, quiet?.text], [[], "All fine."]);
+  answers.push({ content: "Let me check.", tool_calls: [look] }, "All fine.");
+  const chatty = await talk(true);
+  is("on, what it said on the way is sent first", [onTheWay, chatty?.text], [["Let me check."], "All fine."]);
+  is("and kept in the conversation", recall("test/while").map((m) => m.content).slice(-3), ["how is it?", "Let me check.", "All fine."]);
+}

@@ -1,8 +1,8 @@
 // Saying whether one thing came out right, and counting what did not.
 //
 // This is what `@chloejs/core/test` means. It is its own file rather than part of
-// test.ts because test.ts runs its cases as it loads, and a test file that
-// imported it to get these two would run the whole suite again.
+// ops/test/shared.ts because that starts the suite's stand-ins as it loads, and
+// a test file that imported it to get these two would start them too.
 //
 // A job is code, so it is tested rather than scored. A test file sits beside
 // the job it is about, is named `<job>.test.ts`, and runs its cases as it

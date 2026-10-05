@@ -303,7 +303,7 @@ reaches it.
 npm run check
 ```
 
-It type checks, then runs `ops/test.ts`. The rules in `README.md` are not
+It type checks, then runs `ops/test.ts`, which runs each file in `ops/test/`. The rules in `README.md` are not
 checked by anything any more, so they hold only as far as whoever is editing
 holds them.
 
@@ -427,16 +427,17 @@ judgement out of the machine.
 
 **Setting an environment variable at the top of a file does not beat an
 import.** Imports are hoisted above it, so a module that reads the environment
-as it loads reads the old value. `ops/test.ts` imports `core/db.ts`
+as it loads reads the old value. `ops/test/shared.ts` imports `core/db.ts`
 by hand for exactly this reason, and the afternoon it did not, the tests wrote
 into the real run history.
 
 **A job's test sits beside the job, named `<job>.test.ts`.** The runner in
-`ops/test.ts` runs its own cases and then loads every `*.test.ts` under
-`agents/`, so a new one is a file and nothing else. Its cases come from
+`ops/test.ts` runs the runtime's own cases, one file per part in `ops/test/`,
+and loads every `*.test.ts` under `agents/`, so a new one is a file and
+nothing else. Its cases come from
 `test`, which is `about` and `is` and a count of what failed, shared so a
 failing job fails `npm run test`. Anything about the runtime itself stays in
-the runner: a test in `agents/` that does not name a job is in the wrong place.
+`ops/test/`: a test in `agents/` that does not name a job is in the wrong place.
 
 **A tool cannot assume the process was started from the repo.** Paths come from
 `core/paths.ts`, which finds the root by walking up for the folder that holds
@@ -499,7 +500,7 @@ can do this first.
 
 **`timezone:` is real.** Daylight saving is handled through `Intl`, so write
 `cron: every.day.at("07:00")` with `timezone: "America/New_York"` and stop doing UTC
-arithmetic in a comment. The tests in `ops/test.ts` cover the mornings
+arithmetic in a comment. The tests in `ops/test/loading.ts` cover the mornings
 the clocks change.
 
 **A tool that fails does not kill the turn.** A missing tool, bad arguments, or
