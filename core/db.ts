@@ -96,6 +96,16 @@ added("runs", "context", "text");
 // When somebody archived the run, or null. An archived run is kept whole and
 // listed as before: it is the page that leaves it out of the log.
 added("runs", "archived", "text");
+// What the person wrote, when the prompt carries more than that, like the
+// <telegram_context> block a channel puts before the message. Null when the
+// prompt is only what they wrote, or when nobody wrote it.
+if (added("runs", "asked", "text")) {
+  // Runs from before this column have the message after that block.
+  db.exec(`
+    update runs set asked = substr(prompt, instr(prompt, '_context>' || char(10, 10)) + 11)
+    where prompt like '<%' and instr(prompt, '_context>' || char(10, 10)) > 0
+  `);
+}
 db.exec("create index if not exists runs_parked on runs (parked) where parked is not null");
 
 // What a person calls a conversation, when they archived it, and the email of
@@ -118,11 +128,11 @@ db.exec("create table if not exists seen (agent text primary key, at text not nu
 
 /**
  * The columns a run is listed by: GET /api/runs, an agent's log, and what is
- * sent to a dashboard. Only the start of the prompt, enough for a line; the
- * trace, the state and the whole prompt are left to GET /api/runs/:id.
+ * sent to a dashboard. `asked` is the start of what the person wrote, enough
+ * for a line; the trace, the state and the prompt are left to GET /api/runs/:id.
  */
 export const RUN_COLUMNS =
-  "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary, archived, substr(prompt, 1, 200) as prompt";
+  "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary, archived, substr(coalesce(asked, prompt), 1, 200) as asked";
 
 /** One commit a run made: in the agent's memory, or in the repo its own folder is in. */
 export interface RunCommit {

@@ -174,9 +174,12 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
   is("a group message that is not for the bot is left alone", said().length, 3);
   is("an answer in a group replies to the message it answers", calls.find((c) => c.method === "sendMessage" && c.body.chat_id === -100)?.body.reply_parameters, { message_id: 8 });
   is("a photo is fetched at its largest size", calls.find((c) => c.method === "getFile")?.body.file_id, "big");
-  const lastTurn = db.prepare("select prompt from runs where source = 'telegram' order by started desc limit 1").get() as { prompt: string };
+  const lastTurn = db.prepare("select prompt, asked from runs where source = 'telegram' order by started desc limit 1").get() as { prompt: string; asked: string };
   is("the agent is told where the message came from", lastTurn.prompt.includes("<telegram_context>"), true);
   is("and that a photo came with it", lastTurn.prompt.includes("(Attached: photo.jpg)"), true);
+  const mention = db.prepare("select asked from runs where source = 'telegram' and prompt like '%what now%'").get() as { asked: string };
+  is("the run keeps what was written apart from the context, for the log", mention.asked, "@testbot what now");
+  is("and a photo with no words has nothing written", lastTurn.asked, null);
   is(
     "a bot started again carries on from where the last one got to",
     calls.filter((c) => c.method === "getUpdates")[0]?.body.offset,

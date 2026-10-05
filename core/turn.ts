@@ -21,6 +21,8 @@ import { NeedsSignIn } from "#chloe/connections/connection";
 export interface Ask {
   agent: Agent;
   prompt: string;
+  /** What the person wrote, when `prompt` carries more than that. The log shows it as the run's line. */
+  asked?: string;
   /** Photos and PDFs that came with the prompt. Seen this turn only: the thread keeps the words. */
   attachments?: Attachment[];
   /** When this job wants one the agent does not normally use. Unsaid, what was chosen for the agent, else what it names. */
@@ -86,14 +88,14 @@ function stopWhenOf(agent: Agent): StopCondition<any>[] {
  * Runs a prompt: ask a model, run the tools it asked for, put the answers
  * back, ask again, until it stops asking.
  */
-export async function turn({ agent, prompt, attachments, model, thread, source, job, history, said, talkingTo, owner, without, instead, signal }: Ask): Promise<Result> {
+export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, talkingTo, owner, without, instead, signal }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? modelFor(agent);
 
   const started = new Date().toISOString();
   db.prepare(
-    "insert into runs (id, agent, started, source, job, model, prompt, kind, owner) values (?, ?, ?, ?, ?, ?, ?, 'turn', ?)",
-  ).run(runId, agent.id, started, source, job ?? null, using, prompt, owner ?? null);
+    "insert into runs (id, agent, started, source, job, model, prompt, asked, kind, owner) values (?, ?, ?, ?, ?, ?, ?, ?, 'turn', ?)",
+  ).run(runId, agent.id, started, source, job ?? null, using, prompt, asked ?? null, owner ?? null);
   runChanged(runId);
 
   const overviews = await overviewsOf(toolsFor(agent, without));

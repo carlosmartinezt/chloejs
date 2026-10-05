@@ -442,6 +442,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, send?: (te
     const result = await turn({
       agent,
       prompt: [context, message.text, files.text, ...(files.notes ?? [])].filter(Boolean).join("\n\n"),
+      asked: message.text || undefined,
       attachments: files.attachments?.length ? files.attachments : undefined,
       thread: message.thread || undefined,
       history: rules.chatHistory,
