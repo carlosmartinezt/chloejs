@@ -289,7 +289,7 @@ type Deep<T> = T extends string | number | boolean | unknown[] ? T | undefined :
  * What `chloe.config.ts` may declare: any part of the shape above, as deep as
  * it goes. What it leaves out is the default.
  */
-export type Declared = { [K in keyof Settings]?: Deep<Settings[K]> };
+export type DeclaredSettings = { [K in keyof Settings]?: Deep<Settings[K]> };
 
 /**
  * The name to give a secret in .env: `CHLOE_` and its path in capitals,
@@ -432,10 +432,10 @@ export function readSettings(declared: unknown): Settings {
 export const settings: Settings = readSettings({});
 
 /** What the config declared last, kept so `holdSettings` can go over it again. */
-let declared: Declared = {};
+let declared: DeclaredSettings = {};
 
 /** What the test suite holds over the config, so a run never reaches a real account. Empty outside it. */
-let held: Declared = {};
+let held: DeclaredSettings = {};
 
 /** `over` written onto `under`, one setting at a time, neither of them changed. */
 function over(under: unknown, top: unknown): unknown {
@@ -450,7 +450,7 @@ function over(under: unknown, top: unknown): unknown {
  * already holds. Called by `loadAll()` before any agent is resolved. Throws, and
  * changes nothing, when what it is given is not valid.
  */
-export function declareSettings(said: Declared | undefined): void {
+export function declareSettings(said: DeclaredSettings | undefined): void {
   Object.assign(settings, readSettings(over(said ?? {}, held)));
   declared = said ?? {};
 }
@@ -460,7 +460,7 @@ export function declareSettings(said: Declared | undefined): void {
  * declared. The suite runs inside the project that installed the runtime, so
  * without this it would run on that project's subscription and send its mail.
  */
-export function holdSettings(these: Declared): void {
+export function holdSettings(these: DeclaredSettings): void {
   held = these;
   declareSettings(declared);
 }

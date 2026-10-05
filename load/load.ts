@@ -14,7 +14,7 @@ import type { StopCondition, ToolApprovalConfiguration } from "ai";
 import type { z } from "zod";
 
 import { MEMORIES, ROOT, setAgentDirs } from "#chloe/core/paths";
-import { declareSettings, settings as configured, type Declared } from "#chloe/core/settings";
+import { declareSettings, settings as configured, type DeclaredSettings } from "#chloe/core/settings";
 import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown";
 import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
@@ -122,12 +122,12 @@ export interface AgentConfig {
 }
 
 /** An agent config with its folder worked out: what defineAgent returns and the loader reads. */
-export interface Defined extends AgentConfig {
+export interface DefinedAgent extends AgentConfig {
   folder: string;
 }
 
 /** Declares an agent. List it in chloe.config.ts for it to run. */
-export function defineAgent(definition: AgentConfig): Defined {
+export function defineAgent(definition: AgentConfig): DefinedAgent {
   if (definition.folder) return { ...definition, folder: definition.folder };
   // [0] is this function, [1] is whoever called it.
   const caller = getCallSites()[1]?.scriptName ?? "";
@@ -141,7 +141,7 @@ export function defineAgent(definition: AgentConfig): Defined {
 /** What chloe.config.ts exports: every agent this box runs, and how it behaves. */
 export interface Config {
   /** Every agent to run. One that is not on this list does not exist. */
-  agents: Defined[];
+  agents: DefinedAgent[];
   /**
    * Any setting, as deep as it goes: the model to ask, who carries the mail,
    * what a dashboard may do. Everything it leaves out is the default.
@@ -150,7 +150,7 @@ export interface Config {
    * `process.env.SOME_NAME` and its value goes in .env. The runtime reads no
    * setting from the environment by itself.
    */
-  settings?: Declared;
+  settings?: DeclaredSettings;
 }
 
 /** The default export of chloe.config.ts: every agent to run, and the settings. */
@@ -363,7 +363,7 @@ export interface ChannelRoute {
  * One agent as the runtime holds it: the definition with its instructions
  * read, its tools bound, its skills loaded and its jobs resolved.
  */
-export interface Agent extends Omit<Defined, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model" | "connections"> {
+export interface Agent extends Omit<DefinedAgent, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model" | "connections"> {
   /** Its own, or `model.defaultModel` in settings. Always there once loaded. */
   model: string;
   /** Always there once loaded, with its folder worked out. See memoryFolder. */
@@ -433,7 +433,7 @@ export async function loadAll(): Promise<Map<string, Agent>> {
  * `chloe.config.ts`, imported fresh, and the agents it lists. Everything outside
  * the runtime is imported again each time, so an edit is read.
  */
-async function readConfig(): Promise<{ config: Config; listed: Defined[] }> {
+async function readConfig(): Promise<{ config: Config; listed: DefinedAgent[] }> {
   generation++;
   if (!existsSync(CONFIG)) throw new Error(`There is no chloe.config.ts in ${ROOT}. It lists the agents to run.`);
   const module = (await import(pathToFileURL(CONFIG).href).catch((error: unknown) => {
@@ -506,7 +506,7 @@ export async function runJob(options: {
  * its tools bound and its memory folder worked out. `loadAll` calls this for
  * every agent in chloe.config.ts.
  */
-export async function resolveAgent(definition: Defined): Promise<Agent> {
+export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
   const { id, folder } = definition;
   const where = `${id} (${shown(folder)})`;
   const model = definition.model ? nameOf(definition.model) : configured.model.defaultModel;

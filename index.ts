@@ -16,7 +16,7 @@
 // The server itself is `server.ts`, and it is run rather than imported.
 
 // An agent, and the jobs it runs.
-export { defineAgent, defineConfig, markdownJob, load, loadAll, runJob, loadSettings, agentIds, type Agent, type AgentConfig, type Channel, type ChannelRoute, type Config, type Defined, type Running, type Job, type MarkdownJob, type Skill, type Features, type SelfImprovement, type Memory, type ChatHistory } from "./load/load.ts";
+export { defineAgent, defineConfig, markdownJob, load, loadAll, runJob, loadSettings, agentIds, type Agent, type AgentConfig, type Channel, type ChannelRoute, type Config, type DefinedAgent, type Running, type Job, type MarkdownJob, type Skill, type Features, type SelfImprovement, type Memory, type ChatHistory } from "./load/load.ts";
 export { defineJob, type JobConfig } from "./load/job.ts";
 export { prompt, isPrompt, oneLineSummary, type Prompt } from "./core/markdown.ts";
 
@@ -40,7 +40,7 @@ export { canReach, deliver, owner, reachBy, split, type Send } from "./model/ask
 // The floor: where things are, what the box was told, staying inside a
 // folder, a small file an agent keeps, the history.
 export { agentDir, MEMORIES, ROOT, STATE } from "./core/paths.ts";
-export { declareSettings, KEYS, nameInEnv, readSettings, settings, unclaimed, whereKeyGoes, type Declared, type Settings } from "./core/settings.ts";
+export { declareSettings, KEYS, nameInEnv, readSettings, settings, unclaimed, whereKeyGoes, type DeclaredSettings, type Settings } from "./core/settings.ts";
 export { confine } from "./core/confine.ts";
 export { note, type Note } from "./core/notes.ts";
 export { copyDatabase, DATABASE, db, trim } from "./core/db.ts";

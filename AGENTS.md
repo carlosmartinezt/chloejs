@@ -53,7 +53,7 @@ imported by the service.
 
 **Two places, and which one a value goes in is the question to ask.** A choice
 about how the runtime behaves goes in `settings` in `chloe.config.ts`, beside the
-agents, where it is typed by `Declared` and in source control. A secret goes
+agents, where it is typed by `DeclaredSettings` and in source control. A secret goes
 in `.env` beside it, mode 600: every password, key and token, and nothing else.
 Nothing in source control may hold one. An address, a path or a name is not a
 secret and goes in the config.
