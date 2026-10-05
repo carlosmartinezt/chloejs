@@ -9,9 +9,10 @@
 // X25519 for the key agreement and AES-256-GCM for the words, both from
 // node:crypto, so there is nothing to install and nothing to go stale. The
 // sealing half is written again wherever the post box runs, which is the one
-// place in any of this that is written twice: `VECTOR` in ops/test.ts is a fixed
-// input and its exact output, and the post box checks the same one, so the two
-// cannot drift apart without a test saying so.
+// place in any of this that is written twice: "the format is the one the post
+// box writes" in ops/test/whatsapp.ts is a fixed input and its exact output, and
+// the post box checks the same one, so the two cannot drift apart without a test
+// saying so.
 //
 // The shape on the wire, every value base64url:
 //

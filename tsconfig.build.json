@@ -18,5 +18,5 @@
     // "imports" map in package.json, which has a branch per condition.
     "rewriteRelativeImportExtensions": true
   },
-  "exclude": ["node_modules", "data", "dist", "test-agent", "chloe.config.ts", "ops/test.ts"]
+  "exclude": ["node_modules", "data", "dist", "test-agent", "chloe.config.ts", "ops/test.ts", "ops/test"]
 }
