@@ -22,14 +22,19 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   is("an agent's folder is the one it is written in, unless it says", here.folder, import.meta.dirname);
   is("and it can say", defineAgent({ ...here, id: here.id, folder: "/elsewhere" }).folder, "/elsewhere");
 
-  const { default: test } = await import(pathToFileURL(join(import.meta.dirname, "../../test-agent/agent.ts")).href);
-  const { default: hello } = await import(pathToFileURL(join(import.meta.dirname, "../../test-agent/jobs/hello.ts")).href);
-  is("an agent runs its own job", (await test.run({ job: hello })).text, "hello");
-  answers.push("Hi back.");
-  is("and is asked one thing", (await test.ask({ prompt: "Hi." })).text, "Hi back.");
-
   const all = await loadAll().then((found) => found, (error: Error) => error);
   is("every agent loads", all instanceof Error ? all.message : null, null);
+
+  // Only where the config lists the test agent, which is this repo: the suite
+  // also runs inside a project that installed the runtime, and its agents' jobs
+  // are not this suite's to run.
+  if (!(all instanceof Error) && all.has("test")) {
+    const { default: test } = await import(pathToFileURL(join(import.meta.dirname, "../../test-agent/agent.ts")).href);
+    const { default: hello } = await import(pathToFileURL(join(import.meta.dirname, "../../test-agent/jobs/hello.ts")).href);
+    is("an agent runs its own job", (await test.run({ job: hello })).text, "hello");
+    answers.push("Hi back.");
+    is("and is asked one thing", (await test.ask({ prompt: "Hi." })).text, "Hi back.");
+  }
   for (const agent of all instanceof Error ? [] : all.values()) {
     // A job is only on the clock if the agent imports it, so one written and
     // never named would sit there looking like a job and never run. A .ts file
