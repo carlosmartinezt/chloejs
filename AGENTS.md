@@ -38,8 +38,8 @@ asks is named in the file, it answers in a shape rather than in free text, and
 it shows up as a line with a cost on it. If you cannot point at the line, it
 does not happen.
 
-**Shareable.** Someone should be able to install this, put one line in `.env`,
-and have it run. Nothing in the runtime names a person, a
+**Shareable.** Someone should be able to install this with npm and nothing
+else, put one line in `.env`, and have it run, on Linux or a Mac. Nothing in the runtime names a person, a
 home directory or a machine. An agent is somebody's own, so a folder outside
 the repo that it uses is a full path written in the agent file that uses it,
 like `const BACKUPS = "/home/you/backups"` in the job that uses it.
@@ -56,7 +56,15 @@ about how the runtime behaves goes in `settings` in `chloe.config.ts`, beside th
 agents, where it is typed by `Declared` and in source control. A secret goes
 in `.env` beside it, mode 600: every password, key and token, and nothing else.
 Nothing in source control may hold one. An address, a path or a name is not a
-secret and goes in the config. Every setting is the `Settings` interface in
+secret and goes in the config.
+
+**A key reaches the runtime only where the config names it**, as
+`resend: { api_key: process.env.CHLOE_RESEND_API_KEY }`, so reading the config
+shows every key there is and where each comes from. The runtime never reads a
+key from the environment by itself: `KEYS` in `core/settings.ts` is the list,
+every agent's channel tokens included. `npx chloe setup` writes those lines,
+and every message that says a key is missing says both halves,
+with `whereKeyGoes()`. Every setting is the `Settings` interface in
 `core/settings.ts`, with its one-line explanation on it, and `DEFAULTS` beside it
 is what each one is when nobody says. `DEFAULTS` is typed as `Settings`, so a
 setting added without a default does not compile, which is what keeps the two
@@ -67,13 +75,11 @@ group.
 
 `core/env.ts` reads `.env` into the environment before any setting is read, and a
 variable already in the real environment wins, so
-`CHLOE_MODEL_VIA=gateway npx chloe` still beats the file.
+`CHLOE_MODEL_PREFER=gateway npx chloe` still beats the file.
 
 What belongs to one agent, its channels' tokens, is under `agents` and that
 agent's id, read by the id the agent has when the channel starts:
-`CHLOE_AGENTS_TEMPO_TELEGRAM`. An id with a dash in it still works, because
-`loadAll` hands the agent ids over with the declaration and a variable's name
-cannot hold a dash.
+`agents: { tempo: { telegram: process.env.CHLOE_AGENTS_TEMPO_TELEGRAM } }`.
 
 **The config reaches `core/settings.ts` and not the other way round.** The
 exported `settings` is filled in at import from the defaults and the environment,
@@ -83,21 +89,18 @@ that `state`, `memory`, `db` and `node` are read inside that window, at the top
 of `core/paths.ts` and `core/db.ts`, so those four are read from the environment
 and declaring them does nothing.
 
-**Every setting has a name in the environment**, `CHLOE_` and its path in
-capitals: `CHLOE_CLOUD_URL`, `CHLOE_RESEND_API_KEY`,
-`CHLOE_AGENTS_<agent>_TELEGRAM`, `CHLOE_CLOUD_REMOTE_WRITE`. `nameInEnv` works
-it out from `DEFAULTS`, so a setting added there has one without anybody
-writing it down, and `readSettings` merges them over the config, one setting at
-a time. Text is read as the type the default has: a list on commas, a switch as
+**Every setting that is not a key has a name in the environment**, `CHLOE_`
+and its path in capitals: `CHLOE_CLOUD_URL`, `CHLOE_CLOUD_REMOTE_WRITE`,
+`CHLOE_MODEL_PREFER`. `nameInEnv` works it out from `DEFAULTS`, so a setting
+added there has one without anybody writing it down, and `readSettings` merges
+them over the config, one setting at a time. A key has one too, as the name to
+give it in `.env`, and is not read by it. Text is read as the type the default has: a list on commas, a switch as
 `true` or `false` and refused when it is neither. What is left over from a zod
 schema is `wrong()`, which refuses a key that names no setting, a value of the
 wrong kind, and one outside `ONE_OF`, and says what there was to set instead.
 Each enum is one `as const` list that both the type and that check are read off,
-so the words cannot disagree with the type. The older names
-(`MODEL_VIA`, `AGENTS_STATE`, `CHLOE_API_KEY` and the rest) are a map in
-`core/settings.ts` and the name from `nameInEnv` wins over them. A setting
-that is renamed keeps its old name there, so a box that set it is not left
-reading nothing; no other kind of entry goes in.
+so the words cannot disagree with the type. A setting has one name and no
+older one.
 
 A setting is read from `settings`, never from `process.env`: the environment is
 already merged in, and every variable the runtime reads is a setting, so there
@@ -219,7 +222,7 @@ reached. The rest is the runtime plus what a job commonly
 needs, in folders by what they do: `model/` is asking a model, and
 `model/tools/` inside it is the only thing a model can be handed,
 `load/` is what an agent and a job
-are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `cloud/` is the connection out to a dashboard somewhere else, `connectors/` is each outside account or program a tool works through, a folder each (Google, Resend), `serve/` is the one port
+are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `cloud/` is the connection out to a dashboard somewhere else, `connectors/` is each outside account a tool works through, a folder each (Google, Resend), and an MCP server an agent connects to, `serve/` is the one port
 and what it answers with, which is `/api` and nothing else (the routes, the
 login, and the folder behind the file tree): it serves no page, and an address
 that is not an API call is a 404, `core/` is the floor (paths, running a command, staying
@@ -255,13 +258,26 @@ one.** Each is a folder in `connectors/`: its tools, its services, and a
 `connector.ts` that is a `Connector` saying what it reads (`settings`), how
 somebody signs in (`signIn`), and what is missing before it works
 (`missing()`, in words). A tool that works through one says so with `needs`:
-`gmailReadEmail`, `gmailReplyEmail` and `gmailSendEmail` are marked
-`needs: google`. From that the loader adds the connector's sign-in beside the
-tool, and the setup page and the lines printed at startup ask it what is
-missing. So an agent says `gmailReadEmail` and is done, there is no way to
-have mail without the means to fix mail, and a connector in an agent's own
-folder works the same with nothing added here. A program a connector needs
-is a `Program` checked by `findProgram()` in `connectors/program.ts`.
+every Gmail, Calendar and Drive tool is marked `needs: google`. From that the
+loader adds the connector's sign-in beside the tool, and the setup page and
+the lines printed at startup ask it what is missing. So an agent says
+`gmailReadEmail` and is done, there is no way to have mail without the means
+to fix mail, and a connector in an agent's own folder works the same with
+nothing added here. Google and Resend ship with the runtime.
+
+**A connector reaches its service with npm packages, never a program.** Google
+is Google's own small packages, one per service, and nothing beside chloe is
+installed. A service's tools that need no binding of chloe's own come from its
+MCP server instead.
+
+**An agent's `connections` is the services it alone reaches.**
+`mcpConnection({ name, url, token })` in `connectors/mcp.ts` is a service's MCP
+server, the list of tools it publishes for models. Its tools are asked for as
+the agent loads and named like chloe's own (`github` and `list_issues` make
+`githubListIssues`), `tools` narrows them, and a server that does not answer
+leaves the agent loading without them and the setup page saying why. A
+connection reaches whatever its key reaches, so mail, notes and files stay
+tools of chloe's own, bound to what one agent may see.
 
 **A tool is for a model and nothing else.** The work is a plain function in
 `services/`, published as `"@chloejs/core/services"`, and a job calls it from a step.
@@ -335,8 +351,8 @@ Each CLI route is one file the shape of `model/claude.ts` with the CLI's own
 tools switched off, and `model/cli.ts` is what they share. A CLI that carries one
 provider says so in its own `cliModel`; opencode carries whatever it is signed in
 to, so `opencodeModels()` asks it rather than the runtime deciding, once per
-process because `routeFor` cannot wait two seconds. `MODEL_VIA=` in front of a
-command still forces one route for one run.
+process because `routeFor` cannot wait two seconds. `CHLOE_MODEL_PREFER=` in
+front of a command still forces one route for one run.
 
 What somebody may pick from is `models()`. `model.models` is a shortlist, and
 empty means ask each route what it carries: `opencode models`, and the gateway's
@@ -450,7 +466,8 @@ covers `chloe.config.ts` and each agent's folder, and on each reload every file
 outside the runtime and `node_modules` is imported afresh (a hook in
 `load/load.ts` gives each one a new query string), so a job's edit is
 live though only `agent.ts` imports it. A change to the runtime itself, tools and channels included, needs
-`systemctl --user restart chloe.service`.
+`systemctl --user restart chloe.service`, or on a Mac
+`launchctl kickstart -k gui/$(id -u)/org.chloejs.chloe`.
 
 **A markdown job takes four keys and no others**: `cron`, `description`, `timezone`,
 `model`, all optional. Without `cron` a job runs only when somebody starts it,
@@ -726,20 +743,18 @@ A client file holding its id and secret loose, with neither an `installed` nor a
 `web` section, is refused rather than guessed at: guessing shows up as Google
 rejecting the address at the last step, long after the guess.
 
-**Nothing may ask a person for the Google passphrase.** It is made in the state
-folder and read from there, and it is not a setting. gog will also prompt for
-one, and a person who answers that prompt saves the sign-in under a passphrase
-the runtime does not have. What that looks like is "integrity check failed",
-which reads exactly like a sign-in that expired, and it cost this box
-seventeen days of unreadable mail before anybody looked.
+**The Google sign-in is one file, `token.json` in the state folder, mode
+600.** It is not a setting and nothing asks a person for it. Two copies of one
+secret once left a sign-in that worked reading as one that had expired, for
+seventeen days. The Google app has to be **In production**, not Testing: in
+Testing Google ends every sign-in after 7 days, and `setupSteps()` says so.
 
 **Do not assume a program is installed.** A tool that assumed `rg` was there
 returned "nothing matched" for every search for weeks without anyone noticing. If a command might be missing, check for it and say so
 rather than treating the failure as an empty result.
 
-**The runtime downloads no program.** One that a connector needs, like gog
-for Google, is installed by the person, and a call that finds none says what
-to install and where, as `findProgram()` does.
+**The runtime downloads no program and needs none but git and node.** What a
+connector needs comes from npm with chloe.
 
 ## What not to do
 

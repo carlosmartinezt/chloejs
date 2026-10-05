@@ -1,18 +1,13 @@
 // Signing in to Google, and holding that sign-in.
 //
-// One sign-in reaches mail, the calendar, the files and the documents, because
-// the work is done by gog, one program with nothing under it, which the person
-// installs (see ensureGog). What
-// this file owns is everything around gog: the folder it keeps its config and
-// its locked keyring in, the passphrase that opens that keyring, and the two
-// halves of a sign-in that somebody does from a phone.
+// One sign-in reaches mail, the calendar and the files, through Google's own
+// npm packages, so there is nothing to install beside chloe. What this file
+// owns is the sign-in itself: the two halves of it that somebody does from a
+// phone, and the one file the key is kept in afterwards.
 //
-// **The passphrase is made here and shown to nobody.** It was a setting once,
-// and gog asks for it at a prompt too, so a person who signed in by hand and
-// typed a different one left the two disagreeing. That reads as
-// "integrity check failed", looks exactly like a sign-in that has expired, and
-// cost this box seventeen days of unreadable mail. There is one copy now, in
-// one file, and no prompt anybody can answer.
+// **The key is one file, `token.json` in the state folder, mode 600**, and
+// nothing asks a person for a passphrase. Two copies of one secret is how a
+// sign-in that works comes to look like one that has expired.
 //
 // Nothing in here opens a browser, because the person is not at this machine.
 // A sign-in is `start()`, which hands back a link, and `finish()`, which takes
@@ -22,42 +17,33 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { settings } from "#chloe/core/settings";
+import { CodeChallengeMethod, OAuth2Client } from "google-auth-library";
+
+import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { STATE } from "#chloe/core/paths";
-
-import { run } from "#chloe/services/runService";
-import { findProgram, type Program } from "#chloe/connectors/program";
-
-/**
- * gog, which the person installs. 0.42.0 is the oldest that works: `--home`
- * arrived in it, and without it gog writes into the person's own config folder,
- * where a second copy of the sign-in is exactly the thing this file exists to
- * prevent.
- */
-export const GOG: Program = {
-  name: "gog",
-  least: "0.42.0",
-  setting: "google.gog",
-  install: "Install it with `brew install gogcli`, or from https://github.com/openclaw/gogcli/releases",
-};
 
 /** Everything Google, in one folder inside the state directory. */
 export const GOOGLE = join(STATE, "google");
 
-/** Where gog keeps its config, its client and its locked keyring. */
-const GOG_HOME = join(GOOGLE, "gog");
-
-/** The passphrase that opens that keyring. Made once, read after that, never shown. */
-const PASS = join(GOOGLE, "keyring.pass");
-
-/** The client Google's console gave this install, as gog wants it: a file. */
-const CLIENT = join(GOOGLE, "client.json");
+/** The sign-in: the account and the key that lasts, which Google calls a refresh token. */
+const TOKEN = join(GOOGLE, "token.json");
 
 /** A sign-in that has been started and not finished. */
 const PENDING = join(GOOGLE, "pending.json");
 
-/** What one sign-in asks Google for. Read is mail in, send is mail out. */
-export const SERVICES = "gmail,calendar,drive,docs,sheets";
+/** What one sign-in asks Google for, by service. */
+export const SERVICES = "gmail,calendar,drive";
+
+/**
+ * What each service asks Google for. Mail is read and sent and never deleted,
+ * events are read and added, and files are only read: a Doc is read through
+ * Drive as text. `openid email` is always asked, to check who approved.
+ */
+const SCOPES: Record<string, string[]> = {
+  gmail: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send"],
+  calendar: ["https://www.googleapis.com/auth/calendar.events"],
+  drive: ["https://www.googleapis.com/auth/drive.readonly"],
+};
 
 /**
  * The loopback address Google is told to send the answer to when nothing
@@ -87,7 +73,6 @@ const PASTE_BACK = "http://127.0.0.1:33067/oauth2/callback";
  */
 export const SHOWS_THE_CODE = "https://chloejs.org/connected";
 
-
 /**
  * Thrown when this copy has no client to sign in with, which is the one thing
  * a sign-in cannot start without and the one thing an agent cannot do itself.
@@ -106,19 +91,13 @@ export interface Pending {
   services: string;
   /** Where Google was told to send the answer. A loopback address means somebody pastes it back. */
   redirect: string;
-  /** Google hands this back with the code, and gog checks it. Kept so a bare code can be rebuilt into a link. */
+  /** Google hands this back with the code. An answer carrying another is refused. */
   state: string;
   /**
-   * Whether step one was told to ask Google for consent again.
-   *
-   * Written down because **step two has to be given the same flags as step
-   * one**. gog folds this one into what it checks the saved state against, so
-   * a step one that forced consent and a step two that did not fails with
-   * "manual auth state mismatch", which says nothing about flags and sends
-   * everybody looking at the state instead. It fails that way in both
-   * directions.
+   * The secret half of the code's lock (PKCE), which never leaves this
+   * machine, so a code somebody else reads is no use to them.
    */
-  forceConsent: boolean;
+  verifier: string;
   started: string;
 }
 
@@ -133,120 +112,85 @@ export interface SignInState {
   waiting: boolean;
 }
 
+/** The sign-in as it is kept. */
+interface Saved {
+  account: string;
+  refresh_token: string;
+  scope?: string;
+  saved: string;
+}
+
 function folder(): void {
-  for (const dir of [GOOGLE, GOG_HOME]) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
-  }
+  if (!existsSync(GOOGLE)) mkdirSync(GOOGLE, { recursive: true, mode: 0o700 });
 }
 
-/**
- * The passphrase, made on first use.
- *
- * Written before it is used, and read every time after, so the keyring and the
- * passphrase are made in the same breath and cannot be made apart.
- */
-function passphrase(): string {
-  folder();
-  if (!existsSync(PASS)) {
-    writeFileSync(PASS, randomBytes(32).toString("base64url"), { mode: 0o600 });
-  }
-  chmodSync(PASS, 0o600);
-  return readFileSync(PASS, "utf8").trim();
-}
-
-/**
- * The environment every gog call gets: which folder, which account, and the
- * passphrase. Nothing else, and never the caller's own environment, so a gog
- * on this machine that somebody set up by hand is not reached by accident.
- */
-function where(): Record<string, string> {
-  return {
-    GOG_HOME,
-    GOG_ACCOUNT: settings.google.account,
-    GOG_KEYRING_PASSWORD: passphrase(),
-    // The one backend that works with nobody logged in. Left to itself gog
-    // looks for a desktop keyring first, which on a server is a prompt that
-    // never gets answered.
-    GOG_KEYRING_BACKEND: "file",
-  };
-}
-
-/**
- * The gog program: `google.gog` in settings, else the `gog` on the PATH.
- * Thrown when there is none new enough, with what to install and where.
- */
-export async function ensureGog(): Promise<string> {
-  return await findProgram(GOG, settings.google.gog);
-}
-
-/**
- * The client this install signs in with, handed to gog once.
- *
- * `google.client` is either the path to the file Google's console downloads or
- * that file's contents pasted into the setting, because one of those is what a
- * person has in front of them and which one depends on where they are.
- */
-async function client(program: string): Promise<void> {
-  // Pasted in whole, written out as the file gog wants. Typing a path is the
-  // other way, and which one somebody reaches for depends on whether they
-  // still have the file the console downloaded.
-  const said = settings.google.client;
-  const given = typeof said === "string" ? said.trim() : JSON.stringify(said, null, 2);
-  if (!given || given === "{}") {
-    // Nothing in settings is only a problem if gog has nothing either, which
-    // is the case for somebody who set gog up by hand before chloe owned it.
-    const held = await run(program, ["auth", "credentials", "list", "-p"], { timeoutMs: 20_000, env: where() });
-    if (held.exitCode === 0 && held.stdout.trim()) return;
-    throw new NeedsClient();
-  }
-
-  let path = given;
-  if (given.startsWith("{")) {
-    folder();
-    writeFileSync(CLIENT, given, { mode: 0o600 });
-    path = CLIENT;
-  }
-  if (!existsSync(path)) {
-    throw new Error(`google.client points at ${JSON.stringify(path)} and there is no file there.`);
-  }
-  mustBeAClientFile(path);
-  // Set every time a sign-in starts, rather than only when gog holds nothing.
-  // Otherwise the setting is read once, on the first sign-in ever, and an edit
-  // to it afterwards changes nothing and says nothing: the sign-in carries on
-  // using a client the settings no longer name.
-  const set = await run(program, ["auth", "credentials", "set", path], { timeoutMs: 20_000, env: where() });
-  if (set.exitCode !== 0) throw new Error(`That Google client was refused: ${set.stderr || set.stdout}`);
-}
-
-/**
- * Check the client file is the one Google's console downloads, before gog
- * refuses it in its own words.
- *
- * The console wraps everything in `installed` or `web`, and which of the two
- * decides where Google will agree to send its answer: a desktop client may use
- * any port on this machine and no address on the internet, and a web client is
- * the other way round. A file holding the two values loose, which some tools
- * used to write, does not say which it is, so it is refused rather than
- * guessed at: guessing wrong shows up as Google rejecting the address at the
- * last step, long after this.
- */
-function mustBeAClientFile(path: string): void {
-  let parsed: Record<string, unknown>;
+function readJson<T>(path: string): T | undefined {
+  if (!existsSync(path)) return undefined;
   try {
-    parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    return JSON.parse(readFileSync(path, "utf8")) as T;
   } catch {
-    throw new Error(`google.client points at ${JSON.stringify(path)} and that is not JSON.`);
+    return undefined;
   }
-  if (parsed.installed || parsed.web) return;
+}
+
+function writeSecret(path: string, value: unknown): void {
+  folder();
+  writeFileSync(path, JSON.stringify(value, null, 2), { mode: 0o600 });
+  chmodSync(path, 0o600);
+}
+
+/** The kept sign-in, when it is for the account in settings. */
+function saved(): Saved | undefined {
+  const held = readJson<Saved>(TOKEN);
+  const account = settings.google.account.trim().toLowerCase();
+  return held?.refresh_token && account && held.account.toLowerCase() === account ? held : undefined;
+}
+
+/**
+ * The client this copy signs in with, out of `google.client`: the file
+ * Google's console downloads, its path, or its contents as one string.
+ */
+function clientOf(): { id: string; secret: string } {
+  const said = settings.google.client;
+  const given = typeof said === "string" ? said.trim() : said;
+  if (!given || (typeof given === "object" && Object.keys(given).length === 0)) throw new NeedsClient();
+  let parsed: Record<string, unknown>;
+  if (typeof given === "object") {
+    parsed = given;
+  } else {
+    const text = given.startsWith("{") ? given : existsSync(given) ? readFileSync(given, "utf8") : undefined;
+    if (text === undefined) throw new Error(`google.client points at ${JSON.stringify(given)} and there is no file there.`);
+    try {
+      parsed = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      throw new Error("google.client is not JSON: it is the file Google's console downloads, its path, or its contents.");
+    }
+  }
+  return mustBeAClient(parsed);
+}
+
+/**
+ * The id and secret out of the console's own shape, which wraps them in
+ * `installed` or `web`.
+ *
+ * Which of the two decides where Google will agree to send its answer: a
+ * desktop client may use any port on this machine and no address on the
+ * internet, and a web client is the other way round. A file holding the two
+ * values loose does not say which it is, so it is refused rather than guessed
+ * at: guessing wrong shows up as Google rejecting the address at the last step.
+ */
+function mustBeAClient(parsed: Record<string, unknown>): { id: string; secret: string } {
+  const inside = (parsed.web ?? parsed.installed) as { client_id?: string; client_secret?: string } | undefined;
+  if (inside?.client_id && inside.client_secret) return { id: inside.client_id, secret: inside.client_secret };
   if (parsed.client_id && parsed.client_secret) {
     throw new Error(
-      `${path} holds a client id and secret loose, and Google's console does not write them that way. ` +
+      `google.client holds a client id and secret loose, and Google's console does not write them that way. ` +
         `Put them under "installed" for a client made as a desktop app, or under "web" for one made as a web ` +
         `application, and use the file the console downloaded if you still have it. Which of the two it is decides ` +
         `where Google will send its answer, so this is not a guess worth making for you.`,
     );
   }
-  throw new Error(`${path} is not a Google client file: it has neither an "installed" nor a "web" section.`);
+  throw new Error(`google.client is not a Google client file: it has neither an "installed" nor a "web" section with an id and a secret.`);
 }
 
 /**
@@ -271,8 +215,8 @@ function caughtByCloud(url: string): boolean {
  * is `SHOWS_THE_CODE`, one address that is the same for everybody: the person
  * approves on their phone, lands on a page that shows a short code, and sends
  * that code back to the agent in the chat they started in. The code alone is no
- * use to anyone who reads it, because gog uses PKCE and the matching secret
- * never left this machine. Nothing per-copy is registered and no connection has
+ * use to anyone who reads it, because the sign-in uses PKCE and the matching
+ * secret never left this machine. Nothing per-copy is registered and no connection has
  * to be up at the right moment.
  *
  * `relayed` means the answer gets back on its own, and that is true for one
@@ -327,34 +271,21 @@ export function clientKind(): "web" | "installed" | "" {
   return "";
 }
 
-function pending(): Pending | undefined {
-  if (!existsSync(PENDING)) return undefined;
-  try {
-    return JSON.parse(readFileSync(PENDING, "utf8")) as Pending;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
- * Where the sign-in stands. Reads files and runs one command, and asks Google
- * nothing, so it is cheap enough for a job to check before it needs mail.
+ * Where the sign-in stands. Reads files and asks Google nothing, so it is
+ * cheap enough for a job to check before it needs mail.
  */
 export async function signInState(): Promise<SignInState> {
   const account = settings.google.account;
-  const waiting = Boolean(pending());
+  const waiting = Boolean(readJson<Pending>(PENDING));
   if (!account) {
     return { ready: false, account, missing: "google.account is not set, so there is no account to sign in", waiting };
   }
-  let program: string;
+  if (saved()) return { ready: true, account, missing: "", waiting: false };
   try {
-    program = await ensureGog();
+    clientOf();
   } catch (error) {
     return { ready: false, account, missing: (error as Error).message, waiting };
-  }
-  const list = await run(program, ["auth", "list", "-p"], { timeoutMs: 30_000, env: where() });
-  if (list.exitCode === 0 && list.stdout.includes(account)) {
-    return { ready: true, account, missing: "", waiting: false };
   }
   return {
     ready: false,
@@ -375,53 +306,42 @@ export interface Started {
   say: string;
 }
 
+/** Every scope a sign-in for these services asks for. */
+function scopesFor(services: string): string[] {
+  const asked = services.split(",").map((one) => one.trim()).filter(Boolean);
+  const unknown = asked.find((one) => !SCOPES[one]);
+  if (unknown) throw new Error(`There is no Google service called ${JSON.stringify(unknown)}. There is ${Object.keys(SCOPES).join(", ")}.`);
+  return ["openid", "email", ...asked.flatMap((one) => SCOPES[one])];
+}
+
 /**
  * Start a sign-in: hand back a link for the person to open.
  *
  * Everything the second half needs is written down here, so the process can
- * restart, or a job can park for a day, between the two.
+ * restart, or a job can park for a day, between the two. Google is always
+ * asked for consent, because it only hands back a key that lasts when it asks.
  */
-export async function start({
-  services = SERVICES,
-  again = false,
-}: { services?: string; again?: boolean } = {}): Promise<Started> {
+export async function start({ services = SERVICES }: { services?: string } = {}): Promise<Started> {
   const account = settings.google.account;
   if (!account) {
-    throw new Error("google.account is not set, so there is nobody to sign in. Put the address in .env as CHLOE_GOOGLE_ACCOUNT.");
+    throw new Error("google.account is not set, so there is nobody to sign in. Put the address in chloe.config.ts's settings as `google: { account: \"you@gmail.com\" }`.");
   }
-  const program = await ensureGog();
-  await client(program);
-
+  const { id, secret } = clientOf();
   const to = callback();
-  const args = [
-    "auth", "add", account, "--remote", "--step", "1", "--services", services, "-p",
-    "--redirect-uri", to.url || PASTE_BACK,
-  ];
-  // Google only hands back a refresh token the first time it asks, so a
-  // sign-in meant to replace one that stopped working has to ask again.
-  // Whatever is decided here is written down below, because finish() has to
-  // pass the same thing.
-  if (again) args.push("--force-consent");
-
-  const out = await run(program, args, { timeoutMs: 60_000, env: where() });
-  if (out.exitCode !== 0) throw new Error(explain(out.stderr || out.stdout));
-
-  const link = /(https:\/\/accounts\.google\.com\S+)/.exec(out.stdout)?.[1];
-  if (!link) throw new Error(`gog did not hand back a link to open: ${out.stdout.trim().slice(0, 300)}`);
-  const state = new URL(link).searchParams.get("state") ?? "";
-  const redirect = new URL(link).searchParams.get("redirect_uri") ?? (to.url || PASTE_BACK);
-
-  folder();
-  writeFileSync(
-    PENDING,
-    JSON.stringify(
-      { account, services, redirect, state, forceConsent: again, started: new Date().toISOString() } satisfies Pending,
-      null,
-      2,
-    ),
-    { mode: 0o600 },
-  );
-
+  const redirect = to.url || PASTE_BACK;
+  const client = new OAuth2Client({ clientId: id, clientSecret: secret, redirectUri: redirect });
+  const { codeVerifier, codeChallenge } = await client.generateCodeVerifierAsync();
+  const state = randomBytes(16).toString("base64url");
+  const link = client.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    login_hint: account,
+    scope: scopesFor(services),
+    state,
+    code_challenge_method: CodeChallengeMethod.S256,
+    code_challenge: codeChallenge,
+  });
+  writeSecret(PENDING, { account, services, redirect, state, verifier: codeVerifier!, started: new Date().toISOString() } satisfies Pending);
   return { link, account, relayed: to.relayed, say: whatToDo(account, to) };
 }
 
@@ -439,10 +359,9 @@ function onThisMachine(url: string): boolean {
  * What to tell the person, which is different in each of the three ways this
  * can end and is the whole of what they experience.
  *
- * The one that reads as broken is the last, and it is the default: nothing is
- * listening on that port, so their browser shows an error and the answer is in
- * the address bar. Saying so in advance is the difference between a step and a
- * fault.
+ * The one that reads as broken is the last: nothing is listening on that port,
+ * so their browser shows an error and the answer is in the address bar. Saying
+ * so in advance is the difference between a step and a fault.
  */
 export function whatToDo(account: string, to: { url: string; relayed: boolean }): string {
   const open = `Open this link and approve it as ${account}.`;
@@ -457,141 +376,111 @@ export function whatToDo(account: string, to: { url: string; relayed: boolean })
 }
 
 /**
+ * The code out of what a person sent: the whole address the browser landed on,
+ * or just the code. An address carrying another sign-in's state is refused.
+ */
+export function codeFrom(answer: string, waiting: Pending): string {
+  const text = answer.trim();
+  if (/^https?:\/\//i.test(text)) {
+    const url = new URL(text);
+    const error = url.searchParams.get("error");
+    if (error) throw new Error(`Google said ${error} rather than handing back a code. Start the sign-in again.`);
+    const state = url.searchParams.get("state");
+    if (state && state !== waiting.state) throw new Error("That address is from another sign-in. Use the link I sent last.");
+    const code = url.searchParams.get("code");
+    if (!code) throw new Error("That address has no code in it. Send the whole address of the page the browser landed on.");
+    return code;
+  }
+  const code = /^(?:code=)?([\w./~-]+)$/.exec(text)?.[1];
+  if (!code) throw new Error(`That does not look like a code or a web address: ${JSON.stringify(text.slice(0, 80))}`);
+  return code;
+}
+
+/**
  * Finish a sign-in with whatever came back from the browser.
  *
  * Takes the whole address, or just the code out of it, because a person on a
  * phone sends one or the other and neither is wrong.
+ *
+ * **Whoever approved has to be the account that was asked for.** A code can be
+ * handed in by anybody who has the link, and somebody who approved with their
+ * own account would leave the agent reading their mailbox and calling it the
+ * configured one. So the address Google vouches for is checked against the
+ * account in settings, and anything else is thrown away.
  */
 export async function finish(answer: string): Promise<{ account: string; signedIn: true }> {
-  const waiting = pending();
-  if (!waiting) {
-    throw new Error("No sign-in is waiting for a code. Start one first, then send what the browser came back with.");
+  const waiting = readJson<Pending>(PENDING);
+  if (!waiting) throw new Error("No sign-in is waiting for a code. Start one first, then send what the browser came back with.");
+  if (!waiting.verifier) {
+    rmSync(PENDING, { force: true });
+    throw new Error("That sign-in was started by an older version of this and cannot be finished. Start a new one.");
   }
-  if (typeof waiting.forceConsent !== "boolean") {
+  const code = codeFrom(answer, waiting);
+  const { id, secret } = clientOf();
+  const client = new OAuth2Client({ clientId: id, clientSecret: secret, redirectUri: waiting.redirect });
+  let tokens;
+  try {
+    ({ tokens } = await client.getToken({ code, codeVerifier: waiting.verifier, redirect_uri: waiting.redirect }));
+  } catch (error) {
+    throw new Error(explain((error as Error).message));
+  }
+  if (!tokens.id_token) throw new Error("Google did not say who approved, so the sign-in was thrown away. Start it again.");
+  const who = (await client.verifyIdToken({ idToken: tokens.id_token, audience: id })).getPayload();
+  const approved = who?.email_verified ? (who.email ?? "").toLowerCase() : "";
+  if (approved !== waiting.account.toLowerCase()) {
     rmSync(PENDING, { force: true });
     throw new Error(
-      "That sign-in was started by an older version of this and cannot be finished, because it did not write down " +
-        "everything the second half needs. Start a new one.",
+      approved
+        ? `That sign-in was approved by ${approved} and not by ${waiting.account}, so it was thrown away. Sign in again with that account.`
+        : `That sign-in could not be checked against ${waiting.account}, so it was thrown away.`,
     );
   }
-  const url = asLink(answer.trim(), waiting);
-  const program = await ensureGog();
-
-  const out = await run(program, finishArgs(waiting, url), { timeoutMs: 120_000, env: where() });
-  if (out.exitCode !== 0) throw new Error(explain(out.stderr || out.stdout));
-
+  if (!tokens.refresh_token) {
+    throw new Error(
+      "Google approved but handed back no key that lasts, so nothing was saved. Start the sign-in again: it asks Google for one.",
+    );
+  }
+  writeSecret(TOKEN, { account: waiting.account, refresh_token: tokens.refresh_token, scope: tokens.scope ?? undefined, saved: new Date().toISOString() } satisfies Saved);
   rmSync(PENDING, { force: true });
-  await mustBe(waiting.account);
   return { account: waiting.account, signedIn: true };
 }
 
 /**
- * Check that whoever approved is the account that was asked for.
- *
- * A code can be handed in by anybody who has the link, and where a dashboard
- * catches the answer that is an address on the internet. Somebody who
- * approved with their own account instead would leave the agent reading their
- * mailbox and calling it the configured one, which is nobody's idea of what
- * happened. So the sign-in is thrown away when the profile it reaches is not
- * the address in settings, and a check that cannot run is a refusal too.
+ * A client signed in as the account in settings, for Google's own packages to
+ * call with. Thrown, in words an agent can act on, when there is no sign-in.
  */
-async function mustBe(account: string): Promise<void> {
-  const program = await ensureGog();
-  const out = await run(program, ["people", "me", "--json"], { timeoutMs: 30_000, env: where() });
-  const found = out.exitCode === 0 ? addressesIn(out.stdout) : [];
-  if (found.includes(account.toLowerCase())) return;
-
-  await run(program, ["auth", "remove", account, "-y"], { timeoutMs: 30_000, env: where() });
-  if (out.exitCode !== 0) {
+export function signedIn(): OAuth2Client {
+  const held = saved();
+  if (!held) {
     throw new Error(
-      `That sign-in could not be checked against ${account}, so it was thrown away: ${(out.stderr || out.stdout).trim().slice(0, 200)}`,
+      settings.google.account
+        ? explain("no sign-in")
+        : "Google cannot be reached: google.account is not set, so there is no account to read. A person has to set it. Do not retry.",
     );
   }
-  throw new Error(
-    found.length
-      ? `That sign-in was approved by ${found.join(", ")} and not by ${account}, so it was thrown away. Sign in again with that account.`
-      : `That sign-in could not be checked against ${account}, because the profile it reached holds no address, so it was thrown away.`,
-  );
+  const { id, secret } = clientOf();
+  const client = new OAuth2Client({ clientId: id, clientSecret: secret });
+  client.setCredentials({ refresh_token: held.refresh_token });
+  // Google may hand over a new key that lasts while refreshing, and the old one then stops working.
+  client.on("tokens", (fresh) => {
+    if (fresh.refresh_token) writeSecret(TOKEN, { ...held, refresh_token: fresh.refresh_token, saved: new Date().toISOString() });
+  });
+  return client;
 }
 
 /**
- * Every address in a profile, and nothing else in it.
- *
- * Only values under a key whose name begins with "email" count, and inside one
- * of those only a string or a `value`. The rest of a profile is somebody's own
- * writing: a display name reading "you@example.com" is a thing anybody can
- * set, so a profile that merely contains the address somewhere is not a
- * profile belonging to it. Nothing found is a refusal rather than a pass, so a
- * shape this does not understand fails shut.
+ * One call to Google, with any failure turned into words an agent can act on,
+ * rather than letting "invalid_grant" reach a model that will retry it forever.
  */
-export function addressesIn(json: string): string[] {
-  let parsed: unknown;
+export async function google<T>(call: () => Promise<T>): Promise<T> {
   try {
-    parsed = JSON.parse(json);
-  } catch {
-    return [];
+    return await call();
+  } catch (error) {
+    const text = (error as { response?: { data?: unknown } }).response?.data
+      ? JSON.stringify((error as { response: { data: unknown } }).response.data)
+      : (error as Error).message;
+    throw new Error(explain(text));
   }
-  const found = new Set<string>();
-
-  const values = (node: unknown): void => {
-    if (typeof node === "string") return void found.add(node.trim().toLowerCase());
-    if (Array.isArray(node)) return void node.forEach(values);
-    if (node && typeof node === "object") {
-      const value = (node as Record<string, unknown>).value;
-      if (typeof value === "string") found.add(value.trim().toLowerCase());
-    }
-  };
-
-  const walk = (node: unknown): void => {
-    if (Array.isArray(node)) return void node.forEach(walk);
-    if (!node || typeof node !== "object") return;
-    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
-      if (/^email/i.test(key)) values(value);
-      else walk(value);
-    }
-  };
-
-  walk(parsed);
-  return [...found].filter((one) => one.includes("@"));
-}
-
-/**
- * What finishes a sign-in, as gog's own arguments.
- *
- * Its own function because every one of these has to agree with what step one
- * was given, and the way that goes wrong is silent: gog answers "manual auth
- * state mismatch", which reads like the person pasted the wrong thing when
- * what actually happened is that these two calls disagreed.
- */
-export function finishArgs(waiting: Pending, url: string): string[] {
-  return [
-    "auth", "add", waiting.account,
-    "--remote", "--step", "2",
-    "--auth-url", url,
-    "--services", waiting.services,
-    "-p",
-    ...(waiting.forceConsent ? ["--force-consent"] : []),
-  ];
-}
-
-/**
- * The address gog wants, from what a person sent.
- *
- * A code on its own is put back together with the address and the state that
- * were written down when the link was made, so the two halves still match and
- * gog's own check on the state still means something.
- */
-export function asLink(answer: string, waiting: Pending): string {
-  if (/^https?:\/\//i.test(answer)) return answer;
-  const code = /(?:code=)?([\w./~-]+)/.exec(answer)?.[1];
-  if (!code) throw new Error(`That does not look like a code or a web address: ${JSON.stringify(answer.slice(0, 80))}`);
-  if (!waiting.redirect) {
-    throw new Error("Send the whole address of the page the browser landed on, not just the code.");
-  }
-  const url = new URL(waiting.redirect);
-  url.searchParams.set("code", code);
-  if (waiting.state) url.searchParams.set("state", waiting.state);
-  return url.toString();
 }
 
 /**
@@ -616,102 +505,57 @@ export function setupSteps(): { steps: string[]; addresses: string[]; why: strin
     addresses: [...new Set([PASTE_BACK, SHOWS_THE_CODE, ...(to.url ? [to.url] : [])])],
     steps: [
       "Go to console.cloud.google.com and make a project. The name does not matter.",
-      "Open APIs and Services, then Library, and switch on the Gmail API. Switch on Calendar, Drive, Docs and Sheets too if the agents should reach those.",
+      "Open APIs and Services, then Library, and switch on the Gmail API, the Google Calendar API and the Google Drive API.",
       "Open the Google Auth Platform section. Fill in an app name and your own email as the contact, and choose External for who it is for.",
-      "Add your own Google address as a test user. You are the only user this will ever have.",
-      "Go to Credentials, create an OAuth client, and choose Web application as the type.",
+      "Under Audience, press Publish app so it is In production. Left in Testing, Google ends the sign-in every 7 days. Google will show a warning that it has not checked the app, once, when you approve: it is your own app, so go on past it.",
+      "Go to Clients, create an OAuth client, and choose Web application as the type.",
       "Add the redirect addresses listed here, exactly as they are written, one per line in that form.",
       to.relayed
         ? `The ${new URL(to.url).hostname} one is the one that matters: with that registered the sign-in finishes on its own, because the page you land on hands the answer straight back to me.`
         : to.url === SHOWS_THE_CODE
           ? "The chloejs.org one is the one that matters: with that registered, the page you land on shows you a short code to send back. Without it you get a browser error with the answer hidden in its address bar."
           : "The chloejs.org one is optional and worth it, if you make a Web application client: with that registered, the page you land on shows you a short code to send back, instead of a browser error with the answer hidden in its address bar.",
-      "Download the client file it gives you, and put either its path or the whole of its contents in .env as CHLOE_GOOGLE_CLIENT.",
+      `Download the client file it gives you, and put its path or its contents ${whereKeyGoes(["google", "client"])}.`,
       "Tell me when that is done and I will send you the link to approve.",
     ],
   };
 }
 
 /**
- * Turn gog's own failures into something an agent can act on, rather than
- * letting "integrity check failed" reach a model that will retry it forever.
- *
- * Every one of these is fixed by one sign-in, and a sign-in is something the
- * agent can start itself, so none of them tells anybody to go to the box.
+ * Turn Google's own failures into something an agent can act on. Every one of
+ * these but the last two is fixed by one sign-in, and a sign-in is something
+ * the agent can start itself, so none of them tells anybody to go to the box.
  */
 export function explain(text: string): string {
   const sign = "Start a sign-in with googleSignIn, send the person the link, and do not retry this until they answer.";
-
-  if (/integrity check failed|KeyUnwrap/i.test(text)) {
-    return `Google cannot be reached: the saved sign-in will not open. ${sign}`;
-  }
-  if (/invalid_grant|token has been expired or revoked/i.test(text)) {
+  if (/invalid_grant|expired or revoked/i.test(text)) {
     return `Google cannot be reached: the saved sign-in has expired or was taken back. ${sign}`;
   }
-  if (/no TTY|GOG_KEYRING_PASSWORD|no token|not found for account/i.test(text)) {
+  if (/no sign-in|no refresh token/i.test(text)) {
     return `Google cannot be reached: nobody has signed in on this copy. ${sign}`;
   }
-  if (/missing --account|GOG_ACCOUNT/i.test(text)) {
+  if (/insufficient.*(scope|permission)|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(text)) {
+    return `Google cannot be reached: the sign-in was not allowed to do this. ${sign}`;
+  }
+  if (/has not been used in project|is disabled|SERVICE_DISABLED/i.test(text)) {
     return (
-      "Google cannot be reached: google.account is not set, so there is no account to read. " +
-      "A person has to put the address in .env as CHLOE_GOOGLE_ACCOUNT. Do not retry."
+      "Google cannot be reached: this service is not switched on for the client in Google's console. A person " +
+      "switches it on under APIs and Services, then Library. Do not retry."
     );
   }
-  if (/credentials|client/i.test(text) && /no|missing|not found/i.test(text)) {
-    return (
-      "Google cannot be reached: this copy has no client to sign in with. One person makes one once in Google's " +
-      "console and puts it in .env as CHLOE_GOOGLE_CLIENT. Do not retry."
-    );
+  if (/invalid_client|unauthorized_client/i.test(text)) {
+    return "Google cannot be reached: Google refused this copy's client. A person checks google.client. Do not retry.";
   }
   return `Google could not be reached: ${text.trim().slice(0, 300)}`;
 }
 
 /**
- * One field of a `reading: true` answer with gog's untrusted markers taken off.
- *
- * **Only for a value this code is about to use as data**: an address to send
- * to, a subject to put in a header. Never for a value on its way to a model,
- * which is the one thing the markers are for, and never for anything written
- * into a file a model reads later.
- *
- * gog wraps field by field rather than answer by answer, and which fields it
- * wraps is its choice, not ours: today a subject comes back wrapped and the
- * `from` beside it does not. So anything read out of a reading answer goes
- * through here, whether it looks wrapped or not, and a value that was never
- * wrapped comes back as it was.
- *
- * The id in the end marker has to be the one the start marker opened with.
- * gog picks a fresh one per field, so text inside a field cannot close a
- * wrapper it did not open, and a subject with the marker words typed into it
- * stays a subject.
+ * Text from Google that somebody else wrote (a subject, a mail, a file), marked
+ * as theirs for a model reading it. The id is fresh each time, so text inside
+ * cannot close a marker it did not open. Only for what goes to a model, never
+ * for a value used as data, like an address to reply to.
  */
-export function unwrapped(value: string): string {
-  const found =
-    /^<<<EXTERNAL_UNTRUSTED_CONTENT id="([^"]+)">>>\n([\s\S]*)\n<<<END_EXTERNAL_UNTRUSTED_CONTENT id="\1">>>$/
-      .exec(value.trim());
-  if (!found) return value;
-  // gog's own preamble, inside the markers and above the text.
-  return found[2].replace(/^Source: [^\n]*\n---\n/, "");
-}
-
-/**
- * Every gog call goes through here, so none of them can miss the folder or the
- * passphrase, and none of them can forget the two guards.
- *
- * `reading` turns on gog's own two safety switches, and a call that only reads
- * should always pass it. `--readonly` makes gog refuse a request that would
- * change anything, at the moment it is made, so a bug or a borrowed turn
- * cannot delete mail even though the sign-in would allow it. `--wrap-untrusted`
- * marks the text that came back as somebody else's words, which matters when
- * the next thing to read it is a model.
- */
-export async function gog(
-  args: string[],
-  { timeoutMs = 60_000, reading = false }: { timeoutMs?: number; reading?: boolean } = {},
-): Promise<string> {
-  const program = await ensureGog();
-  const all = reading ? [...args, "--readonly", "--wrap-untrusted"] : args;
-  const out = await run(program, all, { timeoutMs, env: where() });
-  if (out.exitCode !== 0) throw new Error(explain(out.stderr || out.stdout));
-  return out.stdout;
+export function marked(text: string): string {
+  const id = randomBytes(6).toString("hex");
+  return `<<<EXTERNAL_UNTRUSTED_CONTENT id="${id}">>>\n${text}\n<<<END_EXTERNAL_UNTRUSTED_CONTENT id="${id}">>>`;
 }

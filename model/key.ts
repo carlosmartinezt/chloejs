@@ -9,7 +9,7 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError, generateText, jsonSchema, RetryError, tool, type LanguageModel, type LanguageModelUsage, type ModelMessage } from "ai";
 
-import { settings } from "#chloe/core/settings";
+import { settings, whereKeyGoes } from "#chloe/core/settings";
 
 import type { Answer, Ask, Message, ToolCall } from "./model.ts";
 
@@ -167,7 +167,7 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal }
   if (route === "gateway") {
     if (!settings.model.key) {
       throw new Error(
-        "No gateway key. Put it in .env as CHLOE_MODEL_KEY. " +
+        `No gateway key. Put it ${whereKeyGoes(["model", "key"])}. ` +
           "To run on a subscription instead, put that route first in model.prefer, or route the provider in model.routes.",
       );
     }

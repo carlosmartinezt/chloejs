@@ -14,9 +14,9 @@
 // Under Event Subscriptions subscribe the bot to message.im, message.channels,
 // message.groups and message.mpim, and under App Home allow messages from the
 // Messages tab. Install it to the workspace, which makes the bot token
-// ("xoxb-..."). The two tokens are CHLOE_AGENTS_<id>_SLACK_BOT_TOKEN and
-// CHLOE_AGENTS_<id>_SLACK_APP_TOKEN in .env, or
-// `credentials: { botToken, appToken }` here. In a channel, invite the bot
+// ("xoxb-..."). The two tokens are `agents: { <id>: { slack: { bot_token,
+// app_token } } }` in chloe.config.ts's settings, each a `process.env.` name
+// whose value is in .env, or `credentials: { botToken, appToken }` here. In a channel, invite the bot
 // (/invite @name) before it can read anything there.
 //
 // allowFrom is who may talk to the agent, by Slack member id ("U0123ABCD", in
@@ -39,7 +39,7 @@
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
 import type { Attachment } from "#chloe/model/model";
-import { nameInEnv, settings } from "#chloe/core/settings";
+import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { receive, type Incoming, type Rules } from "./shared.ts";
 
 const MAX_MESSAGE = 4000; // Slack cuts a message's text at 40000, and advises under 4000.
@@ -115,8 +115,8 @@ export function slackChannel(options: SlackOptions = {}): Channel {
       if (!token || !appToken) {
         console.error(
           `slack: ${agentId} has a Slack channel but no ${token ? "app token" : "bot token"}. Make an app at api.slack.com/apps ` +
-            `with Socket Mode on, and put its tokens in .env as ${nameInEnv(["agents", agentId, "slack", "bot_token"])} ` +
-            `and ${nameInEnv(["agents", agentId, "slack", "app_token"])}.`,
+            `with Socket Mode on, and put its bot token ${whereKeyGoes(["agents", agentId, "slack", "bot_token"])}, ` +
+            `and its app token ${whereKeyGoes(["agents", agentId, "slack", "app_token"])}.`,
         );
         return { stop: () => {} };
       }

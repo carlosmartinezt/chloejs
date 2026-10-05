@@ -16,7 +16,7 @@ import { agentFor, answer, answers, asked, codeJob, db, lastAsked, live, ownPage
   const { readFile: get } = await import("node:fs/promises");
 
   // A runtime to relay to, with one agent whose memory holds one file.
-  const folder = `${process.env.AGENTS_STATE}/memory-through-cloud`;
+  const folder = `${process.env.CHLOE_STATE}/memory-through-cloud`;
   await mkdir(folder, { recursive: true });
   await writeFile(`${folder}/note.md`, "# Kept\n");
   await writeFile(`${folder}/note.html`, '<!doctype html><link rel="stylesheet" href="/static/style.css">\n');
@@ -130,7 +130,7 @@ import { agentFor, answer, answers, asked, codeJob, db, lastAsked, live, ownPage
   const tree = await answer("8", "GET", "/api/agents/test/memory");
   const named = (JSON.parse(tree.text) as { name: string }[]).map((one) => one.name).sort();
   is("switched on, the memory is answered", [tree.status, named], [200, ["note.html", "note.md"]]);
-  const log = await get(`${process.env.AGENTS_STATE}/memory-audit/test.jsonl`, "utf8");
+  const log = await get(`${process.env.CHLOE_STATE}/memory-audit/test.jsonl`, "utf8");
   is("and the audit log says who it was, through the cloud", log.includes('"from":"203.0.113.5 via cloud as someone@example.com"'), true);
   is("a write still needs its own switch", (await answer("9", "POST", "/api/agents/test/memory/file", { "content-type": "application/json" }, JSON.stringify({ path: "x.md", content: "" }))).status, 403);
   const pass = JSON.parse((await answer("10", "GET", "/api/agents/test/memory/pass")).text) as { at: string };

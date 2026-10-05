@@ -70,15 +70,31 @@ export const STARTER_MODEL_LINE = '// model: { default: "anthropic/claude-sonnet
 
 /**
  * The model settings setup chose, as the line that goes in chloe.config.ts.
- * `prefer` arrives comma separated and is written as a list.
+ * `prefer` arrives comma separated and is written as a list. `key` is the name
+ * in .env the gateway key is read from, written as `process.env.` that name.
  *
  *   modelLine({ default: "openai/gpt-6-luna" })  // model: { default: "openai/gpt-6-luna" },
  */
-export function modelLine(model: Record<string, string>): string {
+export function modelLine(model: Record<string, string>, key?: string): string {
   const fields = Object.entries(model).map(([one, value]) =>
     one === "prefer" ? `prefer: ${JSON.stringify(value.split(","))}` : `${one}: ${JSON.stringify(value)}`,
   );
+  if (key) fields.push(`key: process.env.${key}`);
   return `model: { ${fields.join(", ")} },`;
+}
+
+/**
+ * A line into the `settings` of the chloe.config.ts setup wrote, under the
+ * model line, or null when the file is somebody's own or already has it, which
+ * the caller then says rather than edits.
+ */
+export function withSetting(config: string, line: string): string | null {
+  const top = line.split(":")[0];
+  if (config.includes(line) || new RegExp(`^    ${top}:`, "m").test(config)) return null;
+  const at = config.indexOf("  settings: {\n");
+  if (at < 0) return null;
+  const after = at + "  settings: {\n".length;
+  return `${config.slice(0, after)}    ${line}\n${config.slice(after)}`;
 }
 
 const config = (agent: string) => `// Every agent this box runs, and how the runtime behaves.
@@ -88,8 +104,9 @@ const config = (agent: string) => `// Every agent this box runs, and how the run
 //
 // \`settings\` is every choice, as deep as it goes, and what it leaves out is the
 // default. This file is in source control, so a password, key or token goes in
-// .env beside it instead, as CHLOE_ and the setting's path in capitals:
-// CHLOE_MODEL_KEY, CHLOE_RESEND_API_KEY, CHLOE_AGENTS_${identifier(agent).toUpperCase()}_TELEGRAM.
+// .env beside it, and is named here as \`process.env.\` and its name in .env:
+// \`resend: { api_key: process.env.CHLOE_RESEND_API_KEY }\`. chloe reads no key
+// it is not handed here.
 import { defineConfig } from "@chloejs/core";
 
 import ${identifier(agent)} from "./agents/${agent}/agent.ts";

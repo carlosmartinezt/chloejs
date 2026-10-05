@@ -260,8 +260,8 @@ What it leaves out is the default. Every setting is the `Settings` interface in
 you what each one is as you write it. `DEFAULTS` beside it is what each one is
 when nobody says, and the table on chloejs.org is read out of both.
 
-A secret goes in `.env` beside the config instead, mode 600 and never
-committed: every password, key and token, and nothing else.
+A secret goes in `.env` beside the config, mode 600 and never committed: every
+password, key and token, and nothing else.
 
 ```
 CHLOE_MODEL_KEY=...
@@ -269,23 +269,31 @@ CHLOE_RESEND_API_KEY=re_...
 CHLOE_AGENTS_TEMPO_TELEGRAM=123456789:ABC...
 ```
 
-Every setting has a name there, `CHLOE_` and its path in capitals, so one run
-can be changed by hand (`CHLOE_CLOUD_REMOTE_WRITE=false npx chloe`), but a
-choice that should last belongs in the config.
+**The config names each one**, so reading it shows every key there is. chloe
+reads no key it is not handed there:
 
-A variable beats the config, a list is written with commas, and a switch that
-is neither `true` nor `false` is refused at startup rather than read as off.
-`state`, `memory`, `db` and `node` are read before the config is, so those four
-are only read from here. Everything else may be declared instead, and a config
-that says where a credential comes from names the variable:
-`cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`.
+```ts
+settings: {
+  model: { key: process.env.CHLOE_MODEL_KEY },
+  resend: { api_key: process.env.CHLOE_RESEND_API_KEY },
+  agents: { tempo: { telegram: process.env.CHLOE_AGENTS_TEMPO_TELEGRAM } },
+}
+```
+
+Every other setting has a name there too, `CHLOE_` and its path in capitals,
+so one run can be changed by hand (`CHLOE_CLOUD_REMOTE_WRITE=false npx chloe`),
+but a choice that should last belongs in the config. A variable beats the
+config, a list is written with commas, and a switch that is neither `true` nor
+`false` is refused at startup rather than read as off. `state`, `memory`, `db`
+and `node` are read before the config is, so those four are only read from
+there.
 
 ```sh
 npx chloe account                # set the one password
 npx chloe                        # the one process, on 127.0.0.1:3067
 npx chloe agent <id>             # talk to one agent
 npx chloe agent <id> <job>       # run one job now, without waiting for its cron line
-npx chloe install                # run it as a service, so it survives a reboot
+npx chloe install                # run it as a service (systemd or launchd), so it survives a reboot
 ```
 
 Without `@chloejs/ui` the runtime serves a plain page of its own. With it, that

@@ -31,11 +31,23 @@ export { fsEditFile, fsListFiles, fsReadFile, fsSearchFiles, fsWriteFile } from 
 // has not written in. Prefer it over sending wherever the mail is a reply.
 export { gmailReadEmail, gmailReplyEmail, gmailSendEmail } from "#chloe/connectors/google/gmail";
 
+// The calendar, as the person signed in to Google: the events on the calendars
+// an agent is bound to, and adding one that invites nobody.
+export { calendarAddEvent, calendarListEvents } from "#chloe/connectors/google/calendar";
+
+// Drive, as the person signed in to Google: finding files in the part an agent
+// is bound to, and reading one as text, a Google Doc included.
+export { driveReadFile, driveSearchFiles } from "#chloe/connectors/google/drive";
+
 // Sending one email through Resend, on a key.
 export { resendSendEmail } from "#chloe/connectors/resend/resend";
 
 // Starting an email conversation, for an agent on the email channel.
 export { emailStartConversation } from "./email.ts";
+
+// A service's MCP server, for an agent's `connections`: the tools it publishes,
+// named like these.
+export { mcpConnection, type McpOptions } from "#chloe/connectors/mcp";
 
 // Reading a public web page.
 export { webReadPage } from "./web.ts";

@@ -23,7 +23,7 @@ ${bold("Every day")}${dim("  (these talk to a running chloe, so leave npx chloe 
 
 ${bold("Looking after it")}
   npx chloe account              set the password for the page, or a new one later
-  npx chloe install              keep it running after a reboot
+  npx chloe install              keep it running after a reboot (Linux or macOS)
 
 Run it from the folder with chloe.config.ts in it, which setup writes.
 `;

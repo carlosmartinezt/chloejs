@@ -41,7 +41,7 @@ import { reachBy, unreach } from "#chloe/model/ask";
 import { remember } from "#chloe/model/memory";
 import { db } from "#chloe/core/db";
 import { readEmail, signedBy, whenSent, type Email, type LookUp } from "#chloe/core/mail";
-import { settings } from "#chloe/core/settings";
+import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { markdownToHtml, markdownToText } from "#chloe/services/emailService";
 import { boxFor, collectFrom, type Box } from "./postbox.ts";
 import { receive, type Rules } from "./shared.ts";
@@ -160,7 +160,7 @@ export function emailChannel(options: EmailOptions): Channel {
       if (!cloud || !key) {
         console.error(
           `email: ${agentId} is on email and has no ${cloud ? "workspace key" : "cloud"}. Email goes through a Chloe Cloud: ` +
-            `put the workspace's key in .env as CHLOE_CLOUD_API_KEY.`,
+            `put the workspace's key ${whereKeyGoes(["cloud", "api_key"])}.`,
         );
         return { stop: () => {} };
       }

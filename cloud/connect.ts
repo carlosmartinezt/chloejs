@@ -29,7 +29,7 @@ import { z } from "zod";
 
 import { db, RUN_COLUMNS } from "#chloe/core/db";
 import { events } from "#chloe/core/events";
-import { settings } from "#chloe/core/settings";
+import { settings, whereKeyGoes } from "#chloe/core/settings";
 import type { Agent } from "#chloe/load/load";
 import { HOST, PORT, routeList, summary } from "#chloe/serve/http";
 import { RELAY, RELAY_GUEST, RELAY_NAME, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login";
@@ -182,7 +182,7 @@ export function startCloud(options: CloudOptions): Cloud {
     if (stopped) return;
     const want = where();
     using = want;
-    if (!want.key) return say("not connected: no cloud.api_key. Make a workspace on the dashboard and put its key in .env, as CHLOE_CLOUD_API_KEY.");
+    if (!want.key) return say(`not connected: no cloud.api_key. Make a workspace on the dashboard and put its key ${whereKeyGoes(["cloud", "api_key"])}.`);
     if (!want.url) return say("not connected: cloud.url in settings is empty.");
 
     const address = `${want.url.replace(/^http/, "ws")}/connect`;

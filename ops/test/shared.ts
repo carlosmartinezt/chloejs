@@ -13,15 +13,16 @@
 process.env.CHLOE_DB = ":memory:";
 // Folders of their own, so a case that writes state (an account) or a note
 // cannot land in the real ones. Set before any import, like the database above.
-process.env.AGENTS_STATE = (await import("node:fs")).mkdtempSync(`${(await import("node:os")).tmpdir()}/chloe-test-`);
-process.env.AGENTS_MEMORY = `${process.env.AGENTS_STATE}/memory`;
+process.env.CHLOE_STATE = (await import("node:fs")).mkdtempSync(`${(await import("node:os")).tmpdir()}/chloe-test-`);
+process.env.CHLOE_MEMORY = `${process.env.CHLOE_STATE}/memory`;
 process.env.CHLOE_OWNER = "test:somebody";
-process.env.AI_GATEWAY_API_KEY = "test";
-process.env.MODEL_VIA = "gateway";
+// A key is read only where the config names it, and the test config names this.
+process.env.CHLOE_MODEL_KEY = "test";
+process.env.CHLOE_MODEL_PREFER = "gateway";
 // Signing in and getting locked out both mail, and the addresses used here are
 // made up. Without this the suite sends two real emails on a box that has a
 // mail key, because the alert settings are read from the same file.
-process.env.EMAIL_PROVIDER = "none";
+process.env.CHLOE_EMAIL_PROVIDER = "none";
 // What opencode can run is read by asking it, so an opencode on the path would
 // put somebody's own models into what the cases expect. The routing cases point
 // this at a stand-in of their own.
@@ -71,13 +72,15 @@ export const gateway = createServer((request, response) => {
   });
 });
 await new Promise<void>((done) => gateway.listen(0, "127.0.0.1", done));
-process.env.AI_GATEWAY_URL = `http://127.0.0.1:${(gateway.address() as { port: number }).port}/v1/chat/completions`;
+process.env.CHLOE_MODEL_GATEWAY = `http://127.0.0.1:${(gateway.address() as { port: number }).port}/v1/chat/completions`;
 
 // Imported after the environment is set, and by hand rather than with a plain
 // import, because those are hoisted above the lines above: core/db.ts would
 // read CHLOE_DB before it was set and every case would write into the real
 // run history. That is not hypothetical, it happened while this was written.
 export const { answer, db, reachBy, sweep, waitingFor, waitingOn, work } = await import("@chloejs/core");
+// The test config hands over the gateway key, as a project's own config would.
+await (await import("@chloejs/core")).loadSettings();
 export type Agent = import("@chloejs/core").Agent;
 export type Job = import("@chloejs/core").Job;
 export type Line = import("@chloejs/core").Line;
@@ -107,6 +110,7 @@ export function agentFor(job: Job): Agent {
     skills: [],
     jobs: [job],
     channels: [],
+    connections: [],
   };
 }
 

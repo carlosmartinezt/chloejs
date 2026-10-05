@@ -3,4 +3,4 @@ import { defineConfig } from "@chloejs/core";
 
 import test from "./test-agent/agent.ts";
 
-export default defineConfig({ agents: [test] });
+export default defineConfig({ agents: [test], settings: { model: { key: process.env.CHLOE_MODEL_KEY } } });

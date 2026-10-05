@@ -189,7 +189,7 @@ export async function connectionsOf(agent: Agent): Promise<Way[]> {
           ready: null,
         },
   ];
-  for (const connector of connectorsOf(agent.tools ?? {})) {
+  for (const connector of new Set([...connectorsOf(agent.tools ?? {}), ...(agent.connections ?? [])])) {
     const missing = await connector.missing().catch((error: Error) => [error.message]);
     out.push({
       name: connector.name,

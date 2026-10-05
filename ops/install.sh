@@ -4,8 +4,10 @@
 #
 #   npx chloe install
 #
-# The unit is called chloe.service. One box runs one of these, so this replaces
-# an existing one and points it at the folder it was run from.
+# On Linux it is a systemd user unit, chloe.service. On a Mac it is a launchd
+# agent, org.chloejs.chloe, logging to ~/Library/Logs/chloe.log. One box runs
+# one of these, so this replaces an existing one and points it at the folder it
+# was run from.
 #
 # Why a service at all: because a process in a terminal dies with the terminal.
 # The service survives a reboot and restarts if it crashes. Without it the agents only run while someone is watching,
@@ -36,10 +38,10 @@ node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)
 # for the source it does not ship and the read fails.
 CORE="$ROOT/node_modules/@chloejs/core"
 if [ -L "$CORE" ]; then
-  START="--conditions=chloe-source $(cd "$CORE" && pwd -P)/server.ts"
+  ENTRY="$(cd "$CORE" && pwd -P)/server.ts"
   CONDITION="--conditions=chloe-source"
 else
-  START="$CORE/dist/server.js"
+  ENTRY="$CORE/dist/server.js"
   CONDITION=""
   [ -f "$CORE/dist/server.js" ] || {
     echo "No $CORE/dist. Reinstall @chloejs/core." >&2
@@ -47,12 +49,18 @@ else
   }
 fi
 
-# This installer writes a systemd user unit, so it is Linux with systemd only:
-# fail before writing it, not after.
-command -v systemctl >/dev/null 2>&1 || {
-  echo "This installer needs systemd. On another system, run npx chloe under any supervisor that restarts it." >&2
-  exit 1
-}
+START="${CONDITION:+$CONDITION }$ENTRY"
+
+# Linux with systemd, or a Mac with launchd: fail before writing anything.
+UNSUPPORTED="This installer needs Linux with systemd, or macOS. On another system, run npx chloe under any supervisor that restarts it."
+case "$(uname -s)" in
+  Linux)
+    SYSTEM=linux
+    command -v systemctl >/dev/null 2>&1 || { echo "$UNSUPPORTED" >&2; exit 1; }
+    ;;
+  Darwin) SYSTEM=mac ;;
+  *) echo "$UNSUPPORTED" >&2; exit 1 ;;
+esac
 
 # A setting is declared in chloe.config.ts, which is TypeScript, so it is read by
 # node rather than sourced. Asking the same module the runtime asks means this
@@ -72,7 +80,7 @@ read -r NODEBIN PREFER <<<"$SETTINGS"
 
 # A CLI route runs model calls through that program, so the unit needs it on the
 # path. Each is found the same way as node, because they usually sit somewhere
-# like ~/.local/bin and systemd starts with almost no path at all.
+# like ~/.local/bin and systemd and launchd start with almost no path at all.
 CLIBIN=""
 for one in claude codex opencode; do
   if command -v "$one" >/dev/null 2>&1; then CLIBIN="$CLIBIN:$(dirname "$(command -v "$one")")"; fi
@@ -81,12 +89,14 @@ done
 [ -n "$CLIBIN" ] || case ",$PREFER," in
   *,gateway,*) ;;
   *) echo "model.prefer is \"$PREFER\" and none of those commands is on the path. Install one," >&2
-     echo "or put \"gateway\" in model.prefer and a key in .env as CHLOE_MODEL_KEY." >&2
+     echo "or put \"gateway\" in model.prefer, the key in .env as CHLOE_MODEL_KEY, and model: { key: process.env.CHLOE_MODEL_KEY } in chloe.config.ts." >&2
      exit 1 ;;
 esac
 
 # Credentials live in .env, so nobody else on the box reads it.
 [ ! -e "$ROOT/.env" ] || chmod 600 "$ROOT/.env"
+
+if [ "$SYSTEM" = linux ]; then
 
 mkdir -p ~/.config/systemd/user
 
@@ -125,6 +135,78 @@ systemctl --user restart chloe.service
 
 echo "Installed chloe.service, node at $NODEBIN."
 echo "It starts at boot only for a user with lingering on: loginctl enable-linger $(id -un)"
+
+else
+
+# A path with & or < in it would otherwise break the plist.
+xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+
+LABEL=org.chloejs.chloe
+PLIST=~/Library/LaunchAgents/$LABEL.plist
+LOG=~/Library/Logs/chloe.log
+mkdir -p ~/Library/LaunchAgents ~/Library/Logs
+
+# One <string> per argument, so a path with a space in it stays one argument.
+ARGS="    <string>$(xml "$NODEBIN/node")</string>"
+[ -z "$CONDITION" ] || ARGS="$ARGS
+    <string>$CONDITION</string>"
+ARGS="$ARGS
+    <string>$(xml "$ENTRY")</string>"
+
+# Starts at login, and is started again 15 seconds after it exits with an
+# error. The port and the loopback bind are in serve/http.ts.
+cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+$ARGS
+  </array>
+  <key>WorkingDirectory</key>
+  <string>$(xml "$ROOT")</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$(xml "$NODEBIN$CLIBIN:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin")</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>$(xml "$LOG")</string>
+  <key>StandardErrorPath</key>
+  <string>$(xml "$LOG")</string>
+</dict>
+</plist>
+EOF
+
+# Replace a running one. bootout fails when none is loaded, and bootstrap can
+# fail for a moment while the old one is still stopping, so it is tried again.
+DOMAIN="gui/$(id -u)"
+launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
+for try in 1 2 3 4 5; do
+  launchctl bootstrap "$DOMAIN" "$PLIST" && break
+  [ "$try" -lt 5 ] || { echo "launchctl could not load $PLIST." >&2; exit 1; }
+  sleep 1
+done
+launchctl kickstart -k "$DOMAIN/$LABEL"
+
+echo "Installed $LABEL at $PLIST, node at $NODEBIN."
+echo "It starts when you log in. Its output is in $LOG."
+
+fi
 echo "Model calls try ${PREFER:-whichever this box can}, in that order."
 echo "The site and the API are on http://127.0.0.1:3067, loopback only."
 echo "Make the one account with: npx chloe account"

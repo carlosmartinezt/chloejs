@@ -17,7 +17,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFi
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel } from "./starter.ts";
+import { identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } from "./starter.ts";
 import { ask, askHidden, pick, setPassword, yes } from "./terminal.ts";
 
 /** The folder being set up: where the person ran the command. */
@@ -196,13 +196,11 @@ async function theModel(): Promise<string> {
   if (choice === "held") {
     const asked = (await ask(`Which model? (${settings.model.default || "openrouter/free"}) `)).trim();
     const model = asked || settings.model.default || "openrouter/free";
-    // A key under a name chloe already reads stays where it is. One under any
-    // other name is written down, because otherwise nothing would read it.
-    const { settingInEnv } = await import("#chloe/core/settings");
-    const mine = settingInEnv(process.env, ["model", "key"]);
+    // The key stays under the name it has, and the config names that.
     return await settle(
       { default: model, gateway: model.startsWith("openrouter/") ? OPENROUTER : settings.model.gateway },
-      mine ? undefined : process.env[held!],
+      undefined,
+      held,
     );
   }
 
@@ -230,21 +228,22 @@ async function theModel(): Promise<string> {
  * any of it was true. A wrong key, an unauthorised CLI and a model name that has
  * been retired all look the same until something asks.
  *
- * The choice goes in chloe.config.ts and the key in .env. A config this did not
- * write is somebody's own and is told rather than edited.
+ * The choice goes in chloe.config.ts and the key in .env, under `named`, which
+ * the config's model line reads as `process.env.` that name. A config this did
+ * not write is somebody's own and is told rather than edited.
  */
-async function settle(model: Record<string, string>, key?: string): Promise<string> {
+async function settle(model: Record<string, string>, key?: string, named = "CHLOE_MODEL_KEY"): Promise<string> {
   const { declareSettings, nameInEnv, reloadSettings } = await import("#chloe/core/settings");
   // Left by an earlier run of setup, and .env beats the config, so the old
   // choice would quietly win over the one just made.
   dropFromEnv(["default", "gateway", "prefer", "judge", "naming"].map((one) => nameInEnv(["model", one])));
   if (key) {
-    putInEnv("CHLOE_MODEL_KEY", key);
-    written(".env", "CHLOE_MODEL_KEY, mode 600");
+    putInEnv(named, key);
+    written(".env", `${named}, mode 600`);
   }
   reloadSettings();
 
-  const line = modelLine(model);
+  const line = modelLine(model, named);
   const configFile = join(HERE, "chloe.config.ts");
   const config = readFileSync(configFile, "utf8");
   if (config.includes(STARTER_MODEL_LINE)) {
@@ -264,7 +263,7 @@ async function settle(model: Record<string, string>, key?: string): Promise<stri
   const settings = declared.settings ?? {};
   const prefer = model.prefer ? { prefer: model.prefer.split(",") } : {};
   declareSettings(
-    { ...settings, model: { ...(settings.model as object), ...model, ...prefer } } as Parameters<typeof declareSettings>[0],
+    { ...settings, model: { ...(settings.model as object), ...model, ...prefer, key: process.env[named] } } as Parameters<typeof declareSettings>[0],
     (declared.agents ?? []).map((one) => one?.id ?? "").filter(Boolean),
   );
 
@@ -274,14 +273,14 @@ async function settle(model: Record<string, string>, key?: string): Promise<stri
   const asking = model.default;
   if (!runnable(routeFor(asking))) {
     console.log(`\nNothing here can run ${asking} yet, so nothing was asked.`);
-    console.log("Put a key in .env as CHLOE_MODEL_KEY when you have one, and it can.");
+    console.log(`Put a key in .env as ${named} when you have one, and it can.`);
     return "";
   }
 
   process.stdout.write(`\nAsking ${asking} one thing to make sure it answers... `);
   const trouble = await tryIt(asking);
   console.log(trouble || "it answered, and it can call a tool.");
-  if (trouble) console.log("Fix that whenever you like: model in chloe.config.ts and CHLOE_MODEL_KEY in .env are all of it.");
+  if (trouble) console.log(`Fix that whenever you like: model in chloe.config.ts and ${named} in .env are all of it.`);
   return asking;
 }
 
@@ -373,10 +372,28 @@ async function onWhatsApp(agent: string): Promise<void> {
     putInEnv(name(what), value);
   }
   written(".env", `${name("phone_number_id")} and the two beside it, mode 600`);
+  inSettings(
+    `agents: { ${JSON.stringify(agent)}: { whatsapp: { phone_number_id: process.env.${name("phone_number_id")}, ` +
+      `token: process.env.${name("token")}, app_secret: process.env.${name("app_secret")} } } },`,
+  );
   channelIn(agent, 'import { whatsappChannel } from "@chloejs/core/channels";', "whatsappChannel({ allowFrom: [] })");
   console.log("\nStart chloe and it writes one address to the log, its own post box. Paste that into the app's WhatsApp");
   console.log("page, subscribed to messages, and WhatsApp posts there while chloe collects from it. Nothing is opened here.");
   console.log("allowFrom is empty, so the first message is answered with the sender's number, which is what goes in it.");
+}
+
+/**
+ * Writes one line into chloe.config.ts's settings, or says it when the file is
+ * somebody's own or already says it.
+ */
+function inSettings(line: string): void {
+  const configFile = join(HERE, "chloe.config.ts");
+  const config = readFileSync(configFile, "utf8");
+  if (config.includes(line)) return;
+  const added = withSetting(config, line);
+  if (!added) return void console.log(`\nchloe.config.ts is yours, so put this in its settings:\n  ${line}`);
+  writeFileSync(configFile, added);
+  written("chloe.config.ts", line);
 }
 
 /**
@@ -417,6 +434,7 @@ async function somewhereToWatch(): Promise<void> {
     if (key) {
       putInEnv("CHLOE_CLOUD_API_KEY", key);
       written(".env", "CHLOE_CLOUD_API_KEY, mode 600");
+      inSettings("cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY },");
     }
     return;
   }

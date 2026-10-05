@@ -20,6 +20,7 @@ import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { cannotRun, connectorsOf, type Tools } from "#chloe/model/tool";
+import type { McpConnection } from "#chloe/connectors/mcp";
 import { memoryTools } from "#chloe/model/tools/memory";
 import { scriptTools } from "#chloe/model/tools/script";
 import { selfTools } from "#chloe/model/tools/self";
@@ -102,6 +103,12 @@ export interface AgentConfig {
   /** Each way in: `[telegramChannel({ ... }), apiChannel()]`. Each one carries its own name. */
   channels?: Channel[];
   /**
+   * Each outside service's MCP server this agent reaches, and only this agent:
+   * `[mcpConnection({ name: "github", url, token: process.env.GITHUB_TOKEN })]`.
+   * Its tools are asked for as the agent loads and added to `tools`.
+   */
+  connections?: McpConnection[];
+  /**
    * What stops a turn, as the AI SDK's `stopWhen`: `isStepCount(20)`, or a list
    * of conditions. Forty steps that ran tools when it says nothing.
    */
@@ -140,8 +147,9 @@ export interface Config {
    * what a dashboard may do. Everything it leaves out is the default, and an
    * environment variable beats whatever it says.
    *
-   * This file is in source control, so a credential goes in .env instead, as
-   * CHLOE_ and the setting's path in capitals.
+   * This file is in source control, so a key is named here as
+   * `process.env.SOME_NAME` and its value goes in .env. The runtime reads no
+   * key from the environment by itself.
    */
   settings?: Declared;
 }
@@ -356,7 +364,7 @@ export interface ChannelRoute {
  * One agent as the runtime holds it: the definition with its instructions
  * read, its tools bound, its skills loaded and its jobs resolved.
  */
-export interface Agent extends Omit<Defined, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model"> {
+export interface Agent extends Omit<Defined, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model" | "connections"> {
   /** Its own, or `model.default` in settings. Always there once loaded. */
   model: string;
   /** Always there once loaded, with its folder worked out. See memoryFolder. */
@@ -368,6 +376,7 @@ export interface Agent extends Omit<Defined, "instructions" | "tools" | "jobs" |
   skills: Skill[];
   jobs: Job[];
   channels: Channel[];
+  connections: McpConnection[];
 }
 
 /**
@@ -505,7 +514,7 @@ export async function resolveAgent(definition: Defined): Promise<Agent> {
   if (!model) throw new Error(`${where} does not say which model, and model.default in settings names none.`);
   if (!definition.instructions) throw new Error(`${where} has no instructions. Add instructions: prompt("instructions.md").`);
 
-  const { tools, jobs, channels, ...rest } = definition;
+  const { tools, jobs, channels, connections, ...rest } = definition;
   // Worked out once, here, so the site, the memory tool and a job's
   // work.memory all mean the same folder without any of them saying it again.
   const memory = {
@@ -529,11 +538,35 @@ export async function resolveAgent(definition: Defined): Promise<Agent> {
     memory,
     instructions: await readPrompt(definition.instructions, { dir: folder, where }),
     instructionsFile: isPrompt(definition.instructions) ? definition.instructions.file : undefined,
-    tools: toolsOf({ ...featureTools(definition.features, home, where), ...tools }, where),
+    tools: toolsOf({ ...(await connectionTools(connections ?? [], where)), ...featureTools(definition.features, home, where), ...tools }, where),
     skills: await skillsIn(`${folder}/skills`),
     jobs: await jobsOf(id, folder, jobs ?? []),
     channels: channelsOf(channels ?? [], where),
+    connections: connections ?? [],
   };
+}
+
+/**
+ * The tools of every connection, asked for now. One that does not answer is
+ * left out and said in the log, and the agent loads without it: the setup page
+ * says why. A tool of the agent's own with the same name wins.
+ */
+async function connectionTools(connections: McpConnection[], where: string): Promise<Tools> {
+  if (!Array.isArray(connections)) {
+    throw new Error(`${where}: connections is a list, like [mcpConnection({ name: "github", url })].`);
+  }
+  const names = connections.map((one) => one.name);
+  const twice = names.find((one, i) => names.indexOf(one) !== i);
+  if (twice) throw new Error(`${where}: two connections are called ${JSON.stringify(twice)}. Give each its own name.`);
+  const found = await Promise.all(
+    connections.map((one) =>
+      one.tools().catch((error: Error) => {
+        console.error(`${where}: the ${one.name} connection brought no tools: ${error.message}`);
+        return {};
+      }),
+    ),
+  );
+  return Object.assign({}, ...found);
 }
 
 function channelsOf(channels: Channel[], where: string): Channel[] {

@@ -1,11 +1,11 @@
 // Sending one email through Resend, on `resend.api_key`.
-import { settings } from "#chloe/core/settings";
+import { settings, whereKeyGoes } from "#chloe/core/settings";
 import type { EmailProvider } from "#chloe/services/emailService";
 
 export const resendProvider: EmailProvider = {
   async send({ from, to, replyTo, subject, body, html }) {
     const key = settings.resend.api_key;
-    if (!key) throw new Error("No Resend key. Put it in .env as CHLOE_RESEND_API_KEY.");
+    if (!key) throw new Error(`No Resend key. Put it ${whereKeyGoes(["resend", "api_key"])}.`);
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },

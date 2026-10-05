@@ -11,11 +11,12 @@
 //
 // Setting it up, at developers.facebook.com: make an app, add WhatsApp to it,
 // and it gives you a test number and a token to try with. The three things
-// this needs go in .env, under the agent's name:
+// this needs go in .env, and each is named in chloe.config.ts's settings, as
+// `agents: { <id>: { whatsapp: { phone_number_id: process.env.CHLOE_AGENTS_<id>_WHATSAPP_PHONE_NUMBER_ID, ... } } }`:
 //
-//   CHLOE_AGENTS_<id>_WHATSAPP_PHONE_NUMBER_ID   on the app's WhatsApp page
-//   CHLOE_AGENTS_<id>_WHATSAPP_TOKEN             a permanent token from a system user
-//   CHLOE_AGENTS_<id>_WHATSAPP_APP_SECRET        signs every call in
+//   phone_number_id   on the app's WhatsApp page
+//   token             a permanent token from a system user
+//   app_secret        signs every call in
 //
 // The token the app's page shows first lasts a day, which is fine for trying
 // and no good for a box that runs: make a system user with the
@@ -75,7 +76,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Agent, Channel, ChannelRoute, ChatHistory, Running } from "#chloe/load/load";
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
 import type { Attachment } from "#chloe/model/model";
-import { nameInEnv, settings } from "#chloe/core/settings";
+import { nameInEnv, settings, whereKeyGoes } from "#chloe/core/settings";
 import { boxFor, collectFrom, keptBox } from "./postbox.ts";
 import { inPieces, receive, type Button, type Incoming, type Rules } from "./shared.ts";
 
@@ -185,8 +186,8 @@ export function whatsappChannel(options: WhatsAppOptions = {}): Channel {
       if (!phoneNumberId || !token) {
         console.error(
           `whatsapp: ${agentId} is on WhatsApp's API and has no ${phoneNumberId ? "token" : "number"}. Add an app at ` +
-            `developers.facebook.com, add WhatsApp to it, and put what it gives you in .env as ` +
-            `${nameInEnv(["agents", agentId, "whatsapp", "phone_number_id"])} and the two beside it.`,
+            `developers.facebook.com, add WhatsApp to it, and put the number's id ` +
+            `${whereKeyGoes(["agents", agentId, "whatsapp", "phone_number_id"])}, and its token and app secret beside it.`,
         );
         return { stop: () => {} };
       }

@@ -12,12 +12,14 @@
 // with the same binding, so a job does not get a wider search for skipping
 // the model.
 //
-// The sign-in itself is googleService.ts, and every call out goes
-// through `gog()` there, so one file holds it, renews it and explains it and
-// this one only reads mail.
+// The sign-in itself is googleService.ts, and every call out goes through
+// `google()` there, so one file holds it, renews it and explains it and this
+// one only reads mail.
+import { gmail as gmailApi, type gmail_v1 } from "@googleapis/gmail";
+
 import type { EmailProvider } from "#chloe/services/emailService";
 
-import { explain, gog, unwrapped } from "./googleService.ts";
+import { explain, google, marked, signedIn } from "./googleService.ts";
 
 export { explain };
 
@@ -82,6 +84,16 @@ async function mayReach(
   return { query, allowed: messages.some((m) => m.id === messageId || m.threadId === messageId) };
 }
 
+/** Gmail, as the signed-in account. */
+function mailbox(): gmail_v1.Gmail {
+  return gmailApi({ version: "v1", auth: signedIn() });
+}
+
+/** A header's value by name, any case, or "". */
+function header(headers: gmail_v1.Schema$MessagePartHeader[] | undefined, name: string): string {
+  return headers?.find((one) => one.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
+}
+
 /** What the bound search matches. Nothing here widens it. */
 export async function readEmailMessages({
   search,
@@ -95,7 +107,49 @@ export async function readEmailMessages({
   const query = `${search} newer_than:${days}d`;
   const messages = await search_(query, limit);
   remember(search, messages);
-  return { query, count: messages.length, messages };
+  return {
+    query,
+    count: messages.length,
+    // Somebody else's words, marked as theirs on the way to a model.
+    messages: messages.map((one) => ({
+      ...one,
+      subject: one.subject && marked(one.subject),
+      from: one.from && marked(one.from),
+      snippet: one.snippet && marked(one.snippet),
+    })),
+  };
+}
+
+/** The plain text of a message: its text part, else its HTML part with the tags taken off. */
+function textOf(part: gmail_v1.Schema$MessagePart | undefined): string {
+  const decode = (data?: string | null) => (data ? Buffer.from(data, "base64url").toString("utf8") : "");
+  const find = (one: gmail_v1.Schema$MessagePart | undefined, type: string): string => {
+    if (!one) return "";
+    if (one.mimeType === type && one.body?.data) return decode(one.body.data);
+    for (const inner of one.parts ?? []) {
+      const found = find(inner, type);
+      if (found) return found;
+    }
+    return "";
+  };
+  const plain = find(part, "text/plain");
+  if (plain) return plain;
+  return find(part, "text/html")
+    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<br\s*\/?>|<\/p>|<\/div>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** The names of a message's attachments. */
+function attachmentsOf(part: gmail_v1.Schema$MessagePart | undefined): string[] {
+  if (!part) return [];
+  return [...(part.filename ? [part.filename] : []), ...(part.parts ?? []).flatMap(attachmentsOf)];
 }
 
 /**
@@ -124,23 +178,104 @@ export async function readOneEmailMessage({
         `List it again and use an id from that list.`,
     );
   }
-  const out = await gog(["gmail", "get", messageId, "--format", "full", "--json"], { reading: true });
-  return { query, message: JSON.parse(out) };
+  const { data } = await google(() => mailbox().users.messages.get({ userId: "me", id: messageId, format: "full" }));
+  const headers = data.payload?.headers ?? undefined;
+  return {
+    query,
+    message: {
+      id: data.id,
+      threadId: data.threadId,
+      date: header(headers, "Date"),
+      from: marked(header(headers, "From")),
+      to: marked(header(headers, "To")),
+      subject: marked(header(headers, "Subject")),
+      labels: data.labelIds ?? [],
+      attachments: attachmentsOf(data.payload ?? undefined),
+      body: marked(textOf(data.payload ?? undefined)),
+    },
+  };
 }
 
 async function search_(query: string, max: number): Promise<Message[]> {
-  const out = await gog(["gmail", "search", query, "--max", String(max), "--json"], { reading: true });
+  const listed = await google(() => mailbox().users.messages.list({ userId: "me", q: query, maxResults: max }));
+  const ids = (listed.data.messages ?? []).flatMap((one) => (one.id ? [one.id] : []));
+  return await Promise.all(
+    ids.map(async (id) => {
+      const { data } = await google(() =>
+        mailbox().users.messages.get({ userId: "me", id, format: "metadata", metadataHeaders: ["Subject", "From", "Date"] }),
+      );
+      const headers = data.payload?.headers ?? undefined;
+      return {
+        id,
+        threadId: data.threadId ?? undefined,
+        subject: header(headers, "Subject"),
+        from: header(headers, "From"),
+        date: header(headers, "Date"),
+        snippet: data.snippet ?? "",
+      };
+    }),
+  );
+}
 
-  // gog wraps results in an envelope on some commands and not others, so take
-  // whichever shape came back rather than assuming one.
-  const parsed: unknown = JSON.parse(out || "[]");
-  const rows = Array.isArray(parsed)
-    ? parsed
-    : ((parsed as Record<string, unknown>)?.messages ??
-       (parsed as Record<string, unknown>)?.threads ??
-       (parsed as Record<string, unknown>)?.results ??
-       []);
-  return (Array.isArray(rows) ? rows : []) as Message[];
+/** A header value, refused when it holds a line break, which would be a second header nobody wrote. */
+function headerValue(name: string, value: string): string {
+  if (/[\r\n]/.test(value)) throw new Error(`The ${name} line has a line break in it, so nothing was sent.`);
+  return value;
+}
+
+/** A subject that is not plain ASCII, written the way mail headers carry it. */
+function encoded(value: string): string {
+  return /^[\x20-\x7e]*$/.test(value) ? value : `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
+}
+
+/** One mail, as the text Gmail sends, in the URL-safe base64 it wants. */
+export function rawMail({
+  from,
+  to,
+  replyTo,
+  subject,
+  text,
+  html,
+  inReplyTo,
+  references,
+}: {
+  from?: string;
+  to: string[];
+  replyTo?: string[];
+  subject: string;
+  text: string;
+  html?: string;
+  inReplyTo?: string;
+  references?: string;
+}): string {
+  const lines = [
+    ...(from ? [`From: ${headerValue("From", from)}`] : []),
+    `To: ${headerValue("To", to.join(", "))}`,
+    ...(replyTo?.length ? [`Reply-To: ${headerValue("Reply-To", replyTo.join(", "))}`] : []),
+    `Subject: ${encoded(headerValue("Subject", subject))}`,
+    ...(inReplyTo ? [`In-Reply-To: ${headerValue("In-Reply-To", inReplyTo)}`] : []),
+    ...(references ? [`References: ${headerValue("References", references)}`] : []),
+    "MIME-Version: 1.0",
+  ];
+  const body = (type: string, content: string) =>
+    [`Content-Type: ${type}; charset=UTF-8`, "Content-Transfer-Encoding: base64", "", Buffer.from(content, "utf8").toString("base64")].join("\r\n");
+  let mail: string;
+  if (html) {
+    const boundary = `chloe-${Date.now().toString(36)}`;
+    mail = [
+      ...lines,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      body("text/plain", text),
+      `--${boundary}`,
+      body("text/html", html),
+      `--${boundary}--`,
+    ].join("\r\n");
+  } else {
+    mail = [...lines, body("text/plain", text)].join("\r\n");
+  }
+  return Buffer.from(mail, "utf8").toString("base64url");
 }
 
 /**
@@ -167,20 +302,13 @@ export async function sendGmail({
   replyTo?: string[];
   /**
    * The From line. Google only allows the signed-in account or an alias it has
-   * verified, so an address that belongs to another provider is refused here
-   * rather than quietly rewritten: a mail that went out as somebody else is
-   * worse than one that did not go out.
+   * verified, and sends anything else as the account itself.
    */
   from?: string;
 }): Promise<{ id: string }> {
-  // gog takes its addresses as one comma separated list, not a flag each.
-  const args = ["gmail", "send", "--to", to.join(","), "--subject", subject, "--body", text, "--json"];
-  if (html) args.push("--body-html", html);
-  if (replyTo?.length) args.push("--reply-to", replyTo.join(","));
-  if (from) args.push("--from", from);
-  const out = await gog(args, { timeoutMs: 120_000 });
-  const parsed = JSON.parse(out || "{}") as { id?: string; messageId?: string };
-  return { id: parsed.id ?? parsed.messageId ?? "" };
+  const raw = rawMail({ from, to, replyTo, subject, text, html });
+  const { data } = await google(() => mailbox().users.messages.send({ userId: "me", requestBody: { raw } }));
+  return { id: data.id ?? "" };
 }
 
 /** The longest subject a reply will carry over. Longer than any real one. */
@@ -206,25 +334,20 @@ function oneLine(value: string): string {
  * header carrying more than one address is refused rather than guessed at: a
  * second one is either a header nobody should be replying to or somebody
  * trying to be copied in. What is left has to look like one address and
- * nothing else, so a comma (which gog reads as another recipient), a space or
- * a bracket is refused too.
+ * nothing else, so a comma (another recipient), a space or a bracket is
+ * refused too.
  *
- * **One line.** gog refuses a header value with a newline in it, which is
- * right, and a subject arrives folded across lines often enough. The subject
- * is also written into the frontmatter of the copy an agent keeps, where a
- * newline would be a second field nobody wrote.
+ * **One line.** A header value with a line break in it is a second header
+ * nobody wrote, and a subject arrives folded across lines often enough. The
+ * subject is also written into the frontmatter of the copy an agent keeps,
+ * where a newline would be a second field.
  *
- * **The markers come off.** The subject comes back wrapped as somebody else's
- * words, which is what it is, and a header is not a place that can carry them.
- * That is why the length below is capped: unwrapped, the subject is the one
- * piece of the sender's text that comes back to a model as this tool's own
- * answer rather than as marked-up mail, so it is held to the length of a
- * subject and cannot carry a paragraph of instructions.
+ * **Held to the length of a subject.** The subject is the one piece of the
+ * sender's text that comes back to a model as this tool's own answer rather
+ * than as marked mail, so it cannot carry a paragraph of instructions.
  */
 export function replyTo(headers: Record<string, string>): { to: string; subject: string } {
-  // Unwrapped before being chosen between, not after: an empty Reply-To that
-  // came back wrapped is still a wrapper, and a wrapper is not falsy.
-  const line = oneLine(unwrapped(headers.reply_to ?? "")) || oneLine(unwrapped(headers.from ?? ""));
+  const line = oneLine(headers.reply_to ?? "") || oneLine(headers.from ?? "");
   const named = line.replace(/"(?:[^"\\]|\\.)*"/g, "");
   const angled = [...named.matchAll(/<([^>]*)>/g)].map((found) => found[1].trim());
   if (angled.length > 1) {
@@ -237,7 +360,7 @@ export function replyTo(headers: Record<string, string>): { to: string; subject:
     throw new Error(`That message carries no address to reply to, so nothing was sent.`);
   }
 
-  const was = oneLine(unwrapped(headers.subject ?? "")).slice(0, SUBJECT) || "(no subject)";
+  const was = oneLine(headers.subject ?? "").slice(0, SUBJECT) || "(no subject)";
   return { to, subject: /^re:/i.test(was) ? was : `Re: ${was}` };
 }
 
@@ -283,27 +406,27 @@ export async function replyGmail({
 
   // metadata, not full: the headers are all a reply needs, and the body of
   // somebody else's mail does not have to be read again to answer it.
-  const out = await gog(["gmail", "get", messageId, "--format", "metadata", "--json"], { reading: true });
-  const headers = (JSON.parse(out || "{}") as { headers?: Record<string, string> }).headers ?? {};
-  const { to, subject } = replyTo(headers);
-
-  const args = [
-    "gmail",
-    "send",
-    "--to",
-    to,
-    "--subject",
-    subject,
-    "--body",
-    body,
-    "--reply-to-message-id",
-    messageId,
-    "--json",
-  ];
-  if (html) args.push("--body-html", html);
-  const sent = await gog(args, { timeoutMs: 120_000 });
-  const parsed = JSON.parse(sent || "{}") as { id?: string; messageId?: string };
-  return { sent: true, to, subject, id: parsed.id ?? parsed.messageId ?? "" };
+  const { data } = await google(() =>
+    mailbox().users.messages.get({
+      userId: "me",
+      id: messageId,
+      format: "metadata",
+      metadataHeaders: ["From", "Reply-To", "Subject", "Message-ID", "References"],
+    }),
+  );
+  const headers = data.payload?.headers ?? undefined;
+  const { to, subject } = replyTo({
+    from: header(headers, "From"),
+    reply_to: header(headers, "Reply-To"),
+    subject: header(headers, "Subject"),
+  });
+  const original = header(headers, "Message-ID");
+  const references = [header(headers, "References"), original].filter(Boolean).join(" ");
+  const raw = rawMail({ to: [to], subject, text: body, html, inReplyTo: original || undefined, references: references || undefined });
+  const sent = await google(() =>
+    mailbox().users.messages.send({ userId: "me", requestBody: { raw, threadId: data.threadId ?? undefined } }),
+  );
+  return { sent: true, to, subject, id: sent.data.id ?? "" };
 }
 
 /**

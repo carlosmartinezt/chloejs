@@ -16,7 +16,7 @@ import { agentFor, answer, codeJob, ownPage, work } from "./shared.ts";
   const { memoryFolder } = await import("#chloe/load/load");
   const { MEMORIES } = await import("#chloe/core/paths");
 
-  const folder = `${process.env.AGENTS_STATE}/memory-under-test`;
+  const folder = `${process.env.CHLOE_STATE}/memory-under-test`;
   await makeDir(`${folder}/01_projects`, { recursive: true });
   await makeDir(`${folder}/static`, { recursive: true });
   await makeDir(`${folder}/.git`, { recursive: true });
@@ -39,7 +39,7 @@ import { agentFor, answer, codeJob, ownPage, work } from "./shared.ts";
   const other: Agent = {
     ...agentFor(codeJob("unused", async () => ({}))),
     id: "other",
-    memory: { folder: `${process.env.AGENTS_STATE}/other-has-never-written` },
+    memory: { folder: `${process.env.CHLOE_STATE}/other-has-never-written` },
   };
 
   const server = serve({
@@ -105,7 +105,7 @@ import { agentFor, answer, codeJob, ownPage, work } from "./shared.ts";
   // Sent as raw HTTP, because fetch resolves ".." itself before sending and
   // would ask for a different address altogether. Encoded dots are what an
   // attacker actually sends, since they arrive at the server intact.
-  await put(`${process.env.AGENTS_STATE}/NOT-IN-MEMORY.txt`, "never shown");
+  await put(`${process.env.CHLOE_STATE}/NOT-IN-MEMORY.txt`, "never shown");
   const { request: send } = await import("node:http");
   const port = (server.address() as { port: number }).port;
   const rawly = (path: string) =>
@@ -126,7 +126,7 @@ import { agentFor, answer, codeJob, ownPage, work } from "./shared.ts";
   const log = (await (await fetch(`${at}/api/agents/test/memory/log`, { headers: as })).json()) as { what: string; path: string }[];
   is("every file read or served is in the log", log.filter((one) => one.what === "serve").map((one) => one.path), ["static/style.css", "01_projects/move.html"]);
   is("and a refused path put nothing in it", log.some((one) => one.path.includes("passwd")), false);
-  is("the log is kept outside the memory it records", (await get(`${process.env.AGENTS_STATE}/memory-audit/test.jsonl`, "utf8")).length > 0, true);
+  is("the log is kept outside the memory it records", (await get(`${process.env.CHLOE_STATE}/memory-audit/test.jsonl`, "utf8")).length > 0, true);
 
   // Moving and deleting stay inside too.
   await fetch(`${at}/api/agents/test/memory/rename`, {
@@ -151,7 +151,7 @@ import { agentFor, answer, codeJob, ownPage, work } from "./shared.ts";
   // Source control. A memory that sits inside somebody else's repository is
   // not a repository itself, whatever git says when asked from inside it.
   const { execFileSync } = await import("node:child_process");
-  const outer = `${process.env.AGENTS_STATE}/outer-repo`;
+  const outer = `${process.env.CHLOE_STATE}/outer-repo`;
   await makeDir(`${outer}/agents`, { recursive: true });
   await makeDir(`${outer}/data/tempo`, { recursive: true });
   const quiet = { cwd: outer, stdio: "ignore" as const };

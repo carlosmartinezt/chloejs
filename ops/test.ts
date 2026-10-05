@@ -12,7 +12,7 @@ import { pathToFileURL } from "node:url";
 import { failed } from "#chloe/ops/check";
 import { gateway } from "./test/shared.ts";
 
-for (const part of ["steps", "settings", "google", "routes", "loading"]) await import(`./test/${part}.ts`);
+for (const part of ["steps", "settings", "google", "connections", "routes", "loading"]) await import(`./test/${part}.ts`);
 
 // Then whatever the repo that installed chloe tests about its own jobs. A
 // file named `<job>.test.ts` anywhere in an agent's folder runs its cases as
@@ -42,7 +42,7 @@ for (const part of [
   await import(`./test/${part}.ts`);
 }
 
-await rm(process.env.AGENTS_STATE!, { recursive: true, force: true });
+await rm(process.env.CHLOE_STATE!, { recursive: true, force: true });
 gateway.close();
 console.log(failed() === 0 ? "\nAll clear." : `\n${failed()} to fix above.`);
 process.exit(failed() === 0 ? 0 : 1);

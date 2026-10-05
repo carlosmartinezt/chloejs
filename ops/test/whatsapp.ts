@@ -280,7 +280,7 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
     console.warn = warn;
     is("a message the app did not sign is dropped, whoever handed it over", texts().length, 1);
 
-    const kept = JSON.parse(await readFile(join(process.env.AGENTS_STATE!, "whatsapp", "test-whatsapp.json"), "utf8"));
+    const kept = JSON.parse(await readFile(join(process.env.CHLOE_STATE!, "whatsapp", "test-whatsapp.json"), "utf8"));
     is("the box and its key are kept, so a restart keeps the same address", [kept.id, kept.key, typeof kept.privateKey], ["box1", "collect-me", "string"]);
     const { collectsAt } = await import("#chloe/channels/whatsapp");
     is("and the page can say which address to paste into the app", collectsAt("test"), `${where}/hook/box1`);

@@ -4,19 +4,22 @@
 //
 //   the types below    the default, and the documentation
 //   chloe.config.ts    `settings: { ... }` in defineConfig, in source control
-//   the environment    .env beside chloe.config.ts, and the real environment
+//   the environment    .env beside chloe.config.ts, and the real environment,
+//                      for every setting that is not a key
 //
 // A choice about how the runtime behaves goes in the config, where it is typed
 // and committed. A secret goes in .env, mode 600: every password, key and
 // token, and nothing else. Nothing in source control may hold one.
 //
-// Every setting also has a name in the environment, CHLOE_ and its path in
-// capitals: CHLOE_CLOUD_URL, CHLOE_RESEND_API_KEY, CHLOE_AGENTS_<agent>_TELEGRAM.
-// So anything the config can say, .env can say instead, and a box can run with
-// nothing declared at all. Every variable the runtime reads is one of these
-// settings, and there is no other name it looks for, so a config may hand a
-// setting the variable itself: `cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`. A setting
-// the config says is undefined is one it did not say.
+// **A key is read only where the config names it**, as
+// `cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`, so reading the config
+// shows every key there is and where each comes from. The runtime never reads
+// one from the environment by itself. KEYS is the list. A setting the config
+// says is undefined is one it did not say.
+//
+// Every other setting also has a name in the environment, CHLOE_ and its path
+// in capitals: CHLOE_CLOUD_URL, CHLOE_MODEL_PREFER. That is for one run, like
+// `CHLOE_MODEL_PREFER=gateway npm run evals`, and for where things are kept.
 //
 // `state`, `memory`, `db` and `node` are read before any config is loaded, at
 // the top of core/paths.ts and core/db.ts, so those four are read from the
@@ -117,8 +120,8 @@ export interface Settings {
     /**
      * Who carries an agent's mail. Its key is in that provider's own
      * section. "none" writes the message to the log and sends nothing, which
-     * is what a test run and a box with no mail account use. EMAIL_PROVIDER
-     * overrides it for one run.
+     * is what a test run and a box with no mail account use.
+     * CHLOE_EMAIL_PROVIDER overrides it for one run.
      */
     provider: EmailProvider;
   };
@@ -127,7 +130,7 @@ export interface Settings {
     /** The key an agent's mail is sent with. Without one, nothing is sent. */
     api_key: string;
   };
-  /** Signing in to Google, for the tools that read mail, a calendar or a sheet. */
+  /** Signing in to Google, for the tools that reach mail, a calendar or files. */
   google: {
     /** The account that gets signed in, and the one a mail tool reads from. */
     account: string;
@@ -152,8 +155,6 @@ export interface Settings {
      * browser cannot reach, so they paste the address back instead.
      */
     callback: string;
-    /** The gog program to use, as a path. Empty means the `gog` on the PATH. */
-    gog: string;
     /** The Analytics service account's key, handed to scripts as GA_KEY_FILE. */
     GA_KEY_FILE: string;
   };
@@ -178,8 +179,8 @@ export interface Settings {
     /**
      * This workspace's key, from the dashboard. Without one there is no
      * connection, and taking it out leaves everything running as it was. It is
-     * a credential, so the key itself goes in .env as CHLOE_CLOUD_API_KEY, and a
-     * config that says where it comes from names that variable, not the key.
+     * a key, so it goes in .env, and the config names it:
+     * `cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`.
      */
     api_key: string;
     /** Where the cloud is. CHLOE_CLOUD_URL beats it. Point it at your own by setting this. */
@@ -252,7 +253,7 @@ export const DEFAULTS: Settings = {
   },
   email: { provider: "resend" },
   resend: { api_key: "" },
-  google: { account: "", client: "", callback: "", gog: "", GA_KEY_FILE: "" },
+  google: { account: "", client: "", callback: "", GA_KEY_FILE: "" },
   alerts: { email_to: "", email_from: "" },
   agents: {},
   cloud: {
@@ -309,48 +310,50 @@ type Deep<T> = T extends string | number | boolean | unknown[] ? T | undefined :
 export type Declared = { [K in keyof Settings]?: Deep<Settings[K]> };
 
 /**
- * Every setting can also be set in the environment, under `CHLOE_` and its
- * path in capitals: `CHLOE_CLOUD_URL` for `cloud.url`, `CHLOE_RESEND_API_KEY`
- * for `resend.api_key`, `CHLOE_AGENTS_CHLOE_TELEGRAM` for that agent's token.
- * The name is worked out from the shape above, so a setting added there has one
- * without anybody writing it down.
+ * The name a setting has in the environment: `CHLOE_` and its path in
+ * capitals, `CHLOE_CLOUD_URL` for `cloud.url`, with a dash as an underscore. Worked out from the shape above,
+ * so a setting added there has one without anybody writing it down. A key has
+ * one too, as the name to give it in .env, but it is read only where the config
+ * names it.
  */
 export function nameInEnv(path: string[]): string {
-  return ["CHLOE", ...path].join("_").toUpperCase();
+  return ["CHLOE", ...path].join("_").toUpperCase().replace(/[^A-Z0-9_]/g, "_");
 }
 
 /**
- * The older name a setting is also read from, from before every setting had
- * one. The name above wins when both are set. Nothing new belongs here: one
- * setting, one name.
+ * The settings that are keys, never read from the environment by the runtime:
+ * a config hands each one over as `process.env.SOME_NAME`. `agents` is every
+ * agent's channel tokens.
  */
-const ALSO = new Map<string, string>([
-  ["model.prefer", "MODEL_VIA"],
-  ["model.gateway", "AI_GATEWAY_URL"],
-  ["model.key", "AI_GATEWAY_API_KEY"],
-  ["model.judge", "JUDGE_MODEL"],
-  ["email.provider", "EMAIL_PROVIDER"],
-  ["resend.api_key", "RESEND_API_KEY"],
-  ["google.account", "GOG_ACCOUNT"],
-  ["cloud.api_key", "CHLOE_API_KEY"],
-  ["state", "AGENTS_STATE"],
-  ["memory", "AGENTS_MEMORY"],
-]);
+export const KEYS = ["model.key", "resend.api_key", "google.client", "cloud.api_key", "agents"];
+
+const isKey = (path: string[]): boolean => KEYS.includes(path.join("."));
+
+/**
+ * Where a key goes, in words for whoever has to put it there: `in .env as
+ * CHLOE_RESEND_API_KEY, and in chloe.config.ts's settings as
+ * \`resend: { api_key: process.env.CHLOE_RESEND_API_KEY }\``.
+ */
+export function whereKeyGoes(path: string[]): string {
+  const name = nameInEnv(path);
+  const said = (key: string) => (/^[a-z_][a-z0-9_]*$/i.test(key) ? key : JSON.stringify(key));
+  const literal = path
+    .slice(0, -1)
+    .reduceRight((inside, key) => `${said(key)}: { ${inside} }`, `${said(path[path.length - 1])}: process.env.${name}`);
+  return `in .env as ${name}, and in chloe.config.ts's settings as \`${literal}\``;
+}
 
 /** The environment, as this file reads it: the real one, or a made-up one in a test. */
 type Env = Record<string, string | undefined>;
 
 /**
- * What the environment holds for one setting, under either of its names, or
- * nothing when it holds neither. `settings` already has this merged in, so
- * this is for the few places that care that it came from the environment
- * rather than from a file, like a route meant for one run.
+ * What the environment holds for one setting, or nothing. Always nothing for a
+ * key. `settings` already has this merged in, so this is for the few places
+ * that care that it came from the environment rather than from a file, like a
+ * route meant for one run.
  */
 export function settingInEnv(env: Env, path: string[]): string | undefined {
-  const here = env[nameInEnv(path)];
-  if (here !== undefined) return here;
-  const also = ALSO.get(path.join("."));
-  return also ? env[also] : undefined;
+  return isKey(path) ? undefined : env[nameInEnv(path)];
 }
 
 const isGroup = (value: unknown): value is Record<string, unknown> =>
@@ -547,6 +550,7 @@ export function fromEnv(env: Env, declared: Record<string, unknown>, spellings: 
   const walk = (group: Record<string, unknown>, path: string[]): void => {
     for (const [key, was] of Object.entries(group)) {
       const here = [...path, key];
+      if (isKey(here)) continue;
       // A group the schema fills nothing into is a record: its keys are names
       // somebody chose, like an agent's, so they are read off the variables.
       if (isGroup(was) && Object.keys(was).length === 0) {
@@ -580,7 +584,7 @@ export function readSettings(declared: unknown, env: Env = process.env, spelling
   // Said rather than passed over, because a key that silently stops being read
   // is a runtime that silently leaves its dashboard.
   if ((merged.cloud as Record<string, unknown> | undefined)?.key !== undefined) {
-    throw new Error("settings: the workspace key is cloud.api_key, not cloud.key. The key itself belongs in .env, as CHLOE_CLOUD_API_KEY.");
+    throw new Error("settings: the workspace key is cloud.api_key, not cloud.key: `cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`, with the key in .env.");
   }
   const problem = wrong(DEFAULTS, merged);
   if (problem) throw new Error(`settings are not valid:\n${problem}`);

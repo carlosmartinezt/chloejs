@@ -36,8 +36,10 @@ import { about, is } from "#chloe/ops/check";
     "https://dashboard.chloejs.org",
   );
   is("and the workspace key is a setting like any other", readSettings({ cloud: { api_key: "chl_workspace_x" } }, {}).cloud.api_key, "chl_workspace_x");
-  is("read from the environment by its own name", readSettings({}, { CHLOE_CLOUD_API_KEY: "chl_from_env" }).cloud.api_key, "chl_from_env");
-  is("and by the name it had before", readSettings({}, { CHLOE_API_KEY: "chl_from_env" }).cloud.api_key, "chl_from_env");
+  // A key is read only where the config names it, so the config shows every one.
+  is("a key is never read from the environment by itself", readSettings({}, { CHLOE_CLOUD_API_KEY: "chl_from_env" }).cloud.api_key, "");
+  is("nor a channel's token", readSettings({}, { CHLOE_AGENTS_TEMPO_TELEGRAM: "t" }).agents, {});
+  is("but one the config hands over is read", readSettings({ resend: { api_key: "re_x" } }, { CHLOE_RESEND_API_KEY: "re_y" }).resend.api_key, "re_x");
 
   // The config is type checked, so these are for a value out of the environment
   // and for a config that is not TypeScript. Each one says what to set instead
@@ -94,11 +96,12 @@ import { about, is } from "#chloe/ops/check";
     if (inEnv !== undefined) process.env[name] = inEnv;
   }
   {
-    // AI_GATEWAY_URL is set at the top of this file, for the stand-in gateway.
+    // CHLOE_MODEL_GATEWAY is set in shared.ts, for the stand-in gateway.
     const { settings } = await import("@chloejs/core");
     declareSettings({ model: { gateway: "https://declared" } });
-    is("the environment beats what the config declares", settings.model.gateway, process.env.AI_GATEWAY_URL);
-    declareSettings({});
+    is("the environment beats what the config declares", settings.model.gateway, process.env.CHLOE_MODEL_GATEWAY);
+    // Back to what the test config says, which is where the gateway key comes from.
+    await (await import("@chloejs/core")).loadSettings();
   }
 }
 
@@ -121,33 +124,10 @@ import { about, is } from "#chloe/ops/check";
   is("and the switches beside it are left alone", readSettings({}, { CHLOE_CLOUD_REMOTE_WRITE: "true" }).cloud.remote.memory, false);
   is("a list is written with commas", readSettings({}, { CHLOE_MODEL_MODELS: "one/a, one/b" }).model.models, ["one/a", "one/b"]);
   is("a route is named after its provider", readSettings({}, { CHLOE_MODEL_ROUTES_OPENAI: "codex" }).model.routes.openai, "codex");
-  is(
-    "an agent's token is under its name",
-    readSettings({}, { CHLOE_AGENTS_TEMPO_TELEGRAM: "t" }).agents.tempo.telegram,
-    "t",
-  );
-  is(
-    "and so is a token two deep",
-    readSettings({}, { CHLOE_AGENTS_TEMPO_SLACK_BOT_TOKEN: "xoxb" }).agents.tempo.slack.bot_token,
-    "xoxb",
-  );
-  is(
-    "an agent the config spells with a dash is the same agent",
-    Object.keys(readSettings({ agents: { "test-agent": {} } }, { CHLOE_AGENTS_TEST_AGENT_TELEGRAM: "t" }).agents),
-    ["test-agent"],
-  );
-  is(
-    "and so is one the config says nothing about, because loadAll hands the names over",
-    Object.keys(readSettings({}, { CHLOE_AGENTS_TEST_AGENT_TELEGRAM: "t" }, ["test-agent"]).agents),
-    ["test-agent"],
-  );
-  is(
-    "an agent nothing knows about is named as the variable spells it",
-    Object.keys(readSettings({}, { CHLOE_AGENTS_TEST_AGENT_TELEGRAM: "t" }).agents),
-    ["test_agent"],
-  );
-  is("the older name a setting had still works", readSettings({}, { MODEL_VIA: "codex" }).model.prefer, ["codex"]);
-  is("and the name from the schema wins over it", readSettings({}, { MODEL_VIA: "codex", CHLOE_MODEL_PREFER: "claude" }).model.prefer, ["claude"]);
+  is("a name from before every setting had one is not read", readSettings({}, { MODEL_VIA: "codex" }).model.prefer, ["claude", "codex", "opencode", "gateway"]);
+  const { whereKeyGoes } = await import("@chloejs/core");
+  is("a key's message says the .env name and the config line", whereKeyGoes(["agents", "test-agent", "telegram"]),
+    'in .env as CHLOE_AGENTS_TEST_AGENT_TELEGRAM, and in chloe.config.ts\'s settings as `agents: { "test-agent": { telegram: process.env.CHLOE_AGENTS_TEST_AGENT_TELEGRAM } }`');
 
   let switched = "";
   try {
@@ -157,13 +137,6 @@ import { about, is } from "#chloe/ops/check";
   }
   is("a switch that is neither is refused, not read as off", switched, 'CHLOE_CLOUD_REMOTE_WRITE is "please", and a switch is true or false.');
 
-  let misspelt = "";
-  try {
-    readSettings({}, { CHLOE_AGENTS_TEMPO_TELEGARM: "t" });
-  } catch (error) {
-    misspelt = error instanceof Error ? error.message : "";
-  }
-  is("a misspelt variable under an agent is refused rather than ignored", misspelt.includes("names no setting"), true);
 
 }
 

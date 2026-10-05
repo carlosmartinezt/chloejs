@@ -60,8 +60,13 @@
     "node": ">=22.18.0"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "^2.0.66",
     "@ai-sdk/openai-compatible": "^3.0.62",
+    "@googleapis/calendar": "^20.1.0",
+    "@googleapis/drive": "^26.0.2",
+    "@googleapis/gmail": "^22.0.1",
     "ai": "^7.0.127",
+    "google-auth-library": "^11.1.0",
     "zod": "^4.4.3"
   },
   "license": "MIT",

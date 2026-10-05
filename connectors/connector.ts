@@ -1,6 +1,6 @@
-// What a connector is: an outside account or program chloe works through, like
-// Google through gog, or Resend on a key. Each one is a folder in here with its
-// tools, its services and a `connector.ts` saying what it needs.
+// What a connector is: an outside account chloe works through, like Google or
+// Resend. Each one is a folder in here with its tools, its services and a
+// `connector.ts` saying what it needs.
 //
 // A tool that works through one names it as its `needs`, and the runtime learns
 // the rest from the connector and never by name: the loader adds its sign-in
@@ -8,6 +8,10 @@
 // agent's own folder is the same shape and needs nothing from the runtime.
 import type { Tools } from "#chloe/model/tool";
 
+/**
+ * An outside account a tool works through. A tool names it as its `needs`, and
+ * the runtime asks it for its sign-in tools and for what is missing.
+ */
 export interface Connector {
   /** What the setup page calls it. */
   name: string;

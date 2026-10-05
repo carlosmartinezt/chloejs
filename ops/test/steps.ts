@@ -180,7 +180,7 @@ about("an agent written with the AI SDK's own model and tools");
   const { learnPrices, priced } = await import("#chloe/model/key");
 
   // A provider package pointed at the stand-in, as anthropic("...") would be at Anthropic.
-  const standIn = createOpenAICompatible({ name: "standin", baseURL: process.env.AI_GATEWAY_URL!.replace(/\/chat\/completions$/, "") });
+  const standIn = createOpenAICompatible({ name: "standin", baseURL: process.env.CHLOE_MODEL_GATEWAY!.replace(/\/chat\/completions$/, "") });
   const asked_: string[] = [];
   const definition = defineAgent({
     id: "sdk",

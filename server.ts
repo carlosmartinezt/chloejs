@@ -125,7 +125,7 @@ for (const line of startup(outside)) console.log(line);
  */
 async function connected(): Promise<{ names: string[]; missing: string[] }> {
   const all = [...agents.values()];
-  const used = [...new Set(all.flatMap((agent) => connectorsOf(agent.tools ?? {})))];
+  const used = [...new Set(all.flatMap((agent) => [...connectorsOf(agent.tools ?? {}), ...(agent.connections ?? [])]))];
   const missing = (
     await Promise.all(
       used.map(async (one) =>

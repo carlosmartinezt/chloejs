@@ -207,11 +207,9 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   const { cliModel } = await import("#chloe/model/claude");
   const { forgetOpencodeModels, readOpencode } = await import("#chloe/model/opencode");
   const { settings } = await import("@chloejs/core");
-  const forced = process.env.MODEL_VIA;
-  const key = process.env.AI_GATEWAY_API_KEY;
+  const forced = process.env.CHLOE_MODEL_PREFER;
   const before = structuredClone(settings.model);
-  delete process.env.MODEL_VIA;
-  delete process.env.AI_GATEWAY_API_KEY;
+  delete process.env.CHLOE_MODEL_PREFER;
 
   // Every CLI is a stand-in, so what is on the path decides nothing here. The
   // opencode one answers `models` with two lines, which is how it says what it
@@ -261,11 +259,8 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     settings.model.routes = { openai: "gateway" };
     is("a provider's own route wins over the order", routeFor("openai/gpt-6-luna"), "gateway");
     settings.model.routes = {};
-    process.env.MODEL_VIA = "gateway";
-    is("and the environment wins over everything, for one run", routeFor("anthropic/claude-sonnet-5"), "gateway");
-    delete process.env.MODEL_VIA;
     process.env.CHLOE_MODEL_PREFER = "gateway";
-    is("under its newer name too", routeFor("anthropic/claude-sonnet-5"), "gateway");
+    is("and the environment wins over everything, for one run", routeFor("anthropic/claude-sonnet-5"), "gateway");
     process.env.CHLOE_MODEL_PREFER = "opencode,gateway";
     is("and the first of a list is the one it forces", routeFor("anthropic/claude-sonnet-5"), "opencode");
     delete process.env.CHLOE_MODEL_PREFER;
@@ -329,7 +324,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     is("and an error line is the error, in its words", broke, "Model call refused: opencode: no model");
 
     // What is on offer is what this box can run: a route with no program is left out.
-    process.env.MODEL_VIA = "";
+    process.env.CHLOE_MODEL_PREFER = "";
     Object.assign(settings.model, { prefer: ["claude", "codex", "opencode", "gateway"], routes: {}, key: "", models: ["openai/gpt-6-luna", "anthropic/claude-sonnet-5", "openai/gpt-6-luna"] });
     pin("/nowhere/claude", "/nowhere/codex", "/nowhere/opencode");
     is("nothing is offered when no route is set up", models(), []);
@@ -349,8 +344,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     await rm(bin, { recursive: true, force: true });
   } finally {
     Object.assign(settings.model, before);
-    process.env.MODEL_VIA = forced;
-    process.env.AI_GATEWAY_API_KEY = key;
+    process.env.CHLOE_MODEL_PREFER = forced;
   }
 }
 

@@ -4,7 +4,8 @@
 //   import { telegramChannel } from "@chloejs/core/channels";
 //   channels: [telegramChannel({ allowFrom: [111111111] })],
 //
-// The bot's token is CHLOE_AGENTS_<id>_TELEGRAM in .env, or
+// The bot's token is `agents: { <id>: { telegram: process.env.CHLOE_AGENTS_<id>_TELEGRAM } }`
+// in chloe.config.ts's settings, with the token in .env, or
 // `credentials: { botToken }` here. To make a bot, message @BotFather in
 // Telegram, send /newbot, and pick a name and a username. It replies with the
 // token.
@@ -37,7 +38,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe/load/load";
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
 import type { Attachment } from "#chloe/model/model";
-import { nameInEnv, settings } from "#chloe/core/settings";
+import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { type Button, commands, inPieces, isForAgent, receive, type Incoming, type Rules } from "./shared.ts";
 
 const MAX_MESSAGE = 3500; // Telegram rejects anything over 4096, and the tags added below count.
@@ -137,7 +138,7 @@ export function telegramChannel(options: TelegramOptions = {}): Channel {
       if (!token) {
         console.error(
           `telegram: ${agentId} has a Telegram channel but no bot. Message @BotFather in Telegram, send /newbot, ` +
-            `and put the token it gives you in .env as ${nameInEnv(["agents", agentId, "telegram"])}.`,
+            `and put the token it gives you ${whereKeyGoes(["agents", agentId, "telegram"])}.`,
         );
         return { stop: () => {} };
       }

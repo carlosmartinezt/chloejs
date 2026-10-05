@@ -50,7 +50,7 @@ function googleSignIn() {
       }
       let started;
       try {
-        started = await start({ again: again || !state.ready });
+        started = await start();
       } catch (error) {
         // The one thing a sign-in cannot start without, and the one thing the
         // agent cannot do for them. Hand over the steps rather than the

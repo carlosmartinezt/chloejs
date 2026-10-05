@@ -9,7 +9,7 @@ import { work } from "./shared.ts";
 {
   about("the files npx chloe setup writes");
 
-  const { identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel } = await import("#chloe/ops/starter");
+  const { identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } = await import("#chloe/ops/starter");
   const { resolveAgent, jobsOf, markdownJob } = await import("#chloe/load/load");
   const { ROOT, settings } = await import("@chloejs/core");
 
@@ -36,6 +36,16 @@ import { work } from "./shared.ts";
     modelLine({ default: "anthropic/claude-sonnet-5", prefer: "gateway,claude" }),
     'model: { default: "anthropic/claude-sonnet-5", prefer: ["gateway","claude"] },',
   );
+  is(
+    "and the key is named where it is read from, never written in",
+    modelLine({ default: "openrouter/free" }, "CHLOE_MODEL_KEY"),
+    'model: { default: "openrouter/free", key: process.env.CHLOE_MODEL_KEY },',
+  );
+  const cloudLine = "cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY },";
+  const withCloud = withSetting(config, cloudLine);
+  is("a key's line goes into the settings setup wrote", withCloud?.includes(`  settings: {\n    ${cloudLine}\n`), true);
+  is("and not twice", withSetting(withCloud!, cloudLine), null);
+  is("nor into a config that already says cloud", withSetting(withCloud!, "cloud: { url: \"x\" },"), null);
 
   // Written inside the repo rather than in tmp, because the agent.ts it writes
   // imports "@chloejs/core" and a package can only import itself from inside

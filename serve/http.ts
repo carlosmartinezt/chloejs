@@ -957,13 +957,9 @@ export const routes: Route[] = [
   {
     method: "POST",
     path: "/api/google/sign-in",
-    does: "Start a sign-in and hand back the link for the person to open.",
-    takes: '{"again": true, to sign in over one that already works}',
+    does: "Start a sign-in, over one that already works too, and hand back the link for the person to open.",
     remote: "google",
-    handle: async ({ request, response }) => {
-      const { again } = await body(request, z.object({ again: z.boolean().optional() }));
-      json(response, await startSignIn({ again }));
-    },
+    handle: async ({ response }) => json(response, await startSignIn()),
   },
   {
     method: "POST",
