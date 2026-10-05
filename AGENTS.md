@@ -730,6 +730,10 @@ seventeen days of unreadable mail before anybody looked.
 returned "nothing matched" for every search for weeks without anyone noticing. If a command might be missing, check for it and say so
 rather than treating the failure as an empty result.
 
+**The runtime downloads no program.** One that a connector needs, like gog
+for Google, is installed by the person, and a call that finds none says what
+to install and where, as `ensureGog()` does.
+
 ## What not to do
 
 **Do not reach for a model because it is easier than writing the rules.** It is

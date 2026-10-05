@@ -3294,6 +3294,10 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
   await writeFile(`${folder}/work/long.html`, `start\n${"x".repeat(1000)} mercor\nend`);
   const long = await searchFiles(folder, "mercor", "work/long.html", { around: 1 });
   is("a very long line is cut", long.results[0].split("\n")[2].length < 320, true);
+  await writeFile(`${folder}/work/costs.txt`, "card fee (3.5%)\ncard fee 345");
+  is("the text is matched as written, not as a pattern", (await searchFiles(folder, "(3.5%)")).results, ["work/costs.txt:1:card fee (3.5%)"]);
+  await writeFile(`${folder}/work/photo.jpg`, Buffer.from([0xff, 0xd8, 0, 0x6d, 0x65, 0x72, 0x63, 0x6f, 0x72]));
+  is("and a file that is not text is not searched", (await searchFiles(folder, "mercor", "work/photo.jpg")).matches, 0);
 }
 
 {

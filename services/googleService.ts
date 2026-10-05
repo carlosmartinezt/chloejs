@@ -1,7 +1,8 @@
 // Signing in to Google, and holding that sign-in.
 //
 // One sign-in reaches mail, the calendar, the files and the documents, because
-// the work is done by gog, one downloaded program with nothing under it. What
+// the work is done by gog, one program with nothing under it, which the person
+// installs (see ensureGog). What
 // this file owns is everything around gog: the folder it keeps its config and
 // its locked keyring in, the passphrase that opens that keyring, and the two
 // halves of a sign-in that somebody does from a phone.
@@ -18,7 +19,6 @@
 // what the link came back with. Whatever carries those two, a chat, Telegram or
 // the API, is the caller's business.
 import { randomBytes } from "node:crypto";
-import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -48,9 +48,6 @@ const CLIENT = join(GOOGLE, "client.json");
 
 /** A sign-in that has been started and not finished. */
 const PENDING = join(GOOGLE, "pending.json");
-
-/** Where a downloaded gog goes, when the machine has none. */
-const BIN = join(GOOGLE, "bin");
 
 /** What one sign-in asks Google for. Read is mail in, send is mail out. */
 export const SERVICES = "gmail,calendar,drive,docs,sheets";
@@ -83,9 +80,6 @@ const PASTE_BACK = "http://127.0.0.1:33067/oauth2/callback";
  */
 export const SHOWS_THE_CODE = "https://chloejs.org/connected";
 
-/** Which release to fetch, and where from. */
-const RELEASE = (version: string, asset: string) =>
-  `https://github.com/openclaw/gogcli/releases/download/v${version}/${asset}`;
 
 /**
  * Thrown when this copy has no client to sign in with, which is the one thing
@@ -185,79 +179,25 @@ function old(has: number[], wants: number[]): boolean {
   return false;
 }
 
-/** The release asset for this machine. */
-function asset(v: string): string {
-  const os =
-    process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "windows" : "linux";
-  const arch = process.arch === "arm64" ? "arm64" : "amd64";
-  return `gogcli_${v}_${os}_${arch}.${os === "windows" ? "zip" : "tar.gz"}`;
-}
+/** Where gog's releases are, for a person installing it. */
+const GOG_RELEASES = "https://github.com/openclaw/gogcli/releases";
 
 /**
- * The program, fetched if this machine has none new enough.
- *
- * Downloaded to the state folder rather than anywhere on the path, because
- * nothing here may write outside what the runtime owns. The checksum is
- * checked before anything is unpacked: the file arrives over the internet and
- * is then run, so the one thing worth being strict about is that it is the file
- * the release says it is.
+ * The gog program, which has to be installed: `google.gog` in settings, else
+ * the `gog` on the PATH. Nothing is downloaded. Thrown when there is none new
+ * enough, with what to install and where.
  */
 export async function ensureGog(): Promise<string> {
   const wants = NEEDS_GOG.split(".").map(Number);
-
   const named = settings.google.gog;
-  if (named) {
-    const has = await version(named);
-    if (!has) throw new Error(`google.gog is set to ${JSON.stringify(named)} and that does not run.`);
-    if (old(has, wants)) {
-      throw new Error(
-        `google.gog is ${has.join(".")} and this needs ${NEEDS_GOG} or newer. Point it at a newer one or unset it and let chloe fetch its own.`,
-      );
-    }
-    return named;
-  }
-
-  const own = join(BIN, process.platform === "win32" ? "gog.exe" : "gog");
-  for (const candidate of [own, "gog"]) {
-    const has = await version(candidate);
-    if (has && !old(has, wants)) return candidate;
-  }
-
-  return await fetchGog(settings.google.version || NEEDS_GOG, own);
-}
-
-/** Download one release, check it, unpack it, and hand back the program. */
-async function fetchGog(v: string, to: string): Promise<string> {
-  folder();
-  if (!existsSync(BIN)) mkdirSync(BIN, { recursive: true, mode: 0o700 });
-
-  const name = asset(v);
-  const sums = await fetch(RELEASE(v, "checksums.txt"));
-  if (!sums.ok) throw new Error(`Could not read the checksums for gog ${v}: ${sums.status}.`);
-  const want = (await sums.text())
-    .split("\n")
-    .map((line) => line.trim().split(/\s+/))
-    .find((parts) => parts[1]?.replace(/^\*/, "") === name)?.[0];
-  if (!want) throw new Error(`The gog ${v} release has no ${name}, so this machine is not one it builds for.`);
-
-  const got = await fetch(RELEASE(v, name));
-  if (!got.ok) throw new Error(`Could not download gog ${v}: ${got.status}.`);
-  const bytes = Buffer.from(await got.arrayBuffer());
-  const is = createHash("sha256").update(bytes).digest("hex");
-  if (is !== want) {
-    throw new Error(`The gog ${v} download does not match its checksum, so it was thrown away.`);
-  }
-
-  const packed = join(BIN, name);
-  writeFileSync(packed, bytes, { mode: 0o600 });
-  // tar reads both of the shapes a release comes in, and is on macOS, Linux
-  // and Windows 10 and later alike, so this is one call and not three.
-  const out = await run("tar", ["-xf", packed, "-C", BIN], { timeoutMs: 120_000 });
-  rmSync(packed, { force: true });
-  if (out.exitCode !== 0) throw new Error(`Could not unpack gog ${v}: ${out.stderr || out.stdout}`);
-  if (!existsSync(to)) throw new Error(`gog ${v} unpacked without a program in it.`);
-  chmodSync(to, 0o700);
-  return to;
+  const program = named || "gog";
+  const has = await version(program);
+  if (has && !old(has, wants)) return program;
+  const found = named ? `google.gog is ${JSON.stringify(named)}, which ${has ? `is gog ${has.join(".")}` : "does not run"}` : has ? `The gog on the PATH is ${has.join(".")}` : "gog is not installed";
+  throw new Error(
+    `${found}, and Google needs gog ${NEEDS_GOG} or newer. Install it with \`brew install gogcli\`, or from ` +
+      `${GOG_RELEASES}, then put it on the PATH or set google.gog to where it is.`,
+  );
 }
 
 /**
