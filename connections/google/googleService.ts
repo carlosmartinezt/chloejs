@@ -223,17 +223,17 @@ function mustBeAClient(parsed: Record<string, unknown>): { id: string; secret: s
 }
 
 /**
- * Whether an address is a Chloe Cloud's own route, which is the one kind that
+ * Whether an address is a remote dashboard's own route, which is the one kind that
  * hands the answer back down the connection instead of showing it to somebody.
  * Matched on the route's shape rather than built, so the workspace name in it is
  * whatever it is and nothing here has to know. False when
- * `cloud.remote.google` is off, because then the cloud's handing back is refused
+ * `dashboard.remote.allow.google` is off, because then the dashboard's handing back is refused
  * and nothing would arrive.
  */
-function caughtByCloud(url: string): boolean {
-  const cloud = settings.cloud.url.trim().replace(/\/+$/, "");
-  if (!cloud || !settings.cloud.remote.google) return false;
-  return url.startsWith(`${cloud}/oauth/google/callback/`);
+function caughtByDashboard(url: string): boolean {
+  const dashboard = settings.dashboard.remote.url.trim().replace(/\/+$/, "");
+  if (!dashboard || !settings.dashboard.remote.allow.google) return false;
+  return url.startsWith(`${dashboard}/oauth/google/callback/`);
 }
 
 /**
@@ -249,7 +249,7 @@ function caughtByCloud(url: string): boolean {
  * to be up at the right moment.
  *
  * `relayed` means the answer gets back on its own, and that is true for one
- * address only: a Chloe Cloud's `/oauth/google/callback/<workspace>`, which
+ * address only: a remote dashboard's `/oauth/google/callback/<workspace>`, which
  * hands the code down the connection the runtime holds open. Every other
  * address, a page that shows a code included, needs the person to send
  * something back, and saying otherwise leaves them waiting for a sign-in that
@@ -263,7 +263,7 @@ function caughtByCloud(url: string): boolean {
  */
 export function callback(): { url: string; relayed: boolean } {
   const said = settings.connections.google.callback.trim();
-  if (said) return { url: said, relayed: caughtByCloud(said) };
+  if (said) return { url: said, relayed: caughtByDashboard(said) };
   // A desktop client may answer to any port here and to nothing on the internet,
   // so for one of those the loopback address is the only one Google will take.
   // A web client is the other way round, and then the page that shows a code is

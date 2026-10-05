@@ -35,21 +35,21 @@ leaves what is already there alone.
 
 The runtime serves its own page, and `@chloejs/ui` turns that into a dashboard.
 Both are on the box it runs on. To watch it from anywhere without opening a
-port, point it at a Chloe Cloud.
+port, point it at a remote dashboard.
 
 Make a workspace there, and put the key it shows you once in `.env`, beside
 `chloe.config.ts`, which is one of the questions `npx chloe setup` asks:
 
 ```sh
-CHLOE_CLOUD_API_KEY=chl_workspace_...
+CHLOE_DASHBOARD_REMOTE_API_KEY=chl_workspace_...
 ```
 
 That is the whole of it: `https://dashboard.chloejs.org` is where it looks
-unless `cloud.url` in settings says otherwise. It connects out and stays
+unless `dashboard.remote.url` in settings says otherwise. It connects out and stays
 connected, and that dashboard can then show this runtime and send it what you
 ask for. Nothing reaches in: there is no port to open, no domain and no
 certificate. What may be asked for is switch by switch
-in `cloud.remote`, off for memory and for writes until you say otherwise, and
+in `dashboard.remote.allow`, off for memory and for writes until you say otherwise, and
 taking the key out leaves everything running exactly as it was.
 
 ## The least autonomy that does the job

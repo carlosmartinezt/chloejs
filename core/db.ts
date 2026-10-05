@@ -118,7 +118,7 @@ db.exec("create table if not exists seen (agent text primary key, at text not nu
 
 /**
  * The columns a run is listed by: GET /api/runs, an agent's log, and what is
- * sent to a cloud. The trace, the state and the prompt are left to GET /api/runs/:id.
+ * sent to a dashboard. The trace, the state and the prompt are left to GET /api/runs/:id.
  */
 export const RUN_COLUMNS = "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary, archived";
 

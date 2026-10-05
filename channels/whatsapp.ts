@@ -32,7 +32,7 @@
 // into the app's WhatsApp page and nothing here is ever reached from outside.
 // Each delivery is sealed to a key made here, so what holds it cannot read it,
 // and Meta's signature travels with it and is checked below against the app
-// secret, so what holds it cannot make one up either. `cloud.url` in settings is
+// secret, so what holds it cannot make one up either. `dashboard.remote.url` in settings is
 // where a box is asked for, and that needs no account.
 //
 // `postBox: ""` turns all of that off, which leaves the route this channel
@@ -101,7 +101,7 @@ export interface WhatsAppOptions {
   /**
    * The post box to collect messages from: a service that takes Meta's
    * delivery, because Meta pushes and never lets anything fetch, and holds it
-   * sealed until this runtime asks. `cloud.url` in settings unless this says
+   * sealed until this runtime asks. `dashboard.remote.url` in settings unless this says
    * otherwise, and "" to collect from nowhere, which leaves only the route
    * below for somebody who has opened an address of their own.
    */
@@ -215,7 +215,7 @@ export function listen(
   const api = options.api ?? "https://graph.facebook.com";
   const version = options.version ?? "v23.0";
   const path = `/chloe/v1/${agentId}/${channel}`;
-  const postBox = (options.postBox ?? settings.cloud.url).replace(/\/+$/, "");
+  const postBox = (options.postBox ?? settings.dashboard.remote.url).replace(/\/+$/, "");
   const verify = options.verifyToken || randomBytes(12).toString("hex");
   const allowedTypes = options.uploadPolicy?.allowedMediaTypes ?? ["image/*", "application/pdf", "text/*"];
   const maxBytes = options.uploadPolicy?.maxBytes ?? 10 * 1024 * 1024;

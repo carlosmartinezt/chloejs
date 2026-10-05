@@ -8,7 +8,7 @@
 // things are kept, CHLOE_STATE, CHLOE_MEMORY and CHLOE_DB, read before any config.
 //
 // A variable that was already in the real environment wins, so
-// `CHLOE_CLOUD_API_KEY=... npx chloe` still beats the file. Read again when the file
+// `CHLOE_DASHBOARD_REMOTE_API_KEY=... npx chloe` still beats the file. Read again when the file
 // changes: what the file set last time is replaced, and what it stopped setting
 // is removed, so taking a line out of .env takes effect the same as changing one.
 import { existsSync, readFileSync } from "node:fs";

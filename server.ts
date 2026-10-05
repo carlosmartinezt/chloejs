@@ -20,7 +20,7 @@ import { run } from "#chloe/services/runService";
 import { learnModels, runnable } from "#chloe/model/model";
 import { HOST, PORT, serve } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
-import { startCloud } from "#chloe/cloud/connect";
+import { startDashboard } from "#chloe/dashboard/connect";
 import { hasAccount } from "#chloe/serve/login";
 import { alertsSay } from "#chloe/serve/alerts";
 
@@ -81,29 +81,29 @@ serve({
   channels: () => [...running.values()].flatMap((one) => one.routes ?? []),
 });
 
-// The connection to Chloe Cloud, if there is a key for one. It reads the
-// settings, so a change to cloud.api_key or
-// cloud.url is a reload away like everything else.
+// The connection to the remote dashboard, if there is a key for one. It reads the
+// settings, so a change to dashboard.remote.api_key or
+// dashboard.remote.url is a reload away like everything else.
 //
 // Its first line is held back so it can be printed in among the rest below
 // rather than landing a moment later on its own. Every line after that is
 // something that changed, and goes out as it happens.
-let cloudSays = "";
+let dashboardSays = "";
 let started = false;
-const cloud = startCloud({
+const dashboard = startDashboard({
   agents: () => agents,
   says: (line) => {
-    cloudSays = line;
-    if (started) console.log(`cloud: ${line}`);
+    dashboardSays = line;
+    if (started) console.log(`dashboard: ${line}`);
   },
 });
 
 /** Waits for the connection to say where it stands, and gives up after `within` ms. */
 function firstWord(within: number): Promise<void> {
   return new Promise((done) => {
-    if (cloudSays) return done();
+    if (dashboardSays) return done();
     const looking = setInterval(() => {
-      if (!cloudSays) return;
+      if (!dashboardSays) return;
       clearInterval(looking);
       clearTimeout(enough);
       done();
@@ -173,7 +173,7 @@ function startup(outside: { names: string[]; missing: string[] }): string[] {
   lines.push(under(hasAccount() ? "Forgot the password? Set a new one: npx chloe account" : "No password yet. Set one: npx chloe account"));
   lines.push(row("Alerts", alertsSay()));
 
-  lines.push(row("Cloud", cloudSays || `connecting to ${settings.cloud.url}`));
+  lines.push(row("Dashboard", dashboardSays || `connecting to ${settings.dashboard.remote.url}`));
 
   // Every route in the order they are tried, those this box is set up for only,
   // so the line says what will actually be used and not what was asked for.
@@ -260,7 +260,7 @@ async function reload(): Promise<void> {
         watchFolders();
         startChannels(changedChannels);
         changedChannels.clear();
-        cloud.reload();
+        dashboard.reload();
         console.log(`reloaded: ${[...agents.keys()].join(", ")}`);
       } catch (error) {
         console.error(
@@ -330,7 +330,7 @@ watchFolders();
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     clock.stop();
-    cloud.stop();
+    dashboard.stop();
     process.exit(0);
   });
 }

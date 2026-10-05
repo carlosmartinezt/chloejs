@@ -419,19 +419,19 @@ function channelIn(agent: string, importLine: string, entry: string): void {
 /** Where the runs are watched from: a dashboard somewhere else, or this box. */
 async function somewhereToWatch(): Promise<void> {
   const where = await pick("\nSomewhere to watch it from:", [
-    { key: "cloud", what: "a workspace on dashboard.chloejs.org, which needs nothing open on this box" },
+    { key: "remote", what: "a workspace on dashboard.chloejs.org, which needs nothing open on this box" },
     { key: "here", what: "the dashboard on this box, at 127.0.0.1:3067" },
     { key: "later", what: "neither for now: it serves a plain page of its own either way" },
   ]);
 
-  if (where === "cloud") {
+  if (where === "remote") {
     console.log("\nMake a workspace at https://dashboard.chloejs.org and paste the key it shows you once.");
     console.log("It connects out and stays connected, so there is no port to open and no name to point anywhere.");
     const key = (await askHidden("Paste the workspace key (or Enter to do it later): ")).trim();
     if (key) {
-      putInEnv("CHLOE_CLOUD_API_KEY", key);
-      written(".env", "CHLOE_CLOUD_API_KEY, mode 600");
-      inSettings("cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY },");
+      putInEnv("CHLOE_DASHBOARD_REMOTE_API_KEY", key);
+      written(".env", "CHLOE_DASHBOARD_REMOTE_API_KEY, mode 600");
+      inSettings("dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } },");
     }
     return;
   }

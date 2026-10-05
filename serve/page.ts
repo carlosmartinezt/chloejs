@@ -47,12 +47,12 @@ let scanned: Page | null | undefined;
  * The installed page, or null when there is none. node_modules is walked once
  * and the answer kept.
  *
- * `page: "builtin"` ignores whatever is installed and serves the runtime's
+ * `dashboard: { local: "builtin" }` ignores whatever is installed and serves the runtime's
  * own site instead. That is how you tell a broken dashboard from a broken
  * runtime without uninstalling anything.
  */
 export function installedPage(): Page | null {
-  if (settings.page === "builtin") return null;
+  if (settings.dashboard.local === "builtin") return null;
   if (scanned === undefined) scanned = pageIn(`${ROOT}/node_modules`);
   return scanned;
 }

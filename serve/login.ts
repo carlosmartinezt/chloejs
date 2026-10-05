@@ -132,13 +132,13 @@ export function signIn(password: string, from: string): string {
 export type Caller =
   | { kind: "account" }
   | { kind: "token"; token: Token }
-  | { kind: "cloud"; user: string; name?: string; guest?: Guest }
+  | { kind: "dashboard"; user: string; name?: string; guest?: Guest }
   | null;
 
 /**
  * What somebody the workspace's owner invited may do, agent by agent: the
- * switches of `cloud.remote` they were given on it. An agent that is not a key
- * here is one they cannot see. Never more than `cloud.remote` allows anybody.
+ * switches of `dashboard.remote.allow` they were given on it. An agent that is not a key
+ * here is one they cannot see. Never more than `dashboard.remote.allow` allows anybody.
  */
 export type Guest = Record<string, string[]>;
 
@@ -147,7 +147,7 @@ export function caller(request: IncomingMessage): Caller {
   if (relayed !== null) {
     const guest = guestOf(request);
     const name = nameOf(request);
-    return { kind: "cloud", user: relayed, ...(name ? { name } : {}), ...(guest ? { guest } : {}) };
+    return { kind: "dashboard", user: relayed, ...(name ? { name } : {}), ...(guest ? { guest } : {}) };
   }
   const held = read();
   const values = carried(request);
@@ -161,10 +161,10 @@ export function caller(request: IncomingMessage): Caller {
 
 /**
  * The third kind of caller: a request the dashboard sent down this runtime's
- * own connection to it, which cloud/connect.ts turns into a request to this
+ * own connection to it, which dashboard/connect.ts turns into a request to this
  * port. It carries this secret, which is made when the process starts and
  * never leaves it, so nothing that reaches the port from outside can carry
- * it. What such a caller may have is decided by `cloud.remote` in settings,
+ * it. What such a caller may have is decided by `dashboard.remote.allow` in settings,
  * in api() in http.ts, and it never has a session: signing in is not relayed.
  */
 export const RELAY_SECRET = crypto.randomBytes(32).toString("base64url");
@@ -415,10 +415,10 @@ export function from(request: IncomingMessage): string {
   const cloudflare = head("cf-connecting-ip")[0];
   const forwarded = head("x-forwarded-for").at(-1);
   const address = cloudflare || forwarded || request.socket.remoteAddress || "unknown";
-  // Through the cloud, the address is the browser's as the cloud saw it, and
+  // Through the dashboard, the address is the browser's as the dashboard saw it, and
   // the audit log and the console say whose account it was signed in to.
   const user = relayedBy(request);
-  return user === null ? address : `${address} via cloud as ${user}`;
+  return user === null ? address : `${address} via dashboard as ${user}`;
 }
 
 /** True when the proxy in front is speaking HTTPS, so the cookie can be Secure. */

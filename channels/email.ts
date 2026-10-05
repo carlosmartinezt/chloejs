@@ -4,16 +4,16 @@
 //   import { emailChannel } from "@chloejs/core/channels";
 //   channels: [emailChannel({ allowFrom: ["someone@example.com"] })],
 //
-// It needs a Chloe Cloud: `cloud.url` and `cloud.api_key` in settings. The cloud
+// It needs a remote dashboard: `dashboard.remote.url` and `dashboard.remote.api_key` in settings. The dashboard
 // owns the mail domain, so it hands out the addresses and sends the mail, and
 // nothing here needs a mail account of its own.
 //
-// Each conversation has its own address, `reply-<id>@<the cloud's domain>`,
+// Each conversation has its own address, `reply-<id>@<the dashboard's domain>`,
 // made for one person. The agent starts one with `openEmail()` (or the
 // `emailStartConversation` tool, or a job's `ask("email:<address>")`), and the person's
 // replies to that address come back here as messages in that conversation.
 //
-// A reply reaches the cloud through its mail worker, and waits in this
+// A reply reaches the dashboard through its mail worker, and waits in this
 // channel's post box, sealed, until this collects it, the way WhatsApp's do.
 // Nothing in between is trusted. A message is taken only when:
 //
@@ -75,9 +75,9 @@ export interface EmailOptions {
   withoutTools?: string[];
   /** How much of a conversation a turn is shown: `{ messages, days }`. */
   chatHistory?: ChatHistory;
-  /** Where the cloud is, instead of `cloud.url` in settings. Only the tests change it. */
-  cloud?: string;
-  /** The workspace key, instead of `cloud.api_key`. Only the tests change it. */
+  /** Where the dashboard is, instead of `dashboard.remote.url` in settings. Only the tests change it. */
+  dashboard?: string;
+  /** The workspace key, instead of `dashboard.remote.api_key`. Only the tests change it. */
   key?: string;
   /** How DNS is asked for a DKIM key. Only the tests change it. */
   lookUp?: LookUp;
@@ -155,34 +155,34 @@ export function emailChannel(options: EmailOptions): Channel {
     madeWith: JSON.stringify({ ...options, lookUp: undefined, key: undefined }),
     start(agent) {
       const agentId = agent()?.id ?? "";
-      const cloud = (options.cloud ?? settings.cloud.url).replace(/\/+$/, "");
-      const key = options.key ?? settings.cloud.api_key;
-      if (!cloud || !key) {
+      const dashboard = (options.dashboard ?? settings.dashboard.remote.url).replace(/\/+$/, "");
+      const key = options.key ?? settings.dashboard.remote.api_key;
+      if (!dashboard || !key) {
         console.error(
-          `email: ${agentId} is on email and has no ${cloud ? "workspace key" : "cloud"}. Email goes through a Chloe Cloud: ` +
-            `put the workspace's key ${whereKeyGoes(["cloud", "api_key"])}.`,
+          `email: ${agentId} is on email and has no ${dashboard ? "workspace key" : "dashboard"}. Email goes through a remote dashboard: ` +
+            `put the workspace's key ${whereKeyGoes(["dashboard", "remote", "api_key"])}.`,
         );
         return { stop: () => {} };
       }
-      return listen({ ...options, agentId, channel: options.name ?? "email", cloud, key, agent });
+      return listen({ ...options, agentId, channel: options.name ?? "email", dashboard, key, agent });
     },
   };
 }
 
 /** Answers on email until stopped. Separate from the channel so the tests can point it somewhere else. */
 export function listen(
-  options: EmailOptions & { agentId: string; channel: string; cloud: string; key: string; agent: () => Agent | undefined },
+  options: EmailOptions & { agentId: string; channel: string; dashboard: string; key: string; agent: () => Agent | undefined },
 ): Running {
-  const { agentId, channel, cloud, key } = options;
+  const { agentId, channel, dashboard, key } = options;
   const allowed = options.allowFrom.map(lower);
   const rules: Rules = { allowFrom: allowed, chatHistory: options.chatHistory };
   const stopping = new AbortController();
   let box: Promise<Box> | undefined;
-  const ourBox = () => (box ??= boxFor("email", agentId, channel, cloud));
+  const ourBox = () => (box ??= boxFor("email", agentId, channel, dashboard));
 
-  /** One call to the cloud's mail routes, with the workspace key. */
+  /** One call to the dashboard's mail routes, with the workspace key. */
   async function call<T>(path: string, body: object, what: string): Promise<T> {
-    const response = await fetch(`${cloud}${path}`, {
+    const response = await fetch(`${dashboard}${path}`, {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify(body),

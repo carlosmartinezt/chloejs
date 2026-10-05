@@ -53,8 +53,8 @@ import type { Tools } from "./shared.ts";
   settings.connections.google.account = was;
 
   about("where Google is told to send its answer");
-  const cloudWas = settings.connections.google.callback;
-  const urlWas = settings.cloud.url;
+  const callbackWas = settings.connections.google.callback;
+  const urlWas = settings.dashboard.remote.url;
 
   // Set outright, not left to whatever ran before this: the client decides the
   // address when nobody says one, so a case about the address has to pin it.
@@ -64,16 +64,16 @@ import type { Tools } from "./shared.ts";
   is("with no client and nothing set, the answer goes to this machine", callback().url, "");
   is("so somebody pastes it back", callback().relayed, false);
 
-  // A cloud is never the default, because which way a sign-in finishes is the
+  // A dashboard is never the default, because which way a sign-in finishes is the
   // owner's choice and the one with a code in it needs nothing registered.
-  settings.cloud.url = "https://cloud.example";
-  settings.cloud.remote.google = true;
+  settings.dashboard.remote.url = "https://remote.example";
+  settings.dashboard.remote.allow.google = true;
 
   // With nothing said, the kind of client decides, because that is what decides
   // which addresses Google will take.
   settings.connections.google.client = { web: { client_id: "a", client_secret: "b" } };
   is("a web client gets the page that shows a code, unasked", callback().url, SHOWS_THE_CODE);
-  is("and a cloud does not change that", callback().relayed, false);
+  is("and a dashboard does not change that", callback().relayed, false);
   settings.connections.google.client = { installed: { client_id: "a", client_secret: "b" } };
   is("a desktop client gets the loopback address, the only one Google will take", callback().url, "");
   settings.connections.google.client = "";
@@ -88,21 +88,21 @@ import type { Tools } from "./shared.ts";
   // The one address that does come back on its own, written out by hand, which is
   // how somebody opts into it. Recognised by the route's shape, so whatever the
   // workspace is called it is still that route.
-  settings.connections.google.callback = "https://cloud.example/oauth/google/callback/personal";
-  is("a cloud's own route is relayed", callback().relayed, true);
-  settings.connections.google.callback = "https://cloud.example/oauth/google/callback/anything-else";
+  settings.connections.google.callback = "https://remote.example/oauth/google/callback/personal";
+  is("a dashboard's own route is relayed", callback().relayed, true);
+  settings.connections.google.callback = "https://remote.example/oauth/google/callback/anything-else";
   is("whatever the workspace is called", callback().relayed, true);
-  settings.connections.google.callback = "https://cloud.example/something/else";
-  is("and another address on the same cloud is not", callback().relayed, false);
-  settings.connections.google.callback = "https://cloud.example/oauth/google/callback/personal";
+  settings.connections.google.callback = "https://remote.example/something/else";
+  is("and another address on the same dashboard is not", callback().relayed, false);
+  settings.connections.google.callback = "https://remote.example/oauth/google/callback/personal";
 
-  // Switched off, the cloud would refuse the handing back, so it is a paste again.
-  settings.cloud.remote.google = false;
+  // Switched off, the dashboard would refuse the handing back, so it is a paste again.
+  settings.dashboard.remote.allow.google = false;
   is("with the switch off, the same address needs a paste", callback().relayed, false);
-  settings.cloud.remote.google = true;
+  settings.dashboard.remote.allow.google = true;
 
-  settings.connections.google.callback = cloudWas;
-  settings.cloud.url = urlWas;
+  settings.connections.google.callback = callbackWas;
+  settings.dashboard.remote.url = urlWas;
 
   about("what a reply reads off the message it is answering");
   const { marked } = await import("#chloe/connections/google/googleService");

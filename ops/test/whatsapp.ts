@@ -42,7 +42,7 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
 
   // The post box seals; this opens. They are in two repos that do not depend on
   // each other, so this fixed input and its exact output is what keeps the two
-  // from drifting apart. The same case is in the cloud's own suite.
+  // from drifting apart. The same case is in the dashboard's own suite.
   const ephemeral = {
     publicKey: "MCowBQYDK2VuAyEAPX4sPZIpDbwD1C6QZqx4Wd4rCZqOs0XtMGJR5HqxFzE",
     privateKey: "MC4CAQAwBQYDK2VuBCIEIHBl5p7wLWcNIPXvxHxkbPAnWVCK1cPkJnY1kSPJM2Nf",

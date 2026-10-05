@@ -1,23 +1,23 @@
-// The connection to Chloe Cloud: a dashboard somewhere else that shows this
+// The connection to the remote dashboard: a dashboard somewhere else that shows this
 // runtime, reached by this runtime connecting out to it and nothing else.
 //
 // One WebSocket, opened here, kept open, opened again when it drops. The first
 // message says which workspace this is (the key rides inside the encrypted
 // connection, never in the address or a header, so no proxy logs it) and what
 // the runtime has: its version, the machine it runs on, its routes, its agents,
-// and which switches in `cloud.remote` are on. After that two things happen on
+// and which switches in `dashboard.remote.allow` are on. After that two things happen on
 // it:
 //
 //   up      a run's row when a run starts or ends, and the agents when they
-//           reload, each only if `cloud.sync` says so
+//           reload, each only if `dashboard.remote.sync` says so
 //   down    a request, which is an ordinary HTTP request to this runtime's own
 //           API carried in a message. It is made against the one port with a
 //           secret only this process knows, so `caller()` in serve/login.ts
-//           knows it came through the cloud, and api() in serve/http.ts
+//           knows it came through the dashboard, and api() in serve/http.ts
 //           decides whether that route, with the switches this workspace
 //           has on, may be answered. The answer goes back with the same id.
 //
-// Nothing here changes how a job runs. With no cloud.api_key there is no
+// Nothing here changes how a job runs. With no dashboard.remote.api_key there is no
 // connection, and the only line this file writes is saying so once.
 import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
@@ -34,7 +34,7 @@ import type { Agent } from "#chloe/load/load";
 import { HOST, PORT, routeList, summary } from "#chloe/serve/http";
 import { RELAY, RELAY_GUEST, RELAY_NAME, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login";
 
-/** The version of what is said on the socket. The cloud refuses one it does not speak. */
+/** The version of what is said on the socket. The dashboard refuses one it does not speak. */
 export const PROTOCOL = 1;
 
 /** What the runtime opens: Node's own WebSocket, or whatever a test hands in. */
@@ -47,7 +47,7 @@ export interface Socket {
   onerror: ((event: unknown) => void) | null;
 }
 
-export interface CloudOptions {
+export interface DashboardOptions {
   agents: () => Map<string, Agent>;
   /** Where this runtime answers, for a relayed request. The one port, unless a test says otherwise. */
   self?: string;
@@ -66,18 +66,18 @@ export interface CloudOptions {
 }
 
 /** The connection, as the server holds it. */
-export interface Cloud {
+export interface Dashboard {
   /** The settings or the agents changed: send the agents up, and connect again if the address or the key changed. */
   reload(): void;
-  /** Whether the cloud has said welcome on the socket that is open now. */
+  /** Whether the dashboard has said welcome on the socket that is open now. */
   connected(): boolean;
   stop(): void;
 }
 
-/** The only two things a cloud may ask for: the API, and a memory file for its frame. */
+/** The only two things a dashboard may ask for: the API, and a memory file for its frame. */
 const RELAYED = /^\/(api|memory)(\/|$|\?)/;
 
-/** What a request from the cloud has to look like. Anything else is dropped. */
+/** What a request from the dashboard has to look like. Anything else is dropped. */
 const Request = z.object({
   type: z.literal("request"),
   id: z.string().min(1),
@@ -87,16 +87,16 @@ const Request = z.object({
   body: z.string().nullable().default(null),
 });
 
-/** The headers a relayed request keeps. Everything else the browser sent stayed with the cloud. */
+/** The headers a relayed request keeps. Everything else the browser sent stayed with the dashboard. */
 const CARRIED = ["accept", "content-type", "host", "x-forwarded-proto", "x-forwarded-for", RELAY_USER, RELAY_UNDER, RELAY_GUEST, RELAY_NAME];
 
-/** The headers an answer does not carry back: a session is never set through the cloud, and the rest are the socket's own. */
+/** The headers an answer does not carry back: a session is never set through the dashboard, and the rest are the socket's own. */
 const KEPT_BACK = new Set(["set-cookie", "connection", "transfer-encoding", "content-length", "keep-alive"]);
 
 /** How many runs go up when the connection opens, so the dashboard has a history to show while this runtime is offline. */
 const CATCH_UP = 200;
 
-/** A cloud that takes the socket and does not say welcome is not one: the socket is closed and tried again. */
+/** A dashboard that takes the socket and does not say welcome is not one: the socket is closed and tried again. */
 const WELCOME_WITHIN = 15_000;
 
 /**
@@ -107,11 +107,11 @@ const WELCOME_WITHIN = 15_000;
 const LARGEST = 32 * 1024 * 1024;
 
 /**
- * Opens the connection to the cloud named in settings and keeps it open.
- * Returns at once; connecting happens behind it. With no `cloud.url` it says so
+ * Opens the connection to the dashboard named in settings and keeps it open.
+ * Returns at once; connecting happens behind it. With no `dashboard.remote.url` it says so
  * once and waits for `reload()` to bring one.
  */
-export function startCloud(options: CloudOptions): Cloud {
+export function startDashboard(options: DashboardOptions): Dashboard {
   const self = new URL(options.self ?? `http://${HOST}:${PORT}`);
   const make = options.socket ?? ((address: string) => new WebSocket(address) as unknown as Socket);
   const backoff = options.backoff ?? { first: 1000, most: 60_000 };
@@ -124,17 +124,17 @@ export function startCloud(options: CloudOptions): Cloud {
   let timer: NodeJS.Timeout | undefined;
   /** What the open socket was opened with, so a change to either is noticed. */
   let using = { url: "", key: "" };
-  /** The last line written, so a cloud that is down is one line and not one a second. */
+  /** The last line written, so a dashboard that is down is one line and not one a second. */
   let said = "";
 
   function where(): { url: string; key: string } {
     return {
-      url: settings.cloud.url.trim().replace(/\/+$/, ""),
-      key: settings.cloud.api_key.trim(),
+      url: settings.dashboard.remote.url.trim().replace(/\/+$/, ""),
+      key: settings.dashboard.remote.api_key.trim(),
     };
   }
 
-  const tell = options.says ?? ((line: string) => console.log(`cloud: ${line}`));
+  const tell = options.says ?? ((line: string) => console.log(`dashboard: ${line}`));
 
   function say(line: string): void {
     if (line === said) return;
@@ -170,10 +170,10 @@ export function startCloud(options: CloudOptions): Cloud {
       // "guests": this runtime checks what an invited person may do itself, so
       // the dashboard may relay their requests here.
       capabilities: ["relay", "runs", "agents", "guests"],
-      sync: settings.cloud.sync,
-      remote: settings.cloud.remote,
+      sync: settings.dashboard.remote.sync,
+      allow: settings.dashboard.remote.allow,
       routes: routeList(),
-      agents: settings.cloud.sync.agents ? agentList() : [],
+      agents: settings.dashboard.remote.sync.agents ? agentList() : [],
     };
   }
 
@@ -182,8 +182,8 @@ export function startCloud(options: CloudOptions): Cloud {
     if (stopped) return;
     const want = where();
     using = want;
-    if (!want.key) return say(`not connected: no cloud.api_key. Make a workspace on the dashboard and put its key ${whereKeyGoes(["cloud", "api_key"])}.`);
-    if (!want.url) return say("not connected: cloud.url in settings is empty.");
+    if (!want.key) return say(`not connected: no dashboard.remote.api_key. Make a workspace on the dashboard and put its key ${whereKeyGoes(["dashboard", "remote", "api_key"])}.`);
+    if (!want.url) return say("not connected: dashboard.remote.url in settings is empty.");
 
     const address = `${want.url.replace(/^http/, "ws")}/connect`;
     let one: Socket;
@@ -197,7 +197,7 @@ export function startCloud(options: CloudOptions): Cloud {
     welcomed = false;
     one.onopen = () => {
       send(one, hello(want.key));
-      // Nothing else is sent until the cloud answers, so a cloud that never
+      // Nothing else is sent until the dashboard answers, so a dashboard that never
       // does is closed rather than held.
       const waiting = setTimeout(() => {
         if (socket === one && !welcomed) {
@@ -209,9 +209,9 @@ export function startCloud(options: CloudOptions): Cloud {
     };
     one.onmessage = (event) =>
       void receive(one, String(event.data)).catch((error) => {
-        // One message from the cloud must not end the process: a line is
+        // One message from the dashboard must not end the process: a line is
         // enough. The request it was carrying is left unanswered, and the
-        // cloud times it out and shows the error.
+        // dashboard times it out and shows the error.
         say(`a message failed: ${error instanceof Error ? error.message : String(error)}`);
       });
     // An error is always followed by a close, which is where it is dealt with.
@@ -232,7 +232,7 @@ export function startCloud(options: CloudOptions): Cloud {
   function again(): void {
     if (stopped) return;
     clearTimeout(timer);
-    // With some jitter, so many runtimes coming back after the cloud does do not
+    // With some jitter, so many runtimes coming back after the dashboard does do not
     // all knock at once.
     timer = setTimeout(connect, wait + Math.floor(Math.random() * wait * 0.5));
     timer.unref();
@@ -253,7 +253,7 @@ export function startCloud(options: CloudOptions): Cloud {
       wait = backoff.first;
       const said = (message as { workspace?: { name?: string; label?: string } }).workspace;
       say(`connected to ${using.url} as ${said?.label ?? said?.name ?? "a workspace"}`);
-      if (settings.cloud.sync.runs) send(one, { type: "runs", runs: recentRuns() });
+      if (settings.dashboard.remote.sync.runs) send(one, { type: "runs", runs: recentRuns() });
       return;
     }
 
@@ -266,9 +266,9 @@ export function startCloud(options: CloudOptions): Cloud {
   }
 
   /**
-   * One request from the cloud, made against this runtime's own port. Only the
+   * One request from the dashboard, made against this runtime's own port. Only the
    * headers in CARRIED come through, plus the secret that says it was relayed,
-   * so a cloud cannot hand over a cookie or a token it happens to hold.
+   * so a dashboard cannot hand over a cookie or a token it happens to hold.
    */
   function relay(asked: z.infer<typeof Request>): Promise<{ status: number; headers: Record<string, string>; body: string }> {
     return new Promise((done) => {
@@ -280,13 +280,13 @@ export function startCloud(options: CloudOptions): Cloud {
       headers[RELAY] = RELAY_SECRET;
       // So a run somebody started from the dashboard says so in the log,
       // rather than looking like another system holding a token.
-      headers["x-chloe-channel"] = "cloud";
+      headers["x-chloe-channel"] = "dashboard";
       const body = asked.body === null ? undefined : Buffer.from(asked.body, "utf8");
       if (body && body.length > LARGEST) {
         return done({
           status: 413,
           headers: { "content-type": "application/json; charset=utf-8" },
-          body: Buffer.from(JSON.stringify({ error: "That is too large to send through the cloud." })).toString("base64"),
+          body: Buffer.from(JSON.stringify({ error: "That is too large to send through the dashboard." })).toString("base64"),
         });
       }
       if (body) headers["content-length"] = String(body.length);
@@ -308,7 +308,7 @@ export function startCloud(options: CloudOptions): Cloud {
             response.on("end", () => {
               const whole = Buffer.concat(chunks);
               if (whole.length > LARGEST) {
-                return failed(`that answer is ${Math.round(whole.length / 1e6)}MB, which is too large to send through the cloud`);
+                return failed(`that answer is ${Math.round(whole.length / 1e6)}MB, which is too large to send through the dashboard`);
               }
               const back: Record<string, string> = {};
               for (const [name, value] of Object.entries(response.headers)) {
@@ -325,7 +325,7 @@ export function startCloud(options: CloudOptions): Cloud {
       } catch (error) {
         // A path or a header Node's client will not send throws here, before
         // anything is on the wire. That must be a 502 and never a dead
-        // process: the cloud gets the answer it knows what to do with.
+        // process: the dashboard gets the answer it knows what to do with.
         return failed(`a path or a header could not be sent: ${error instanceof Error ? error.message : String(error)}`);
       }
     });
@@ -336,7 +336,7 @@ export function startCloud(options: CloudOptions): Cloud {
   }
 
   const onRun = (id: string): void => {
-    if (!socket || !welcomed || !settings.cloud.sync.runs) return;
+    if (!socket || !welcomed || !settings.dashboard.remote.sync.runs) return;
     const row = db.prepare(`select ${RUN_COLUMNS} from runs where id = ?`).get(id);
     if (row) send(socket, { type: "run", run: row });
   };
@@ -357,8 +357,8 @@ export function startCloud(options: CloudOptions): Cloud {
       // The switches go with it, so what the dashboard shows about this
        // workspace follows a settings change without a reconnect. The
        // runtime enforces them from the live settings either way.
-      if (socket && welcomed && settings.cloud.sync.agents) {
-        send(socket, { type: "agents", agents: agentList(), sync: settings.cloud.sync, remote: settings.cloud.remote });
+      if (socket && welcomed && settings.dashboard.remote.sync.agents) {
+        send(socket, { type: "agents", agents: agentList(), sync: settings.dashboard.remote.sync, allow: settings.dashboard.remote.allow });
       }
     },
     connected: () => Boolean(socket) && welcomed,
@@ -376,7 +376,7 @@ export function startCloud(options: CloudOptions): Cloud {
 /**
  * The version in this package's package.json, which is what the runtime
  * reports. The nearest one above this file, because it is a folder deeper when
- * the package is installed (dist/cloud/) than when it is the source (cloud/),
+ * the package is installed (dist/dashboard/) than when it is the source (dashboard/),
  * and reading only the folder above gives an installed copy nothing to report.
  */
 function ownVersion(): string {

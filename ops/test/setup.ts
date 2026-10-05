@@ -41,11 +41,11 @@ import { work } from "./shared.ts";
     modelLine({ defaultModel: "openrouter/free" }, "CHLOE_MODEL_KEY"),
     'model: { defaultModel: "openrouter/free", key: process.env.CHLOE_MODEL_KEY },',
   );
-  const cloudLine = "cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY },";
-  const withCloud = withSetting(config, cloudLine);
-  is("a key's line goes into the settings setup wrote", withCloud?.includes(`  settings: {\n    ${cloudLine}\n`), true);
-  is("and not twice", withSetting(withCloud!, cloudLine), null);
-  is("nor into a config that already says cloud", withSetting(withCloud!, "cloud: { url: \"x\" },"), null);
+  const keyLine = "dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } },";
+  const withKey = withSetting(config, keyLine);
+  is("a key's line goes into the settings setup wrote", withKey?.includes(`  settings: {\n    ${keyLine}\n`), true);
+  is("and not twice", withSetting(withKey!, keyLine), null);
+  is("nor into a config that already says dashboard", withSetting(withKey!, "dashboard: { local: \"builtin\" },"), null);
 
   // Written inside the repo rather than in tmp, because the agent.ts it writes
   // imports "@chloejs/core" and a package can only import itself from inside

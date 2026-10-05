@@ -91,7 +91,7 @@ export type Tools = import("@chloejs/core").Tools;
 // this repo decides nothing here. A setting, so it is written rather than put in
 // the environment, which is only read when the settings are.
 export const { settings: live } = await import("@chloejs/core");
-export const ownPage = (yes: boolean): void => void (live.page = yes ? "builtin" : "");
+export const ownPage = (yes: boolean): void => void (live.dashboard.local = yes ? "builtin" : "");
 
 export const sent: string[] = [];
 reachBy("test", async (to, text) => void sent.push(`${to}: ${text}`));

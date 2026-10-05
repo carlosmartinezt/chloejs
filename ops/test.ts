@@ -36,7 +36,7 @@ for (const part of [
   "services",
   "server",
   "memory-routes",
-  "cloud",
+  "dashboard",
   "setup",
 ]) {
   await import(`./test/${part}.ts`);

@@ -8,10 +8,10 @@
 // The runtime reads no setting from the environment. A choice about how it
 // behaves goes in the config, where it is typed and committed. A secret goes in
 // .env, mode 600, and the config hands it over by name, as
-// `cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`, so reading the config
-// shows every secret there is and where each comes from. Anything else can be
-// handed over the same way when somebody wants it out of the file. KEYS is the
-// list of settings that are secrets. A setting the config says is undefined is
+// `connections: { resend: { api_key: process.env.CHLOE_RESEND_API_KEY } }`, so
+// reading the config shows every secret there is and where each comes from.
+// Anything else can be handed over the same way when somebody wants it out of
+// the file. KEYS is the list of settings that are secrets. A setting the config says is undefined is
 // one it did not say.
 //
 // Where things are kept (CHLOE_STATE, CHLOE_MEMORY, CHLOE_DB) is not a setting:
@@ -166,57 +166,64 @@ export interface Settings {
    */
   agents: Record<string, AgentSettings>;
   /**
-   * Chloe Cloud: a dashboard somewhere else that this runtime connects out to
-   * and is shown on. Nothing about how a job runs depends on it.
+   * Where this runtime is shown: on its own port, on a dashboard somewhere else
+   * it connects out to, both, or neither. Nothing about how a job runs depends
+   * on either.
    */
-  cloud: {
+  dashboard: {
     /**
-     * This workspace's key, from the dashboard. Without one there is no
-     * connection, and taking it out leaves everything running as it was. It is
-     * a key, so it goes in .env, and the config names it:
-     * `cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`.
+     * Which page this runtime's own port serves. Empty is whichever page
+     * package is installed, and "builtin" is the runtime's own whatever is
+     * installed, which is how a broken page is told from a broken runtime.
      */
-    api_key: string;
-    /** Where the cloud is. Point it at your own by setting this. */
-    url: string;
-    /** What is sent up as it happens, so the dashboard can show it when this runtime is offline. */
-    sync: {
-      /** Each run's row, as GET /api/runs shows it, when it starts and when it ends. */
-      runs: boolean;
-      /** Every agent's configuration, as GET /api/agents shows it, on connect and on each reload. */
-      agents: boolean;
-    };
-    /** What the dashboard may ask over the connection. Each is a switch, and a request that needs one that is off is refused. */
+    local: Page;
+    /**
+     * A dashboard somewhere else that this runtime connects out to. Without an
+     * api_key there is none, and everything below does nothing.
+     */
     remote: {
-      /** Read: the agents, the runs, the files, the conversations. */
-      read: boolean;
-      /** Talk to an agent. */
-      chat: boolean;
-      /** Run a job now. */
-      run: boolean;
-      /** Read a memory. Every file is still written to the audit log first, saying it came through the cloud. */
-      memory: boolean;
-      /** Write: a file, a memory file, an answer to a parked job, a model pick. */
-      write: boolean;
       /**
-       * Let the dashboard start and finish a connection's sign-in, and hand
-       * back the answer to a Google sign-in this runtime started, so nobody
-       * has to paste a code. Nothing else about Google comes through it, and
-       * a code that does not match the sign-in this runtime is waiting for is
-       * refused.
-       * Requires a callback set to: https://dashboard.chloejs.org/oauth/google/callback/<workspace>
+       * This workspace's key, from the remote dashboard. Without one there is
+       * no connection, and taking it out leaves everything running as it was.
+       * It is a key, so it goes in .env, and the config names it:
+       * `dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } }`.
        */
-      google: boolean;
+      api_key: string;
+      /** Where the remote dashboard is. Point it at your own by setting this. */
+      url: string;
+      /** What is sent up as it happens, so the remote dashboard can show it when this runtime is offline. */
+      sync: {
+        /** Each run's row, as GET /api/runs shows it, when it starts and when it ends. */
+        runs: boolean;
+        /** Every agent's configuration, as GET /api/agents shows it, on connect and on each reload. */
+        agents: boolean;
+      };
+      /** What the remote dashboard may ask over the connection. Each is a switch, and a request that needs one that is off is refused. */
+      allow: {
+        /** Read: the agents, the runs, the files, the conversations. */
+        read: boolean;
+        /** Talk to an agent. */
+        chat: boolean;
+        /** Run a job now. */
+        run: boolean;
+        /** Read a memory. Every file is still written to the audit log first, saying it came through the remote dashboard. */
+        memory: boolean;
+        /** Write: a file, a memory file, an answer to a parked job, a model pick. */
+        write: boolean;
+        /**
+         * Let the remote dashboard start and finish a connection's sign-in, and
+         * hand back the answer to a Google sign-in this runtime started, so
+         * nobody has to paste a code. Nothing else about Google comes through
+         * it, and a code that does not match the sign-in this runtime is
+         * waiting for is refused.
+         * Requires a callback set to: https://dashboard.chloejs.org/oauth/google/callback/<workspace>
+         */
+        google: boolean;
+      };
     };
   };
   /** Who a run belongs to when no channel has said, as `channel:who`. */
   owner: string;
-  /**
-   * Which page the one port serves. Empty is whichever page package is
-   * installed, and "builtin" is the runtime's own whatever is installed, which
-   * is how a broken dashboard is told from a broken runtime.
-   */
-  page: Page;
   /** Which node the unit runs. Empty means whichever is on the path at install. */
   node: string;
 }
@@ -245,14 +252,16 @@ export const DEFAULTS: Settings = {
     google: { account: "", client: "", callback: "", GA_KEY_FILE: "" },
   },
   agents: {},
-  cloud: {
-    api_key: "",
-    url: "https://dashboard.chloejs.org",
-    sync: { runs: true, agents: true },
-    remote: { read: true, chat: true, run: true, memory: false, write: false, google: false },
+  dashboard: {
+    local: "",
+    remote: {
+      api_key: "",
+      url: "https://dashboard.chloejs.org",
+      sync: { runs: true, agents: true },
+      allow: { read: true, chat: true, run: true, memory: false, write: false, google: false },
+    },
   },
   owner: "",
-  page: "",
   node: "",
 };
 
@@ -279,7 +288,7 @@ const RECORDS: Record<string, AgentSettings> = {
 const ONE_OF: Record<string, readonly string[]> = {
   "model.preferredRoute.*": ROUTES,
   "email.provider": EMAIL_PROVIDERS,
-  page: PAGES,
+  "dashboard.local": PAGES,
 };
 
 /** A value, or the same shape with every part of it optional. */
@@ -305,7 +314,7 @@ export function nameInEnv(path: string[]): string {
  * The settings that are secrets: a config hands each one over as
  * `process.env.SOME_NAME`, from .env. `agents` is every agent's channel tokens.
  */
-export const KEYS = ["model.key", "connections.resend.api_key", "connections.google.client", "cloud.api_key", "agents"];
+export const KEYS = ["model.key", "connections.resend.api_key", "connections.google.client", "dashboard.remote.api_key", "agents"];
 
 
 /**
@@ -413,11 +422,12 @@ function wrong(defaults: unknown, said: unknown, path: string[] = []): string {
  */
 export function readSettings(declared: unknown): Settings {
   const merged = (declared ?? {}) as Record<string, unknown>;
-  // Said rather than passed over, because a key that silently stops being read
-  // is a runtime that silently leaves its dashboard.
-  if ((merged.cloud as Record<string, unknown> | undefined)?.key !== undefined) {
-    throw new Error("settings: the workspace key is cloud.api_key, not cloud.key: `cloud: { api_key: process.env.CHLOE_CLOUD_API_KEY }`, with the key in .env.");
+  // Named rather than left to "is not a setting", so a config written for the
+  // old shape says where each part went.
+  if (merged.cloud !== undefined) {
+    throw new Error("settings: cloud is dashboard.remote now, and cloud.remote is dashboard.remote.allow: `dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } }`.");
   }
+  if (merged.page !== undefined) throw new Error("settings: page is dashboard.local now.");
   const problem = wrong(DEFAULTS, merged);
   if (problem) throw new Error(`settings are not valid:\n${problem}`);
   return fill(DEFAULTS, merged) as Settings;

@@ -72,17 +72,17 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   const { seal } = await import("#chloe/core/sealed");
   const ADDRESS = "reply-1234@chloejs.test";
 
-  // A stand-in cloud: one post box, one address, and every email it was asked
+  // A stand-in dashboard: one post box, one address, and every email it was asked
   // to send written down.
   const held: { id: string; body: string }[] = [];
   const outbox: any[] = [];
   const keys: string[] = [];
   let boxKey = "";
-  const cloud = createServer((request, response) => {
+  const dashboard = createServer((request, response) => {
     let raw = "";
     request.on("data", (chunk) => (raw += chunk));
     request.on("end", () => {
-      const url = new URL(request.url!, "http://cloud");
+      const url = new URL(request.url!, "http://dashboard");
       if (url.pathname === "/hook" && request.method === "POST") {
         boxKey = JSON.parse(raw).key;
         return void response.end(JSON.stringify({ id: "mailbox", key: "collect-mail" }));
@@ -102,8 +102,8 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
       response.writeHead(404).end();
     });
   });
-  await new Promise<void>((done) => cloud.listen(0, "127.0.0.1", done));
-  const where = `http://127.0.0.1:${(cloud.address() as { port: number }).port}`;
+  await new Promise<void>((done) => dashboard.listen(0, "127.0.0.1", done));
+  const where = `http://127.0.0.1:${(dashboard.address() as { port: number }).port}`;
   const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
   const until = async (done: () => boolean) => {
     for (let i = 0; i < 100 && !done(); i++) await pause(20);
@@ -122,7 +122,7 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   const running = listen({
     agentId: "test",
     channel: "email",
-    cloud: where,
+    dashboard: where,
     key: "chl_workspace_test",
     allowFrom: ["Jenny@Example.com"],
     withoutTools: ["gmailReadEmail"],
@@ -140,7 +140,7 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   is("nobody outside allowFrom is ever emailed", refused.includes("is not somebody test may email"), true);
 
   const started = await openEmail("test", "jenny@example.com", "Tennis", "What matters most to you in a **club**?");
-  is("starting one asks the cloud for an address, with the workspace key", [started.address, keys.every((one) => one === "Bearer chl_workspace_test")], [ADDRESS, true]);
+  is("starting one asks the dashboard for an address, with the workspace key", [started.address, keys.every((one) => one === "Bearer chl_workspace_test")], [ADDRESS, true]);
   is(
     "and sends from it, as the agent, in Markdown and plain text",
     [outbox[0].from, outbox[0].name, outbox[0].subject, outbox[0].text.trim(), outbox[0].html.includes("<strong>club</strong>")],
@@ -198,6 +198,6 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   console.warn = warn;
 
   running.stop();
-  cloud.close();
-  cloud.closeAllConnections();
+  dashboard.close();
+  dashboard.closeAllConnections();
 }

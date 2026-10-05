@@ -104,12 +104,12 @@ that check are read off, so the words cannot disagree with the type. A setting
 has one name and no older one.
 
 A setting is read from `settings`, never from `process.env`. A config hands a
-secret over as the variable itself, `cloud: { api_key:
-process.env.CHLOE_CLOUD_API_KEY }`, which is how it says where a credential
-comes from without holding one, and a setting given `undefined` is one it did
-not say. The workspace key for a Chloe Cloud is `cloud.api_key`, and a config that names
-`cloud.key` is refused rather than passed over, because a key that silently
-stops being read is a runtime that silently leaves its dashboard. The server reads both again when either changes, so a
+secret over as the variable itself, `dashboard: { remote: { api_key:
+process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } }`, which is how it says where a
+credential comes from without holding one, and a setting given `undefined` is
+one it did not say. A config still written for `cloud` or `page` is refused
+with where each went, because a key that silently stops being read is a
+runtime that silently leaves its dashboard. The server reads both again when either changes, so a
 setting is read when it is needed, never copied at import.
 
 **Plug and play.** Adding a capability should be writing a file and naming it
@@ -125,7 +125,7 @@ in under a second.
 chloe should never have to open one to the internet. Telegram and Slack work
 because chloe calls out to them. A channel that can only be pushed to, which is
 what WhatsApp is, takes its messages through something the runtime connects out
-to and asks: a Chloe Cloud, or anything else of that shape. An address the person
+to and asks: a remote dashboard, or anything else of that shape. An address the person
 deliberately opened is their choice to make and never the only way. The channel
 is the same either way, and the runtime is never the public half of a
 connection.
@@ -220,7 +220,7 @@ reached. The rest is the runtime plus what a job commonly
 needs, in folders by what they do: `model/` is asking a model, and
 `model/tools/` inside it is the only thing a model can be handed,
 `load/` is what an agent and a job
-are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `cloud/` is the connection out to a dashboard somewhere else, `connections/` is each outside account a tool works through, a folder each (Google, Resend), and an MCP server an agent connects to, `serve/` is the one port
+are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `dashboard/` is the connection out to a dashboard somewhere else, `connections/` is each outside account a tool works through, a folder each (Google, Resend), and an MCP server an agent connects to, `serve/` is the one port
 and what it answers with, which is `/api` and nothing else (the routes, the
 login, and the folder behind the file tree): it serves no page, and an address
 that is not an API call is a 404, `core/` is the floor (paths, running a command, staying
@@ -568,7 +568,7 @@ no library: a number registered with Meta, a token, and one route past the login
 at `/chloe/v1/<id>/whatsapp`, which checks the app secret on every POST and
 answers Meta's verification GET only for the word it was given. Meta only pushes,
 and has nothing to ask for messages with, so by default nothing reaches that
-route at all: the channel asks `postBox` (`cloud.url` in settings, and no account
+route at all: the channel asks `postBox` (`dashboard.remote.url` in settings, and no account
 is needed) for a box of its own, that address is what goes into the app, and it
 collects from it with one held-open request at a time. Each delivery is sealed to
 a key the runtime made (`core/sealed.ts`), and Meta's signature travels with it
@@ -580,9 +580,9 @@ no groups, because the API carries none, and a reply outside 24 hours of the
 last message that person sent is refused by WhatsApp itself, which is what a job
 that stops to ask somebody runs into.
 
-**Email is a conversation per address, through a Chloe Cloud.**
-`emailChannel({ allowFrom: [...] })` needs `cloud.url` and `cloud.api_key`,
-because the cloud owns the mail domain: it hands out `reply-<uuid>@<domain>`
+**Email is a conversation per address, through a remote dashboard.**
+`emailChannel({ allowFrom: [...] })` needs `dashboard.remote.url` and `dashboard.remote.api_key`,
+because the dashboard owns the mail domain: it hands out `reply-<uuid>@<domain>`
 for one conversation with one person, sends from it, and puts replies in the
 channel's post box, which is collected like WhatsApp's (`channels/postbox.ts`,
 shared by both). A conversation starts with `openEmail()`, the `emailStartConversation`
@@ -635,19 +635,19 @@ everything else is the account. A token may read, and may chat to and fire the
 jobs of the agents that bind an api channel. It may never write a file, read
 the notes, or touch the tokens.
 
-**A cloud is something this runtime connects out to, never something that
-reaches in.** `cloud/connect.ts` opens one WebSocket to `cloud.url` in
-settings, says which workspace it is with `cloud.api_key` inside the first
+**A dashboard is something this runtime connects out to, never something that
+reaches in.** `dashboard/connect.ts` opens one WebSocket to `dashboard.remote.url` in
+settings, says which workspace it is with `dashboard.remote.api_key` inside the first
 message, and answers requests the dashboard sends down it by making them
 against the one port with `RELAY_SECRET` from `serve/login.ts`, a secret made
 when the process starts and never written anywhere. That makes the caller kind
-`cloud`, and `api()` in `serve/http.ts` lets it have a route only if the route
-names a `remote` switch and `cloud.remote` in settings has every one it names
-on. A route with no `remote` is never answered through the cloud: signing in,
+`dashboard`, and `api()` in `serve/http.ts` lets it have a route only if the route
+names an `allow` switch and `dashboard.remote.allow` in settings has every one it names
+on. A route with no `allow` is never answered through the dashboard: signing in,
 setting up, and the tokens. Do not add one without deciding which switch it
-is, and do not let the secret out of the process. `from()` says "via cloud as
+is, and do not let the secret out of the process. `from()` says "via dashboard as
 <email>" for such a request, so the memory audit log still says who.
-What goes up is `cloud.sync`: run rows as they are written (`core/events.ts`
+What goes up is `dashboard.remote.sync`: run rows as they are written (`core/events.ts`
 is how the runners say so) and the agent summaries on reload.
 
 **The runtime serves its own site**, plain HTML from `serve/site.ts`, with
