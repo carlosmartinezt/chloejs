@@ -294,7 +294,7 @@ is.
 
 ```sh
 npx chloe account                # set the one password
-npx chloe                        # the one process, on 127.0.0.1:3067
+npx chloe                        # the one process, on 127.0.0.1:3067 unless serve in settings says
 npx chloe agent <id>             # talk to one agent
 npx chloe agent <id> <job>       # run one job now, without waiting for its cron line
 npx chloe install                # run it as a service (systemd or launchd), so it survives a reboot
@@ -303,6 +303,20 @@ npx chloe install                # run it as a service (systemd or launchd), so 
 Without `@chloejs/ui` the runtime serves a plain page of its own. With it, that
 page is the dashboard. The runtime never names that package: it serves whatever
 installed package declares a page.
+
+**One process, one disk.** The runs are a SQLite file in the state folder
+(`data/`, or `CHLOE_STATE`), beside the account, the tokens and, unless an
+agent says otherwise, its memory. Run one copy, on a machine or in a container
+whose state folder is a disk that outlives it. Two copies on one state folder
+would both fire every cron line, and a host that throws its disk away on every
+start forgets every run. A stop waits up to 60 seconds for the runs that are going;
+a run still going after that is closed as cut off at the next start.
+
+It listens on `127.0.0.1:3067`, an address only this machine can reach.
+`serve: { host, port }` in settings moves it: a container needs
+`host: "0.0.0.0"` so the machine around it can reach in, and then a proxy in
+front with the port closed to everything else, because the login lockout
+trusts the address that proxy writes.
 
 ## What is in here
 

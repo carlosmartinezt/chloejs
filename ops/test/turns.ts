@@ -9,7 +9,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, row } from "./shared.
 {
   about("runs a stop cut off");
 
-  const { closeCutOff } = await import("#chloe/core/db");
+  const { closeCutOff, going } = await import("#chloe/core/db");
   const insert = db.prepare(
     "insert into runs (id, agent, started, finished, source, model, prompt, parked) values (?, 'stopped', ?, ?, 'x', 'code', '', ?)",
   );
@@ -19,7 +19,9 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, row } from "./shared.
   insert.run("cut", now, null, null);
   insert.run("waiting", now, null, "{}");
   insert.run("done", now, now, null);
+  is("a stop waits for the one going, and not the one waiting on a person", going(), 1);
   is("one was cut off", closeCutOff(), 1);
+  is("and then none is going", going(), 0);
   is("it ends, saying why", row("cut").error, "Cut off: the service stopped while this was running.");
   is("a run waiting on a person is left waiting", row("waiting").finished, null);
   is("a finished run is left as it was", row("done").error, null);

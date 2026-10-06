@@ -11,6 +11,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { hasChannel, type Agent } from "#chloe/load/load";
+import { ownAddress } from "./http.ts";
 import { caller, from, hasAccount } from "./login.ts";
 import { installedPage, servePageFile } from "./page.ts";
 import { memoryLabel, memoryTree } from "./memory.ts";
@@ -259,7 +260,7 @@ ${agent.jobs
 ${
   hasChannel(agent, "api")
     ? `<p>It binds an api channel, so a token may talk to it and run its jobs.</p>
-<pre>curl -X POST http://127.0.0.1:3067/api/agents/${esc(agent.id)}/chat \\
+<pre>curl -X POST ${ownAddress()}/api/agents/${esc(agent.id)}/chat \\
   -H "authorization: Bearer $CHLOE_TOKEN" \\
   -H "content-type: application/json" \\
   -d '{"prompt":"what is late?"}'</pre>`
@@ -369,7 +370,7 @@ export function docsPage(routes: RouteDoc[]): string {
     ["The account's own", (one) => !one.open && !one.token],
   ];
   const body = `<h1>The API</h1>
-<p class="quiet">Every route this runtime answers. It binds <code>127.0.0.1:3067</code> and is not meant to be
+<p class="quiet">Every route this runtime answers. It listens on <code>${ownAddress()}</code> and is not meant to be
 put on a public name: reach it from another machine over a tunnel.</p>
 
 <h2>Who may call what</h2>
@@ -403,8 +404,8 @@ ${found
   .join("\n")}
 
 <h2>From something that is not a browser</h2>
-<pre>curl http://127.0.0.1:3067/api/agents -H "authorization: Bearer $CHLOE_TOKEN"</pre>
+<pre>curl ${ownAddress()}/api/agents -H "authorization: Bearer $CHLOE_TOKEN"</pre>
 <p class="quiet">The same list as JSON is this page with no <code>Accept: text/html</code>:</p>
-<pre>curl http://127.0.0.1:3067/api</pre>`;
+<pre>curl ${ownAddress()}/api</pre>`;
   return shell("The API", body);
 }

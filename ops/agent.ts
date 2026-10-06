@@ -21,14 +21,18 @@
 //
 // Every turn lands in the run history with its tool calls and its cost, the
 // same as one from the page or a job.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 
 import { bold, dim } from "#chloe/core/style";
+import { CONFIG, loadSettings } from "#chloe/load/load";
+import { ownAddress } from "#chloe/serve/http";
 import { ownCookie } from "#chloe/serve/login";
 
-// Matches HOST and PORT in serve/http.ts, which are deliberately not settable.
-const BASE = "http://127.0.0.1:3067";
+// The running service's address, read from the same settings it read. A
+// script started with startChloe has no config, and listens where the defaults say.
+if (existsSync(CONFIG)) await loadSettings();
+const BASE = ownAddress();
 
 /** What one turn came back with. The same shape every channel gets. */
 interface Result {

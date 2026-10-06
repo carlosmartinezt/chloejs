@@ -222,6 +222,22 @@ export interface Settings {
       };
     };
   };
+  /**
+   * Where the one port listens: the page, the API and every channel route.
+   * Read as it starts, so a change takes a restart.
+   */
+  serve: {
+    /**
+     * 127.0.0.1 is this machine only, and nothing else can reach the port.
+     * "0.0.0.0" is every address the machine has, which a container needs so
+     * the machine around it can reach in. Do that only with a proxy in front
+     * and the port closed to everything else: the login lockout trusts the
+     * address the proxy writes, and is worth nothing if a stranger can skip it.
+     */
+    host: string;
+    /** The port. A host that hands out the port gives it as a variable: `port: Number(process.env.PORT)`. */
+    port: number;
+  };
   /** Who a run belongs to when no channel has said, as `channel:who`. */
   owner: string;
   /** Which node the unit runs. Empty means whichever is on the path at install. */
@@ -261,6 +277,7 @@ export const DEFAULTS: Settings = {
       allow: { read: true, chat: true, run: true, memory: false, write: false, google: false },
     },
   },
+  serve: { host: "127.0.0.1", port: 3067 },
   owner: "",
   node: "",
 };

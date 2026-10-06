@@ -1,6 +1,7 @@
 // Every route is in this file, so what is reachable from outside is this file
 // and nothing else, plus whatever paths a running channel answers. It binds
-// loopback. What answers the addresses that are not /api is site.ts.
+// `serve.host` in settings, loopback unless somebody says otherwise. What
+// answers the addresses that are not /api is site.ts.
 //
 // The routes are a list rather than a run of ifs, because the docs at GET /api
 // are generated from that list. A route nobody wrote down is a route nobody
@@ -50,12 +51,15 @@ import { answer, checkArgs, parkedRuns } from "#chloe/core/steps";
 import { canCarryOn, stopped } from "#chloe/core/turn";
 
 /**
- * Where this server listens. Loopback, and one port for the agents, the API
- * and the site alike. Written down here, beside the only thing that binds it,
- * and not settable: a port that moves is a tunnel that stops finding it.
+ * The address a program on this machine reaches the port at: `serve.host` and
+ * `serve.port` in settings, with loopback in place of a host that means every
+ * address, because "0.0.0.0" is somewhere to listen and not somewhere to call.
  */
-export const HOST = "127.0.0.1";
-export const PORT = 3067;
+export function ownAddress(): string {
+  const { host, port } = settings.serve;
+  const reach = host === "0.0.0.0" || host === "::" || host === "" ? "127.0.0.1" : host;
+  return `http://${reach.includes(":") ? `[${reach}]` : reach}:${port}`;
+}
 
 export interface Context {
   agent(id: string): Agent;

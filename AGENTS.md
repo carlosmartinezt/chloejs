@@ -131,7 +131,8 @@ only when the model asks for it. Everything else is named: a job, a tool and a
 channel exist because `agent.ts` says so. There is no deploy, so an edit is live
 in under a second.
 
-**Nothing here needs a way in.** The one port binds loopback, and a box running
+**Nothing here needs a way in.** The one port binds loopback (`serve.host`
+moves it, for a container behind a proxy, and nothing else should), and a box running
 chloe should never have to open one to the internet. Telegram and Slack work
 because chloe calls out to them. A channel that can only be pushed to, which is
 what WhatsApp is, takes its messages through something the runtime connects out
@@ -754,7 +755,14 @@ including somebody else's, and never be locked out himself.
 `cf-connecting-ip` is preferred because Cloudflare overwrites it rather than
 appending. Behind a CDN with neither, the lockout goes coarse, and coarse and
 honest beats precise and forgeable. None of this is worth anything if something
-other than the proxy can reach the port, which is why it binds loopback.
+other than the proxy can reach the port, which is why it binds loopback, and
+why the setting that moves it says so.
+
+**A stop waits for the runs that are going**, up to `STOP_WAIT` in
+`serve/start.ts`, and stops the channels last: a run is marked finished just
+before its answer goes out, and a channel's calls end when it stops. The units
+`npx chloe install` writes give the stop 75 seconds, and send it to the server
+alone (`KillMode=mixed`), so a model call it started is not killed under it.
 
 **A case is answered strictly.** A tool mock matches on the exact arguments, so
 a case that answers `gmailReadEmail` with `{}` fails the moment the agent asks for

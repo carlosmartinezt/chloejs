@@ -12,13 +12,13 @@ import { loadEnv } from "#chloe/core/env";
 import { ROOT } from "#chloe/core/paths";
 import { bold, dim } from "#chloe/core/style";
 import { settings, unclaimed } from "#chloe/core/settings";
-import { closeCutOff, trim } from "#chloe/core/db";
+import { closeCutOff, going, trim } from "#chloe/core/db";
 import { CONFIG, loadAll, type Agent, type Config, type Running } from "#chloe/load/load";
 import { sdkModel } from "#chloe/model/key";
 import { connectionsUsed } from "#chloe/model/tool";
 import { run } from "#chloe/services/runService";
 import { learnModels, runnable } from "#chloe/model/model";
-import { HOST, PORT, serve as listen } from "#chloe/serve/http";
+import { ownAddress, serve as listen } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
 import { startDashboard } from "#chloe/dashboard/connect";
 import { hasAccount } from "#chloe/serve/login";
@@ -94,9 +94,9 @@ export async function startChloe(given?: Config): Promise<void> {
   }
   startChannels();
 
-  listen({
-    host: HOST,
-    port: PORT,
+  const server = listen({
+    host: settings.serve.host,
+    port: settings.serve.port,
     agents: () => agents,
     clock,
     channels: () => [...running.values()].flatMap((one) => one.routes ?? []),
@@ -190,7 +190,7 @@ export async function startChloe(given?: Config): Promise<void> {
 
     lines.push(row("Agents", [...agents.keys()].join(", ") || dim("none yet. Write one in agents/, and list it in chloe.config.ts")));
 
-    lines.push(row("Page", `http://${HOST}:${PORT}`));
+    lines.push(row("Page", ownAddress()));
     lines.push(under(hasAccount() ? "Forgot the password? Set a new one: npx chloe account" : "No password yet. Set one: npx chloe account"));
     lines.push(row("Alerts", alertsSay()));
 
@@ -203,6 +203,12 @@ export async function startChloe(given?: Config): Promise<void> {
     const given = [...new Set([...agents.values()].flatMap((agent) => [agent.model, ...agent.jobs.flatMap((job) => (job.model ? [job.model] : []))]))].filter((one) => sdkModel(one));
     const reached = [...ready.map(byRoute), ...(given.length ? [`${given.join(", ")} by the AI SDK`] : [])];
     lines.push(row("AI models", reached.length ? reached.join("; ") : "not set up"));
+    if (ready[0] === "claude" || ready[0] === "codex") {
+      lines.push(under(
+        "A subscription is for trying things out: its terms may not cover a service running agents. " +
+          'To run on a key, put "gateway" first in model.preferredRoute.',
+      ));
+    }
     if (!ready.length && !given.length) {
       lines.push(under(
         `Nothing in model.preferredRoute is set up here (${settings.model.preferredRoute.join(", ")}). Set one up: npx chloe setup`,
@@ -259,6 +265,7 @@ export async function startChloe(given?: Config): Promise<void> {
   let again = false;
 
   async function reload(): Promise<void> {
+    if (stopping) return;
     if (reloading) {
       again = true;
       return;
@@ -275,6 +282,8 @@ export async function startChloe(given?: Config): Promise<void> {
             for (const name of agents.keys()) changedChannels.add(name);
           }
           agents = await loadAll(given);
+          // A stop that came while the files were read must not start the channels again.
+          if (stopping) return;
           // What each route can run, for the list somebody picks from. Asked here
           // and never from a request, so a slow gateway cannot hold up a page.
           await learnModels();
@@ -349,12 +358,44 @@ export async function startChloe(given?: Config): Promise<void> {
   }
   watchFolders();
 
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => {
-      clock.stop();
-      dashboard.stop();
-      process.exit(0);
-    });
+  /**
+   * Stop the clock, the port and the dashboard, let the runs that are going
+   * finish, then exit. A run still going after STOP_WAIT is left as it is, and
+   * the next start closes it as cut off. A second signal exits at once, for a
+   * person at a terminal who meant it.
+   */
+  let stopping = false;
+  async function stop(): Promise<void> {
+    if (stopping) process.exit(0);
+    stopping = true;
+    clearTimeout(pending);
+    for (const watcher of watching.values()) watcher.close();
+    clock.stop();
+    dashboard.stop();
+    server.close();
+    const until = Date.now() + STOP_WAIT;
+    const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
+    let left = going();
+    const waited = left > 0;
+    if (left) console.log(`stopping: waiting up to ${STOP_WAIT / 1000} seconds for ${left} run${left === 1 ? "" : "s"} to finish. Stop again to stop now.`);
+    while (left && Date.now() < until) {
+      await wait(250);
+      left = going();
+    }
+    if (left) console.log(`stopping: ${left} still going, closed as cut off at the next start`);
+    // The channels go last, and not at once: a run is marked finished just
+    // before its answer is sent, and a channel's calls end when it stops.
+    if (waited) await wait(2000);
+    for (const one of running.values()) one.stop();
+    process.exit(0);
   }
+  for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => void stop());
 }
+
+/**
+ * How long a stop waits for the runs that are going. Long enough for a model
+ * step, and inside the 90 seconds systemd gives a service before it kills it.
+ * The units `npx chloe install` writes give it 75.
+ */
+const STOP_WAIT = 60_000;
 

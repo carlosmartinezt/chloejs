@@ -65,18 +65,21 @@ esac
 # A setting is declared in chloe.config.ts, which is TypeScript, so it is read by
 # node rather than sourced. Asking the same module the runtime asks means this
 # script cannot disagree with it about a default. An empty setting comes back as
-# "-" so that read gets two fields either way.
+# "-" so that read gets every field either way. The key itself never leaves
+# node: only whether there is one.
 SETTINGS=$(cd "$ROOT" && node $CONDITION --input-type=module -e '
   const { loadSettings, settings } = await import("@chloejs/core");
   await loadSettings();
-  console.log(settings.node || "-", settings.model.preferredRoute.join(",") || "-");
+  const { node, model, serve } = settings;
+  console.log(node || "-", model.preferredRoute.join(",") || "-", model.key ? "yes" : "no", serve.host || "-", serve.port);
 ') || {
   echo "the settings could not be read. The error is above." >&2
   exit 1
 }
-read -r NODEBIN PREFER <<<"$SETTINGS"
+read -r NODEBIN PREFER HASKEY HOST PORT <<<"$SETTINGS"
 [ "$NODEBIN" != "-" ] || NODEBIN=$(dirname "$(command -v node)")
 [ "$PREFER" != "-" ] || PREFER=""
+[ "$HOST" != "-" ] || HOST=""
 
 # A CLI route runs model calls through that program, so the unit needs it on the
 # path. Each is found the same way as node, because they usually sit somewhere
@@ -92,6 +95,20 @@ done
      echo "or put \"gateway\" in model.preferredRoute, the key in .env as CHLOE_MODEL_KEY, and model: { key: process.env.CHLOE_MODEL_KEY } in chloe.config.ts." >&2
      exit 1 ;;
 esac
+
+# The route a model call will take is the first one this box is set up for. A
+# subscription is for trying things out, and this is the service, so say so
+# without stopping: whether it is allowed is between the person and its terms.
+for one in ${PREFER//,/ }; do
+  if [ "$one" = gateway ]; then [ "$HASKEY" = yes ] && break || continue; fi
+  command -v "$one" >/dev/null 2>&1 || continue
+  case "$one" in
+    claude|codex)
+      echo "Model calls will go through $one, on a subscription. That is for trying things out: its terms may" >&2
+      echo "not cover a service running agents. To run on a key, put \"gateway\" first in model.preferredRoute." >&2 ;;
+  esac
+  break
+done
 
 # Credentials live in .env, so nobody else on the box reads it.
 [ ! -e "$ROOT/.env" ] || chmod 600 "$ROOT/.env"
@@ -116,8 +133,12 @@ Type=simple
 Environment=PATH=$NODEBIN$CLIBIN:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=$ROOT
 # The server is what is run. The package's index is only its exports and starts
-# nothing. The port and the loopback bind are in serve/http.ts.
+# nothing. Where it listens is serve in settings.
 ExecStart=$NODEBIN/node $START
+# A stop waits up to 60 seconds for the runs that are going. Mixed sends the
+# stop to the server alone, so a model call it started can finish with it.
+KillMode=mixed
+TimeoutStopSec=75
 Restart=on-failure
 RestartSec=15
 Nice=5
@@ -154,7 +175,8 @@ ARGS="$ARGS
     <string>$(xml "$ENTRY")</string>"
 
 # Starts at login, and is started again 15 seconds after it exits with an
-# error. The port and the loopback bind are in serve/http.ts.
+# error. Where it listens is serve in settings. A stop waits up to 60 seconds
+# for the runs that are going, and launchd's own wait is 20 unless told.
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -182,6 +204,8 @@ $ARGS
   </dict>
   <key>ThrottleInterval</key>
   <integer>15</integer>
+  <key>ExitTimeOut</key>
+  <integer>75</integer>
   <key>ProcessType</key>
   <string>Background</string>
   <key>StandardOutPath</key>
@@ -208,6 +232,8 @@ echo "It starts when you log in. Its output is in $LOG."
 
 fi
 echo "Model calls try ${PREFER:-whichever this box can}, in that order."
-echo "The site and the API are on http://127.0.0.1:3067, loopback only."
+echo "The site and the API are on http://${HOST:-127.0.0.1}:$PORT."
 echo "Make the one account with: npx chloe account"
-echo "From another machine: ssh -L 3067:127.0.0.1:3067 you@thisbox"
+if [ "$HOST" = 127.0.0.1 ]; then
+  echo "That is this machine only. From another one: ssh -L $PORT:127.0.0.1:$PORT you@thisbox"
+fi

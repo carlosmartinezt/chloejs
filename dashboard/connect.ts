@@ -31,7 +31,7 @@ import { db, RUN_COLUMNS } from "#chloe/core/db";
 import { events } from "#chloe/core/events";
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 import type { Agent } from "#chloe/load/load";
-import { HOST, PORT, routeList, summary } from "#chloe/serve/http";
+import { ownAddress, routeList, summary } from "#chloe/serve/http";
 import { RELAY, RELAY_GUEST, RELAY_NAME, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login";
 
 /** The version of what is said on the socket. The dashboard refuses one it does not speak. */
@@ -112,7 +112,7 @@ const LARGEST = 32 * 1024 * 1024;
  * once and waits for `reload()` to bring one.
  */
 export function startDashboard(options: DashboardOptions): Dashboard {
-  const self = new URL(options.self ?? `http://${HOST}:${PORT}`);
+  const self = new URL(options.self ?? ownAddress());
   const make = options.socket ?? ((address: string) => new WebSocket(address) as unknown as Socket);
   const backoff = options.backoff ?? { first: 1000, most: 60_000 };
   const version = options.version ?? ownVersion();

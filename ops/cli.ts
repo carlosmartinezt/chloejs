@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 
 import { bold, dim } from "#chloe/core/style";
 
-const WHAT = `${bold("Chloe is a TypeScript agent framework that uses AI only when you need it.")}
+const WHAT = `${bold("Chloe is a TypeScript agent runtime: plain code where it can be, a model only where a step needs judgement.")}
 See https://chloejs.org.
 
 ${bold("Starting out")}

@@ -11,6 +11,24 @@ import { about, is } from "#chloe/ops/check";
   is("what the config says is what it says", readSettings(base).model.preferredRoute, ["gateway"]);
   is("and one key declared leaves its neighbours alone", readSettings(base).model.judgeModel, "a");
   is("a setting nobody set is empty rather than missing", readSettings({}).node, "");
+  is("the port listens on this machine only unless the config says", readSettings({}).serve, { host: "127.0.0.1", port: 3067 });
+  let portAsText = "";
+  try {
+    readSettings({ serve: { port: "8080" } } as never);
+  } catch (error) {
+    portAsText = error instanceof Error ? error.message : "";
+  }
+  is("a port handed over from .env as text is refused, saying it is a number", portAsText.includes("serve.port is a number"), true);
+  {
+    const { settings } = await import("@chloejs/core");
+    const { ownAddress } = await import("#chloe/serve/http");
+    const before = settings.serve;
+    settings.serve = { host: "0.0.0.0", port: 8080 };
+    is("listening on every address is reached on loopback", ownAddress(), "http://127.0.0.1:8080");
+    settings.serve = { host: "::1", port: 8080 };
+    is("an IPv6 host goes in brackets", ownAddress(), "http://[::1]:8080");
+    settings.serve = before;
+  }
   is("each agent's own settings are under its name", readSettings({ agents: { tempo: { telegram: "t" } } }).agents.tempo.telegram, "t");
   is("and what it does not say is empty", readSettings({ agents: { tempo: { telegram: "t" } } }).agents.tempo.slack.app_token, "");
   let misspelt = "";
