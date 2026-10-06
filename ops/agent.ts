@@ -39,7 +39,7 @@ interface Result {
 }
 
 interface Listed {
-  name: string;
+  id: string;
   description?: string;
   model: string;
   tools: string[];
@@ -164,23 +164,23 @@ if (!name) {
     process.exit(2);
   }
   if (agents.length === 1) {
-    name = agents[0].name;
+    name = agents[0].id;
   } else if (process.stdin.isTTY) {
     const { pick } = await import("./terminal.ts");
     name = await pick(
       "Which agent?",
-      agents.map((one) => ({ key: one.name, what: one.description ? `${one.name}  ${dim(one.description)}` : one.name })),
+      agents.map((one) => ({ key: one.id, what: one.description ? `${one.id}  ${dim(one.description)}` : one.id })),
     );
     console.log("");
   } else {
-    console.error(`Which agent? One of: ${agents.map((a) => a.name).join(", ")}`);
+    console.error(`Which agent? One of: ${agents.map((a) => a.id).join(", ")}`);
     process.exit(2);
   }
 }
-const agent = agents.find((a) => a.name === name);
+const agent = agents.find((a) => a.id === name);
 if (!agent) {
   console.error(
-    `There is no agent called ${JSON.stringify(name)}. There is: ${agents.map((a) => a.name).join(", ")}`,
+    `There is no agent called ${JSON.stringify(name)}. There is: ${agents.map((a) => a.id).join(", ")}`,
   );
   process.exit(2);
 }
@@ -317,7 +317,7 @@ if (rest.length > 0 || piped) {
 }
 
 console.log(
-  `${bold(agent.name)} on ${agent.model}, ${agent.tools.length} tools, ${agent.skills.length} skills, ` +
+  `${bold(agent.id)} on ${agent.model}, ${agent.tools.length} tools, ${agent.skills.length} skills, ` +
     `${agent.jobs.length} jobs.`,
 );
 console.log(dim("/exit to leave, /new to forget this conversation, /tools for the last turn's calls.\n"));
