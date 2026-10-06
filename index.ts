@@ -13,11 +13,13 @@
 //
 // Adding a name here is publishing it, and taking one away is a break, so this
 // file is the one place to look when you want to know what may move freely.
-// The server itself is `server.ts`, and it is run rather than imported.
+// The server is `startChloe`: `npx chloe` runs it through `server.ts`, and a script
+// with no chloe.config.ts calls it with its own agents.
 
 // An agent, and the jobs it runs.
 export { defineAgent, defineConfig, markdownJob, load, loadAll, loadSettings, agentIds, type Agent, type AgentConfig, type Channel, type ChannelRoute, type Config, type DefinedAgent, type RunOptions, type AskOptions, type Running, type Job, type MarkdownJob, type Skill, type Features, type SelfImprovement, type Memory, type ChatHistory } from "./load/load.ts";
 export { defineJob, type JobConfig } from "./load/job.ts";
+export { startChloe } from "./serve/start.ts";
 export { prompt, isPrompt, oneLineSummary, type Prompt } from "./core/markdown.ts";
 
 // A job: code first, with a model where a step needs judgement and an agent

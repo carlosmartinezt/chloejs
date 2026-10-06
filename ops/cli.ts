@@ -42,11 +42,8 @@ if (word && !WORDS.includes(word)) {
   process.exit(1);
 }
 
-// Whether there is a project here at all, asked of core/find rather than
-// core/root: root throws when there is none, and a module that throws stays
-// thrown, so asking it here would leave setup writing a chloe.config.ts that
-// the rest of this process could never see. Setup is the one word that runs
-// without one, because writing one is what it does.
+// Whether there is a chloe.config.ts here at all. Setup is the one word that
+// runs without one, because writing one is what it does.
 const { findConfig, NO_CONFIG } = await import("#chloe/core/find");
 
 if (!findConfig()) {

@@ -255,7 +255,8 @@ export default defineConfig({ agents: [agent], settings: { email: { provider: "n
 if (import.meta.main) {
   const { text } = await agent.run({ job: hello });
   const loaded = (await loadAll()).get("one")!;
-  console.log(JSON.stringify({ text, cron: loaded.jobs[0].cron, folder: loaded.folder }));
+  const refused = await agent.run({ job: hello, settings: {} }).then(() => "", (error: Error) => error.message);
+  console.log(JSON.stringify({ text, cron: loaded.jobs[0].cron, folder: loaded.folder, refused }));
 }
 `,
   );
@@ -264,5 +265,50 @@ if (import.meta.main) {
   is("its job runs from the file itself", JSON.parse(said.text), { said: "hello" });
   is("and the server would find the same job on the clock", said.cron, "0 8 * * 1-5");
   is("with the agent's folder the one the file is in", said.folder, folder);
+  is("and settings handed to run are refused, because the config holds them", said.refused.includes("holds this project's"), true);
   await rm(folder, { recursive: true, force: true });
+}
+
+{
+  about("a script with no chloe.config.ts");
+
+  // An agent and a job in a file of their own, run with node and no config
+  // anywhere above: the file is the whole project and run is handed its settings.
+  const { execFileSync } = await import("node:child_process");
+  const { symlink } = await import("node:fs/promises");
+  const folder = await realpath(await mkdtemp(join(tmpdir(), "chloe-script-")));
+  await mkdir(join(folder, "node_modules", "@chloejs"), { recursive: true });
+  await symlink(join(import.meta.dirname, "../.."), join(folder, "node_modules", "@chloejs", "core"));
+  await writeFile(
+    join(folder, "morning.ts"),
+    `import { defineAgent, defineJob, settings, STATE } from "@chloejs/core";
+const digest = defineJob({
+  id: "digest",
+  description: "Says good morning.",
+  run: async (work) => ({ said: await work.step("say it", () => "good morning") }),
+});
+const morning = defineAgent({ id: "morning", description: "One script.", instructions: "Be brief.", jobs: [digest] });
+const { text } = await morning.run({ job: digest, settings: { model: { defaultModel: "m" }, email: { provider: "none" } } });
+console.log(JSON.stringify({ text, provider: settings.email.provider, state: STATE }));
+`,
+  );
+  // Without the suite's own CHLOE_STATE and CHLOE_MEMORY, so it keeps them where a script would.
+  const { CHLOE_STATE, CHLOE_MEMORY, ...env } = process.env;
+  const out = execFileSync(process.execPath, [...process.execArgv, "morning.ts"], { cwd: folder, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const said = JSON.parse(out.trim().split("\n").at(-1)!);
+  is("its job runs with nothing but the file", JSON.parse(said.text), { said: "good morning" });
+  is("on the settings run was handed", said.provider, "none");
+  is("with what it keeps beside where it was started", said.state, join(folder, "data"));
+  await rm(folder, { recursive: true, force: true });
+}
+
+{
+  about("startChloe, given its agents by a script");
+
+  // Beside a chloe.config.ts the settings are that file's, so a script's own
+  // would be a second place for them. Refused before anything starts.
+  const { startChloe, defineAgent } = await import("@chloejs/core");
+  const one = defineAgent({ id: "aside", description: "", instructions: "Hello.", model: "m" });
+  const refused = await startChloe({ agents: [one] }).then(() => "", (error: Error) => error.message);
+  is("a script's agents are refused where a chloe.config.ts is", refused.includes("holds this project's"), true);
 }

@@ -1,13 +1,10 @@
-// Where the project is, asked without deciding that there has to be one.
-//
-// Its own file because a module that throws as it loads stays thrown: node
-// keeps the failure and hands it to the next import. `npx chloe setup` runs
-// before there is a chloe.config.ts and writes one, so anything that asked
-// root.ts first would spend the rest of the process believing there was none.
+// Where the project's chloe.config.ts is, asked without deciding that there has
+// to be one: a script that runs one agent needs none, and `npx chloe setup` runs
+// before there is one and writes it.
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-/** What to say when there is none. Said by root.ts, and by the CLI before it offers to write one. */
+/** What to say when the server needs one and there is none. */
 export const NO_CONFIG = "It lists the agents to run, and chloe is started from beside it.";
 
 /**

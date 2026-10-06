@@ -14,6 +14,7 @@ import type { StopCondition, ToolApprovalConfiguration } from "ai";
 import type { z } from "zod";
 
 import { MEMORIES, ROOT, setAgentDirs } from "#chloe/core/paths";
+import { NO_CONFIG } from "#chloe/core/find";
 import { declareSettings, settings as configured, type DeclaredSettings } from "#chloe/core/settings";
 import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown";
 import { parse } from "#chloe/timer/cron";
@@ -141,6 +142,11 @@ export interface DefinedAgent extends AgentConfig {
    * again before the run begins. `source` is "terminal" unless it says. The
    * run is written to the run history like any other. Loads every agent first,
    * so it is for a script, not for a loop.
+   *
+   * A script with no chloe.config.ts at or above where it is started is a
+   * project of its own, this agent and nothing else, and `settings` are its
+   * settings: `node morning.ts` runs it. With a chloe.config.ts, that file holds
+   * the settings and the agent must be listed in it.
    */
   run<ArgsIn>(options: RunOptions<ArgsIn>): Promise<RunResult>;
   /**
@@ -155,7 +161,8 @@ export interface DefinedAgent extends AgentConfig {
    * Without `thread` it starts fresh. With one, it reads that conversation
    * first and the question and answer are added to it. `source` is "terminal"
    * unless it says. The turn is written to the run history like any other.
-   * Loads every agent first, so it is for a script, not for a loop.
+   * Loads every agent first, so it is for a script, not for a loop. `settings`
+   * is as for `run`.
    */
   ask(options: AskOptions): Promise<TurnResult>;
 }
@@ -166,6 +173,8 @@ export interface AskOptions {
   thread?: string;
   source?: string;
   signal?: AbortSignal;
+  /** The settings, for a script with no chloe.config.ts. */
+  settings?: DeclaredSettings;
 }
 
 /** What `agent.run` takes. `input` may be left out only when the job's `args` need nothing. */
@@ -173,28 +182,50 @@ export type RunOptions<ArgsIn> = {
   job: JobConfig<any, any, any, ArgsIn>;
   source?: string;
   signal?: AbortSignal;
+  /** The settings, for a script with no chloe.config.ts. */
+  settings?: DeclaredSettings;
 } & ({} extends ArgsIn ? { input?: ArgsIn & Partial<Envelope> } : { input: ArgsIn & Partial<Envelope> });
 
 /** Declares an agent. List it in chloe.config.ts for it to run. */
 export function defineAgent(definition: AgentConfig): DefinedAgent {
-  const run = async (options: RunOptions<unknown>): Promise<RunResult> => {
-    const agent = await load(definition.id);
-    const job = agent.jobs.find((one) => one.id === options.job.id);
-    if (!job) throw new Error(`${agent.id} has no job called ${JSON.stringify(options.job.id)}. It has: ${agent.jobs.map((one) => one.id).join(", ")}.`);
-    return work({ agent, job, input: options.input, source: options.source ?? "terminal", signal: options.signal });
+  const defined: DefinedAgent = {
+    ...definition,
+    folder: definition.folder || callerFolder(definition.id),
+    run: async (options) => {
+      const agent = await loadFor(defined, options.settings);
+      const job = agent.jobs.find((one) => one.id === options.job.id);
+      if (!job) throw new Error(`${agent.id} has no job called ${JSON.stringify(options.job.id)}. It has: ${agent.jobs.map((one) => one.id).join(", ")}.`);
+      return work({ agent, job, input: options.input, source: options.source ?? "terminal", signal: options.signal });
+    },
+    ask: async ({ settings, ...options }) => {
+      const agent = await loadFor(defined, settings);
+      return turn({ ...options, agent, source: options.source ?? "terminal" });
+    },
   };
-  const ask = async (options: AskOptions): Promise<TurnResult> => {
-    const agent = await load(definition.id);
-    return turn({ ...options, agent, source: options.source ?? "terminal" });
-  };
-  if (definition.folder) return { ...definition, folder: definition.folder, run, ask };
-  // [0] is this function, [1] is whoever called it.
-  const caller = getCallSites()[1]?.scriptName ?? "";
+  return defined;
+}
+
+/** The folder of the file that called defineAgent. */
+function callerFolder(id: string): string {
+  // [0] is this function, [1] is defineAgent, [2] is whoever called it.
+  const caller = getCallSites()[2]?.scriptName ?? "";
   if (!caller.startsWith("file:") && !caller.startsWith("/")) {
-    throw new Error(`defineAgent could not tell which file ${definition.id} is written in. Give it folder: import.meta.dirname.`);
+    throw new Error(`defineAgent could not tell which file ${id} is written in. Give it folder: import.meta.dirname.`);
   }
-  const file = caller.startsWith("file:") ? fileURLToPath(caller) : caller;
-  return { ...definition, folder: dirname(file), run, ask };
+  return dirname(caller.startsWith("file:") ? fileURLToPath(caller) : caller);
+}
+
+/**
+ * The agent a script runs, loaded from the project it is in. With a
+ * chloe.config.ts, that file is the project and holds the settings. Without one,
+ * this agent is the whole project and `settings` are its settings.
+ */
+async function loadFor(defined: DefinedAgent, settings?: DeclaredSettings): Promise<Agent> {
+  if (!existsSync(CONFIG)) return (await loadAll({ agents: [defined], settings })).get(defined.id)!;
+  if (settings) {
+    throw new Error(`${defined.id} was given settings, but ${CONFIG} holds this project's. Put them there, or run it from a folder without one.`);
+  }
+  return load(defined.id);
 }
 
 /** What chloe.config.ts exports: every agent this box runs, and how it behaves. */
@@ -477,9 +508,12 @@ function shown(folder: string): string {
   return inside && !inside.startsWith("..") ? inside : folder;
 }
 
-/** Every agent chloe.config.ts lists, by id. */
-export async function loadAll(): Promise<Map<string, Agent>> {
-  const { config, listed } = await readConfig();
+/**
+ * Every agent chloe.config.ts lists, by id. Given a config, that one is read
+ * instead of the file, for a script that is a project of its own.
+ */
+export async function loadAll(given?: Config): Promise<Map<string, Agent>> {
+  const { config, listed } = given ? { config: given, listed: given.agents } : await readConfig();
   declareSettings(config.settings);
 
   const folders = new Map<string, string>();
@@ -504,7 +538,7 @@ export async function loadAll(): Promise<Map<string, Agent>> {
  */
 async function readConfig(): Promise<{ config: Config; listed: DefinedAgent[] }> {
   generation++;
-  if (!existsSync(CONFIG)) throw new Error(`There is no chloe.config.ts in ${ROOT}. It lists the agents to run.`);
+  if (!existsSync(CONFIG)) throw new Error(`There is no chloe.config.ts at or above ${ROOT}. ${NO_CONFIG}`);
   const module = (await import(pathToFileURL(CONFIG).href).catch((error: unknown) => {
     // A job file runs as it is imported, so a mistake in one (an
     // every(7).minutes) is thrown from here.

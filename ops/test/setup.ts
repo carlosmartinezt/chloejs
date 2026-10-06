@@ -14,9 +14,6 @@ import { work } from "./shared.ts";
   const { ROOT, settings } = await import("@chloejs/core");
 
 
-  // Asked before there is a config to find, so it says there is none rather
-  // than throwing the way core/root does: a module that throws stays thrown,
-  // and setup writes the file the rest of that process would have to see.
   const { findConfig } = await import("#chloe/core/find");
   is("the project is found by walking up", findConfig(join(ROOT, "ops")), ROOT);
   is("and nowhere above the root of the disk has one", findConfig("/"), "");
