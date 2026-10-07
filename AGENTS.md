@@ -47,7 +47,10 @@ like `const BACKUPS = "/home/you/backups"` in the job that uses it.
 Setting chloe up is `npm install @chloejs/core` and then `npx chloe setup`,
 always the two together: in a folder without the package, `npx chloe` fetches
 an unrelated npm package that has the name. Setup asks, writes the files,
-checks that the model it was given actually answers, and runs a job.
+checks that the model it was given actually answers, and runs a job. With no
+keyboard, which is how a coding agent runs it, or with `--yes`, every question
+takes its default, and with no keyboard the password is left for `npx chloe
+account`, because one made up there would be printed into somebody's agent.
 `ops/setup.ts` is that, `ops/starter.ts` is the files it writes, and neither is
 imported by the service.
 
@@ -257,6 +260,11 @@ that file, so it imports the runtime inside the steps that need it. `starter.ts`
 beside it is the files it writes, as text, and `terminal.ts` is how those two ask
 a person something. A job lives in `jobs/` whether
 it is code or a prompt, and whether or not it has a cron line: one folder.
+
+`skills/chloejs/SKILL.md` is what a coding agent reads to install chloe and
+build on it, installed with `npx skills add carlosmartinezt/chloejs`. It is not
+in the package and nothing checks it, so a renamed export or setting it names
+is changed there in the same commit.
 
 The runtime is the floor everyone stands on, so nothing in it may name an agent
 or a person, and nothing in `model/tools/` or `channels/` exports a

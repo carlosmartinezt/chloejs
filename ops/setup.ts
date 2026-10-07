@@ -1,10 +1,16 @@
 // Setting chloe up, one question at a time.
 //
 //   npx chloe setup
+//   npx chloe setup --agent postie   names the first agent rather than asking
+//   npx chloe setup --yes            takes every default and asks nothing
 //
 // It writes the files a project needs, asks which model to use and checks that
 // model actually answers, runs the starter agent's first job, and sets the one
 // password. Every answer has a default, so holding Enter through it works.
+//
+// With nothing on stdin, which is how a script or a coding agent runs it, it
+// behaves as --yes and leaves the password for `npx chloe account`, because a
+// password made up here would be printed to whatever ran it.
 //
 // Run it again later and it says what is already there and leaves it alone.
 //
@@ -16,9 +22,10 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
 
 import { identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } from "./starter.ts";
-import { ask, askHidden, pick, setPassword, yes } from "./terminal.ts";
+import { ask, askHidden, pick, setPassword, takeDefaults, yes } from "./terminal.ts";
 
 /** The folder being set up: where the person ran the command. */
 const HERE = process.cwd();
@@ -40,27 +47,31 @@ function columns(rows: [string, string][]): string {
   return rows.map(([left, right]) => `  ${left.padEnd(width)}  ${right}`).join("\n");
 }
 
-if (!process.stdin.isTTY) {
-  // Nothing to type into, so saying what it would ask beats hanging on a read
-  // that never comes back.
-  process.stdout.write(
-    [
-      "chloe setup asks questions, and nothing here can answer them.",
-      "",
-      "By hand, in this folder:",
-      '  1  package.json needs "type": "module"',
-      "  2  chloe.config.ts lists your agents and declares the settings, and one agent folder holds an agent.ts",
-      "  3  .env beside it holds CHLOE_MODEL_KEY and every other credential",
-      "  4  npx chloe account sets the one password",
-      "",
-      "All of it is at https://chloejs.org/docs/start",
-      "",
-    ].join("\n"),
-  );
-  process.exit(0);
-}
+/** Whether a person is at a keyboard to answer. */
+const nobodyHere = !process.stdin.isTTY;
+
+/**
+ * What was said on the command line. Words are let through, because `cli.ts`
+ * runs this for "setup" and for any other word typed in a folder with no config.
+ */
+const given = (() => {
+  try {
+    const { values } = parseArgs({
+      args: process.argv.slice(2),
+      options: { agent: { type: "string" }, yes: { type: "boolean", short: "y" } },
+      allowPositionals: true,
+    });
+    return values;
+  } catch (error) {
+    console.error(`${error instanceof Error ? error.message : String(error)}\nnpx chloe setup takes --agent <id> and --yes, and nothing else.`);
+    process.exit(1);
+  }
+})();
+
+if (given.yes || nobodyHere) takeDefaults();
 
 console.log(`Setting chloe up in ${HERE}.\n`);
+if (nobodyHere) console.log("Nobody is at a keyboard here, so every question takes its default.\n");
 
 // One line and not a stack: whatever went wrong, the person reading it is
 // setting up a project and every step above this one already happened.
@@ -72,7 +83,7 @@ try {
   await onWhatsApp(agent);
   await somewhereToWatch();
   await thePassword();
-  sayWhatNext(agent, model);
+  await sayWhatNext(agent, model);
 } catch (error) {
   console.error(`\n${error instanceof Error ? error.message : String(error)}`);
   if (wrote.length) console.error(`\nWhat was written before that:\n${columns(wrote)}`);
@@ -119,14 +130,18 @@ async function theAgent(): Promise<string> {
   const listed = (id: string) => config.includes(`agents/${id}/agent.ts`);
   if (config) console.log("chloe.config.ts is already here, so this leaves it alone.\n");
 
-  let id = "";
+  /** What is wrong with `said` as the new agent's id, or "" when nothing is. */
+  const wrongId = (said: string) =>
+    idProblem(said) ||
+    (existsSync(join(HERE, "agents", said)) && !listed(said) ? `agents/${said} is there already and chloe.config.ts does not list it. Pick another.` : "");
+
+  let id = given.agent ?? "";
+  if (id && wrongId(id)) throw new Error(`--agent ${id}: ${wrongId(id)}`);
   while (!id) {
     const said = (await ask("What is your first agent called? (starter) ")).trim() || "starter";
-    const problem = idProblem(said);
+    const problem = wrongId(said);
     if (problem) console.log(`  ${problem}`);
-    else if (existsSync(join(HERE, "agents", said)) && !listed(said)) {
-      console.log(`  agents/${said} is there already and chloe.config.ts does not list it. Pick another.`);
-    } else id = said;
+    else id = said;
   }
 
   for (const file of starterFiles(id)) {
@@ -452,16 +467,19 @@ async function somewhereToWatch(): Promise<void> {
 async function thePassword(): Promise<void> {
   const { hasAccount } = await import("#chloe/serve/login");
   if (hasAccount()) return void console.log("\nThis copy already has a password. npx chloe account sets a new one.");
+  if (nobodyHere) return void console.log("\nNo password yet. Run npx chloe account at a keyboard to set one.");
 
   console.log("\nThe one password. It is what the page on this box asks for, and what npx chloe agent signs in with.");
   await setPassword();
   written("data/", "the account, and the run history");
 }
 
-function sayWhatNext(id: string, model: string): void {
+async function sayWhatNext(id: string, model: string): Promise<void> {
+  const { hasAccount } = await import("#chloe/serve/login");
   if (wrote.length) console.log(`\nWritten:\n${columns(wrote)}`);
   console.log(
     `\nTry these:\n${columns([
+      ...(hasAccount() ? [] : ([["npx chloe account", "set the password first: the page and npx chloe agent ask for it"]] as [string, string][])),
       ["npx chloe", "the server: every cron line, the page, the API"],
       [`npx chloe agent ${id}`, "talk to it in this terminal"],
       ...(model ? ([[`npx chloe agent ${id} summary`, "run the prompt job now"]] as [string, string][]) : []),

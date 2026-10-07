@@ -12,6 +12,7 @@ See https://chloejs.org.
 
 ${bold("Starting out")}
   npx chloe setup                write the files, pick a model, set the password
+  npx chloe setup --yes          the same, taking every default (--agent <id> names it)
   npx chloe                      run it: every agent, every cron line, one page
 
 ${bold("Every day")}${dim("  (these talk to a running chloe, so leave npx chloe going)")}

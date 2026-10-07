@@ -15,6 +15,18 @@
  */
 let spare = "";
 
+/** Set by `takeDefaults()`: every question is shown and answered with nothing typed. */
+let unattended = false;
+
+/**
+ * From here on every question takes its default, as if Enter was pressed, and
+ * nothing is read. For a run with nobody at a keyboard, which would otherwise
+ * wait for ever on a read that never comes back.
+ */
+export function takeDefaults(): void {
+  unattended = true;
+}
+
 /**
  * One line from the terminal. A hidden one is not printed back, so a password is
  * not left on the screen or in the scrollback. Read a character at a time rather
@@ -23,6 +35,10 @@ let spare = "";
  */
 function line(question: string, hide: boolean): Promise<string> {
   process.stdout.write(question);
+  if (unattended) {
+    process.stdout.write("\n");
+    return Promise.resolve("");
+  }
   return new Promise((done, fail) => {
     const input = process.stdin;
     const wasRaw = input.isRaw;

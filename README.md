@@ -23,6 +23,11 @@ use and makes one call to be sure it answers, then runs the job that asks no
 model, so the first thing you see is a finished run. Run it again later and it
 leaves what is already there alone.
 
+For a coding agent, `npx skills add carlosmartinezt/chloejs` gives it the steps
+and the rules that are easy to get wrong. `npx chloe setup --agent <id>` asks
+nothing when there is no keyboard: every question takes its default, and the
+password is left for `npx chloe account`.
+
 - **No build step in your project**, and an edit to a job is live in under a second
 - **One dependency**, zod, and one SQLite file
 - **Node 22.18** or newer
