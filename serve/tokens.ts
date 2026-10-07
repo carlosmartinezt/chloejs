@@ -11,7 +11,7 @@
 // The token itself is shown once, when it is made, and never stored. What is
 // kept is its sha256, so this file leaking is not the same as the tokens
 // leaking. Losing one means revoking it and making another.
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import crypto from "node:crypto";
 
 import { STATE } from "#chloe/core/paths";
@@ -39,15 +39,33 @@ export interface Token {
 }
 
 let held: Token[] | undefined;
+/** When the file was last changed as `held` was read, 0 for no file. */
+let heldAt = 0;
 
+/** When the file was last changed, or 0 when there is none. */
+function changedAt(): number {
+  try {
+    return statSync(FILE).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * The tokens, read again whenever the file changed, because `npx chloe tokens`
+ * writes it from another process while the service is running, and a token
+ * made there has to work here without a restart.
+ */
 function read(): Token[] {
-  if (held) return held;
+  const at = changedAt();
+  if (held && at === heldAt) return held;
   try {
     held = JSON.parse(readFileSync(FILE, "utf8")) as Token[];
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     held = [];
   }
+  heldAt = at;
   return held;
 }
 
@@ -56,6 +74,7 @@ function write(tokens: Token[]): void {
   writeFileSync(FILE, JSON.stringify(tokens, null, 2), { mode: 0o600 });
   chmodSync(FILE, 0o600);
   held = tokens;
+  heldAt = changedAt();
 }
 
 /** Every token, revoked ones included, newest first. Never the secrets: there are none to give. */

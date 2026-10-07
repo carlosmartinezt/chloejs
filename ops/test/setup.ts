@@ -9,7 +9,7 @@ import { work } from "./shared.ts";
 {
   about("the files npx chloe setup writes");
 
-  const { identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } = await import("#chloe/ops/starter");
+  const { GUIDES, identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } = await import("#chloe/ops/starter");
   const { resolveAgent, jobsOf, markdownJob } = await import("#chloe/load/load");
   const { ROOT, settings } = await import("@chloejs/core");
 
@@ -28,6 +28,9 @@ import { work } from "./shared.ts";
   is("chloe.config.ts names the agent it wrote", config.includes('from "./agents/watcher/agent.ts"'), true);
   is("and lists it, because an agent not on the list does not exist", config.includes("agents: [watcher]"), true);
   is("it has the line setup puts the chosen model in", config.includes(STARTER_MODEL_LINE), true);
+  is("AGENTS.md sends a coding agent to the guides for the installed version", files.find((one) => one.path === "AGENTS.md")?.body.includes(GUIDES), true);
+  is("which the build writes into dist/docs", GUIDES, "node_modules/@chloejs/core/dist/docs/README.md");
+  is("and CLAUDE.md reads AGENTS.md", files.find((one) => one.path === "CLAUDE.md")?.body, "@AGENTS.md\n");
   is(
     "and the model goes in as a setting, with preferredRoute as a list",
     modelLine({ defaultModel: "anthropic/claude-sonnet-5", preferredRoute: "gateway,claude" }),

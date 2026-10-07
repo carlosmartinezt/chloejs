@@ -12,8 +12,12 @@
 export interface Starter {
   path: string;
   body: string;
-  /** Lines to add to a file that is already there, rather than a file to write. */
-  add?: boolean;
+  /**
+   * Added to a file that may already be there, rather than written only when it
+   * is not: `"lines"` adds each line the file does not have (a .gitignore),
+   * `"whole"` adds the body below what is there unless its first line already is.
+   */
+  add?: "lines" | "whole";
 }
 
 /**
@@ -58,7 +62,9 @@ export function starterFiles(agent: string): Starter[] {
     { path: `agents/${agent}/instructions.md`, body: instructions(agent) },
     { path: `agents/${agent}/jobs/daily-note.ts`, body: DAILY_NOTE },
     { path: `agents/${agent}/jobs/summary.md`, body: SUMMARY },
-    { path: ".gitignore", body: IGNORE, add: true },
+    { path: ".gitignore", body: IGNORE, add: "lines" },
+    { path: "AGENTS.md", body: AGENTS, add: "whole" },
+    { path: "CLAUDE.md", body: "@AGENTS.md\n", add: "whole" },
   ];
 }
 
@@ -190,6 +196,23 @@ memoryWriteFile. If there are no notes yet, write that.
 Nothing else. This job is here to prove that a model, its tools and your memory
 all work, and to be replaced by something you actually want. It has no cron
 line, so it runs when you start it and not before.
+`;
+
+/** Where the guides are in the package, from the project's own folder. */
+export const GUIDES = "node_modules/@chloejs/core/dist/docs/README.md";
+
+// What a coding agent reads first in this project, every session. Only where
+// the guides are, so it cannot drift from them: they are the version installed.
+// CLAUDE.md beside it says "@AGENTS.md", which is how Claude Code reads it.
+const AGENTS = `# Chloe
+
+This project's agents run on Chloe (@chloejs/core). Before writing or changing
+an agent, a job, a tool, a channel or a setting, read
+
+    ${GUIDES}
+
+It lists the guides for the version installed here and what each one covers.
+\`npx chloe help\` lists every command.
 `;
 
 const IGNORE = `node_modules

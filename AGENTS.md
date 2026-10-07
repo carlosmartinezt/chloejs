@@ -16,17 +16,30 @@ Two files to read first, and which one depends on what you are doing:
 
 This repo is the runtime, and the package is the whole of it: what is at the
 top is what is published, less `test-agent/` and `chloe.config.ts`, which are
-here so the runtime's own tests have an agent to load.
+here so the runtime's own tests have an agent to load, and `example/` and
+`skills/`.
 
-Two other repos sit beside this one, and neither is in it:
-`@chloejs/ui` is the dashboard, a package the runtime works
-without and never names. `chloejs-site` is chloejs.org: the
-written docs, the examples, and a reference read out of this source on every
-build, so a doc comment here is what the site says and a renamed export that a
-doc quotes fails that site's next build. A push to `main` here rebuilds it.
-The example agent, a small shop's back office that the docs quote, lives there
-too, under `example/`, and its `services/` folder stands in for the order, customer
-and stock systems, which is why it runs with nothing installed.
+**The guides are here too, and ship in the package.** `docs/` is every written
+page, and `ops/docs.ts` fills in their code and writes them into `dist/docs/` on
+every build, with a `README.md` listing them, so whoever installed chloe reads
+the guides for the version they have. `npx chloe setup` writes an `AGENTS.md`
+into the project that sends a coding agent there. A change here that changes
+what a guide says changes the guide in the same commit: that is the reason they
+live here and not beside the site. No page writes its own code. Each block
+names a file, `file=example/jobs/restock.ts` or `file=index.ts#defineJob`, and
+`npm run check` fails when one has moved.
+
+`example/` is the agent the guides quote, a small shop's back office, and a
+project of its own with its own `chloe.config.ts`: `npm run example` runs the
+runtime's tests and its own inside it. Its `services/` folder stands in for the
+order, customer and stock systems, which is why it runs with nothing installed,
+and `site/server.ts` is the shop's web server, the one a chat box needs.
+
+Two other repos sit beside this one, and neither is in it: `@chloejs/ui` is the
+dashboard, a package the runtime works without and never names, and
+`chloejs-site` is chloejs.org, which renders `docs/` with `ops/docs.ts` and adds
+a reference read out of this source, so a doc comment here is what the site
+says. A push to `main` here rebuilds it.
 
 ## What it is trying to be
 
@@ -192,7 +205,7 @@ The test is which sentence is true. I know the operations and the order: `step`.
 I know the question and the shape of the answer: `model`. I know the outcome and
 the tools and nothing about the order: `agent`.
 
-In chloejs-site, `example/jobs/restock.ts` is the shape to copy for the middle one: code works
+`example/jobs/restock.ts` is the shape to copy for the middle one: code works
 out what to buy and buys it, and the one model step writes the line the buyer
 reads. `example/jobs/why-they-left.ts` is the shape for the top one, and note
 how little of that file is the agent step.
@@ -261,10 +274,14 @@ beside it is the files it writes, as text, and `terminal.ts` is how those two as
 a person something. A job lives in `jobs/` whether
 it is code or a prompt, and whether or not it has a cron line: one folder.
 
-`skills/chloejs/SKILL.md` is what a coding agent reads to install chloe and
-build on it, installed with `npx skills add carlosmartinezt/chloejs`. It is not
-in the package and nothing checks it, so a renamed export or setting it names
-is changed there in the same commit.
+`skills/chloejs/SKILL.md` is what a coding agent installs with `npx skills add
+carlosmartinezt/chloejs`. It says how to install chloe and where the guides are
+in the package, and nothing else, so it cannot fall behind them.
+
+`tokens.ts` makes, lists and revokes the tokens other systems use, the same as
+the dashboard does, because anything needed to set an agent up has to be
+possible from a command: whoever is setting it up may be a program that cannot
+click.
 
 The runtime is the floor everyone stands on, so nothing in it may name an agent
 or a person, and nothing in `model/tools/` or `channels/` exports a

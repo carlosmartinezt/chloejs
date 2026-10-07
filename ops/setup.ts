@@ -24,7 +24,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import { identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } from "./starter.ts";
+import { GUIDES, identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } from "./starter.ts";
 import { ask, askHidden, pick, setPassword, takeDefaults, yes } from "./terminal.ts";
 
 /** The folder being set up: where the person ran the command. */
@@ -147,13 +147,20 @@ async function theAgent(): Promise<string> {
   for (const file of starterFiles(id)) {
     const path = join(HERE, file.path);
     if (file.add) {
-      // .gitignore: only the lines it does not have, so a project with its own
-      // keeps it. data/ and .env are state and secrets.
+      // A file the project may have already, added to and never replaced, so
+      // a project with its own .gitignore or AGENTS.md keeps it.
       const held = existsSync(path) ? readFileSync(path, "utf8") : "";
-      const lines = file.body.trim().split("\n").filter((line) => !held.split("\n").includes(line));
-      if (lines.length === 0) continue;
-      appendFileSync(path, `${held && !held.endsWith("\n") ? "\n" : ""}${lines.join("\n")}\n`);
-      written(file.path, `${lines.join(", ")} ignored`);
+      const gap = held && !held.endsWith("\n") ? "\n" : "";
+      if (file.add === "lines") {
+        const lines = file.body.trim().split("\n").filter((line) => !held.split("\n").includes(line));
+        if (lines.length === 0) continue;
+        appendFileSync(path, `${gap}${lines.join("\n")}\n`);
+        written(file.path, `${lines.join(", ")} added`);
+      } else {
+        if (held.split("\n").includes(file.body.split("\n")[0])) continue;
+        appendFileSync(path, held ? `${gap}\n${file.body}` : file.body);
+        written(file.path, held ? "added to" : "written");
+      }
       continue;
     }
     if (existsSync(path)) continue;
@@ -486,7 +493,10 @@ async function sayWhatNext(id: string, model: string): Promise<void> {
       ["npx chloe install", "keep it running after you close this terminal"],
     ])}`,
   );
-  console.log("\nWhat to write next, and every setting there is: https://chloejs.org/docs/start");
+  console.log(`\nWhat to write next, and every setting there is: ${GUIDES}`);
+  // Whoever ran this without a keyboard is most likely a coding agent, about to
+  // build what somebody asked for, and the guides it needs are already here.
+  if (nobodyHere) console.log(`Read that before writing any code: it is the guides for this version. AGENTS.md here says so for later sessions.`);
 }
 
 /**

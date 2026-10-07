@@ -1,5 +1,9 @@
 // The api channel.
 
+import { createHash } from "node:crypto";
+import { readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { about, is } from "#chloe/ops/check";
 import { agentFor, answers, codeJob, row } from "./shared.ts";
 
@@ -41,6 +45,18 @@ import { agentFor, answers, codeJob, row } from "./shared.ts";
     });
 
   is("a token reads the agents", (await asToken("/api/agents")).status, 200);
+
+  // npx chloe tokens writes the file from another process while the service is
+  // running, and a token made there has to work without a restart.
+  const { STATE } = await import("#chloe/core/paths");
+  const file = join(STATE, "tokens.json");
+  const outside = "chloe_made-by-another-process";
+  const list = JSON.parse(readFileSync(file, "utf8")) as object[];
+  list.push({ id: "elsewhere", name: "from a shell", hash: createHash("sha256").update(outside).digest("base64url"), created: new Date().toISOString() });
+  writeFileSync(file, JSON.stringify(list));
+  utimesSync(file, new Date(), new Date(Date.now() + 5_000));
+  const fromShell = await fetch(`${at}/api/agents`, { headers: { authorization: `Bearer ${outside}` } });
+  is("a token another process wrote works at once", fromShell.status, 200);
   is("and one agent's configuration", ((await (await asToken("/api/agents/test")).json()) as { api: boolean }).api, true);
   is("which says the other one is not on the api", ((await (await asToken("/api/agents/closed")).json()) as { api: boolean }).api, false);
 

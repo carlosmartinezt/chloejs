@@ -23,10 +23,11 @@ use and makes one call to be sure it answers, then runs the job that asks no
 model, so the first thing you see is a finished run. Run it again later and it
 leaves what is already there alone.
 
-For a coding agent, `npx skills add carlosmartinezt/chloejs` gives it the steps
-and the rules that are easy to get wrong. `npx chloe setup --agent <id>` asks
-nothing when there is no keyboard: every question takes its default, and the
-password is left for `npx chloe account`.
+For a coding agent: `npx chloe setup --agent <id>` asks nothing when there is
+no keyboard, taking every default and leaving the password for `npx chloe
+account`. It writes an `AGENTS.md` that sends the agent to the guides in
+`node_modules/@chloejs/core/dist/docs/`, for the version installed, and `npx
+skills add carlosmartinezt/chloejs` gets it that far before anything is.
 
 - **No build step in your project**, and an edit to a job is live in under a second
 - **One dependency**, zod, and one SQLite file
@@ -346,7 +347,10 @@ channels/    the ways in, for an agent to bind
 chat/        the chat box a web page loads, and the client it is built on:
              plain JavaScript, served at /api/web/
 ops/         cli.ts, which is `npx chloe`, and what it runs: the tests, the
-             evals, talking to an agent, setting the password, and install.sh
+             evals, talking to an agent, setting the password, tokens, and
+             install.sh. docs.ts writes the guides into the package
+docs/        the guides, published filled in as dist/docs/
+example/     the shop agent the guides quote, a project of its own. Not published
 test-agent/  the agent the tests load. Not published
 ```
 
@@ -361,8 +365,9 @@ and `/fs`.
 Start with a job that asks nobody anything. Add the step that needs judgement
 when you find it, and read what it cost.
 
-The docs are at [chloejs.org](https://chloejs.org). Its reference pages are read
-out of this source on every push to `main`, so they cannot describe a version of
-the code that does not exist.
+The guides are in `docs/`, and in the package as `dist/docs/`, for the version
+installed. [chloejs.org](https://chloejs.org) shows the latest, and its
+reference pages are read out of this source on every push to `main`, so they
+cannot describe a version of the code that does not exist.
 
 MIT.

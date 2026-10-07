@@ -24,12 +24,15 @@ ${bold("Every day")}${dim("  (these talk to a running chloe, so leave npx chloe 
 
 ${bold("Looking after it")}
   npx chloe account              set the password for the page, or a new one later
+  npx chloe tokens               list the tokens other systems use to reach the API
+  npx chloe tokens make <name> --agent <id>   make one, for a site's chat box say
+  npx chloe tokens revoke <id>   stop one working
   npx chloe install              keep it running after a reboot (Linux or macOS)
 
 Run it from the folder with chloe.config.ts in it, which setup writes.
 `;
 
-const WORDS = ["setup", "account", "agent", "evals", "install"];
+const WORDS = ["setup", "account", "agent", "evals", "install", "tokens"];
 
 const word = process.argv[2];
 
