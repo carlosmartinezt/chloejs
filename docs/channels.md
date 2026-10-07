@@ -219,8 +219,11 @@ npx chloe tokens make "shop site" --agent shop
 
 3. Give your site one route that hands its page a pass, and put the box on the
    page, pointed at that route. This is the whole of a site that does both, in
-   plain Node: it keeps an id for each visitor in a cookie only it can read,
-   asks the agent for a pass with the token, and hands the answer on.
+   plain Node: a signed-in customer is their customer id, from the shop's own
+   sign-in and nowhere else, anybody else gets a random id in a cookie, and it
+   asks the agent for a pass with the token and hands the answer on. Who the
+   visitor is decides what the agent's tools show them, so it never comes from
+   anything the visitor could write.
 
 ```ts file=example/site/server.ts
 ```

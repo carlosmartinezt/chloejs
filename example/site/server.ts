@@ -10,7 +10,7 @@
 // which is the runtime itself. On one machine, both are http://127.0.0.1:3067,
 // and the channel's `origins` has to include http://localhost:8080.
 import { randomUUID } from "node:crypto";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 
 const BOX = "https://agent.myshop.com";
 const CHLOE = "http://127.0.0.1:3067";
@@ -23,22 +23,37 @@ const PAGE = `<!doctype html>
 <script src="${BOX}/api/web/chat.js" data-agent="${AGENT}" data-pass="/api/chat-pass" async></script>
 `;
 
+/**
+ * The customer id of whoever sent this, from the shop's own sign-in, or nothing
+ * for somebody not signed in. The shop's sessions go here. It is the only place
+ * a customer id may come from: the agent's order tool shows that customer's
+ * orders to whoever holds a pass made for them.
+ */
+function customerOf(request: IncomingMessage): string | undefined {
+  return undefined;
+}
+
+/** An id for somebody not signed in, which can never be a customer's. */
+const ANONYMOUS = /^anon-[0-9a-f-]{36}$/;
+
 createServer(async (request, response) => {
   if (request.method === "POST" && request.url === "/api/chat-pass") {
-    // The site's own id for the visitor, in a cookie only this server reads, so
-    // the same person finds the same conversation tomorrow.
-    const visitor = /(?:^|; )visitor=([\w-]+)/.exec(request.headers.cookie ?? "")?.[1] ?? randomUUID();
+    // A signed-in customer is their customer id. Anybody else gets a random id
+    // in a cookie, so they find the same conversation tomorrow, and a cookie is
+    // believed only when it holds one of those: whoever writes a customer's id
+    // into it gets a new anonymous one instead, never that customer's orders.
+    const kept = /(?:^|; )visitor=([^;]+)/.exec(request.headers.cookie ?? "")?.[1] ?? "";
+    const visitor = customerOf(request) ?? (ANONYMOUS.test(kept) ? kept : `anon-${randomUUID()}`);
     const asked = await fetch(`${CHLOE}/api/agents/${AGENT}/web/pass`, {
       method: "POST",
       headers: { authorization: `Bearer ${process.env.CHLOE_TOKEN}`, "content-type": "application/json" },
-      // Whatever the agent should know about them: a signed-in customer's id,
-      // their name, their plan.
+      // Whatever the agent should know about them: their name, their plan.
       body: JSON.stringify({ visitor, facts: {} }),
     });
     // Handed on as it came: the pass, when it runs out, and the agent's greeting.
     response.writeHead(asked.ok ? 200 : 502, {
       "content-type": "application/json",
-      "set-cookie": `visitor=${visitor}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000`,
+      ...(ANONYMOUS.test(visitor) && { "set-cookie": `visitor=${visitor}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000` }),
     });
     return void response.end(await asked.text());
   }
