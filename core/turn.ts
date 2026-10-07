@@ -14,6 +14,7 @@ import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
+import { userNotes } from "#chloe/model/tools/memory";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ToolContext, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { NeedsSignIn } from "#chloe/connections/connection";
@@ -43,6 +44,13 @@ export interface Ask {
    * written. Never the final answer, which is what turn() returns.
    */
   said?: (text: string) => void;
+  /** Handed each tool's name, and its title when it has one, as it starts: for a channel that shows what the agent is doing. */
+  calling?: (tool: { name: string; title?: string }) => void;
+  /**
+   * Handed the model's words as they are written, on a route on a key. Words
+   * written before a tool call come this way too, and then to `said`.
+   */
+  writing?: (delta: string) => void;
   /**
    * The person on the other end of a channel, by name. The model is told it is
    * talking to them, so it writes to them as "you" rather than about them.
@@ -52,6 +60,13 @@ export interface Ask {
   owner?: string;
   /** Tools this turn is not given, by name, though the agent has them: a channel that should not reach them. */
   without?: string[];
+  /** Somebody nobody vouched for, like a visitor on a web page: a sign-in a tool needs is never started for them. */
+  stranger?: boolean;
+  /**
+   * Who the turn is for, as `channel:id`: handed to every tool as `context.user`,
+   * and, for an agent with `memoryPerUser`, whose note it is shown.
+   */
+  user?: string;
   /** Answer tools from here instead of running them. For evals. */
   instead?: (name: string, args: unknown) => Promise<unknown> | unknown;
   signal?: AbortSignal;
@@ -88,7 +103,7 @@ function stopWhenOf(agent: Agent): StopCondition<any>[] {
  * Runs a prompt: ask a model, run the tools it asked for, put the answers
  * back, ask again, until it stops asking.
  */
-export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, talkingTo, owner, without, instead, signal }: Ask): Promise<Result> {
+export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, stranger, user, instead, signal }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? modelFor(agent);
 
@@ -99,8 +114,10 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   runChanged(runId);
 
   const overviews = await overviewsOf(toolsFor(agent, without));
+  // In the instructions rather than the message, so it is not kept in the conversation again each turn.
+  const note = user && toolsFor(agent, without).memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -109,7 +126,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   db.prepare("update runs set context = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), runId);
   if (thread) remember(thread, "user", prompt);
 
-  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, without, instead, signal });
+  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, stranger, user, instead, signal });
 }
 
 /**
@@ -261,14 +278,18 @@ async function go(options: {
   source: string;
   thread?: string;
   said?: Ask["said"];
+  calling?: Ask["calling"];
+  writing?: Ask["writing"];
   without?: string[];
+  stranger?: boolean;
+  user?: string;
   instead?: Ask["instead"];
   /** Steps already taken, which the agent's `stopWhen` counts. */
   before?: number;
   carried?: boolean;
   signal?: AbortSignal;
 }): Promise<Result> {
-  const { agent, runId, trace, job, source, thread, said, instead } = options;
+  const { agent, runId, trace, job, source, thread, said, calling, writing, instead } = options;
   const tools = toolsFor(agent, options.without);
   const before = answers(trace);
   const calls: Result["calls"] = [];
@@ -283,12 +304,14 @@ async function go(options: {
         model: options.model,
         messages: options.messages,
         tools,
-        context: { agent },
+        context: { agent, ...(options.user && { user: options.user }) },
         stopWhen: stopWhenOf(agent),
         before: options.before,
         toolApproval: agent.toolApproval,
         signal: options.signal,
         instead,
+        onCall: calling && ((name) => calling({ name, title: tools[name]?.title })),
+        onText: writing,
         onStep: (line) => {
           trace.push({ ...line, step: line.step + before });
           if (said && line.say?.trim() && line.wants?.length) said(line.say);
@@ -302,7 +325,7 @@ async function go(options: {
     const cost = costOf(trace);
     // A sign-in somebody can do from here is an answer, not a failure: the
     // runtime starts it and the reply is the connection's own words and link.
-    const signIn = done.stopped === "sign-in" && done.signIn ? await signInReply(tools, done.signIn, Boolean(thread)) : undefined;
+    const signIn = done.stopped === "sign-in" && done.signIn && !options.stranger ? await signInReply(tools, done.signIn, Boolean(thread)) : undefined;
     if (done.stopped && !signIn) {
       fail(runId, done.text, steps, cost, trace);
       await committed({ error: done.text });
@@ -402,6 +425,10 @@ export async function loop(options: {
   /** Carrying on from a call that waited for a person: the calls left, the first being that one, and what was decided. */
   resume?: { calls: ToolCall[]; decided: Decided };
   onStep?: (line: LoopStep) => void;
+  /** Handed the name of each tool it has as the call starts, before it is known whether it may run. */
+  onCall?: (name: string) => void;
+  /** Handed the model's words as they are written, on a route that streams them. */
+  onText?: (delta: string) => void;
 }): Promise<{
   text: string;
   steps: number;
@@ -425,7 +452,7 @@ export async function loop(options: {
     if (resume) {
       toolCalls = resume.calls;
     } else {
-      const answer = await ask({ model: options.model, messages: options.messages, tools: specs, signal: options.signal });
+      const answer = await ask({ model: options.model, messages: options.messages, tools: specs, signal: options.signal, onText: options.onText });
       cost += answer.cost;
       options.onStep?.({ step: steps, at: new Date().toISOString(), say: answer.text, ...(answer.dropped && { dropped: answer.dropped }), wants: answer.toolCalls.map((c) => c.function.name), cost: answer.cost });
 
@@ -449,6 +476,7 @@ export async function loop(options: {
     for (const [n, call] of toolCalls.entries()) {
       const at = new Date().toISOString();
       const decided = resume && n === 0 ? resume.decided : undefined;
+      if (options.tools[call.function.name]) options.onCall?.(call.function.name);
       const ran = await runTool(options.tools, call, { context: options.context, instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided });
       if ("person" in ran) {
         return { text: "", steps, cost, calls, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
@@ -588,9 +616,10 @@ function toolsFor(agent: Agent, without: string[] = []): Tools {
   return tools;
 }
 
-function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string): string {
+function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = ""): string {
   const parts = [agent.instructions];
   if (person) parts.push(talkingWith(person));
+  if (note) parts.push(`## Your note on them\n\n${note}`);
   if (overviews) parts.push(overviews);
   if (agent.skills.length > 0) {
     parts.push(

@@ -44,14 +44,36 @@ function unquote(value: string): string {
 /** Words in a file, read when they are needed rather than as the agent loads. */
 export interface Prompt {
   file: string;
+  /** Other files put after the words, each in a tag of its name. */
+  include?: Record<string, string>;
 }
 
 /**
  * Declares words in a markdown file inside the agent's folder: its
  * instructions, or a job's prompt.
+ *
+ * `include` puts other files after them, each wrapped in a tag of its name,
+ * for what the words are about and is kept somewhere else:
+ *
+ * ```ts
+ * prompt("instructions.md", { include: { cv: "/home/you/cv.md" } })
+ * ```
+ *
+ * is the words, then `<cv>` and the file's contents. A path is the agent's
+ * folder's when it is not a full one. The files are watched like the agent's
+ * own, so an edit is live in a second, and one that is missing stops the agent
+ * loading, saying which.
  */
-export function prompt(file: string): Prompt {
-  return { file };
+export function prompt(file: string, options: { include?: Record<string, string> } = {}): Prompt {
+  for (const name of Object.keys(options.include ?? {})) {
+    if (!/^[a-z][\w-]*$/i.test(name)) throw new Error(`prompt("${file}") includes a file as ${JSON.stringify(name)}, which is not a name for a tag. Use a word, like cv.`);
+  }
+  return { file, ...(options.include && { include: options.include }) };
+}
+
+/** The files a prompt includes, as full paths. */
+export function includedIn(from: unknown, dir: string): string[] {
+  return isPrompt(from) ? Object.values(from.include ?? {}).map((one) => resolve(dir, one)) : [];
 }
 
 /** Whether a value is a declared prompt rather than words written inline. */
@@ -77,7 +99,15 @@ export async function readPrompt(
   // read it out to a model as if it were instructions.
   const words = settingsAndBody(text).body;
   if (!words.trim()) throw new Error(`${options.where} points at ${JSON.stringify(from.file)}, which is empty.`);
-  return words;
+  const included = await Promise.all(
+    Object.entries(from.include ?? {}).map(async ([name, path]) => {
+      const there = await readFile(resolve(options.dir, path), "utf8").catch(() => {
+        throw new Error(`${options.where} includes ${path} as ${name}, which is not there.`);
+      });
+      return `<${name}>\n${there.trim()}\n</${name}>`;
+    }),
+  );
+  return [words.trim(), ...included].join("\n\n");
 }
 
 /**

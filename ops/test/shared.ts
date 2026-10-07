@@ -49,13 +49,26 @@ export const gateway = createServer((request, response) => {
       lastTools = (sent.tools ?? []).map((one) => one.function?.name ?? "");
     }
     const next = naming ? `"Late orders."` : (answers.shift() ?? "{}");
+    const usage = { cost: 0.0002, prompt_tokens: 10, completion_tokens: 10 };
+    const message = typeof next === "string" ? { content: next } : next;
+    if ((sent as { stream?: boolean }).stream) {
+      // Streamed, the words come in two pieces, so a case can see that they came as they were written.
+      const words = message.content ?? "";
+      const half = Math.ceil(words.length / 2);
+      const chunk = (delta: object, end?: string) =>
+        `data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: end ?? null }], ...(end && { usage }) })}\n\n`;
+      const calls = (message.tool_calls ?? []).map((one, index) => ({ index, ...(one as object) }));
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(
+        (words ? chunk({ role: "assistant", content: words.slice(0, half) }) + chunk({ content: words.slice(half) }) : "") +
+          (calls.length ? chunk({ tool_calls: calls }) : "") +
+          chunk({}, calls.length ? "tool_calls" : "stop") +
+          "data: [DONE]\n\n",
+      );
+      return;
+    }
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(
-      JSON.stringify({
-        choices: [{ message: typeof next === "string" ? { content: next } : next }],
-        usage: { cost: 0.0002, prompt_tokens: 10, completion_tokens: 10 },
-      }),
-    );
+    response.end(JSON.stringify({ choices: [{ message }], usage }));
   });
 });
 await new Promise<void>((done) => gateway.listen(0, "127.0.0.1", done));

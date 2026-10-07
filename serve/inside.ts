@@ -10,7 +10,10 @@ import { routeFor } from "#chloe/model/model";
 import { connectionsUsed, descriptionOf } from "#chloe/model/tool";
 import type { Agent } from "#chloe/load/load";
 import { collectsAt } from "#chloe/channels/whatsapp";
+import { webOf } from "#chloe/channels/web";
+import { money } from "#chloe/core/turn";
 import { BadRequest, NotFound } from "./errors.ts";
+import { spent } from "./web.ts";
 
 /** One way in or one way out, said the same way so one page draws both. */
 export interface Way {
@@ -151,6 +154,20 @@ export function channelsOf(agent: Agent): Way[] {
             (box ? ` Paste ${box} into the app's WhatsApp page: that is the post box it collects from.` : ""),
           needs: `agents.${agent.id}.whatsapp`,
           ready: filled(whatsapp?.phone_number_id) && filled(whatsapp?.token) && filled(whatsapp?.app_secret),
+          settings: how,
+        };
+      }
+      const web = channel.name === "web" ? webOf(agent) : undefined;
+      if (web) {
+        const day = spent(agent.id);
+        return {
+          name: "web",
+          does:
+            `A chat box on a web page, for anybody who visits ${web.origins.join(" or ")}. ` +
+            `The last 24 hours: ${day.visitors} ${day.visitors === 1 ? "visitor" : "visitors"}, ${day.messages} ${day.messages === 1 ? "message" : "messages"}, ` +
+            `${money(day.dollars)} of the ${money(web.limits.perDay.dollars)} it may spend.`,
+          needs: "",
+          ready: null,
           settings: how,
         };
       }

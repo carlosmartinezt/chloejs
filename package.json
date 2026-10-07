@@ -124,7 +124,7 @@
     "human-in-the-loop"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp -r chat dist/chat",
     "prepack": "npm run build",
     "start": "node --conditions=chloe-source server.ts",
     "setup": "node --conditions=chloe-source ops/setup.ts",

@@ -177,7 +177,7 @@ resume, so it must not send, write or spend.
 | Agents | Tools, approvals and a budget, set where the step is written. |
 | Tools | A description, a schema and one call. Typed at both ends. A tool that needs somebody signed in brings that with it. |
 | Human approvals | A run parks for days and carries on when somebody answers. |
-| Channels | Telegram, Slack, WhatsApp and email, one file each, and no dependency of their own. A question goes out where the person is. |
+| Channels | Telegram, Slack, WhatsApp, email and a chat box on your website, one file each, and no dependency of their own. A question goes out where the person is. |
 | Memory | A folder of notes per agent, in one git repository of their own: one commit per run, under the agent's id. |
 | Self-improvement | An agent can rewrite its skills, jobs and instructions if you let it, never its code. Every change can be undone. |
 | Run history | Every step of every run, with its arguments and its answer. |
@@ -338,6 +338,8 @@ scorers/     how a run is marked
 services/    the work itself, called straight from a job, published as
              "@chloejs/core/services"
 channels/    the ways in, for an agent to bind
+chat/        the chat box a web page loads, and the client it is built on:
+             plain JavaScript, served at /api/web/
 ops/         cli.ts, which is `npx chloe`, and what it runs: the tests, the
              evals, talking to an agent, setting the password, and install.sh
 test-agent/  the agent the tests load. Not published

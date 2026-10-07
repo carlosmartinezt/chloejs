@@ -408,17 +408,22 @@ function countFailure(from: string): void {
  * binding loopback: nothing else can reach this port to set these headers.
  */
 export function from(request: IncomingMessage): string {
+  const address = addressOf(request);
+  // Through the dashboard, the address is the browser's as the dashboard saw it, and
+  // the audit log and the console say whose account it was signed in to.
+  const user = relayedBy(request);
+  return user === null ? address : `${address} via dashboard as ${user}`;
+}
+
+/** The address a request came from, as `from()` reads it, without saying who relayed it. */
+export function addressOf(request: IncomingMessage): string {
   const head = (name: string): string[] => {
     const value = request.headers[name];
     return (Array.isArray(value) ? value[0] : value)?.split(",").map((one) => one.trim()).filter(Boolean) ?? [];
   };
   const cloudflare = head("cf-connecting-ip")[0];
   const forwarded = head("x-forwarded-for").at(-1);
-  const address = cloudflare || forwarded || request.socket.remoteAddress || "unknown";
-  // Through the dashboard, the address is the browser's as the dashboard saw it, and
-  // the audit log and the console say whose account it was signed in to.
-  const user = relayedBy(request);
-  return user === null ? address : `${address} via dashboard as ${user}`;
+  return cloudflare || forwarded || request.socket.remoteAddress || "unknown";
 }
 
 /** True when the proxy in front is speaking HTTPS, so the cookie can be Secure. */

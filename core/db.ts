@@ -123,6 +123,22 @@ if (added("threads", "owner", "text")) {
   }
 }
 
+// Each visitor a web channel has had, per agent: when they came, where from,
+// and the facts the site's own server said about them.
+db.exec(`
+  create table if not exists visitors (
+    agent     text not null,
+    id        text not null,
+    first     text not null,
+    last      text not null,
+    ip        text,
+    country   text,
+    browser   text,
+    facts     text,
+    primary key (agent, id)
+  )
+`);
+
 // When somebody last looked at an agent's changes. One row per agent.
 db.exec("create table if not exists seen (agent text primary key, at text not null)");
 

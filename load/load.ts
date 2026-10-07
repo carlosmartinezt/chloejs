@@ -16,13 +16,13 @@ import type { z } from "zod";
 import { MEMORIES, ROOT, setAgentDirs } from "#chloe/core/paths";
 import { NO_CONFIG } from "#chloe/core/find";
 import { declareSettings, settings as configured, type DeclaredSettings } from "#chloe/core/settings";
-import { isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown";
+import { includedIn, isPrompt, readPrompt, settingsAndBody, type Prompt } from "#chloe/core/markdown";
 import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { cannotRun, type Tools } from "#chloe/model/tool";
 import type { McpConnection } from "#chloe/connections/mcp";
-import { memoryTools } from "#chloe/model/tools/memory";
+import { memoryTools, userNotesTools } from "#chloe/model/tools/memory";
 import { scriptTools } from "#chloe/model/tools/script";
 import { selfTools } from "#chloe/model/tools/self";
 import { makeRepo } from "#chloe/services/historyService";
@@ -363,6 +363,12 @@ export interface Features {
    * true, and refused as it loads when that folder has no scripts.
    */
   runScripts?: boolean;
+  /**
+   * memoryWriteUserNotes, a note per person it talks to, on any channel, in its
+   * memory under users/, shown at the top of that person's turns. The runtime
+   * picks whose from who sent the message. Off unless this says true.
+   */
+  memoryPerUser?: boolean;
 }
 
 /** `selfImprovement` with its file endings worked out, which is what the tools are given. */
@@ -436,6 +442,8 @@ export interface Channel {
    * long as it runs.
    */
   madeWith?: string;
+  /** Asked as the agent loads whether it can be bound to that agent. Throws, saying why, when it cannot, and the agent does not load. */
+  check?(agent: Agent): void;
   /** Starts listening. `agent` is read again for every message, so an edit is live. */
   start(agent: () => Agent | undefined): Running;
 }
@@ -471,6 +479,8 @@ export interface Agent extends Omit<DefinedAgent, "instructions" | "tools" | "jo
   instructions: string;
   /** The file inside its folder those words are in, when they are in one and not written into the definition. */
   instructionsFile?: string;
+  /** Files its instructions and jobs' prompts include, as full paths: watched like its own folder. */
+  included?: string[];
   tools?: Tools;
   skills: Skill[];
   jobs: Job[];
@@ -602,18 +612,30 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
     );
   }
   const home = { id, folder, memory };
-  return {
+  const agent: Agent = {
     ...rest,
     model,
     memory,
     instructions: await readPrompt(definition.instructions, { dir: folder, where }),
     instructionsFile: isPrompt(definition.instructions) ? definition.instructions.file : undefined,
+    included: [
+      ...includedIn(definition.instructions, folder),
+      ...(jobs ?? []).flatMap((one) => includedIn((one as { markdown?: unknown }).markdown, folder)),
+    ],
     tools: toolsOf({ ...(await connectionTools(connections ?? [], where)), ...featureTools(definition.features, home, where), ...tools }, where),
     skills: await skillsIn(`${folder}/skills`),
     jobs: await jobsOf(id, folder, jobs ?? []),
     channels: channelsOf(channels ?? [], where),
     connections: connections ?? [],
   };
+  for (const channel of agent.channels) {
+    try {
+      channel.check?.(agent);
+    } catch (error) {
+      throw new Error(`${where}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return agent;
 }
 
 /**
@@ -675,6 +697,7 @@ function featureTools(features: Features = {}, home: Home, where: string): Tools
     ...(features.memory === false ? {} : memoryTools()(home)),
     ...(self ? selfTools(ownFileRules(self))(home) : {}),
     ...(features.runScripts ? scriptTools()(home) : {}),
+    ...(features.memoryPerUser ? userNotesTools()() : {}),
   };
 }
 

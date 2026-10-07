@@ -225,6 +225,8 @@ export interface Ask {
   tools?: ToolSpec[];
   maxOutputTokens?: number;
   signal?: AbortSignal;
+  /** Handed the words as they are written, on a route on a key. The CLI routes answer whole and never call it. */
+  onText?: (delta: string) => void;
 }
 
 /**

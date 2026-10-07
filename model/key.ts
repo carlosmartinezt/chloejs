@@ -7,7 +7,7 @@
 // toolApproval, stopWhen, the budget and the per-step record are, so it stays ours.
 
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { APICallError, generateText, jsonSchema, RetryError, tool, type LanguageModel, type LanguageModelUsage, type ModelMessage } from "ai";
+import { APICallError, generateText, jsonSchema, RetryError, streamText, tool, type LanguageModel, type LanguageModelUsage, type ModelMessage } from "ai";
 
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 
@@ -160,8 +160,12 @@ function parsed(text: string): unknown {
   }
 }
 
-/** Asks once on a key, by the gateway or the AI SDK model an agent's file gave, and answers in chloe's shape. */
-export async function viaKey({ model, messages, tools, maxOutputTokens, signal }: Ask, route: "gateway" | "direct"): Promise<Answer> {
+/**
+ * Asks once on a key, by the gateway or the AI SDK model an agent's file gave,
+ * and answers in chloe's shape. With `onText` the answer is streamed and its
+ * words handed over as they come; what it costs is read at the end either way.
+ */
+export async function viaKey({ model, messages, tools, maxOutputTokens, signal, onText }: Ask, route: "gateway" | "direct"): Promise<Answer> {
   let reach: LanguageModel;
   let where: string;
   if (route === "gateway") {
@@ -181,7 +185,7 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal }
   }
 
   try {
-    const result = await generateText({
+    const call = {
       model: reach,
       messages: toSdk(messages),
       allowSystemInMessages: true,
@@ -193,7 +197,8 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal }
       // missing model fails the same way forever and is not tried again.
       maxRetries: 3,
       abortSignal: signal ?? AbortSignal.timeout(600_000),
-    });
+    };
+    const result = onText ? await streamed(call, onText) : await generateText(call);
     const toolCalls: ToolCall[] = result.toolCalls.map((call) => ({
       id: call.toolCallId,
       type: "function",
@@ -212,6 +217,20 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal }
   } catch (error) {
     throw new Error(explained(error, where), { cause: error });
   }
+}
+
+/**
+ * One call streamed, its words handed to `onText` as they arrive, and the same
+ * four things generateText would have answered once it ends. A failure in the
+ * middle is thrown, not left as a short answer.
+ */
+async function streamed(call: Parameters<typeof streamText>[0], onText: (delta: string) => void) {
+  let failed: unknown;
+  const result = streamText({ ...call, onError: ({ error }) => void (failed = error) });
+  for await (const delta of result.textStream) onText(delta);
+  if (failed) throw failed;
+  const [text, toolCalls, usage, providerMetadata] = await Promise.all([result.text, result.toolCalls, result.usage, result.providerMetadata]);
+  return { text, toolCalls, usage, providerMetadata };
 }
 
 /** What went wrong, in the words a run record shows. */

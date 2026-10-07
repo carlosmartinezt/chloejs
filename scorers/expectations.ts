@@ -4,7 +4,7 @@
 // eval case, so one judge covers every agent and every job: the file that says
 // what good means is the eval file, which is JSON a person can read and change
 // without touching code.
-import { ask } from "#chloe/model/model";
+import { ask, type Message } from "#chloe/model/model";
 import type { Result } from "#chloe/core/turn";
 import type { Mark } from "./calls.ts";
 
@@ -22,21 +22,25 @@ const JUDGE = `You grade one run of an agent against expectations written by the
 Grade only what is written. Do not invent standards, do not reward extra work nobody asked for, and
 do not excuse a miss because the run was otherwise good. An expectation about what the agent said is
 met only if it actually said it. An expectation about what it did is met only if the tool calls show
-it. When you are not sure, it is not met, and say what you would have needed to see.
+it. When you are not sure, it is not met, and say what you would have needed to see. An
+expectation that says what it should not do is met when it did not do it.
 
 Answer with JSON and nothing else, in this shape:
-{"checks":[{"expectation":"copied back","met":true,"why":"one sentence, quoting the run where you can"}]}
+{"checks":[{"expectation":"the line, copied back whole","met":true,"why":"one sentence, quoting the run where you can"}]}
 One check per expectation, in the order they are given.`;
 
 /**
  * Marks what a run said against what it should have said, by asking a model to
- * judge it.
+ * judge it. `instructions` are the agent's own, shown to the judge as what it
+ * was told, so an expectation like "invents nothing the CV does not say" can be
+ * judged when the CV is in them.
  */
 export async function expectations(
   prompt: string,
   result: Result,
   expected: Expected,
   model: string,
+  instructions?: string,
 ): Promise<Mark> {
   const lines = [
     ...(expected.should ?? []).map((s) => `It should: ${s}`),
@@ -52,15 +56,13 @@ export async function expectations(
     output: JSON.stringify(c.output ?? "").slice(0, 2000),
   }));
 
-  const answer = await ask({
-    model,
-    messages: [
-      { role: "system", content: JUDGE },
-      {
-        role: "user",
+  const messages: Message[] = [
+    { role: "system", content: JUDGE },
+    {
+      role: "user",
         content: `An agent was asked to do a job. Here is what it was told, what was true at the
 time, what it said, and what it did. Grade it against the expectations below.
-
+${instructions ? `\nITS INSTRUCTIONS\n${instructions}\n` : ""}
 WHAT IT WAS ASKED
 ${prompt}
 
@@ -75,12 +77,21 @@ ${JSON.stringify(did, null, 2)}
 
 EXPECTATIONS, one check each, in this order
 ${lines.map((line, i) => `${i + 1}. ${line}`).join("\n")}`,
-      },
-    ],
-  });
-
-  const checks = parse(answer.text);
-  if (!checks) return { score: 0, reason: `The judge did not answer with JSON: ${answer.text.slice(0, 200)}` };
+    },
+  ];
+  let answer = await ask({ model, messages });
+  let checks = parse(answer.text);
+  // Told what was wrong and asked once more, because a judge that writes broken
+  // JSON is a broken judge, and scoring that against the agent would blame it.
+  if (!checks) {
+    messages.push(
+      { role: "assistant", content: answer.text },
+      { role: "user", content: `That is not JSON that reads: ${jsonProblem(answer.text)}. Answer again, with the JSON alone.` },
+    );
+    answer = await ask({ model, messages });
+    checks = parse(answer.text);
+  }
+  if (!checks) return { score: 0, reason: `The judge did not answer with JSON, twice: ${answer.text.slice(0, 200)}` };
 
   const met = checks.filter((c) => c.met).length;
   const score = checks.length === 0 ? 1 : met / checks.length;
@@ -105,6 +116,16 @@ interface Check {
  * inside a code fence or with a sentence in front of it. Take the first
  * object in the text rather than failing the case over punctuation.
  */
+/** What is wrong with the JSON in a judge's answer, in the parser's words. */
+function jsonProblem(text: string): string {
+  try {
+    JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+    return "it has no list of checks";
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 function parse(text: string): Check[] | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");

@@ -52,6 +52,8 @@ export async function overviewsOf(tools: Tools): Promise<string> {
  */
 export interface ToolContext {
   agent: { id: string; folder: string; memory: { folder: string; commit?: boolean | "each run" } };
+  /** Who a conversation's turn is for, as `channel:id`. Set by the runtime from who sent the message, never by a model. */
+  user?: string;
 }
 
 /** The agent a tool is running for, out of the `context` its `execute` was handed. */

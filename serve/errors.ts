@@ -8,3 +8,12 @@ export class NotFound extends Error {}
 
 /** The caller sent something this route cannot take. Answered 400 with the reason. */
 export class BadRequest extends Error {}
+
+/** The caller may not have this, or not now. Answered with `status` (403 unless it says) and the reason. */
+export class Refused extends Error {
+  status: number;
+  constructor(message: string, status = 403) {
+    super(message);
+    this.status = status;
+  }
+}

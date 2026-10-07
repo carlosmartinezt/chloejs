@@ -651,10 +651,32 @@ route means adding an entry, and a route with no description is a route that
 does not compile. Do not answer a path anywhere else.
 
 **Three kinds of caller, and the whole check is in one place** (`api()` in
-`http.ts`): `open` is the four ways in, `token` is another system, and
-everything else is the account. A token may read, and may chat to and fire the
+`http.ts`): `open` is the four ways in and the web channel's routes a page
+calls, which check a visitor pass instead, `token` is another system, and everything else is
+the account. A route with `origins` answers a page on another site, from those
+sites only, and `api()` answers the browser's asking-first (OPTIONS) for it. A token may read, and may chat to and fire the
 jobs of the agents that bind an api channel. It may never write a file, read
 the notes, or touch the tokens.
+
+**A web page reaches an agent because its `agent.ts` lists `webChannel({
+origins, tools })`**, and the routes under `/api/agents/<id>/web/` are
+`serve/web.ts`. A visitor is a stranger: `strangers` in `receive()`'s rules
+takes their message as a turn, `/clear` or an answer to a job that asked them,
+never a command, a model pick or a sign-in, and their turn gets the tools the
+channel names and none of the agent's others. Each turn is refused once the
+visitor or the day is over the channel's `limits`, which are sums over the run
+record, so a model whose calls cost nothing in the record has no limit worth
+the name. Only the site's own server gets a visitor a pass, with a token made
+for that one agent (`makeToken(name, agent)`, which reaches that agent's routes
+and nothing else), and says who the visitor is. The page holds the pass, signed
+with `web-pass.key` in the state folder, and never a token. Each turn notes the
+visitor's address, country and browser in `visitors`, and tells the model
+everything but the address; `memoryPerUser` gives the agent a note per
+person on any channel, `users/<channel>-<id>.md`, chosen from who sent the
+message and never by the model. The box itself is `chat/`, plain JavaScript with no
+build step, served at `/api/web/chat.js` and copied into `dist/` by the build.
+Do not let a web turn reach a memory or self tool, and do not answer a visitor
+with anything the pass does not name.
 
 **A dashboard is something this runtime connects out to, never something that
 reaches in.** `dashboard/connect.ts` opens one WebSocket to `dashboard.remote.url` in

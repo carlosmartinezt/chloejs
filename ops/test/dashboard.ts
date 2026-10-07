@@ -287,6 +287,33 @@ import { agentFor, answer, answers, asked, codeJob, db, lastAsked, live, ownPage
   is("a run that is not there is a 404", (await answer("a6", "POST", "/api/runs/nothing/archive", json, JSON.stringify({ archived: true }))).status, 404);
   live.dashboard.remote.allow.write = false;
 
+  // A visitor through the dashboard's public address: the web routes only,
+  // needing no switch, since each checks a token or a pass itself, and a turn
+  // streamed up in pieces when asked for.
+  const { webChannel } = await import("#chloe/channels/web");
+  keeper.channels = [webChannel({ origins: ["https://myshop.com"] })];
+  const fromPage = { origin: "https://myshop.com", "content-type": "application/json" };
+  const { makeToken } = await import("#chloe/serve/tokens");
+  const siteServer = { authorization: `Bearer ${makeToken("the shop's site", "test").secret}`, "content-type": "application/json" };
+  const asking = JSON.stringify({ visitor: "through-the-dashboard" });
+  is("a pass is refused without the site's token", (await answer("w1b", "POST", "/api/agents/test/web/pass", fromPage, asking)).status, 401);
+  const visitor = JSON.parse((await answer("w2", "POST", "/api/agents/test/web/pass", siteServer, asking)).text) as { pass: string };
+  is("and given a pass with it", typeof visitor.pass, "string");
+  last().socket.onmessage?.({ data: JSON.stringify({ type: "request", id: "w3", method: "OPTIONS", path: "/api/agents/test/web/turn", headers: { origin: "https://myshop.com", "access-control-request-method": "POST" }, body: null }) });
+  for (let waited = 0; waited < 50 && !said("response").some((one) => one.id === "w3"); waited++) await tick();
+  is("a browser asking first is answered for the page's site", said("response").find((one) => one.id === "w3")?.status, 204);
+  answers.push("Shipped today.");
+  last().socket.onmessage?.({
+    data: JSON.stringify({ type: "request", id: "w4", method: "POST", path: "/api/agents/test/web/turn", headers: { ...fromPage, "x-chloe-pass": visitor.pass }, body: JSON.stringify({ text: "where is my order?" }), stream: true }),
+  });
+  for (let waited = 0; waited < 100 && !last().sent.some((one) => one.id === "w4" && one.type === "response-end"); waited++) await tick();
+  const pieces = last().sent.filter((one) => one.id === "w4");
+  is("a turn goes up as it comes: a start, its pieces, an end", [pieces[0]?.type, pieces.at(-1)?.type, pieces.length > 3], ["response-start", "response-end", true]);
+  const streamed = pieces.filter((one) => one.type === "response-piece").map((one) => Buffer.from(one.body, "base64").toString("utf8")).join("");
+  is("and the pieces are the turn's events", streamed.includes('"text":"Shipped today."'), true);
+  is("anything else is still one answer", (await answer("w5", "GET", "/api/agents/test/web/history", { origin: "https://myshop.com", "x-chloe-pass": visitor.pass })).status, 200);
+  keeper.channels = [];
+
   // A path the client cannot put on the wire used to throw out of the relay
   // and end the process. It must come back as a 502 instead.
   const badPath = await answer("14", "GET", "/api/agents/c c/threads");

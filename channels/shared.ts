@@ -25,6 +25,9 @@
 //      because the model may have read a page or a mail written to ask for it.
 //      A job starts on its schedule or from a command a person sent.
 //
+// On a channel for strangers (`strangers` in Rules), there is no sign-in in 2
+// and nothing in 4: a slash is only text, and the message is a turn.
+//
 // What a job said in a chat is kept in that chat's conversation, so the next
 // turn knows it happened.
 import { z } from "zod";
@@ -69,6 +72,8 @@ export interface Incoming {
   model?: string;
   /** Tools the turn is not given, by name, though the agent has them. */
   withoutTools?: string[];
+  /** Stops the turn: whoever asked has gone. */
+  signal?: AbortSignal;
 }
 
 /** Who a channel answers. Each channel takes these as options and hands them over. */
@@ -86,6 +91,13 @@ export interface Rules {
    * than one reply, so it does nothing on the API.
    */
   sendWhileWorking?: boolean;
+  /**
+   * Whoever writes is a stranger, like a visitor on a web page. Their message
+   * is a turn, /clear or the answer to a job that asked them, and nothing
+   * else: never a /command, a model pick or the answer to a sign-in, and a
+   * sign-in a tool needs is never started for them.
+   */
+  strangers?: boolean;
 }
 
 /** What a channel can do while a message is being dealt with. */
@@ -94,6 +106,14 @@ export interface While {
   working?: () => () => void;
   /** Sends one message to the chat. What sendWhileWorking uses. */
   send?: (text: string) => Promise<void>;
+  /** Called as each tool starts, with its name and its title when it has one. */
+  calling?: (tool: { name: string; title?: string }) => void;
+  /**
+   * Handed the answer's words as they are written, on a model route that
+   * streams them. Words written before a tool call come this way too, and are
+   * then handed to `send` whole.
+   */
+  writing?: (delta: string) => void;
 }
 
 /** What came of a message. Nothing at all means it was not for the agent. */
@@ -142,18 +162,18 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
     return said("Conversation cleared.");
   }
 
-  const picking = modelCommand(text);
+  const picking = rules.strangers ? undefined : modelCommand(text);
   if (picking) return { ...picked(agent, message, picking), steps: 0, cost: 0 };
 
-  const signingIn = text ? connectionsUsed(agent.tools ?? {}).find((one) => one.signIn?.answers(text)) : undefined;
-  if (signingIn) return during(working, () => signedIn(agent, message, signingIn, rules, whileWorking.send));
+  const signingIn = text && !rules.strangers ? connectionsUsed(agent.tools ?? {}).find((one) => one.signIn?.answers(text)) : undefined;
+  if (signingIn) return during(working, () => signedIn(agent, message, signingIn, rules, whileWorking));
 
   const waiting = text ? waitingOn(`${channel}:${message.chat}`, agent.id) : undefined;
   if (waiting) return during(working, () => answered(agent, message, waiting.id, waiting.job));
 
   if (!isForAgent(message, rules)) return undefined;
 
-  const job = text ? jobFor(agent, text) : undefined;
+  const job = text && !rules.strangers ? jobFor(agent, text) : undefined;
   if (job && clock()) {
     return during(working, async () => {
       const done = await started(agent, message, job.job, job.text);
@@ -162,7 +182,7 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
     });
   }
 
-  return during(working, () => chatted(agent, message, rules, whileWorking.send));
+  return during(working, () => chatted(agent, message, rules, whileWorking));
 }
 
 /**
@@ -410,7 +430,7 @@ async function answered(agent: Agent, message: Incoming, runId: string, job: str
  * the conversation, and in one the request it interrupted is asked again, so
  * the person gets what they asked for rather than a note saying they may ask.
  */
-async function signedIn(agent: Agent, message: Incoming, connection: Connection, rules: Rules, send?: (text: string) => Promise<void>): Promise<Handled> {
+async function signedIn(agent: Agent, message: Incoming, connection: Connection, rules: Rules, whileWorking: While): Promise<Handled> {
   let done: string;
   try {
     done = await connection.signIn!.finish(message.text);
@@ -420,17 +440,22 @@ async function signedIn(agent: Agent, message: Incoming, connection: Connection,
   if (!message.thread) return { text: done, steps: 0, cost: 0 };
   remember(message.thread, "user", `(the ${connection.name} sign-in code)`);
   remember(message.thread, "assistant", done);
-  const after = await chatted(agent, { ...message, text: `I have signed in to ${connection.name}. Carry on with what I asked before.` }, rules, send);
+  const after = await chatted(agent, { ...message, text: `I have signed in to ${connection.name}. Carry on with what I asked before.` }, rules, whileWorking);
   return { ...after, text: `${done}\n\n${after.text}` };
 }
 
-async function chatted(agent: Agent, message: Incoming, rules: Rules, send?: (text: string) => Promise<void>): Promise<Handled> {
-  // One after another, and all of them out before the answer is.
-  let sending = Promise.resolve();
+async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorking: While = {}): Promise<Handled> {
+  const { send, calling, writing } = whileWorking;
+  // One after another, in the order they happened, and all of them out before
+  // the answer is.
+  let sending: Promise<unknown> = Promise.resolve();
+  const inOrder = (what: () => unknown) => {
+    sending = sending.then(what).catch((error) => console.error(`${message.channel}: sending on the way failed`, error));
+  };
   const said =
     rules.sendWhileWorking && send
       ? (text: string) => {
-          sending = sending.then(() => send(text)).catch((error) => console.error(`${message.channel}: sending on the way failed`, error));
+          inOrder(() => send(text));
           // Sent, so kept: the next turn should know it was said.
           if (message.thread) remember(message.thread, "assistant", text);
         }
@@ -447,11 +472,16 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, send?: (te
       thread: message.thread || undefined,
       history: rules.chatHistory,
       said,
+      calling: calling && ((tool) => inOrder(() => calling(tool))),
+      writing: writing && ((delta) => inOrder(() => writing(delta))),
       talkingTo: message.from.name,
       model: message.model ?? (message.thread ? chosen(agent.id, `chat:${message.thread}`) : undefined),
       source: message.channel,
       owner: `${message.channel}:${message.from.id}`,
       without: message.withoutTools,
+      stranger: rules.strangers,
+      user: `${message.channel}:${message.from.id}`,
+      signal: message.signal,
     });
     await sending;
     return { text: result.text || "(no reply)", runId: result.runId, steps: result.steps, cost: result.cost };

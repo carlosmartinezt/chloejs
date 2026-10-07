@@ -312,3 +312,35 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   const refused = await startChloe({ agents: [one] }).then(() => "", (error: Error) => error.message);
   is("a script's agents are refused where a chloe.config.ts is", refused.includes("holds this project's"), true);
 }
+
+{
+  about("a prompt that includes other files");
+
+  const { prompt, readPrompt, includedIn } = await import("#chloe/core/markdown");
+  const dir = await mkdtemp(join(tmpdir(), "chloe-include-"));
+  const elsewhere = await mkdtemp(join(tmpdir(), "chloe-cv-"));
+  await writeFile(join(dir, "instructions.md"), "Answer from the CV.\n");
+  await writeFile(join(elsewhere, "cv.md"), "# Ada\n\nEngineer.\n");
+  await writeFile(join(dir, "faq.md"), "Opening hours: nine to five.\n");
+
+  const words = prompt("instructions.md", { include: { cv: join(elsewhere, "cv.md"), faq: "faq.md" } });
+  is(
+    "each comes after the words, in a tag of its name, a short path being the agent's folder's",
+    await readPrompt(words, { dir, where: "shop" }),
+    "Answer from the CV.\n\n<cv>\n# Ada\n\nEngineer.\n</cv>\n\n<faq>\nOpening hours: nine to five.\n</faq>",
+  );
+  is("and they are named in full, to be watched", includedIn(words, dir), [join(elsewhere, "cv.md"), join(dir, "faq.md")]);
+  const missing = await readPrompt(prompt("instructions.md", { include: { cv: "gone.md" } }), { dir, where: "shop" }).then(() => "", (error: Error) => error.message);
+  is("one that is not there stops the agent loading, saying which", missing, "shop includes gone.md as cv, which is not there.");
+  const named = (() => {
+    try {
+      prompt("instructions.md", { include: { "my cv": "cv.md" } });
+      return "";
+    } catch (error) {
+      return (error as Error).message;
+    }
+  })();
+  is("and a name that cannot be a tag is refused as it is written", named.includes("not a name for a tag"), true);
+  await rm(dir, { recursive: true, force: true });
+  await rm(elsewhere, { recursive: true, force: true });
+}

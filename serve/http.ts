@@ -37,7 +37,7 @@ import {
   memoryTree,
 } from "./memory.ts";
 import { checkPass, makePass } from "./pass.ts";
-import { BadRequest, NotFound } from "./errors.ts";
+import { BadRequest, NotFound, Refused } from "./errors.ts";
 import { recentWork } from "./recentWork.ts";
 import { finish as finishSignIn, signInState } from "#chloe/connections/google/googleService";
 import { channelsOf, connectionsOf, signInOf, toolsOf } from "./inside.ts";
@@ -49,6 +49,7 @@ import { docsPage, type RouteDoc, sitePage } from "./site.ts";
 import { receive } from "#chloe/channels/shared";
 import { answer, checkArgs, parkedRuns } from "#chloe/core/steps";
 import { canCarryOn, stopped } from "#chloe/core/turn";
+import { PASS_HEADER, webClear, webFile, webHistory, webOrigins, webPass, webTurn, webUsage, webVisitors } from "./web.ts";
 
 /**
  * The address a program on this machine reaches the port at: `serve.host` and
@@ -92,18 +93,25 @@ export interface At {
  *   allow            the switch or switches in `dashboard.remote.allow` a request sent
  *                    through the dashboard needs, all on. Without one, the
  *                    route is never answered through the dashboard, whatever the
- *                    settings say: signing in, setting up, and the tokens.
+ *                    settings say: signing in, setting up, and the tokens. An
+ *                    empty list needs no switch: the web channel's routes,
+ *                    which check a token or a visitor pass themselves.
  *   guest            what a guest needs on the agent the path names, when it is
  *                    not `allow`. "filtered" on a route with no agent in its
  *                    path, whose handler answers a guest only what they may
  *                    see. Without either, a guest needs every `allow` switch
  *                    on the agent the path names, never "write" or "google",
  *                    and a route with no agent in its path is refused.
+ *   origins          the sites whose pages may call it from a browser. Asked
+ *                    first (OPTIONS), and checked on the call itself, which
+ *                    is refused from any other. A route without it answers
+ *                    no page on another site.
  */
 export interface Route extends RouteDoc {
   method: "GET" | "POST";
   allow?: Allow | Allow[];
   guest?: Allow | "filtered";
+  origins?(at: Pick<At, "params" | "context">): string[];
   handle(at: At): Promise<void> | void;
 }
 
@@ -153,7 +161,7 @@ function chatContext(who: Caller): Record<string, string> {
 const PICTURES = 4;
 
 /** A picture sent with a chat turn, as base64. Only the kinds every model route reads. */
-const Picture = z.object({
+export const Picture = z.object({
   name: z.string().trim().min(1).max(200),
   mediaType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
   data: z.string().min(1),
@@ -684,6 +692,80 @@ export const routes: Route[] = [
     },
   },
 
+  // A chat box on a web page. The site's own server gets a visitor a pass with
+  // a token made for that agent; the rest are open, because a visitor's page
+  // holds no token, and each checks the pass instead and answers only the
+  // sites the agent's web channel names. See serve/web.ts.
+  {
+    method: "POST",
+    path: "/api/agents/:id/web/pass",
+    does: "A visitor pass for that agent's web channel, good for an hour, and its greeting. For the site's own server, with a token made for that agent and no other.",
+    takes: '{"visitor": "the site\'s own id for them", "facts": {"name": "optional, anything the agent should be told"}, "origin": "optional, the first of its origins unless said"}',
+    token: true,
+    allow: [],
+    handle: webPass,
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:id/web/visitors",
+    does: "Everybody that agent's web channel has had, newest first: when they came, their address, country and browser, and what their site said about them.",
+    token: true,
+    allow: "read",
+    handle: webVisitors,
+  },
+  {
+    method: "POST",
+    path: `/api/agents/:id/web/turn`,
+    does: `One turn for the visitor whose pass is in ${PASS_HEADER}, answered as a stream of events: text as it is written, a step as each tool starts, then done with the answer whole.`,
+    takes: '{"text": "...", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}]}',
+    open: true,
+    allow: [],
+    origins: webOrigins,
+    handle: webTurn,
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:id/web/history",
+    does: `The conversation of the visitor whose pass is in ${PASS_HEADER}, oldest first, and the greeting.`,
+    open: true,
+    allow: [],
+    origins: webOrigins,
+    handle: webHistory,
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/web/clear",
+    does: `Forget the conversation of the visitor whose pass is in ${PASS_HEADER}.`,
+    open: true,
+    allow: [],
+    origins: webOrigins,
+    handle: webClear,
+  },
+  {
+    method: "GET",
+    path: "/api/web/chat.js",
+    does: 'The chat box, for a page: <script src="/api/web/chat.js" data-agent="<id>" async></script>.',
+    open: true,
+    allow: [],
+    handle: (at) => webFile(at, "chat.js"),
+  },
+  {
+    method: "GET",
+    path: "/api/web/client.js",
+    does: "What the chat box is built on, for a page with its own look: import { chloeChat } from it.",
+    open: true,
+    allow: [],
+    handle: (at) => webFile(at, "client.js"),
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:id/web",
+    does: "That agent's web channel: its sites, tools and limits, and how many visitors, messages and dollars the last 24 hours came to.",
+    token: true,
+    allow: "read",
+    handle: webUsage,
+  },
+
   // Writing, and the tokens themselves. The account and nothing else.
   {
     method: "POST",
@@ -803,11 +885,12 @@ export const routes: Route[] = [
   {
     method: "POST",
     path: "/api/tokens",
-    does: "Make a token. The only time the secret exists in one piece is in this reply.",
-    takes: '{"name": "what it is for"}',
-    handle: async ({ request, response }) => {
-      const { name } = await body(request, z.object({ name: z.string().trim().min(1) }));
-      const { secret, token } = makeToken(name);
+    does: "Make a token. The only time the secret exists in one piece is in this reply. With an agent, it reaches that agent and nothing else.",
+    takes: '{"name": "what it is for", "agent": "optional, the one agent it reaches"}',
+    handle: async ({ request, response, context }) => {
+      const { name, agent } = await body(request, z.object({ name: z.string().trim().min(1), agent: z.string().optional() }));
+      if (agent) context.agent(agent);
+      const { secret, token } = makeToken(name, agent || undefined);
       json(response, { ...token, secret });
     },
   },
@@ -1093,6 +1176,7 @@ export function serve(options: {
     } catch (error) {
       if (error instanceof NotFound) return json(response, { error: error.message }, 404);
       if (error instanceof BadRequest) return json(response, { error: error.message }, 400);
+      if (error instanceof Refused) return json(response, { error: error.message }, error.status);
       console.error(`${request.method} ${path}:`, error);
       json(response, { error: error instanceof Error ? error.message : String(error) }, 500);
     }
@@ -1185,9 +1269,18 @@ async function api(
   url: URL,
   context: Context,
 ): Promise<void> {
+  if (request.method === "OPTIONS") return preflight(request, response, path, context);
   const found = match(request.method ?? "GET", path);
   if (!found) throw new NotFound(`No route for ${request.method} ${path}. GET /api lists them.`);
   const { route, params } = found;
+
+  // A page on another site: only one the route names, and the browser is told so.
+  const origin = request.headers.origin;
+  if (route.origins && origin) {
+    if (!route.origins({ params, context }).includes(origin)) return json(response, { error: "A page on this site may not call this." }, 403);
+    response.setHeader("access-control-allow-origin", origin);
+    response.setHeader("vary", "origin");
+  }
 
   const who = caller(request);
   // Through the dashboard: only the routes that say so, and only the switches
@@ -1211,6 +1304,9 @@ async function api(
     if (who.kind === "token" && !route.token) {
       return json(response, { error: "A token cannot do that. That one is the account's." }, 403);
     }
+    if (who.kind === "token" && who.token.agent && params.id !== who.token.agent) {
+      return json(response, { error: `This token is for ${who.token.agent}, and reaches nothing else.` }, 403);
+    }
     if (who.kind === "token" && route.needsApiChannel && !onTheApi(context.agent(params.id))) {
       return json(
         response,
@@ -1221,6 +1317,26 @@ async function api(
   }
 
   await route.handle({ request, response, url, params, context, who });
+}
+
+/**
+ * A browser asking, before it calls a route from a page on another site,
+ * whether it may: yes for a site the route names, and a bare 403 otherwise.
+ */
+function preflight(request: IncomingMessage, response: ServerResponse, path: string, context: Context): void {
+  const found = (["GET", "POST"] as const).map((method) => match(method, path)).find((one) => one?.route.origins);
+  const origin = request.headers.origin;
+  if (!found || !origin || !found.route.origins!({ params: found.params, context }).includes(origin)) {
+    return void response.writeHead(403, { vary: "origin" }).end();
+  }
+  response.writeHead(204, {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "GET, POST",
+    "access-control-allow-headers": `content-type, ${PASS_HEADER}`,
+    "access-control-max-age": "600",
+    vary: "origin",
+  });
+  response.end();
 }
 
 export function json(response: ServerResponse, value: unknown, status = 200): void {

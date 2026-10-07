@@ -31,6 +31,7 @@ for (const part of [
   "whatsapp",
   "email",
   "api-channel",
+  "web-channel",
   "turns",
   "notes",
   "services",

@@ -16,7 +16,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 
-import { loadAll, type Agent, turn, type TurnResult, settings } from "@chloejs/core";
+import { learnModels, loadAll, type Agent, turn, type TurnResult, settings } from "@chloejs/core";
 import { settingsAndBody } from "#chloe/core/markdown";
 import { calls, type ExpectedCalls as Facts, expectations, type ExpectedOutcome as Judged } from "@chloejs/core/scorers";
 
@@ -163,7 +163,7 @@ async function runFile(loaded: Agent, file: string): Promise<{ passed: number; f
     }
 
     const fact = calls(result, one);
-    const judged = await expectations(prompt, result, one, judge());
+    const judged = await expectations(prompt, result, one, judge(), loaded.instructions);
     const ok = fact.score >= PASS.calls && judged.score >= PASS.expectations;
     ok ? passed++ : failed++;
 
@@ -179,6 +179,8 @@ async function runFile(loaded: Agent, file: string): Promise<{ passed: number; f
 
 const wanted = process.argv[2];
 const agents = [...(await loadAll()).values()].sort((a, b) => a.id.localeCompare(b.id));
+// The prices, so a model on a provider's own key shows what each case cost.
+await learnModels();
 
 let passed = 0;
 let failed = 0;

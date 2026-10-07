@@ -7,6 +7,7 @@
 //
 // If this process is not running, nothing fires.
 import { existsSync, readdirSync, readFileSync, watch, type FSWatcher } from "node:fs";
+import { basename, dirname } from "node:path";
 
 import { loadEnv } from "#chloe/core/env";
 import { ROOT } from "#chloe/core/paths";
@@ -46,6 +47,9 @@ export async function startChloe(given?: Config): Promise<void> {
   }
 
   let agents: Map<string, Agent> = await loadAll(given);
+  // What each route can run, and what a call on a provider's own key costs.
+  // Not waited for: until it answers, such a call is recorded at no cost.
+  void learnModels();
 
   // The last resort: a throw nobody held must not take down every job and
   // every run in flight. Say it and keep going; whatever caused it is still
@@ -306,7 +310,8 @@ export async function startChloe(given?: Config): Promise<void> {
   }
 
   /**
-   * Reload when chloe.config.ts, .env, or anything in an agent's folder changes.
+   * Reload when chloe.config.ts, .env, anything in an agent's folder, or a file
+   * one of its prompts includes, changes.
    *
    * Every folder is watched on its own, not recursively. Node's recursive watch
    * on Linux keeps a watch per file, and a file replaced rather than edited in
@@ -322,6 +327,8 @@ export async function startChloe(given?: Config): Promise<void> {
    * it changes on every run and is never loaded.
    */
   const watching = new Map<string, FSWatcher>();
+  /** Each watched folder, and the names in it that matter, read afresh by its watcher on every change. */
+  let wanted = new Map<string, Set<string> | "all">();
   const SKIP = new Set(["node_modules", ".git", "__pycache__"]);
 
   function foldersIn(folder: string, memory: string): string[] {
@@ -334,18 +341,31 @@ export async function startChloe(given?: Config): Promise<void> {
   }
 
   function watchFolders(): void {
-    const wanted = new Set([ROOT, ...[...agents.values()].flatMap((one) => foldersIn(one.folder, one.memory.folder))]);
+    // Each folder, and the names in it that matter: every one in an agent's own
+    // folder, and only the named ones beside the config and beside a file a
+    // prompt includes.
+    wanted = new Map<string, Set<string> | "all">([[ROOT, new Set(SETTINGS)]]);
+    for (const agent of agents.values()) {
+      for (const folder of foldersIn(agent.folder, agent.memory.folder)) wanted.set(folder, "all");
+      for (const file of agent.included ?? []) {
+        const names = wanted.get(dirname(file));
+        if (names === "all") continue;
+        wanted.set(dirname(file), new Set([...(names ?? []), basename(file)]));
+      }
+    }
+    // An agent kept in the project's own folder still reloads only for the settings there.
+    if (wanted.get(ROOT) === "all") wanted.set(ROOT, new Set(SETTINGS));
     for (const [folder, watcher] of watching) {
       if (!wanted.has(folder)) {
         watcher.close();
         watching.delete(folder);
       }
     }
-    for (const folder of wanted) {
-      if (watching.has(folder)) continue;
-      const top = folder === ROOT;
+    for (const folder of wanted.keys()) {
+      if (watching.has(folder) || !existsSync(folder)) continue;
       const watcher = watch(folder, (_event, file) => {
-        if (file && (!top || SETTINGS.includes(file))) changed(`${folder}/${file}`);
+        const names = wanted.get(folder);
+        if (file && (names === "all" || names?.has(file))) changed(`${folder}/${file}`);
       });
       // A folder that is deleted ends its watch with an error, which would otherwise stop the service.
       watcher.on("error", () => {

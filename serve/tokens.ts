@@ -3,6 +3,8 @@
 // A token is not a second password. It opens the read side of the API and the
 // agents that bind an api channel, and nothing else: it cannot make or revoke
 // tokens, cannot write a file, and cannot reach an agent that has not opted in.
+// A token made for one agent reaches that agent's routes and nothing else, and
+// is the only kind a web channel gives a visitor's pass to.
 // The account session is the one that can do everything, and it is only ever
 // held by a browser somebody signed in on.
 //
@@ -27,6 +29,8 @@ export interface Token {
   id: string;
   /** What it is for, so revoking the right one does not need guesswork. */
   name: string;
+  /** The one agent it reaches, when it was made for one. */
+  agent?: string;
   /** sha256 of the token, base64url. The token itself was never written down. */
   hash: string;
   created: string;
@@ -63,13 +67,14 @@ export function tokens(): Token[] {
  * A new token. The returned `secret` is the only time it exists in one piece,
  * so whatever asked for it has to hand it over now or make another.
  */
-export function makeToken(name: string): { secret: string; token: Token } {
+export function makeToken(name: string, agent?: string): { secret: string; token: Token } {
   const called = name.trim();
   if (!called) throw new Error("Give the token a name, so you know what you are revoking later.");
   const secret = PREFIX + crypto.randomBytes(BYTES).toString("base64url");
   const token: Token = {
     id: crypto.randomBytes(8).toString("hex"),
     name: called,
+    ...(agent && { agent }),
     hash: digest(secret),
     created: new Date().toISOString(),
   };

@@ -1,7 +1,7 @@
 // The ways an agent is reached. Each is a function an agent calls in the
 // `channels` list of its agent.ts.
 //
-//   import { telegramChannel, apiChannel } from "@chloejs/core/channels";
+//   import { telegramChannel, apiChannel, webChannel } from "@chloejs/core/channels";
 //
 // A channel chloe does not ship is written in the agent's own channels/
 // folder, and hands each message to `receive`. Same rule as `index.ts`:
@@ -12,4 +12,5 @@ export { slackChannel, type SlackOptions } from "./slack.ts";
 export { whatsappChannel, type WhatsAppOptions } from "./whatsapp.ts";
 export { emailChannel, openEmail, type EmailOptions, type Started } from "./email.ts";
 export { apiChannel } from "./api.ts";
+export { webChannel, type WebOptions, type WebLimits } from "./web.ts";
 export { receive, commands, inPieces, type Incoming, type Rules, type While, type Handled, type Button } from "./shared.ts";
