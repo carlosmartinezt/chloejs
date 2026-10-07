@@ -1,7 +1,8 @@
 // Every route is in this file, so what is reachable from outside is this file
 // and nothing else, plus whatever paths a running channel answers. It binds
-// `serve.host` in settings, loopback unless somebody says otherwise. What
-// answers the addresses that are not /api is site.ts.
+// `serve.host` in settings, loopback unless somebody says otherwise. Every
+// address that is not /api is the page: an installed one, or the runtime's own
+// (see page.ts).
 //
 // The routes are a list rather than a run of ifs, because the docs at GET /api
 // are generated from that list. A route nobody wrote down is a route nobody
@@ -45,7 +46,7 @@ import { describe } from "#chloe/timer/every";
 import { type Caller, type Guest, caller, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "./alerts.ts";
-import { docsPage, type RouteDoc, sitePage } from "./site.ts";
+import { installedPage, serveOwnPage, servePageFile } from "./page.ts";
 import { receive } from "#chloe/channels/shared";
 import { answer, checkArgs, parkedRuns } from "#chloe/core/steps";
 import { canCarryOn, stopped } from "#chloe/core/turn";
@@ -107,8 +108,14 @@ export interface At {
  *                    is refused from any other. A route without it answers
  *                    no page on another site.
  */
-export interface Route extends RouteDoc {
+export interface Route {
   method: "GET" | "POST";
+  path: string;
+  does: string;
+  takes?: string;
+  open?: boolean;
+  token?: boolean;
+  needsApiChannel?: boolean;
   allow?: Allow | Allow[];
   guest?: Allow | "filtered";
   origins?(at: Pick<At, "params" | "context">): string[];
@@ -240,9 +247,9 @@ export const routes: Route[] = [
     open: true,
     allow: "read",
     guest: "filtered",
-    handle: ({ request, response }) => {
-      // A browser gets the page. Anything else gets the same thing as JSON.
-      if ((request.headers.accept ?? "").includes("text/html")) return void html(response, docsPage(routes));
+    handle: async ({ request, response }) => {
+      // A browser gets the runtime's own page, which shows this list. Anything else gets it as JSON.
+      if ((request.headers.accept ?? "").includes("text/html")) return void (await serveOwnPage(response));
       json(response, routeList());
     },
   },
@@ -1172,7 +1179,8 @@ export function serve(options: {
       if (channel) return await channel.handle(request, response);
       if (path === "/api" || path.startsWith("/api/")) return await api(request, response, path, url, context);
       if (path.startsWith("/memory/") && request.method === "GET") return await framed(request, response, url, context);
-      await sitePage(request, response, path, context);
+      const page = installedPage();
+      await (page ? servePageFile(response, page, path) : serveOwnPage(response));
     } catch (error) {
       if (error instanceof NotFound) return json(response, { error: error.message }, 404);
       if (error instanceof BadRequest) return json(response, { error: error.message }, 400);
@@ -1343,11 +1351,6 @@ export function json(response: ServerResponse, value: unknown, status = 200): vo
   const text = JSON.stringify(value, null, 2);
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(text);
-}
-
-export function html(response: ServerResponse, value: string, status = 200): void {
-  response.writeHead(status, { "content-type": "text/html; charset=utf-8" });
-  response.end(value);
 }
 
 /**

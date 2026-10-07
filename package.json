@@ -124,20 +124,26 @@
     "human-in-the-loop"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp -r chat dist/chat && node ops/docs.ts dist/docs",
+    "build": "rm -rf dist && npm run build:site && tsc -p tsconfig.build.json && cp -r chat dist/chat && mkdir dist/site && cp site/page.html dist/site/ && node ops/docs.ts dist/docs",
+    "build:site": "node site/build.ts",
     "prepack": "npm run build",
     "start": "node --conditions=chloe-source server.ts",
     "setup": "node --conditions=chloe-source ops/setup.ts",
     "account": "node --conditions=chloe-source ops/account.ts",
     "agent": "node --conditions=chloe-source ops/agent.ts",
     "evals": "node --conditions=chloe-source ops/evals.ts",
-    "test": "node --conditions=chloe-source ops/test.ts",
-    "typecheck": "tsc --noEmit -p .",
-    "check": "tsc --noEmit -p . && node ops/docs.ts && node --conditions=chloe-source ops/test.ts && npm run example",
+    "test": "npm run build:site && node --conditions=chloe-source ops/test.ts",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p site",
+    "check": "npm run typecheck && node ops/docs.ts && npm run test && npm run example",
     "example": "cd example && node --conditions=chloe-source ../ops/test.ts"
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "esbuild": "^0.28.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "typescript": "^6.0.3"
   },
   "publishConfig": {

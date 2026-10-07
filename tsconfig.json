@@ -28,5 +28,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "exclude": ["node_modules", "data"]
+  "exclude": ["node_modules", "data", "site"]
 }

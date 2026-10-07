@@ -1,10 +1,10 @@
-// Finding a better page than the built-in one, if the repo installed a package
-// that offers it.
+// The page every address that is not /api answers with: an installed one when
+// a package offers it, the runtime's own otherwise.
 //
 // The runtime does not know @chloejs/ui exists. It knows a convention: any
 // installed package whose package.json has a "chloePage" naming a folder with
 // an index.html in it is offering a page, and the first one found is served
-// instead of site.ts's. That is what makes `npm install @chloejs/ui` upgrade the
+// instead of the runtime's own. That is what makes `npm install @chloejs/ui` upgrade the
 // site with nothing configured, and what lets somebody else's dashboard take
 // its place the same way.
 //
@@ -13,6 +13,7 @@
 // dependency.
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 
@@ -134,6 +135,27 @@ export async function servePageFile(response: ServerResponse, page: Page, path: 
     response.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end("Not here.\n");
   }
   return true;
+}
+
+/**
+ * The runtime's own page: site/ in this repo, built by `npm run build:site`
+ * into one file with its script and stylesheet inside. One file because GET
+ * /api shows it to a browser even when an installed page owns every other
+ * address, so it has nowhere to load a second file from. It holds nothing of
+ * the agents': it asks the API, which asks for the login.
+ */
+const OWN = fileURLToPath(new URL("../site/page.html", import.meta.url));
+
+export async function serveOwnPage(response: ServerResponse): Promise<void> {
+  try {
+    const body = await readFile(OWN);
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(body);
+  } catch {
+    // Only a clone that has not been built gets here: the package ships it.
+    response.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+    response.end(`The runtime's own page is not built. Run npm run build:site in ${resolve(OWN, "../..")}.\n`);
+  }
 }
 
 /** Keeps a browser's path inside the page's folder. */

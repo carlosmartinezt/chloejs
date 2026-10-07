@@ -25,9 +25,10 @@ was kept only in part.
 
 **The runtime has one of its own, and it needs nothing installed.** Open
 `127.0.0.1:3067` in a browser and it shows which agents are loaded, what each
-one is configured to do, the tokens, and the API docs. It is plain HTML written
-by the runtime, with no build step and no dependencies, and it is deliberately
-basic: enough to see what is running and to hand a token to something else.
+one is configured to do, its recent runs, its memory, the tokens, and the API
+docs. It ships built inside the package, so it adds nothing to your project,
+and it is deliberately small: enough to see what is running and to hand a token
+to something else.
 
 **`npm install @chloejs/ui` makes it a dashboard.** Then the same addresses show
 the runs, a conversation with an agent, its files, and the notes folder if one

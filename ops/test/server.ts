@@ -138,19 +138,18 @@ import { agentFor, asked, codeJob, ownPage, row, sent, work } from "./shared.ts"
   const made = await fetch(`${at}/api/agents`, { headers: { authorization: "Bearer not.a.token" } });
   is("one this copy did not sign does not", made.status, 401);
 
-  // The site is the account's. A token opens the API and not a browser
-  // session, so the page it would be shown is the way in instead.
+  // The page holds nothing of the agents': it asks the API, which asks for the
+  // login. So it is the same file for everybody, at every address.
   const root = await fetch(`${at}/`, { redirect: "manual" });
-  is("the root sends somebody with no session to the way in", [root.status, root.headers.get("location")], [303, "/login"]);
-  const header = await fetch(`${at}/`, { redirect: "manual", headers: { authorization: `Bearer ${token ?? ""}` } });
-  is("the account's own session opens it, however it is carried", header.status, 200);
-
-  const signedIn = await fetch(`${at}/`, { redirect: "manual", headers: { cookie: `chloe_session=${token ?? ""}` } });
-  is("as the cookie a browser sends", signedIn.status, 200);
-  is("which says what is loaded", (await signedIn.text()).includes("agent"), true);
+  const page = await root.text();
+  is("the root is the page, signed in or not", [root.status, root.headers.get("content-type")], [200, "text/html; charset=utf-8"]);
+  is("and it is the runtime's own, built", page.includes('<div id="app">'), true);
+  const deep = await fetch(`${at}/agents/someone/memory/notes/a.html`, { redirect: "manual" });
+  is("an address inside it is the same page", await deep.text(), page);
 
   const docs = await fetch(`${at}/api`, { headers: { accept: "text/html" } });
   is("the docs are open, because they are about the API and not in it", docs.status, 200);
+  is("and they are that page too", await docs.text(), page);
   const listed = (await (await fetch(`${at}/api`)).json()) as { path: string }[];
   is("and the same list comes back as JSON", listed.some((one) => one.path === "/api/agents/:id/chat"), true);
   is("every route it answers is in that list", listed.length > 15, true);
@@ -225,8 +224,9 @@ import { agentFor, asked, codeJob, ownPage, row, sent, work } from "./shared.ts"
   is("and it really was the channel that answered", reached, 1);
 
   // Only POST is handed over, so the same path asked any other way is not a
-  // path this server has. It is not /api, so the site answers it.
-  is("its path is not open to a GET", (await fetch(`${at}${route.path}`, { redirect: "manual" })).status, 303);
+  // path this server has. It is not /api, so the page answers it.
+  const asked = await fetch(`${at}${route.path}`, { redirect: "manual" });
+  is("its path is not open to a GET", [reached, (await asked.text()).includes('<div id="app">')], [1, true]);
 
   server.close();
 }
