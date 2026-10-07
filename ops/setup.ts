@@ -438,12 +438,11 @@ function channelIn(agent: string, importLine: string, entry: string): void {
   written(where, "the channel added");
 }
 
-/** Where the runs are watched from: a dashboard somewhere else, or this box. */
+/** Where the runs are watched from: this box always, and dashboard.chloejs.org as well if they want. */
 async function somewhereToWatch(): Promise<void> {
   const where = await pick("\nSomewhere to watch it from:", [
-    { key: "remote", what: "a workspace on dashboard.chloejs.org, which needs nothing open on this box" },
-    { key: "here", what: "the dashboard on this box, at 127.0.0.1:3067" },
-    { key: "later", what: "neither for now: it serves a plain page of its own either way" },
+    { key: "here", what: "this box only, at 127.0.0.1:3067" },
+    { key: "remote", what: "a workspace on dashboard.chloejs.org as well, which needs nothing open on this box" },
   ]);
 
   if (where === "remote") {
@@ -454,14 +453,6 @@ async function somewhereToWatch(): Promise<void> {
       putInEnv("CHLOE_DASHBOARD_REMOTE_API_KEY", key);
       written(".env", "CHLOE_DASHBOARD_REMOTE_API_KEY, mode 600");
       inSettings("dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } },");
-    }
-    return;
-  }
-
-  if (where === "here" && !existsSync(join(HERE, "node_modules/@chloejs/ui"))) {
-    console.log("\n@chloejs/ui is the dashboard. The runtime serves a plain page without it.");
-    if (await yes("Run npm install @chloejs/ui? (Y/n)", true)) {
-      spawnSync("npm", ["install", "@chloejs/ui"], { cwd: HERE, stdio: "inherit" });
     }
   }
 }

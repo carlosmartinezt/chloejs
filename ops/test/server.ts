@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { about, is } from "#chloe/ops/check";
 import type { Agent, Job } from "./shared.ts";
-import { agentFor, asked, codeJob, ownPage, row, sent, work } from "./shared.ts";
+import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
 
 {
   about("the login in front of the page");
@@ -102,10 +102,6 @@ import { agentFor, asked, codeJob, ownPage, row, sent, work } from "./shared.ts"
 {
   about("the API without a browser");
 
-  // About the runtime on its own, so the runtime's own site is the one being
-  // asked. Whether a page package happens to be installed in this repo is not
-  // what these are testing, and letting it decide would make them drift.
-  ownPage(true);
   const { serve } = await import("#chloe/serve/http");
   const server = serve({
     host: "127.0.0.1",
@@ -195,7 +191,6 @@ import { agentFor, asked, codeJob, ownPage, row, sent, work } from "./shared.ts"
 {
   about("a channel's own path, through the server");
 
-  ownPage(true);
   const { serve } = await import("#chloe/serve/http");
 
   // A channel that is sent its messages, as telegram's webhook mode is, gets
@@ -301,7 +296,6 @@ import { agentFor, asked, codeJob, ownPage, row, sent, work } from "./shared.ts"
   const { apiChannel } = await import("#chloe/channels/api");
   const { makeToken, forgetTokens } = await import("#chloe/serve/tokens");
 
-  ownPage(true);
   let started: unknown;
   const agent = agentFor({
     ...codeJob("reading", async (w) => {
@@ -361,7 +355,6 @@ import { agentFor, asked, codeJob, ownPage, row, sent, work } from "./shared.ts"
 
   is("a job that agent does not have is still a 404", (await start("").then(() => fetch(`${at}/api/agents/test/job/nope`, { method: "POST", headers: { authorization: `Bearer ${secret}` } }))).status, 404);
 
-  ownPage(false);
   server.close();
 }
 

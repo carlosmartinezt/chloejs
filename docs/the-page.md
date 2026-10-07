@@ -23,28 +23,11 @@ was kept only in part.
 
 ## The site
 
-**The runtime has one of its own, and it needs nothing installed.** Open
-`127.0.0.1:3067` in a browser and it shows which agents are loaded, what each
-one is configured to do, its recent runs, its memory, the tokens, and the API
-docs. It ships built inside the package, so it adds nothing to your project,
-and it is deliberately small: enough to see what is running and to hand a token
-to something else.
-
-**`npm install @chloejs/ui` makes it a dashboard.** Then the same addresses show
-the runs, a conversation with an agent, its files, and the notes folder if one
-is configured.
-
-The runtime has never heard of that package. It looks for a convention: any
-installed package whose `package.json` has a `chloePage` naming a folder with an
-`index.html` in it is offering a page, and the first one found is served instead
-of the built-in one. Somebody else's dashboard drops in the same way.
-
-```json
-{ "name": "your-dashboard", "chloePage": "dist" }
-```
-
-`settings: { dashboard: { local: "builtin" } }` ignores whatever is installed and serves the runtime's own
-site, which is how you tell a broken dashboard from a broken runtime.
+**The runtime serves a dashboard of its own, and it needs nothing installed.**
+Open `127.0.0.1:3067` in a browser and it shows which agents are loaded, what
+each one is configured to do, its runs, a conversation with each, its files,
+its memory, the sign-ins its connections need, the tokens, and the API docs.
+It ships built inside the package, so it adds no dependency to your project.
 
 One app on several addresses. `/` is the overview, `/agents/<id>` is one agent,
 `/agents/<id>/files/<path>` is one of that agent's files or folders at the path
@@ -53,9 +36,9 @@ its history, and `/log` is every agent's history searched together. On either
 log, `?run=<id>` opens one run in a panel down the right. `/tokens` makes and
 revokes tokens, and `/agents/<id>/memory` is that agent's memory.
 
-**While you are working on the page**, `npm run dev` in chloejs-ui rebuilds on
-every edit. It serves nothing: the runtime serves `dist/`, so reload the browser
-and the new build is what it gets.
+**While you are working on the page**, `npm run dev:site` in a clone of chloejs
+rebuilds `site/page/` on every edit. It serves nothing: the runtime serves that
+folder, so reload the browser and the new build is what it gets.
 
 ## The API
 
@@ -156,11 +139,9 @@ send anything out. Its own stylesheet reaches it through a pass in the address,
 because a sandboxed document sends no cookie. The pass reads one agent's memory
 for ten minutes and does nothing else.
 
-An installed page can add to every HTML note: whatever is in `note-head.html` in
-its folder goes first in the note's head. chloejs-ui uses it for a few `ctx-`
-classes a note can opt into (a card, a tag, a callout), an optional reading
-layout for HTML with no stylesheet of its own, and a script that opens a link
-to another note as a tab.
+The page adds a little to every HTML note: a few `ctx-` classes a note can opt
+into (a card, a tag, a callout), an optional reading layout for HTML with no
+stylesheet of its own, and a script that opens a link to another note as a tab.
 
 **Every file served is written to `data/memory-audit/<agent>.jsonl` first**, and
 that is the point rather than a detail. Reading the same file from a shell is not

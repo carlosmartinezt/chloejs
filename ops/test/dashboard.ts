@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { about, is } from "#chloe/ops/check";
 import type { Agent, Job } from "./shared.ts";
-import { agentFor, answer, answers, asked, codeJob, db, lastAsked, live, ownPage, sent, work } from "./shared.ts";
+import { agentFor, answer, answers, asked, codeJob, db, lastAsked, sent, work } from "./shared.ts";
 
 {
   about("the connection to a dashboard");
@@ -21,7 +21,6 @@ import { agentFor, answer, answers, asked, codeJob, db, lastAsked, live, ownPage
   await writeFile(`${folder}/note.md`, "# Kept\n");
   await writeFile(`${folder}/note.html`, '<!doctype html><link rel="stylesheet" href="/static/style.css">\n');
   const keeper: Agent = { ...agentFor(codeJob("relayed", async () => "done")), memory: { folder } };
-  ownPage(true);
   const cameIn: string[] = [];
   const server = serve({
     host: "127.0.0.1",
@@ -321,6 +320,5 @@ import { agentFor, answer, answers, asked, codeJob, db, lastAsked, live, ownPage
 
   dashboard.stop();
   live.dashboard.remote.api_key = "";
-  ownPage(false);
   server.close();
 }

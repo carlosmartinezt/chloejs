@@ -35,9 +35,7 @@ runtime's tests and its own inside it. Its `services/` folder stands in for the
 order, customer and stock systems, which is why it runs with nothing installed,
 and `site/server.ts` is the shop's web server, the one a chat box needs.
 
-Two other repos sit beside this one, and neither is in it: `@chloejs/ui` is the
-dashboard, a package the runtime works without and never names, and
-`chloejs-site` is chloejs.org, which renders `docs/` with `ops/docs.ts` and adds
+Another repo sits beside this one: `chloejs-site` is chloejs.org, which renders `docs/` with `ops/docs.ts` and adds
 a reference read out of this source, so a doc comment here is what the site
 says. A push to `main` here rebuilds it.
 
@@ -133,7 +131,7 @@ A setting is read from `settings`, never from `process.env`. A config hands a
 secret over as the variable itself, `dashboard: { remote: { api_key:
 process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } }`, which is how it says where a
 credential comes from without holding one, and a setting given `undefined` is
-one it did not say. A config still written for `cloud` or `page` is refused
+one it did not say. A config still written for `cloud`, `page` or `dashboard.local` is refused
 with where each went, because a key that silently stops being read is a
 runtime that silently leaves its dashboard. The server reads both again when either changes, so a
 setting is read when it is needed, never copied at import.
@@ -250,9 +248,9 @@ needs, in folders by what they do: `model/` is asking a model, and
 are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `dashboard/` is the connection out to a dashboard somewhere else, `connections/` is each outside account a tool works through, a folder each (Google, Resend), and an MCP server an agent connects to, `serve/` is the one port
 and what it answers with, which is `/api` and nothing else (the routes, the
 login, and the folder behind the file tree), and every other address is the
-page, an installed one or `site/` (`serve/page.ts`), `core/` is the floor (paths, running a command, staying
+page, `site/` (`serve/page.ts`), `core/` is the floor (paths, running a command, staying
 inside a folder, a small file an agent keeps, the database, frontmatter, words
-in a markdown file, and the three runners), `site/` is the runtime's own page, React, which runs in a browser and is
+in a markdown file, and the three runners), `site/` is the dashboard, React, which runs in a browser and is
 never imported by the runtime, and `scorers/` is how a run
 is marked. The runners in `core/` are the ones to read first:
 `steps.ts`, `turn.ts` and `clock.ts` (what starts a job when its cron line is
@@ -719,20 +717,30 @@ is, and do not let the secret out of the process. `from()` says "via dashboard a
 What goes up is `dashboard.remote.sync`: run rows as they are written (`core/events.ts`
 is how the runners say so) and the agent summaries on reload.
 
-**The runtime serves its own page**, a small React app in `site/`. `npm run
-build:site` bundles it into one file, `site/page.html`, with its script and
-stylesheet inside, and the package ships that file: React and esbuild are
-dev dependencies, so a project that installs chloe installs neither. A clone
-that has not built it answers every page address with how to. The page holds
-nothing of the agents': it is the same file for everybody and asks the API,
-which asks for the login. Write it as React, never as HTML in a TypeScript
-string. GET /api shows it to a browser, which is why it is one file: the docs
-are its only address when another page is installed. It is replaced wholesale by any installed package whose
-`package.json` declares a `chloePage` folder, which is how `@chloejs/ui` becomes
-the dashboard. Nothing in the runtime names that package: `serve/page.ts`
-looks for the declaration. If that folder has a `note-head.html`, its contents
-go first in the head of every HTML file served from a memory, which is how the
-page gives notes its components and its document style.
+**The runtime serves its own dashboard**, a React app in `site/`. `npm run
+build:site` bundles it into `site/page/`, and the package ships that folder as
+`dist/site/page/`: React and esbuild are dev dependencies, so a project that
+installs chloe installs neither. `npm run dev:site` rebuilds on every edit, and
+a reload in the browser is the new build, with no restart. A clone that has not
+built it answers every page address with how to. The page holds nothing of the
+agents': it is the same files for everybody and asks the API, which asks for
+the login. Write it as React, never as HTML in a TypeScript string. GET /api
+shows it to a browser, as the list of routes. Chloe Cloud serves the same
+build, and the page asks `GET /api` which of the two it is in front of.
+
+The page reaches the runtime only over HTTP and imports nothing of it. If it
+wants something the API does not answer, add a route, never an import. Its
+tests are `site/test.ts`, on `node:test`. `views/` is one file per thing you
+can be looking at, `views/components/` the pieces those are made of, `lib/`
+everything with no React in it, and `static/` the stylesheets and icons.
+
+**`site/notes/` runs inside somebody's note, not in the page.**
+`note-head.html` goes first in the head of every HTML file served from a
+memory, so `notes.css` and `notes.js` load in the note's sandboxed frame. They
+get no theme and no storage, and the only way out is a message carrying a path,
+which the memory view accepts only from its own frame. Keep every rule in
+`notes.css` behind a `ctx-` class or `:root[data-doc-style]`, so a note that
+never asked for them is untouched.
 
 **Every agent has a memory**: the folder it reads and writes between runs.
 `memory` in its definition, and unsaid it is its own folder inside `MEMORIES`,

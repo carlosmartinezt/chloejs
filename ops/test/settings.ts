@@ -99,8 +99,8 @@ import { about, is } from "#chloe/ops/check";
     }
   };
   is("a config written for cloud says where it went", thrown({ cloud: { api_key: "chl_workspace_x" } }).includes("cloud is dashboard.remote now"), true);
-  is("and one written for page", thrown({ page: "builtin" }), "settings: page is dashboard.local now.");
-  is("the local page is a setting", readSettings({ dashboard: { local: "builtin" } }).dashboard.local, "builtin");
+  is("and one written for page", thrown({ page: "builtin" }).includes("dashboard.local is gone"), true);
+  is("and one written for dashboard.local", thrown({ dashboard: { local: "builtin" } }).includes("dashboard.local is gone"), true);
   is("and the dashboard's address is what it is unless somebody says", readSettings({}).dashboard.remote.url, "https://dashboard.chloejs.org");
   is("sign-in alerts are on unless somebody says", readSettings({}).connections.resend.alerts, true);
 

@@ -34,10 +34,6 @@ import "./env.ts";
 export const ROUTES = ["claude", "codex", "opencode", "gateway"] as const;
 export type Route = (typeof ROUTES)[number];
 
-/** Which page the one port serves: whichever is installed, or the runtime's own. */
-export const PAGES = ["", "builtin"] as const;
-export type Page = (typeof PAGES)[number];
-
 /** Who carries an agent's mail. */
 export const EMAIL_PROVIDERS = ["resend", "gmail", "none"] as const;
 export type EmailProvider = (typeof EMAIL_PROVIDERS)[number];
@@ -166,17 +162,10 @@ export interface Settings {
    */
   agents: Record<string, AgentSettings>;
   /**
-   * Where this runtime is shown: on its own port, on a dashboard somewhere else
-   * it connects out to, both, or neither. Nothing about how a job runs depends
-   * on either.
+   * A dashboard somewhere else that this runtime connects out to, beside the
+   * page on its own port. Nothing about how a job runs depends on it.
    */
   dashboard: {
-    /**
-     * Which page this runtime's own port serves. Empty is whichever page
-     * package is installed, and "builtin" is the runtime's own whatever is
-     * installed, which is how a broken page is told from a broken runtime.
-     */
-    local: Page;
     /**
      * A dashboard somewhere else that this runtime connects out to. Without an
      * api_key there is none, and everything below does nothing.
@@ -269,7 +258,6 @@ export const DEFAULTS: Settings = {
   },
   agents: {},
   dashboard: {
-    local: "",
     remote: {
       api_key: "",
       url: "https://dashboard.chloejs.org",
@@ -305,7 +293,6 @@ const RECORDS: Record<string, AgentSettings> = {
 const ONE_OF: Record<string, readonly string[]> = {
   "model.preferredRoute.*": ROUTES,
   "email.provider": EMAIL_PROVIDERS,
-  "dashboard.local": PAGES,
 };
 
 /** A value, or the same shape with every part of it optional. */
@@ -444,7 +431,9 @@ export function readSettings(declared: unknown): Settings {
   if (merged.cloud !== undefined) {
     throw new Error("settings: cloud is dashboard.remote now, and cloud.remote is dashboard.remote.allow: `dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } }`.");
   }
-  if (merged.page !== undefined) throw new Error("settings: page is dashboard.local now.");
+  if (merged.page !== undefined || (merged.dashboard as { local?: unknown } | undefined)?.local !== undefined) {
+    throw new Error("settings: dashboard.local is gone. The runtime serves one page, the dashboard, and needs no setting for it.");
+  }
   const problem = wrong(DEFAULTS, merged);
   if (problem) throw new Error(`settings are not valid:\n${problem}`);
   return fill(DEFAULTS, merged) as Settings;

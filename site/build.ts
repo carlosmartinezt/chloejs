@@ -1,30 +1,85 @@
-// Builds the runtime's own page into site/page.html, the one file the server
-// sends (see serveOwnPage() in serve/page.ts): index.html with the script and
-// the stylesheet written into it. React and esbuild are only needed here, so a
-// project that installs the runtime installs neither.
-import { readFile, writeFile } from "node:fs/promises";
+// The runtime's page as files on disk: `npm run build:site`, and everything a
+// browser needs lands in site/page/, which serve/page.ts serves. React and
+// esbuild are only needed here, so a project that installs the runtime installs
+// neither.
+//
+// Importing this file builds once, which is what dev.ts wants before it starts
+// watching. The two option objects are exported for it to watch with, so there
+// is one description of how the page is built and not two.
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 
-import { build } from "esbuild";
+import { build, type BuildOptions, type Plugin } from "esbuild";
 
 const dir = import.meta.dirname;
+export const out = `${dir}/page`;
 
-const [script, sheet] = await Promise.all([
-  build({
-    entryPoints: [`${dir}/main.tsx`],
-    bundle: true,
-    format: "esm",
-    jsx: "automatic",
-    target: "es2022",
-    minify: true,
-    write: false,
-  }),
-  build({ entryPoints: [`${dir}/site.css`], bundle: true, minify: true, write: false }),
-]);
+/**
+ * What the built index.html points at. Each address carries what its file
+ * holds, so a new build is new addresses: no browser, edge cache or proxy
+ * serves the old bundle after a deploy. Same names on disk, so nothing else
+ * changes. Runs after every build, including each rebuild while watching.
+ */
+async function versioned(): Promise<void> {
+  const short = async (file: string): Promise<string> => {
+    try {
+      return createHash("sha256").update(await readFile(file)).digest("hex").slice(0, 12);
+    } catch {
+      return "pending";
+    }
+  };
+  const css = await short(`${out}/page.css`);
+  const js = await short(`${out}/page.js`);
+  const html = await readFile(`${dir}/index.html`, "utf8");
+  await writeFile(
+    `${out}/index.html`,
+    html.replace("/page.css", `/page.css?v=${css}`).replace("/page.js", `/page.js?v=${js}`),
+  );
+}
 
-// Replaced by a function, because a replacement string reads `$&` and its
-// kind as patterns, and a minified bundle is full of dollar signs.
-const page = (await readFile(`${dir}/index.html`, "utf8"))
-  .replace("<!-- style -->", () => `<style>${sheet.outputFiles[0].text}</style>`)
-  .replace("<!-- script -->", () => `<script type="module">${script.outputFiles[0].text}</script>`);
+const version: Plugin = {
+  name: "version",
+  setup(task) {
+    task.onEnd(() => versioned());
+  },
+};
 
-await writeFile(`${dir}/page.html`, page);
+export const script: BuildOptions = {
+  entryPoints: [`${dir}/main.tsx`],
+  bundle: true,
+  format: "esm",
+  jsx: "automatic",
+  target: "es2022",
+  minify: true,
+  outfile: `${out}/page.js`,
+  plugins: [version],
+};
+
+/**
+ * The mark is inlined rather than emitted beside the stylesheet, so a built
+ * stylesheet is the same bytes however it is served. One code path.
+ */
+export const sheet: BuildOptions = {
+  entryPoints: [`${dir}/static/styles.css`],
+  bundle: true,
+  minify: true,
+  loader: { ".png": "dataurl" },
+  outfile: `${out}/page.css`,
+  plugins: [version],
+};
+
+await rm(out, { recursive: true, force: true });
+await mkdir(out, { recursive: true });
+await Promise.all([build(script), build(sheet)]);
+
+// The watcher builds already rewrote this after each bundle; once more now
+// that every bundle is final, so no address names a file half written.
+await versioned();
+
+// Named by plain absolute paths, so every address the page answers on finds
+// them. notes/ is what the runtime adds to an HTML note shown from a memory:
+// note-head.html goes into its head, and names the other two.
+await cp(`${dir}/static/icon.png`, `${out}/icon.png`);
+await cp(`${dir}/manifest.webmanifest`, `${out}/manifest.webmanifest`);
+await cp(`${dir}/static/icons`, `${out}/icons`, { recursive: true });
+await cp(`${dir}/notes`, out, { recursive: true });

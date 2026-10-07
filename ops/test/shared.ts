@@ -100,11 +100,6 @@ export type Job = import("@chloejs/core").Job;
 export type Line = import("@chloejs/core").Line;
 export type Tools = import("@chloejs/core").Tools;
 
-// The runtime's own site, so whether a page package happens to be installed in
-// this repo decides nothing here. A setting, so it is written rather than put in
-// the environment, which is only read when the settings are.
-export const { settings: live } = await import("@chloejs/core");
-export const ownPage = (yes: boolean): void => void (live.dashboard.local = yes ? "builtin" : "");
 
 export const sent: string[] = [];
 reachBy("test", async (to, text) => void sent.push(`${to}: ${text}`));

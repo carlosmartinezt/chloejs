@@ -1,0 +1,129 @@
+/*
+   The other looks, picked in Account settings and remembered per browser.
+   Each is a colour theme from VS Code, and each sets the page's own tokens
+   (the ones at the top of styles.css), so nothing else has to know it exists.
+   The first look, Chloe, is no attribute at all and follows the system.
+
+   Each block names a swatch as well as the page, so a square in Account
+   settings can be painted in the theme it offers without repeating it here.
+
+   Adding one means a block here and a line in THEMES in lib/prefs.ts.
+*/
+
+:root[data-theme="chrome"], .swatch[data-theme="chrome"] {
+  --bg: #ffffff; --surface: #ffffff; --line: #e1e3e1; --line-2: color-mix(in srgb, #1f1f1f 19%, transparent);
+  --ink: #1f1f1f; --dim: #444746;
+  --accent: #0b57d0; --accent-soft: #c2e7ff; --on-accent: #fff;
+  --bar: #f8fafd; --on-bar: #444746; --bar-line: #c4c7c5;
+  --inline: #f0f4f9;
+  color-scheme: light;
+}
+
+:root[data-theme="light-plus"], .swatch[data-theme="light-plus"] {
+  --bg: #ffffff; --surface: #ffffff; --line: #e5e5e5; --line-2: color-mix(in srgb, #3b3b3b 19%, transparent);
+  --ink: #3b3b3b; --dim: #616161;
+  --accent: #0066bf; --accent-soft: #e4e6f1; --on-accent: #fff;
+  --bar: #f8f8f8; --on-bar: #3b3b3b; --bar-line: #e5e5e5;
+  --inline: #f3f3f3;
+  color-scheme: light;
+}
+
+:root[data-theme="quiet-light"], .swatch[data-theme="quiet-light"] {
+  --bg: #f5f5f5; --surface: #ffffff; --line: #dcdcdc; --line-2: color-mix(in srgb, #333333 19%, transparent);
+  --ink: #333333; --dim: #7a7a7a;
+  --accent: #4b83cd; --accent-soft: #c9d0d9; --on-accent: #fff;
+  --bar: #ececec; --on-bar: #6c6c6c; --bar-line: #dcdcdc;
+  --inline: #ececec;
+  color-scheme: light;
+}
+
+:root[data-theme="dark-plus"], .swatch[data-theme="dark-plus"] {
+  --bg: #1e1e1e; --surface: #252526; --line: #3c3c3c; --line-2: color-mix(in srgb, #d4d4d4 22%, transparent);
+  --ink: #d4d4d4; --dim: #9d9d9d;
+  --accent: #4daafc; --accent-soft: #37373d; --on-accent: #10151b;
+  --bar: #252526; --on-bar: #cccccc; --bar-line: #2b2b2b;
+  --inline: #2d2d2d;
+  color-scheme: dark;
+}
+
+:root[data-theme="dark-modern"], .swatch[data-theme="dark-modern"] {
+  --bg: #1f1f1f; --surface: #181818; --line: #313131; --line-2: color-mix(in srgb, #cccccc 22%, transparent);
+  --ink: #cccccc; --dim: #9d9d9d;
+  --accent: #4daafc; --accent-soft: #2a2d2e; --on-accent: #10151b;
+  --bar: #181818; --on-bar: #cccccc; --bar-line: #2b2b2b;
+  --inline: #2b2b2b;
+  color-scheme: dark;
+}
+
+:root[data-theme="abyss"], .swatch[data-theme="abyss"] {
+  --bg: #000c18; --surface: #010b19; --line: #1b325f; --line-2: color-mix(in srgb, #cccccc 22%, transparent);
+  --ink: #cccccc; --dim: #7c8ba4;
+  --accent: #22aaff; --accent-soft: #082050; --on-accent: #00142b;
+  --bar: #010b19; --on-bar: #b0b8c8; --bar-line: #0b2b5e;
+  --inline: #082050;
+  color-scheme: dark;
+}
+
+:root[data-theme="monokai"], .swatch[data-theme="monokai"] {
+  --bg: #272822; --surface: #1e1f1c; --line: #414339; --line-2: color-mix(in srgb, #f8f8f2 22%, transparent);
+  --ink: #f8f8f2; --dim: #a59f85;
+  --accent: #66d9ef; --accent-soft: #414339; --on-accent: #1b1c18;
+  --bar: #1e1f1c; --on-bar: #cfcfc2; --bar-line: #34352f;
+  --inline: #3e3d32;
+  color-scheme: dark;
+}
+
+:root[data-theme="monokai-dimmed"], .swatch[data-theme="monokai-dimmed"] {
+  --bg: #1e1e1e; --surface: #272727; --line: #3a3a3a; --line-2: color-mix(in srgb, #c5c8c6 22%, transparent);
+  --ink: #c5c8c6; --dim: #8f908a;
+  --accent: #9daecc; --accent-soft: #37373d; --on-accent: #16181b;
+  --bar: #272727; --on-bar: #c5c8c6; --bar-line: #343434;
+  --inline: #303030;
+  color-scheme: dark;
+}
+
+:root[data-theme="kimbie-dark"], .swatch[data-theme="kimbie-dark"] {
+  --bg: #221a0f; --surface: #221a0f; --line: #423120; --line-2: color-mix(in srgb, #d3af86 22%, transparent);
+  --ink: #d3af86; --dim: #a57a4c;
+  --accent: #d3af86; --accent-soft: #5e452b; --on-accent: #221a0f;
+  --bar: #1a1109; --on-bar: #d3af86; --bar-line: #362712;
+  --inline: #362712;
+  color-scheme: dark;
+}
+
+:root[data-theme="red"], .swatch[data-theme="red"] {
+  --bg: #390000; --surface: #2d0000; --line: #5a1616; --line-2: color-mix(in srgb, #f8f8f8 22%, transparent);
+  --ink: #f8f8f8; --dim: #c89191;
+  --accent: #ffc0c0; --accent-soft: #770000; --on-accent: #390000;
+  --bar: #2d0000; --on-bar: #e8b3b3; --bar-line: #560000;
+  --inline: #550000;
+  color-scheme: dark;
+}
+
+:root[data-theme="tomorrow-night-blue"], .swatch[data-theme="tomorrow-night-blue"] {
+  --bg: #002451; --surface: #001c40; --line: #00346e; --line-2: color-mix(in srgb, #ffffff 22%, transparent);
+  --ink: #ffffff; --dim: #7285b7;
+  --accent: #bbdaff; --accent-soft: #003f8e; --on-accent: #002451;
+  --bar: #001c40; --on-bar: #d6dfef; --bar-line: #00346e;
+  --inline: #003f8e;
+  color-scheme: dark;
+}
+
+/* The status and agent colours for a dark ground, and for a light one,
+   whichever the system is set to. */
+:root[data-theme="dark-plus"],
+:root[data-theme="dark-modern"],
+:root[data-theme="abyss"],
+:root[data-theme="monokai"],
+:root[data-theme="monokai-dimmed"],
+:root[data-theme="kimbie-dark"],
+:root[data-theme="red"],
+:root[data-theme="tomorrow-night-blue"] {
+  --ok: #8fc9ab; --bad: #e08b7f; --wait: #d8a75f; --wait-soft: #1d180e; --wait-line: #55411d; --hue-0: #6fbb9d; --hue-1: #d8a75f; --hue-2: #a99bd6; --hue-3: #8fc07a; --hue-4: #d98cae; --hue-5: #7fa8cf; --kind-words: #8fc9ab; --kind-code: #7fa8cf; --kind-script: #dfa966; --kind-proof: #a99bc9; --on-hue: #06120e;
+}
+
+:root[data-theme="chrome"],
+:root[data-theme="light-plus"],
+:root[data-theme="quiet-light"] {
+  --ok: #295c4b; --bad: #a4463c; --wait: #8a5a0c; --wait-soft: #f7ecd8; --wait-line: #dcc08a; --hue-0: #295c4b; --hue-1: #b4560c; --hue-2: #5b4b9c; --hue-3: #508e55; --hue-4: #9c3f6e; --hue-5: #2f5d8a; --kind-words: #2f7d52; --kind-code: #2f5d8a; --kind-script: #9a5b0c; --kind-proof: #7c6f9a; --on-hue: #fffdf7;
+}

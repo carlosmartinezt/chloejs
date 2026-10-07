@@ -124,15 +124,16 @@
     "human-in-the-loop"
   ],
   "scripts": {
-    "build": "rm -rf dist && npm run build:site && tsc -p tsconfig.build.json && cp -r chat dist/chat && mkdir dist/site && cp site/page.html dist/site/ && node ops/docs.ts dist/docs",
+    "build": "rm -rf dist && npm run build:site && tsc -p tsconfig.build.json && cp -r chat dist/chat && mkdir dist/site && cp -r site/page dist/site/page && node ops/docs.ts dist/docs",
     "build:site": "node site/build.ts",
+    "dev:site": "node site/dev.ts",
     "prepack": "npm run build",
     "start": "node --conditions=chloe-source server.ts",
     "setup": "node --conditions=chloe-source ops/setup.ts",
     "account": "node --conditions=chloe-source ops/account.ts",
     "agent": "node --conditions=chloe-source ops/agent.ts",
     "evals": "node --conditions=chloe-source ops/evals.ts",
-    "test": "npm run build:site && node --conditions=chloe-source ops/test.ts",
+    "test": "npm run build:site && node --conditions=chloe-source ops/test.ts && node --test-reporter=spec site/test.ts",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p site",
     "check": "npm run typecheck && node ops/docs.ts && npm run test && npm run example",
     "example": "cd example && node --conditions=chloe-source ../ops/test.ts"

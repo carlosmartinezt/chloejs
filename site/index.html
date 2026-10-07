@@ -3,8 +3,38 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Chloe</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23263d73'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23faf6ec'/%3E%3C/svg%3E">
-<!-- style -->
+
+<!--
+  Where the runtime answers. Left as it is, the page calls /api on whatever
+  host it was served from, which is the usual arrangement: a proxy serves these
+  files and sends /api on to chloe. Point it somewhere else by editing this one
+  line, on the built copy, without rebuilding:
+
+    <meta name="chloe-api" content="https://agents.example.com/api">
+-->
+<meta name="chloe-api" content="/api">
+
+<link rel="icon" href="/icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#263d73">
+<!-- How the page was last told to look, set before the first paint so it is
+     never seen changing its mind: the theme, whether it is pinned to light or
+     dark, and the hue of the band across the top. -->
+<script>try {
+  var d = document.documentElement, s = localStorage;
+  var t = s.getItem("chloe.theme"); if (t) d.setAttribute("data-theme", t);
+  var m = s.getItem("chloe.mode"); if (m) d.setAttribute("data-mode", m);
+  var b = s.getItem("chloe.bar");
+  if (b) {
+    d.style.setProperty("--bar-hue", b);
+    document.querySelector('meta[name="theme-color"]').content = "hsl(" + b + " 50% 30%)";
+  }
+} catch (e) {}</script>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400..700&family=Google+Sans+Code:wght@400..600&display=swap">
+<link rel="stylesheet" href="/page.css">
+
 <div id="app"></div>
-<!-- script -->
+<script type="module" src="/page.js"></script>
 </html>

@@ -45,7 +45,7 @@ import { work } from "./shared.ts";
   const withKey = withSetting(config, keyLine);
   is("a key's line goes into the settings setup wrote", withKey?.includes(`  settings: {\n    ${keyLine}\n`), true);
   is("and not twice", withSetting(withKey!, keyLine), null);
-  is("nor into a config that already says dashboard", withSetting(withKey!, "dashboard: { local: \"builtin\" },"), null);
+  is("nor into a config that already says dashboard", withSetting(withKey!, "dashboard: { remote: { url: \"https://example.com\" } },"), null);
 
   // Written inside the repo rather than in tmp, because the agent.ts it writes
   // imports "@chloejs/core" and a package can only import itself from inside

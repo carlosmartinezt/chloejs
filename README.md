@@ -39,8 +39,7 @@ skills add carlosmartinezt/chloejs` gets it that far before anything is.
 
 ## Somewhere to watch it from
 
-The runtime serves its own page, and `@chloejs/ui` turns that into a dashboard.
-Both are on the box it runs on. To watch it from anywhere without opening a
+The runtime serves its own dashboard, on the box it runs on. To watch it from anywhere without opening a
 port, point it at a remote dashboard.
 
 Make a workspace there, and put the key it shows you once in `.env`, beside
@@ -306,10 +305,6 @@ npx chloe agent <id> <job>       # run one job now, without waiting for its cron
 npx chloe install                # run it as a service (systemd or launchd), so it survives a reboot
 ```
 
-Without `@chloejs/ui` the runtime serves a plain page of its own. With it, that
-page is the dashboard. The runtime never names that package: it serves whatever
-installed package declares a page.
-
 **One process, one disk.** The runs are a SQLite file in the state folder
 (`data/`, or `CHLOE_STATE`), beside the account, the tokens and, unless an
 agent says otherwise, its memory. Run one copy, on a machine or in a container
@@ -337,7 +332,8 @@ server.ts    the server, which `npx chloe` runs
 model/       asking a model, and tools/, the only thing a model can be handed
 load/        what an agent and a job are, and reading them off disk
 timer/       cron lines and every(), published as "@chloejs/core/timer"
-serve/       the one port: every route, the login, tokens, the plain page
+serve/       the one port: every route, the login, tokens, and serving the page
+site/        the dashboard, React, built into site/page/ and shipped built
 core/        the floor. steps.ts runs a job, turn.ts runs a prompt, clock.ts
              starts each job when its cron line is due
 scorers/     how a run is marked

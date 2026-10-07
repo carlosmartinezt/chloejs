@@ -3,7 +3,7 @@
 node_modules
 # The built copy, made on publish. The source is what is committed.
 /dist/
-/site/page.html
+/site/page/
 # Credentials that belong to this box: CHLOE_API_KEY and anything a script needs.
 .env
 *.tsbuildinfo

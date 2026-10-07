@@ -1,40 +1,44 @@
-import { useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { api, useLoad } from "../api.ts";
-import { ago, day, exact } from "../format.ts";
+import { api } from "../lib/api.ts";
+import { when } from "../lib/format.ts";
+import type { Token } from "../lib/types.ts";
 
 /**
- * Tokens for other systems. The secret exists in one piece once, in the reply
- * that made it, so it is shown until the page moves on and never asked for again.
+ * Tokens for other systems. The secret exists in one piece exactly once, in the
+ * reply that made it, so this page shows it until the next thing happens and
+ * never asks the server for it again.
  */
 export function Tokens() {
-  const { data: tokens, trouble: listing, reload } = useLoad(api.tokens, []);
-  const { data: agents } = useLoad(api.agents, []);
+  const [tokens, setTokens] = useState<Token[]>([]);
   const [name, setName] = useState("");
   const [agent, setAgent] = useState("");
-  const [made, setMade] = useState<{ name: string; agent?: string; secret: string }>();
-  const [copied, setCopied] = useState(false);
+  const [agents, setAgents] = useState<string[]>([]);
+  const [made, setMade] = useState<{ name: string; secret: string } | null>(null);
   const [trouble, setTrouble] = useState("");
 
-  async function make(event: FormEvent) {
-    event.preventDefault();
+  const refresh = useCallback(async () => {
     try {
-      const token = await api.makeToken(name.trim(), agent || undefined);
-      setMade({ name: token.name, agent: token.agent, secret: token.secret });
-      setCopied(false);
-      setName("");
+      setTokens(await api.tokens());
       setTrouble("");
-      reload();
     } catch (error) {
       setTrouble((error as Error).message);
     }
-  }
+  }, []);
 
-  async function revoke(id: string, called: string) {
-    if (!confirm(`Revoke ${called}? Anything using it stops working now.`)) return;
+  useEffect(() => {
+    void refresh();
+    api.agents().then((all) => setAgents(all.map((one) => one.id)), () => setAgents([]));
+  }, [refresh]);
+
+  async function make(event: React.FormEvent) {
+    event.preventDefault();
+    if (!name.trim()) return;
     try {
-      await api.revokeToken(id);
-      reload();
+      const token = await api.makeToken(name.trim(), agent || undefined);
+      setMade({ name: token.name, secret: token.secret });
+      setName("");
+      await refresh();
     } catch (error) {
       setTrouble((error as Error).message);
     }
@@ -42,11 +46,16 @@ export function Tokens() {
 
   return (
     <>
-      <h1>Tokens</h1>
-      <p className="dim">
-        For another system to read this API and reach the agents that bind an api channel. A token cannot write a
-        file, read a memory, or make and revoke tokens. Made for one agent, it reaches that agent and nothing else,
-        which is the kind a website&rsquo;s own server needs to start its visitors&rsquo; chats.
+      <div className="head">
+        <h1>Tokens</h1>
+      </div>
+      <p>
+        For another system to read this API and reach the agents that bind an api channel. A token cannot
+        write a file, read the notes, or make and revoke tokens. Those are the account&rsquo;s.
+      </p>
+      <p>
+        Made for one agent, it reaches that agent and nothing else. That is the kind a website&rsquo;s own
+        server needs to start its visitors&rsquo; chats.
       </p>
 
       <form className="row" onSubmit={make}>
@@ -55,17 +64,16 @@ export function Tokens() {
           onChange={(event) => setName(event.target.value)}
           placeholder="What is it for"
           aria-label="What the token is for"
-          required
         />
         <select value={agent} onChange={(event) => setAgent(event.target.value)} aria-label="Which agent it reaches">
-          <option value="">Every agent on the api</option>
-          {agents?.map((one) => (
-            <option key={one.id} value={one.id}>
-              Only {one.label || one.id}
+          <option value="">Every agent</option>
+          {agents.map((one) => (
+            <option key={one} value={one}>
+              Only {one}
             </option>
           ))}
         </select>
-        <button className="primary" type="submit" disabled={!name.trim()}>
+        <button className="small" type="submit" disabled={!name.trim()}>
           Make one
         </button>
       </form>
@@ -73,59 +81,35 @@ export function Tokens() {
       {made && (
         <div className="fresh">
           <p>
-            <strong>{made.name}</strong>
-            {made.agent ? `, for ${made.agent} only` : ""}. Copy it now: it is not stored and cannot be shown again.
+            <strong>{made.name}</strong>. Copy it now: it is not stored and cannot be shown again.
           </p>
-          <div className="row">
-            <pre className="secret">{made.secret}</pre>
-            <button
-              onClick={() => void navigator.clipboard?.writeText(made.secret).then(() => setCopied(true))}
-              disabled={!navigator.clipboard}
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
+          <pre className="token">{made.secret}</pre>
         </div>
       )}
-      {(trouble || listing) && <p className="bad">{trouble || listing}</p>}
+      {trouble && <p className="bad">{trouble}</p>}
 
-      {tokens?.length === 0 && <p className="dim">None yet. Only a signed-in browser can reach the API.</p>}
-      {!!tokens?.length && (
-        <div className="table">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Reaches</th>
-                <th>Made</th>
-                <th>Last used</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {tokens.map((token) => (
-                <tr key={token.id} className={token.revoked ? "gone" : undefined}>
-                  <td>{token.name}</td>
-                  <td>{token.agent ? <code>{token.agent}</code> : <span className="dim">every agent on the api</span>}</td>
-                  <td className="dim nowrap" title={exact(token.created)}>{day(token.created)}</td>
-                  <td className="dim nowrap" title={token.lastUsed ? exact(token.lastUsed) : undefined}>
-                    {ago(token.lastUsed)}
-                  </td>
-                  <td className="right">
-                    {token.revoked ? (
-                      <span className="dim nowrap">revoked {day(token.revoked)}</span>
-                    ) : (
-                      <button className="small" onClick={() => void revoke(token.id, token.name)}>
-                        Revoke
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {tokens.length === 0 && <p className="empty">None yet. Nothing but this browser can reach the API.</p>}
+      <table className="tight">
+        <tbody>
+          {tokens.map((token) => (
+            <tr key={token.id} className={token.revoked ? "dim" : undefined}>
+              <td>{token.name}</td>
+              <td className="dim num aside">{token.agent ? `only ${token.agent}` : "every agent"}</td>
+              <td className="dim num aside">made {when(token.created)}</td>
+              <td className="dim num aside">
+                {token.revoked ? `revoked ${when(token.revoked)}` : token.lastUsed ? `used ${when(token.lastUsed)}` : "never used"}
+              </td>
+              <td className="right">
+                {!token.revoked && (
+                  <button className="small" onClick={() => void api.revokeToken(token.id).then(refresh)}>
+                    Revoke
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </>
   );
 }

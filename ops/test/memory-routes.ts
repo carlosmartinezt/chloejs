@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { about, is } from "#chloe/ops/check";
 import type { Agent } from "./shared.ts";
-import { agentFor, answer, codeJob, ownPage, work } from "./shared.ts";
+import { agentFor, answer, codeJob, work } from "./shared.ts";
 
 {
   about("an agent's memory, and the log of what was served");
@@ -29,7 +29,6 @@ import { agentFor, answer, codeJob, ownPage, work } from "./shared.ts";
   // An agent's own state folder can hold its credentials, and one here does.
   await makeDir(`${folder}/secrets`, { recursive: true });
   await put(`${folder}/secrets/key.txt`, "never shown");
-  ownPage(true);
 
   // Every agent has a memory. Unsaid, it is memory/ in the agent's own folder.
   is("unsaid, an agent's memory is its own folder in memory/", memoryFolder("tempo"), `${MEMORIES}/tempo`);
@@ -172,38 +171,16 @@ import { agentFor, answer, codeJob, ownPage, work } from "./shared.ts";
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: `${outer}/data/tempo`, stdio: "ignore" });
   is("a memory that is the top of its own repo is one", (await memoryGit(inside)).repo, true);
 
-  ownPage(false);
   server.close();
 }
 
 {
-  about("a page a package offers");
-
-  const { installedPage, pageIn } = await import("#chloe/serve/page");
-
-  // A node_modules of its own, holding one package that declares a page. The
-  // runtime never names a package: it looks for the declaration.
-  const modules = await mkdtemp(join(tmpdir(), "chloe-page-"));
-  await mkdir(`${modules}/zod`, { recursive: true });
-  await writeFile(`${modules}/zod/package.json`, JSON.stringify({ name: "zod" }));
-  await mkdir(`${modules}/some-dashboard/dist`, { recursive: true });
-  await writeFile(`${modules}/some-dashboard/package.json`, JSON.stringify({ name: "some-dashboard", chloePage: "dist" }));
-  await writeFile(`${modules}/some-dashboard/dist/index.html`, '<div id="app"></div>');
-  await writeFile(`${modules}/some-dashboard/dist/page.js`, "");
-
-  const found = pageIn(modules);
-  is("it finds the package that declares one", found?.name, "some-dashboard");
-  is("and serves the folder that package named", found?.dir.endsWith("/dist"), true);
-  is("a folder with no packages offers nothing", pageIn(`${modules}/nowhere`), null);
-
-  ownPage(true);
-  is("and it can be told to use the runtime's own instead", installedPage(), null);
-  ownPage(false);
+  about("the page");
 
   // What it serves. A file that is there is the file. Everything else is one of
   // the page's own addresses, including one with a dot in it: an address inside
   // the page can name a file that lives somewhere else entirely.
-  const { servePageFile } = await import("#chloe/serve/page");
+  const { servePage, noteHead } = await import("#chloe/serve/page");
   const served = async (path: string) => {
     let type = "";
     let body = "";
@@ -211,14 +188,14 @@ import { agentFor, answer, codeJob, ownPage, work } from "./shared.ts";
       writeHead: (_status: number, headers: Record<string, string>) => ((type = headers["content-type"]), response),
       end: (chunk: Buffer | string) => void (body = String(chunk)),
     };
-    await servePageFile(response as never, found!, path);
+    await servePage(response as never, path);
     return { type, page: body.includes('id="app"') };
   };
   is("its own script is its own script", (await served("/page.js")).type.startsWith("text/javascript"), true);
   is("an address of the page's is the page", (await served("/agents/chloe/log")).page, true);
   is("and so is one that names a file somewhere else", (await served("/agents/chloe/memory/02_areas/chess/curriculum.html")).page, true);
   is("but it will not hand out a file from outside its folder", (await served("/../../package.json")).page, true);
-  await rm(modules, { recursive: true, force: true });
+  is("a note is given the page's stylesheet for notes", noteHead().includes("/notes.css"), true);
 }
 
 {

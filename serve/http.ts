@@ -46,7 +46,7 @@ import { describe } from "#chloe/timer/every";
 import { type Caller, type Guest, caller, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "./alerts.ts";
-import { installedPage, serveOwnPage, servePageFile } from "./page.ts";
+import { servePage } from "./page.ts";
 import { receive } from "#chloe/channels/shared";
 import { answer, checkArgs, parkedRuns } from "#chloe/core/steps";
 import { canCarryOn, stopped } from "#chloe/core/turn";
@@ -248,8 +248,8 @@ export const routes: Route[] = [
     allow: "read",
     guest: "filtered",
     handle: async ({ request, response }) => {
-      // A browser gets the runtime's own page, which shows this list. Anything else gets it as JSON.
-      if ((request.headers.accept ?? "").includes("text/html")) return void (await serveOwnPage(response));
+      // A browser gets the page, which shows this list. Anything else gets it as JSON.
+      if ((request.headers.accept ?? "").includes("text/html")) return void (await servePage(response, "/api"));
       json(response, routeList());
     },
   },
@@ -1179,8 +1179,7 @@ export function serve(options: {
       if (channel) return await channel.handle(request, response);
       if (path === "/api" || path.startsWith("/api/")) return await api(request, response, path, url, context);
       if (path.startsWith("/memory/") && request.method === "GET") return await framed(request, response, url, context);
-      const page = installedPage();
-      await (page ? servePageFile(response, page, path) : serveOwnPage(response));
+      await servePage(response, path);
     } catch (error) {
       if (error instanceof NotFound) return json(response, { error: error.message }, 404);
       if (error instanceof BadRequest) return json(response, { error: error.message }, 400);
