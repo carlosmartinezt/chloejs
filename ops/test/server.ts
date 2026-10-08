@@ -379,3 +379,27 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   is("Cloudflare's own header wins", asking({ "cf-connecting-ip": "203.0.113.9", "x-forwarded-for": "10.0.0.1, 172.68.1.1" }), "203.0.113.9");
   is("and a forged copy of it is still only the first entry of its own list", asking({ "cf-connecting-ip": "203.0.113.9, 1.2.3.4" }), "203.0.113.9");
 }
+
+{
+  about("a second copy stops before it starts anything");
+
+  const { claimPort, serve } = await import("#chloe/serve/http");
+  const first = await claimPort("127.0.0.1", 0);
+  const port = (first.address() as { port: number }).port;
+  const server = serve({
+    host: "127.0.0.1",
+    port,
+    agents: () => new Map(),
+    clock: { running: () => [] } as unknown as import("#chloe/core/clock").Clock,
+    channels: () => [],
+    heldPort: first,
+  });
+  await new Promise<void>((done) => server.once("listening", done));
+  is("the server takes over the port it was handed", (await fetch(`http://127.0.0.1:${port}/api/health`)).status < 500, true);
+  const second = await claimPort("127.0.0.1", port).then(
+    () => "",
+    (error: Error) => error.message,
+  );
+  is("a second claim on it is refused, saying why", second.startsWith(`Port ${port} on 127.0.0.1 is taken, most likely by chloe already running.`), true);
+  server.close();
+}

@@ -9,6 +9,7 @@
 // documented, and a documented route that does not exist is worse than either.
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer as createPortHolder, type Server as PortHolder } from "node:net";
 
 import { z } from "zod";
 
@@ -1170,6 +1171,8 @@ export function serve(options: {
   clock: Clock;
   /** What the running channels answer, asked again on every request because a channel can start or stop. */
   channels: () => ChannelRoute[];
+  /** The port already held by `claimPort`, which the server takes over in place of opening its own. */
+  heldPort?: PortHolder;
 }) {
   const context: Context = {
     agents: options.agents,
@@ -1209,8 +1212,28 @@ export function serve(options: {
     }
   });
 
-  server.listen(options.port, options.host);
+  // The port this copy opened first thing, now handed to the server, so it is
+  // never free in between for a second copy to take.
+  if (options.heldPort) server.listen(options.heldPort);
+  else server.listen(options.port, options.host);
   return server;
+}
+
+/**
+ * Holds the port before anything else starts, so a second copy started by
+ * mistake stops here: before it closes the runs it would take for cut off by
+ * a crash, and before its clock and channels run beside the first copy's.
+ * Hand what it returns to `serve` as `heldPort`.
+ */
+export function claimPort(host: string, port: number): Promise<PortHolder> {
+  return new Promise((done, fail) => {
+    const holder = createPortHolder();
+    holder.once("error", (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EADDRINUSE") return fail(error);
+      fail(new Error(`Port ${port} on ${host} is taken, most likely by chloe already running. This copy stops here and touches nothing. To run a second one, give it another serve.port.`));
+    });
+    holder.listen(port, host, () => done(holder));
+  });
 }
 
 /**

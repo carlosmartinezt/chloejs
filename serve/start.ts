@@ -19,7 +19,7 @@ import { sdkModel } from "#chloe/model/key";
 import { connectionsUsed } from "#chloe/model/tool";
 import { run } from "#chloe/services/runService";
 import { learnModels, runnable } from "#chloe/model/model";
-import { ownAddress, serve as listen } from "#chloe/serve/http";
+import { claimPort, ownAddress, serve as listen } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
 import { startDashboard } from "#chloe/dashboard/connect";
 import { hasAccount } from "#chloe/serve/login";
@@ -47,6 +47,9 @@ export async function startChloe(given?: Config): Promise<void> {
   }
 
   let agents: Map<string, Agent> = await loadAll(given);
+  // First, while nothing has started: a copy that cannot have the port is a
+  // second one, and must not touch the first one's runs on its way out.
+  const heldPort = await claimPort(settings.serve.host, settings.serve.port);
   // What each route can run, and what a call on a provider's own key costs.
   // Not waited for: until it answers, such a call is recorded at no cost.
   void learnModels();
@@ -104,6 +107,7 @@ export async function startChloe(given?: Config): Promise<void> {
     agents: () => agents,
     clock,
     channels: () => [...running.values()].flatMap((one) => one.routes ?? []),
+    heldPort,
   });
 
   // The connection to the remote dashboard, if there is a key for one. It reads the
