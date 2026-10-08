@@ -1,5 +1,6 @@
 // Mail when somebody signs in from an address this copy has not seen before,
-// and when one gets locked out for guessing.
+// when one gets locked out for guessing, and when a job starts failing or
+// works again.
 //
 // The addresses that have been seen are kept beside the run history, so the
 // first sign-in after a fresh install is always a new one. That first mail is
@@ -13,6 +14,7 @@
 // nobody was told about, and the sign-in is recorded either way.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
+import { db } from "#chloe/core/db";
 import { deliverEmail } from "#chloe/services/emailService";
 import { STATE } from "#chloe/core/paths";
 import { settings } from "#chloe/core/settings";
@@ -87,6 +89,38 @@ export function lockedOut(address: string): void {
     `Locked out ${address}`,
     `Too many wrong passwords from ${address}, so it is locked out for fifteen minutes.\n`,
   );
+}
+
+/**
+ * What to say when a job's run ends, if anything: once when it goes from
+ * working to failing, with the error, and once when it works again. Read from
+ * the job's own run history, so a job that fails every hour sends one mail and
+ * not twenty-four, and a restart in between changes nothing. `since` is when
+ * the run began: a run that left no finished row (it is waiting on a person,
+ * or never started) says nothing.
+ */
+export function jobTurned(agent: string, job: string, since: string): { subject: string; body: string } | null {
+  const [now, before] = db
+    .prepare("select finished, error from runs where agent = ? and job = ? and finished is not null order by finished desc limit 2")
+    .all(agent, job) as { finished: string; error: string | null }[];
+  if (!now || now.finished < since || Boolean(now.error) === Boolean(before?.error)) return null;
+  if (now.error) {
+    return {
+      subject: `${agent}/${job} is failing`,
+      body: `It failed at ${now.finished}:\n\n${now.error.slice(0, 2000)}\n\nYou will hear again when it works, not on every failure.\n`,
+    };
+  }
+  return { subject: `${agent}/${job} works again`, body: `It finished without an error at ${now.finished}.\n` };
+}
+
+/** Mails what `jobTurned` says, if anything. Never throws at the caller. */
+export function jobEnded(agent: string, job: string, since: string): void {
+  try {
+    const said = jobTurned(agent, job, since);
+    if (said) mail(said.subject, said.body);
+  } catch (error) {
+    console.error("could not check whether to alert:", error instanceof Error ? error.message : error);
+  }
 }
 
 /** Forgets what was read, so a test can write the file and be believed. */

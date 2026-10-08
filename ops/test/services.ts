@@ -107,3 +107,22 @@ import { db, sent } from "./shared.ts";
   opened.close();
   await rm(join(tmpdir(), `copy-${process.pid}`), { recursive: true, force: true });
 }
+
+{
+  about("an alert when a job starts failing or works again");
+
+  const { jobTurned } = await import("#chloe/core/alerts");
+  const ended = (id: string, finished: string, error: string | null) =>
+    db
+      .prepare("insert into runs (id, agent, started, finished, source, model, prompt, error, job) values (?, 'alerted', ?, ?, 'schedule', 'm', '', ?, 'daily')")
+      .run(id, finished, finished, error);
+  ended("alert-1", "2026-01-01T10:00:00.000Z", null);
+  is("a run that works after one that worked says nothing", jobTurned("alerted", "daily", "2026-01-01T09:59:00.000Z"), null);
+  ended("alert-2", "2026-01-02T10:00:00.000Z", "claude exited 1: error_max_turns");
+  is("the first failure says so, with the error", jobTurned("alerted", "daily", "2026-01-02T09:59:00.000Z")?.subject, "alerted/daily is failing");
+  ended("alert-3", "2026-01-03T10:00:00.000Z", "claude exited 1: error_max_turns");
+  is("a failure after a failure says nothing", jobTurned("alerted", "daily", "2026-01-03T09:59:00.000Z"), null);
+  is("a run that left no row says nothing about an older one", jobTurned("alerted", "daily", "2026-01-04T09:59:00.000Z"), null);
+  ended("alert-4", "2026-01-04T10:00:00.000Z", null);
+  is("working again says so, once", jobTurned("alerted", "daily", "2026-01-04T09:59:00.000Z")?.subject, "alerted/daily works again");
+}

@@ -128,7 +128,8 @@ export interface Settings {
       api_key: string;
       /**
        * Mail when somebody signs in from an address this copy has not seen,
-       * and when one is locked out for guessing. Always sent through Resend,
+       * when one is locked out for guessing, and when a job starts failing or
+       * works again (once each, never on every failure). Always sent through Resend,
        * whatever email.provider says, so it needs api_key. Off, the sign-in is
        * still recorded.
        */

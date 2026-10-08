@@ -6,6 +6,7 @@ import { due, parse } from "#chloe/timer/cron";
 import { carryOn, turn } from "#chloe/core/turn";
 import { modelFor } from "#chloe/model/choices";
 import { sweep, waitingFor, work, WrongArgs } from "#chloe/core/steps";
+import { jobEnded } from "#chloe/core/alerts";
 
 /**
  * What a run came to, in the part both kinds of job have: a job made of code
@@ -109,6 +110,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
     }
     busy.add(key);
     const began = Date.now();
+    const since = new Date(began).toISOString();
     try {
       const result = await run();
       const seconds = Math.round((Date.now() - began) / 1000);
@@ -121,6 +123,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
       return { failed: (error as Error).message };
     } finally {
       busy.delete(key);
+      jobEnded(agent.id, job.id, since);
     }
   }
 

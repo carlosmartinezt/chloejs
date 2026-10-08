@@ -37,19 +37,28 @@ export function protocol(tools: ToolSpec[]): string {
   ].join("\n");
 }
 
-function render(message: Message, names: Map<string, string>, native: boolean): string {
+/** Which listed tool a name in the instructions is, where the route lists them longer. */
+function named(prefix: string, example: string): string {
+  return (
+    `Your tools are listed as \`${prefix}<name>\`. Where these instructions or the conversation name a tool, ` +
+    `such as \`${example}\`, it is the one listed as \`${prefix}${example}\`: call it by that full name.`
+  );
+}
+
+function render(message: Message, names: Map<string, string>, native: string | undefined): string {
   if (message.role === "tool") {
     // Named when the answer asked for several, so each result can be told
     // apart; a single call keeps the plain heading it always had.
     const name = names.size > 1 ? names.get(message.tool_call_id ?? "") : undefined;
-    return `${name ? `[result of ${name}]` : "[result]"}\n${message.content}`;
+    return `${name ? `[result of ${native ?? ""}${name}]` : "[result]"}\n${message.content}`;
   }
   if (message.role === "assistant") {
     // Where tools are real calls, a past one is said in words: a request
     // written out the way a transcript shows it would be copied as text, and
-    // text asks for nothing.
-    if (native) {
-      const asked = (message.tool_calls ?? []).map((c) => `(called ${c.function.name} with ${c.function.arguments || "{}"})`);
+    // text asks for nothing. It is the name the route lists it by, so the
+    // model does not copy a shorter one it has no tool for.
+    if (native !== undefined) {
+      const asked = (message.tool_calls ?? []).map((c) => `(called ${native}${c.function.name} with ${c.function.arguments || "{}"})`);
       return [`[you]`, message.content, ...asked].filter(Boolean).join("\n");
     }
     // Written exactly as protocol() asks for one. A model copies the shape it
@@ -74,16 +83,20 @@ function parsedArguments(raw: string): unknown {
 /**
  * A request as two pieces of text: the instructions (every system message,
  * then the tools) and the conversation so far, one turn after another.
- * `native` is for a route that hands the tools over as real ones, so they are
- * not described here and a past call is written in words.
+ * `native` is for a route that hands the tools over as real ones, and is what
+ * it puts in front of their names ("" for nothing): they are not described
+ * here, a past call is written in words under the name the route lists, and
+ * the instructions, which name a tool as its developer wrote it, say which
+ * listed tool that is.
  */
-export function asText({ messages, tools, native = false }: { messages: Message[]; tools?: ToolSpec[]; native?: boolean }): {
+export function asText({ messages, tools, native }: { messages: Message[]; tools?: ToolSpec[]; native?: string }): {
   system: string;
   transcript: string;
 } {
   const system = [
     ...messages.filter((m) => m.role === "system").map((m) => m.content),
-    ...(tools?.length && !native ? [protocol(tools)] : []),
+    ...(tools?.length && native === undefined ? [protocol(tools)] : []),
+    ...(tools?.length && native ? [named(native, tools[0].name)] : []),
   ].join("\n\n");
   let names = new Map<string, string>();
   const transcript = messages

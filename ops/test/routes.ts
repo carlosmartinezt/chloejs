@@ -115,6 +115,19 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
       { role: "tool", tool_call_id: "2", content: "[b]" },
     ],
   }).transcript;
+  const listed = asText({
+    native: "mcp__chloe__",
+    tools: memoryListFiles,
+    messages: [
+      { role: "system", content: "Use `memoryListFiles` first." },
+      { role: "user", content: "look" },
+      { role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "memoryListFiles", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "1", content: "[]" },
+    ],
+  });
+  is("where the route lists tools longer, a past call has the listed name", listed.transcript.includes("(called mcp__chloe__memoryListFiles with {})"), true);
+  is("and the instructions say a short name is the listed one", listed.system.includes("it is the one listed as `mcp__chloe__memoryListFiles`"), true);
+  is("a route that lists them as they are says nothing extra", asText({ native: "", tools: memoryListFiles, messages: [{ role: "system", content: "x" }] }).system, "x");
   is(
     "results of several calls say which call each answers",
     [both.includes("[result of memoryListFiles]\n[a]"), both.includes("[result of memorySearchFiles]\n[b]")],
@@ -326,6 +339,30 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     is("only a call to a tool it was handed", asked.toolCalls.length, 1);
     is("and words are only words, whatever they look like", asked.text, '="gmailReadEmail"');
     is("stopping after one answer to ask is not a failure", asked.cost, 0.001);
+
+    // Called by its own name, the CLI refuses it, the model tries again, and
+    // the CLI exits 1 past its one answer.
+    const bare = [
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"gmailReadEmail","input":{"days":7}}]}}',
+      '{"type":"user","message":{"content":[{"type":"tool_result","content":"<tool_use_error>Error: No such tool available: gmailReadEmail</tool_use_error>"}]}}',
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"gmailReadEmail","input":{"days":7}},{"type":"tool_use","name":"Bash","input":{}}]}}',
+      '{"type":"result","subtype":"error_max_turns","is_error":true,"total_cost_usd":0.002}',
+    ].join("\n");
+    await writeFile(join(bin, "bare.jsonl"), `${bare}\n`);
+    pin(await fake("claude-bare", `cat >/dev/null; cat "${join(bin, "bare.jsonl")}"; exit 1`), anyCli, opencodeCli);
+    const byName = await viaClaude({ model: "anthropic/claude-sonnet-5", messages: [{ role: "user", content: "mail?" }], tools } as any);
+    is("a call by the tool's own name counts, once", byName.toolCalls.map((c) => [c.function.name, c.function.arguments]), [["gmailReadEmail", '{"days":7}']]);
+    const lost = [
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{}}]}}',
+      '{"type":"result","subtype":"error_max_turns","is_error":true,"total_cost_usd":0.002}',
+    ].join("\n");
+    await writeFile(join(bin, "lost.jsonl"), `${lost}\n`);
+    pin(await fake("claude-lost", `cat >/dev/null; cat "${join(bin, "lost.jsonl")}"; exit 1`), anyCli, opencodeCli);
+    const why = await viaClaude({ model: "anthropic/claude-sonnet-5", messages: [{ role: "user", content: "mail?" }], tools } as any).then(
+      () => "",
+      (error: Error) => error.message,
+    );
+    is("a failure says the CLI's reason, not its opening line", why, "Model call refused: claude exited 1: error_max_turns");
     pin(anyCli, anyCli, opencodeCli);
 
     const { spawn } = await import("node:child_process");

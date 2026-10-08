@@ -45,7 +45,7 @@ import { channelsOf, connectionsOf, signInOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import { type Caller, type Guest, caller, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, setCookie, signIn } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
-import { signedInFrom } from "./alerts.ts";
+import { signedInFrom } from "#chloe/core/alerts";
 import { servePage } from "./page.ts";
 import { receive } from "#chloe/channels/shared";
 import { answer, checkArgs, parkedRuns } from "#chloe/core/steps";

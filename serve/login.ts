@@ -13,7 +13,7 @@ import type { IncomingMessage } from "node:http";
 
 import { STATE } from "#chloe/core/paths";
 import { checkToken, type Token } from "./tokens.ts";
-import { lockedOut } from "./alerts.ts";
+import { lockedOut } from "#chloe/core/alerts";
 
 /** The one account, beside the run history, mode 600. Not in source control. */
 const FILE = `${STATE}/login.json`;

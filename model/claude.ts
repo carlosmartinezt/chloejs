@@ -72,7 +72,7 @@ function isLimit(answer: CliAnswer): boolean {
 }
 
 export async function viaClaude({ model, messages, tools, signal }: Ask): Promise<Answer> {
-  const { system, transcript } = asText({ messages, tools, native: true });
+  const { system, transcript } = asText({ messages, tools, native: PREFIX });
   const folder = tools?.length ? await mkdtemp(join(tmpdir(), "chloe-claude-")) : "";
   try {
     return await asked({ model, system, transcript, messages, tools, signal, folder });
@@ -91,8 +91,14 @@ interface Event {
  * What the model said and asked for, out of the CLI's record: the text and
  * tool calls of every answer it gave, and the result line it ends on. Only
  * calls to the tools it was handed count.
+ *
+ * The instructions name a tool as its developer wrote it, `skillRead`, and
+ * the CLI lists it as `mcp__chloe__skillRead`. The prompt says they are the
+ * same (`asText`), but a model now and then calls the short name anyway, and
+ * the CLI refuses that call, tries again past the one answer it is allowed,
+ * and exits 1. It is still a call to a tool it was handed, so it counts, once.
  */
-export function readStream(out: string): { answer?: CliAnswer; said: string; calls: ToolCall[] } {
+export function readStream(out: string, handed: string[] = []): { answer?: CliAnswer; said: string; calls: ToolCall[] } {
   const said: string[] = [];
   const calls: ToolCall[] = [];
   let answer: CliAnswer | undefined;
@@ -107,9 +113,11 @@ export function readStream(out: string): { answer?: CliAnswer; said: string; cal
     if (event.type !== "assistant") continue;
     for (const block of event.message?.content ?? []) {
       if (block.type === "text" && block.text?.trim()) said.push(block.text.trim());
-      if (block.type === "tool_use" && block.name?.startsWith(PREFIX)) {
-        calls.push({ id: randomUUID(), type: "function", function: { name: block.name.slice(PREFIX.length), arguments: JSON.stringify(block.input ?? {}) } });
-      }
+      if (block.type !== "tool_use" || !block.name) continue;
+      const name = block.name.startsWith(PREFIX) ? block.name.slice(PREFIX.length) : handed.includes(block.name) ? block.name : undefined;
+      const args = JSON.stringify(block.input ?? {});
+      if (!name || calls.some((c) => c.function.name === name && c.function.arguments === args)) continue;
+      calls.push({ id: randomUUID(), type: "function", function: { name, arguments: args } });
     }
   }
   return { answer, said: said.join("\n\n"), calls };
@@ -179,7 +187,7 @@ async function asked({ model, system, transcript, messages, tools, signal, folde
   let answer: CliAnswer | undefined;
   let read: ReturnType<typeof readStream> | undefined;
   if (streamed) {
-    read = readStream(out);
+    read = readStream(out, tools?.map((one) => one.name));
     answer = read.answer;
     if (!answer && code === 0) throw new Error(`Model call refused: claude did not end with a result: ${out.slice(0, 500)}`);
   } else {
@@ -197,9 +205,10 @@ async function asked({ model, system, transcript, messages, tools, signal, folde
     throw new UsageLimit(`I have hit the usage limit on the Claude plan, so I cannot answer until it resets.${said}`);
   }
   // On a failure the CLI still prints its JSON, and the reason is in result,
-  // after a long run of counters that a cut at 500 characters loses.
+  // or only in subtype when result is empty, after a long run of counters
+  // that a cut at 500 characters loses.
   if (code !== 0 && !asking) {
-    throw new Error(`Model call refused: claude exited ${code}: ${(answer?.result || err || out).slice(0, 500)}`);
+    throw new Error(`Model call refused: claude exited ${code}: ${(answer?.result || answer?.subtype || err || out).slice(0, 500)}`);
   }
   if (!answer || (!asking && (answer.is_error || typeof answer.result !== "string"))) {
     throw new Error(`Model call refused: ${answer?.subtype ?? "no result"}: ${String(answer?.result ?? "").slice(0, 500)}`);

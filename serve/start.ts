@@ -23,7 +23,7 @@ import { ownAddress, serve as listen } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
 import { startDashboard } from "#chloe/dashboard/connect";
 import { hasAccount } from "#chloe/serve/login";
-import { alertsSay } from "#chloe/serve/alerts";
+import { alertsSay } from "#chloe/core/alerts";
 
 /**
  * Starts the server in this process: every agent's cron lines and channels, the
