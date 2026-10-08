@@ -12,7 +12,7 @@ import { basename, dirname } from "node:path";
 import { loadEnv } from "#chloe/core/env";
 import { ROOT } from "#chloe/core/paths";
 import { bold, dim } from "#chloe/core/style";
-import { settings, unclaimed } from "#chloe/core/settings";
+import { PROVIDERS, settings, unclaimed } from "#chloe/core/settings";
 import { closeCutOff, going, trim } from "#chloe/core/db";
 import { CONFIG, loadAll, type Agent, type Config, type Running } from "#chloe/load/load";
 import { sdkModel } from "#chloe/model/key";
@@ -178,6 +178,10 @@ export async function startChloe(given?: Config): Promise<void> {
   /** What the model route is called in words rather than in settings. */
   function byRoute(route: string): string {
     if (route === "gateway") return "the AI gateway, on a key";
+    if (route === "direct") {
+      const held = PROVIDERS.filter((one) => settings.model.keys[one]);
+      return held.length > 1 ? `the ${held.join(" and ")} APIs, each on its own key` : `the ${held[0]} API, on its own key`;
+    }
     if (route === "claude") return "Claude, on a subscription";
     if (route === "codex") return "Codex, on a ChatGPT plan";
     return "opencode, on whatever it is signed in to";
@@ -210,7 +214,7 @@ export async function startChloe(given?: Config): Promise<void> {
     if (ready[0] === "claude" || ready[0] === "codex") {
       lines.push(under(
         "A subscription is for trying things out: its terms may not cover a service running agents. " +
-          'To run on a key, put "gateway" first in model.preferredRoute.',
+          'To run on a key, put "direct" or "gateway" first in model.preferredRoute.',
       ));
     }
     if (!ready.length && !given.length) {

@@ -6,9 +6,10 @@
 //   claude    the Claude Code CLI, Anthropic models, on a Claude subscription.
 //   codex     the Codex CLI, OpenAI models, on a ChatGPT plan.
 //   opencode  the opencode CLI, whatever it is signed in to.
-//   direct    an AI SDK model an agent's file gave, like
-//             anthropic("claude-opus-5-5"), however its package was set up.
-//             Never set in settings: naming the model in code is what says it.
+//   direct    the provider's own API, on its key in model.keys, charged per
+//             call. An AI SDK model an agent's file gave, like
+//             anthropic("claude-opus-5-5"), always goes this way, however its
+//             package was set up, whatever preferredRoute says.
 //   gateway   the Vercel AI Gateway over HTTP, any model, on a key, charged per
 //             call. Any gateway that speaks the chat-completions shape works by
 //             setting model.gatewayUrl.
@@ -27,7 +28,7 @@ import { settings } from "#chloe/core/settings";
 
 import { viaClaude } from "./claude.ts";
 import { viaCodex } from "./codex.ts";
-import { anySdkModel, learnPrices, sdkModel, viaKey } from "./key.ts";
+import { anyOwnKey, anySdkModel, learnPrices, ownKey, sdkModel, viaKey } from "./key.ts";
 import { forgetOpencodeModels, opencodeModels, viaOpencode } from "./opencode.ts";
 
 export type { Route } from "#chloe/core/settings";
@@ -41,18 +42,17 @@ export function providerOf(model: string): string {
 
 /**
  * Whether a route can run a provider's models at all. The gateway carries any
- * provider, each subscription CLI carries its own, and opencode carries whatever
- * it is signed in to, which it is asked for rather than told.
+ * provider, each subscription CLI carries its own, the direct route each
+ * provider with a key in `model.keys`, and opencode whatever it is signed in
+ * to, which it is asked for rather than told.
  */
 function carries(route: Route, provider: string): boolean {
   if (route === "gateway") return true;
+  if (route === "direct") return Boolean(ownKey(provider));
   if (route === "claude") return provider === "anthropic";
   if (route === "codex") return provider === "openai";
   return opencodeModels().some((model) => providerOf(model) === provider);
 }
-
-/** How a model is reached: a route in settings, or "direct" for an AI SDK model an agent's file gave. */
-export type Reach = Route | "direct";
 
 /**
  * The route a model goes by: "direct" when an agent's file gave it as an AI SDK
@@ -63,7 +63,7 @@ export type Reach = Route | "direct";
  * gateway, which says a key is missing rather than handing a model name to a CLI
  * that would refuse it for a second reason.
  */
-export function routeFor(model: string): Reach {
+export function routeFor(model: string): Route {
   if (sdkModel(model)) return "direct";
   const provider = providerOf(model);
   return settings.model.preferredRoute.find((route) => carries(route, provider) && runnable(route)) ?? "gateway";
@@ -74,7 +74,7 @@ function gatewayKey(): string {
 }
 
 /** The program a CLI route runs, which `model.program` may rename. */
-function programOf(route: Exclude<Route, "gateway">): string {
+function programOf(route: Exclude<Route, "gateway" | "direct">): string {
   return settings.model.program[route];
 }
 
@@ -93,13 +93,21 @@ function can(path: string): boolean {
 }
 
 /**
- * Whether this box can send a call down a route: a key for the gateway, the
- * program for a CLI. An AI SDK model always can, as far as chloe knows: its
- * package holds the key and says so when it is missing.
+ * Whether this box can send a call down a route: a key for the gateway, at
+ * least one in `model.keys` for the direct route, the program for a CLI. An AI
+ * SDK model can whatever this says, as far as chloe knows: its package holds
+ * the key and says so when it is missing.
  */
-export function runnable(route: Reach): boolean {
-  if (route === "direct") return true;
+export function runnable(route: Route): boolean {
+  if (route === "direct") return anyOwnKey();
   return route === "gateway" ? Boolean(gatewayKey()) : onPath(programOf(route));
+}
+
+/** Whether this box can run one model: an AI SDK model always, a name when its route is set up for its provider. */
+function canRun(model: string): boolean {
+  if (sdkModel(model)) return true;
+  const route = routeFor(model);
+  return carries(route, providerOf(model)) && runnable(route);
 }
 
 /** The gateway's own list, once it has answered. Empty until then, and it is only an offer. */
@@ -108,11 +116,13 @@ let fromGateway: string[] = [];
 /**
  * What to offer when nobody wrote a shortlist: everything each route this box has
  * says it can run. Hundreds, usually, which is why `model.models` exists to cut
- * it down.
+ * it down. The direct route has no list of its own, so it offers the gateway's
+ * for each provider it has a key for.
  */
 function shortlist(): string[] {
   if (settings.model.models.length) return settings.model.models;
-  return [...new Set([...fromGateway, ...(runnable("opencode") ? opencodeModels() : [])])].sort();
+  const listed = gatewayKey() ? fromGateway : fromGateway.filter((model) => ownKey(providerOf(model)));
+  return [...new Set([...listed, ...(runnable("opencode") ? opencodeModels() : [])])].sort();
 }
 
 /**
@@ -121,15 +131,15 @@ function shortlist(): string[] {
  * each reload, never from a request: a slow gateway must not hold up a page, and
  * until it answers the offer is the shortlist and the agents' own models. The
  * address is the chat one with its last part swapped, which is the same for
- * every gateway that speaks this shape. Asked with no gateway key too when an
- * agent names an AI SDK model, because the list is public and its prices are
- * what such a call is charged at.
+ * every gateway that speaks this shape. Asked with no gateway key too when
+ * anything goes by the direct route, because the list is public and its
+ * prices are what such a call is charged at.
  */
 export async function learnModels(): Promise<void> {
   forgetOpencodeModels();
   const key = gatewayKey();
-  if (!key) fromGateway = [];
-  if (!key && !anySdkModel()) return;
+  if (!key && !anyOwnKey()) fromGateway = [];
+  if (!key && !anySdkModel() && !anyOwnKey()) return;
   try {
     const response = await fetch(settings.model.gatewayUrl.replace(/\/chat\/completions\/?$/, "/models"), {
       headers: key ? { authorization: `Bearer ${key}` } : {},
@@ -138,7 +148,7 @@ export async function learnModels(): Promise<void> {
     if (!response.ok) return;
     const body = (await response.json()) as { data?: { id?: string; pricing?: Record<string, string> }[] };
     learnPrices(body.data ?? []);
-    if (!key) return;
+    if (!key && !anyOwnKey()) return;
     fromGateway = (body.data ?? []).map((one) => one.id).filter((id): id is string => typeof id === "string" && id.includes("/"));
   } catch {
     // A gateway that cannot be reached is not an error here: it only means the
@@ -149,7 +159,7 @@ export async function learnModels(): Promise<void> {
 /** One model somebody may pick, and the route it would go by here. */
 export interface Offered {
   model: string;
-  route: Reach;
+  route: Route;
 }
 
 /**
@@ -162,8 +172,7 @@ export function models(agent?: Agent): Offered[] {
   const out: Offered[] = [];
   for (const model of named) {
     if (out.some((one) => one.model === model)) continue;
-    const route = routeFor(model);
-    if ((route === "direct" || carries(route, providerOf(model))) && runnable(route)) out.push({ model, route });
+    if (canRun(model)) out.push({ model, route: routeFor(model) });
   }
   return out;
 }

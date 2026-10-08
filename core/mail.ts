@@ -99,14 +99,24 @@ export function words(value: string): string {
 /**
  * The addresses in an address header, lower case, and the first one's name.
  * Commas inside quotes and angle brackets do not split it.
+ *
+ * The address is looked for only outside quotes and comments: the name is
+ * the sender's to write, so `"<carlos@example.com>" <someone@else.com>` is
+ * from someone@else.com. A part with more than one `<...>` outside quotes
+ * names no single address and gives none.
  */
 export function addresses(value: string): { list: string[]; name: string } {
   const parts: string[] = [];
   let quoted = false;
+  let escaped = false;
   let angled = false;
   let part = "";
   for (const char of value) {
-    if (char === '"') quoted = !quoted;
+    if (quoted && !escaped && char === "\\") escaped = true;
+    else {
+      if (char === '"' && !escaped) quoted = !quoted;
+      escaped = false;
+    }
     if (!quoted && char === "<") angled = true;
     if (!quoted && char === ">") angled = false;
     if (char === "," && !quoted && !angled) {
@@ -118,9 +128,15 @@ export function addresses(value: string): { list: string[]; name: string } {
   const list: string[] = [];
   let name = "";
   for (const one of parts) {
-    const angle = /<([^>]*)>/.exec(one);
-    const address = (angle ? angle[1] : one.replace(/\(.*?\)/g, "")).trim().toLowerCase();
-    if (!address.includes("@")) continue;
+    // Quotes and comments become spaces of the same length, so a place found
+    // in `bare` is the same place in `one`.
+    const blank = (found: string) => " ".repeat(found.length);
+    const bare = one.replace(/"(?:[^"\\]|\\.)*"?/g, blank).replace(/\((?:[^()\\]|\\.)*\)?/g, blank);
+    const angles = [...bare.matchAll(/<([^>]*)>/g)];
+    if (angles.length > 1) continue;
+    const [angle] = angles;
+    const address = (angle ? angle[1] : bare).trim().toLowerCase();
+    if (!/^[^\s<>"(),;]+@[^\s<>"(),;]+$/.test(address)) continue;
     if (!list.length) name = words(angle ? one.slice(0, angle.index) : "").trim().replace(/^"|"$/g, "").trim();
     list.push(address);
   }

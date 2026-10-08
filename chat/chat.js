@@ -4,7 +4,7 @@
 //   <script src="https://agent.myshop.com/api/web/chat.js" data-agent="shop" data-pass="/api/chat-pass" async></script>
 //
 // It talks to the runtime it was loaded from: the part of its own address
-// before /api/web/chat.js. Through the cloud, data-agent is "<workspace>/<agent>".
+// before /api/web/chat.js, which is the owner's own server.
 //
 //   data-pass       required: an address on your own site that answers a POST
 //                   with a pass, `{ pass, expires }`. Your server asks the agent
@@ -27,13 +27,8 @@
   const source = new URL(script.src, location.href);
   const said = script.dataset;
   const at = source.href.match(/^(.*)\/api\/web\/chat\.js(?:[?#].*)?$/);
-  let url = said.url ?? (at ? at[1] : source.origin);
-  let agent = said.agent ?? "";
-  if (agent.includes("/") && !said.url) {
-    const [workspace, id] = agent.split("/");
-    url = `${source.origin}/w/${encodeURIComponent(workspace)}`;
-    agent = id;
-  }
+  const url = said.url ?? (at ? at[1] : source.origin);
+  const agent = said.agent ?? "";
   if (!agent) return console.error("chloe chat: the script tag needs data-agent.");
   if (!said.pass) return console.error("chloe chat: the script tag needs data-pass, the address on your site that gives a pass.");
   const pass = async () => {

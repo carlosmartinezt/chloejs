@@ -94,9 +94,10 @@ export interface At {
  *   allow            the switch or switches in `dashboard.remote.allow` a request sent
  *                    through the dashboard needs, all on. Without one, the
  *                    route is never answered through the dashboard, whatever the
- *                    settings say: signing in, setting up, and the tokens. An
- *                    empty list needs no switch: the web channel's routes,
- *                    which check a token or a visitor pass themselves.
+ *                    settings say: signing in, setting up, the tokens, and
+ *                    the web channel's routes, whose visitors reach this
+ *                    runtime through the owner's own server, never the
+ *                    dashboard.
  *   guest            what a guest needs on the agent the path names, when it is
  *                    not `allow`. "filtered" on a route with no agent in its
  *                    path, whose handler answers a guest only what they may
@@ -709,7 +710,6 @@ export const routes: Route[] = [
     does: "A visitor pass for that agent's web channel, good for an hour, and its greeting. For the site's own server, with a token made for that agent and no other.",
     takes: '{"visitor": "the site\'s own id for them", "facts": {"name": "optional, anything the agent should be told"}, "origin": "optional, the first of its origins unless said"}',
     token: true,
-    allow: [],
     handle: webPass,
   },
   {
@@ -726,7 +726,6 @@ export const routes: Route[] = [
     does: `One turn for the visitor whose pass is in ${PASS_HEADER}, answered as a stream of events: text as it is written, a step as each tool starts, then done with the answer whole.`,
     takes: '{"text": "...", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}]}',
     open: true,
-    allow: [],
     origins: webOrigins,
     handle: webTurn,
   },
@@ -735,7 +734,6 @@ export const routes: Route[] = [
     path: "/api/agents/:id/web/history",
     does: `The conversation of the visitor whose pass is in ${PASS_HEADER}, oldest first, and the greeting.`,
     open: true,
-    allow: [],
     origins: webOrigins,
     handle: webHistory,
   },
@@ -744,7 +742,6 @@ export const routes: Route[] = [
     path: "/api/agents/:id/web/clear",
     does: `Forget the conversation of the visitor whose pass is in ${PASS_HEADER}.`,
     open: true,
-    allow: [],
     origins: webOrigins,
     handle: webClear,
   },
@@ -753,7 +750,6 @@ export const routes: Route[] = [
     path: "/api/web/chat.js",
     does: 'The chat box, for a page: <script src="/api/web/chat.js" data-agent="<id>" async></script>.',
     open: true,
-    allow: [],
     handle: (at) => webFile(at, "chat.js"),
   },
   {
@@ -761,7 +757,6 @@ export const routes: Route[] = [
     path: "/api/web/client.js",
     does: "What the chat box is built on, for a page with its own look: import { chloeChat } from it.",
     open: true,
-    allow: [],
     handle: (at) => webFile(at, "client.js"),
   },
   {

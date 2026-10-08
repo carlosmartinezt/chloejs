@@ -15,10 +15,11 @@
 //           secret only this process knows, so `caller()` in serve/login.ts
 //           knows it came through the dashboard, and api() in serve/http.ts
 //           decides whether that route, with the switches this workspace
-//           has on, may be answered. The answer goes back with the same id:
-//           whole, or, for a stream of events the dashboard said it can take
-//           (`stream`), as it comes, in a response-start, response-pieces and
-//           a response-end. A cancel stops a request the browser left.
+//           has on, may be answered. The answer goes back whole, with the
+//           same id. The dashboard is for the owner and the people they
+//           invite: it never carries a visitor's request to the web
+//           channel, which reaches this runtime through the owner's own
+//           server or not at all.
 //
 // Nothing here changes how a job runs. With no dashboard.remote.api_key there is no
 // connection, and the only line this file writes is saying so once.
@@ -36,7 +37,6 @@ import { settings, whereKeyGoes } from "#chloe/core/settings";
 import type { Agent } from "#chloe/load/load";
 import { ownAddress, routeList, summary } from "#chloe/serve/http";
 import { RELAY, RELAY_GUEST, RELAY_NAME, RELAY_SECRET, RELAY_UNDER, RELAY_USER } from "#chloe/serve/login";
-import { PASS_HEADER } from "#chloe/serve/web";
 
 /** The version of what is said on the socket. The dashboard refuses one it does not speak. */
 export const PROTOCOL = 1;
@@ -89,8 +89,6 @@ const Request = z.object({
   path: z.string().startsWith("/").regex(RELAYED, "only /api and /memory are relayed"),
   headers: z.record(z.string(), z.string()).default({}),
   body: z.string().nullable().default(null),
-  /** The dashboard can take a stream of events as it comes, in pieces. */
-  stream: z.boolean().optional(),
 });
 
 /** The headers a relayed request keeps. Everything else the browser sent stayed with the dashboard. */
@@ -100,15 +98,6 @@ const CARRIED = [
   "host",
   "x-forwarded-proto",
   "x-forwarded-for",
-  // A visitor, for the web channel's routes: the page, its pass, the token the
-  // site's server asks for a pass with, and the browser and country it keeps.
-  "origin",
-  "authorization",
-  "user-agent",
-  "cf-ipcountry",
-  "access-control-request-method",
-  "access-control-request-headers",
-  PASS_HEADER,
   RELAY_USER,
   RELAY_UNDER,
   RELAY_GUEST,
@@ -194,9 +183,7 @@ export function startDashboard(options: DashboardOptions): Dashboard {
       machine: hostname(),
       // "guests": this runtime checks what an invited person may do itself, so
       // the dashboard may relay their requests here.
-      // "web": it answers the web channel's routes, and "stream": it sends a
-      // stream of events in pieces when the dashboard asks for that.
-      capabilities: ["relay", "runs", "agents", "guests", "web", "stream"],
+      capabilities: ["relay", "runs", "agents", "guests"],
       sync: settings.dashboard.remote.sync,
       allow: settings.dashboard.remote.allow,
       routes: routeList(),
@@ -288,28 +275,17 @@ export function startDashboard(options: DashboardOptions): Dashboard {
       const asked = Request.safeParse(message);
       if (!asked.success) return;
       const { id } = asked.data;
-      const answer = await relay(asked.data, (piece) => socket === one && send(one, { ...piece, id }));
+      const answer = await relay(asked.data);
       if (answer && socket === one) send(one, { type: "response", id, ...answer });
     }
-
-    if (kind === "cancel") {
-      const id = (message as { id?: unknown }).id;
-      if (typeof id === "string") going.get(id)?.destroy();
-    }
   }
-
-  /** The requests being answered now, by the dashboard's id, so a cancel can stop one. */
-  const going = new Map<string, ReturnType<typeof httpRequest>>();
 
   /**
    * One request from the dashboard, made against this runtime's own port. Only the
    * headers in CARRIED come through, plus the secret that says it was relayed,
    * so a dashboard cannot hand over a cookie or a token it happens to hold.
    */
-  function relay(
-    asked: z.infer<typeof Request>,
-    piece: (message: { type: string; status?: number; headers?: Record<string, string>; body?: string }) => void,
-  ): Promise<{ status: number; headers: Record<string, string>; body: string } | null> {
+  function relay(asked: z.infer<typeof Request>): Promise<{ status: number; headers: Record<string, string>; body: string }> {
     return new Promise((done) => {
       const headers: Record<string, string> = {};
       for (const name of CARRIED) {
@@ -346,24 +322,10 @@ export function startDashboard(options: DashboardOptions): Dashboard {
               if (value === undefined || KEPT_BACK.has(name)) continue;
               back[name] = Array.isArray(value) ? value.join(", ") : value;
             }
-            // A stream of events goes up as it comes, when the dashboard can take it.
-            if (asked.stream && String(response.headers["content-type"] ?? "").startsWith("text/event-stream")) {
-              piece({ type: "response-start", status: response.statusCode ?? 502, headers: back });
-              response.on("data", (chunk: Buffer) => piece({ type: "response-piece", body: chunk.toString("base64") }));
-              // Cut off in the middle ends the same way: what came is what there is.
-              response.on("error", () => {});
-              response.on("close", () => {
-                going.delete(asked.id);
-                piece({ type: "response-end" });
-                done(null);
-              });
-              return;
-            }
             const chunks: Buffer[] = [];
             response.on("data", (chunk: Buffer) => chunks.push(chunk));
             response.on("error", (error) => failed(error.message));
             response.on("end", () => {
-              going.delete(asked.id);
               const whole = Buffer.concat(chunks);
               if (whole.length > LARGEST) {
                 return failed(`that answer is ${Math.round(whole.length / 1e6)}MB, which is too large to send through the dashboard`);
@@ -372,11 +334,7 @@ export function startDashboard(options: DashboardOptions): Dashboard {
             });
           },
         );
-        going.set(asked.id, sent);
-        sent.on("error", (error) => {
-          going.delete(asked.id);
-          failed(error.message);
-        });
+        sent.on("error", (error) => failed(error.message));
         if (body) sent.write(body);
         sent.end();
       } catch (error) {

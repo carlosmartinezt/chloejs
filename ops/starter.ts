@@ -77,15 +77,18 @@ export const STARTER_MODEL_LINE = '// model: { defaultModel: "anthropic/claude-s
 /**
  * The model settings setup chose, as the line that goes in chloe.config.ts.
  * `preferredRoute` arrives comma separated and is written as a list. `key` is the name
- * in .env the gateway key is read from, written as `process.env.` that name.
+ * in .env a key is read from, written as `process.env.` that name at `where`
+ * under `model`, which is the gateway's key unless it says otherwise.
  *
  *   modelLine({ defaultModel: "openai/gpt-6-luna" })  // model: { defaultModel: "openai/gpt-6-luna" },
+ *   modelLine({ defaultModel: "openai/gpt-6-luna" }, "OPENAI_API_KEY", ["keys", "openai"])
+ *     // model: { defaultModel: "openai/gpt-6-luna", keys: { openai: process.env.OPENAI_API_KEY } },
  */
-export function modelLine(model: Record<string, string>, key?: string): string {
+export function modelLine(model: Record<string, string>, key?: string, where: string[] = ["key"]): string {
   const fields = Object.entries(model).map(([one, value]) =>
     one === "preferredRoute" ? `preferredRoute: ${JSON.stringify(value.split(","))}` : `${one}: ${JSON.stringify(value)}`,
   );
-  if (key) fields.push(`key: process.env.${key}`);
+  if (key) fields.push(where.slice(0, -1).reduceRight((inside, part) => `${part}: { ${inside} }`, `${where[where.length - 1]}: process.env.${key}`));
   return `model: { ${fields.join(", ")} },`;
 }
 

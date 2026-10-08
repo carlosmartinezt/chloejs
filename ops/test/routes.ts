@@ -227,7 +227,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   };
 
   try {
-    Object.assign(settings.model, { preferredRoute: ["claude", "codex", "opencode", "gateway"], key: "", models: [] });
+    Object.assign(settings.model, { preferredRoute: ["claude", "codex", "opencode", "gateway"], key: "", keys: { anthropic: "", openai: "" }, models: [] });
     pin(anyCli, anyCli, opencodeCli);
     is("the first route that carries the provider wins, so anthropic is the subscription", routeFor("anthropic/claude-sonnet-5"), "claude");
     is("and openai is the plan, because claude cannot carry it", routeFor("openai/gpt-6-luna"), "codex");
@@ -253,6 +253,50 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     process.env.CHLOE_MODEL_PREFERRED_ROUTE = "gateway";
     is("the environment is not read", routeFor("anthropic/claude-sonnet-5"), "claude");
     delete process.env.CHLOE_MODEL_PREFERRED_ROUTE;
+
+    // A provider's own key, which only carries that provider.
+    settings.model.key = "";
+    settings.model.preferredRoute = ["claude", "codex", "opencode", "direct", "gateway"];
+    settings.model.keys.anthropic = "a";
+    is("an anthropic key is not reached for while the subscription is ahead of it", routeFor("anthropic/claude-sonnet-5"), "claude");
+    settings.model.preferredRoute = ["direct", "claude", "codex", "opencode", "gateway"];
+    is("put first, anthropic goes to its own API", routeFor("anthropic/claude-sonnet-5"), "direct");
+    is("and openai, with no key of its own, does not", routeFor("openai/gpt-6-luna"), "codex");
+    settings.model.models = ["anthropic/claude-sonnet-5", "openai/gpt-6-luna"];
+    is("each is offered by the route it would go by", models().map((one) => [one.model, one.route]), [["anthropic/claude-sonnet-5", "direct"], ["openai/gpt-6-luna", "codex"]]);
+    settings.model.models = [];
+    pin("/nowhere/claude", "/nowhere/codex", "/nowhere/opencode");
+    settings.model.preferredRoute = ["claude", "codex", "opencode", "direct", "gateway"];
+    is("with no subscription here, the key is next", routeFor("anthropic/claude-sonnet-5"), "direct");
+    is("and the startup line reports it", settings.model.preferredRoute.filter(runnable), ["direct"]);
+    pin(anyCli, anyCli, opencodeCli);
+    const { viaKey } = await import("#chloe/model/key");
+    const refusal = async (model: string) => {
+      try {
+        await viaKey({ model, messages: [{ role: "user", content: "hi" }] }, "direct");
+        return "";
+      } catch (error) {
+        return (error as Error).message;
+      }
+    };
+    is("a provider with no key says where one goes", await refusal("openai/gpt-6-luna"),
+      "No openai key. Put it in .env as CHLOE_MODEL_KEYS_OPENAI, and in chloe.config.ts's settings as `model: { keys: { openai: process.env.CHLOE_MODEL_KEYS_OPENAI } }`.");
+    is("and one it has no place for says how else to reach it", (await refusal("deepseek/deepseek-chat")).startsWith("deepseek has no place in model.keys"), true);
+    settings.model.keys.anthropic = "";
+    settings.model.key = "k";
+    settings.model.preferredRoute = ["claude", "codex", "opencode", "gateway"];
+
+    // The claude command would bill one of these over the subscription.
+    const keyless = await fake("claude-keyless", 'cat >/dev/null; printf \'{"result":"[%s%s]","is_error":false}\' "$ANTHROPIC_API_KEY" "$ANTHROPIC_AUTH_TOKEN"');
+    pin(keyless, anyCli, opencodeCli);
+    process.env.ANTHROPIC_API_KEY = "sk-ant-in-env";
+    process.env.ANTHROPIC_AUTH_TOKEN = "token-in-env";
+    const { viaClaude: viaClaudeKeyless } = await import("#chloe/model/claude");
+    const keylessSaid = await viaClaudeKeyless({ model: "anthropic/claude-sonnet-5", messages: [{ role: "user", content: "hi" }] } as any);
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
+    is("the claude route is never handed an Anthropic key, so it stays on the subscription", keylessSaid.text, "[]");
+    pin(anyCli, anyCli, opencodeCli);
 
     // A model now and then loops on its own tool syntax until the most an
     // answer may be, which by default takes ten minutes.

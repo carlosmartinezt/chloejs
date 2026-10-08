@@ -8,7 +8,14 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
 
 {
   about("reading an email, and who really sent it");
-  const { readEmail, replyOnly, htmlText, signedBy, signatures } = await import("#chloe/core/mail");
+  const { addresses, readEmail, replyOnly, htmlText, signedBy, signatures } = await import("#chloe/core/mail");
+
+  is("the address is the one in angle brackets, and the name is the name", addresses('"Jenny Example" <Jenny@Example.com>'), { list: ["jenny@example.com"], name: "Jenny Example" });
+  is("an address written inside the quoted name is not the sender", addresses('"<carlos@example.com>" <someone@else.com>').list, ["someone@else.com"]);
+  is("nor inside a comment", addresses("(<carlos@example.com>) someone@else.com").list, ["someone@else.com"]);
+  is("an escaped quote does not end the name", addresses('"a \\" <carlos@example.com>" <someone@else.com>').list, ["someone@else.com"]);
+  is("two angle brackets in one address give no address", addresses("<carlos@example.com> <someone@else.com>").list, []);
+  is("a bare address, and a list of two", addresses("a@b.com, Jo <JO@c.com>").list, ["a@b.com", "jo@c.com"]);
 
   // Signed by an independent DKIM library (dkimpy) with a throwaway key, so
   // this checks the verifier against somebody else's signer, not its own.

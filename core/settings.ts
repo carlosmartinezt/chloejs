@@ -26,12 +26,17 @@ import "./env.ts";
 /**
  * How a model is reached, and so which account pays for it. "claude" is the
  * Claude Code CLI on a Claude subscription, "codex" the Codex CLI on a ChatGPT
- * plan, "opencode" the opencode CLI on whatever it is signed in to, and
- * "gateway" is HTTP on a key, charged per call. The list is also what a value
- * handed over from .env is checked against, so the words and the type cannot
- * disagree.
+ * plan, "opencode" the opencode CLI on whatever it is signed in to, "direct"
+ * the provider's own API on its own key in `model.keys`, and "gateway" a
+ * gateway on its key. The last two are charged per call. The list is also what
+ * a value handed over from .env is checked against, so the words and the type
+ * cannot disagree.
  */
-export const ROUTES = ["claude", "codex", "opencode", "gateway"] as const;
+export const ROUTES = ["claude", "codex", "opencode", "direct", "gateway"] as const;
+
+/** The providers whose own API a model can be reached on by name, with a key in `model.keys`. */
+export const PROVIDERS = ["anthropic", "openai"] as const;
+export type Provider = (typeof PROVIDERS)[number];
 export type Route = (typeof ROUTES)[number];
 
 /** Who carries an agent's mail. */
@@ -82,6 +87,13 @@ export interface Settings {
     gatewayUrl: string;
     /** The gateway's key. Empty means no gateway, so via "" picks the CLI. */
     key: string;
+    /**
+     * Each provider's own key, from its console, for its models on its own
+     * API: the "direct" route. Empty means that provider is reached some other
+     * way. The claude command is never handed the Anthropic one, so a
+     * subscription stays a subscription.
+     */
+    keys: Record<Provider, string>;
     /** Who marks an eval. Cheaper than the agent being marked, on purpose. */
     judgeModel: string;
     /**
@@ -247,6 +259,7 @@ export const DEFAULTS: Settings = {
     models: [],
     gatewayUrl: "https://ai-gateway.vercel.sh/v1/chat/completions",
     key: "",
+    keys: { anthropic: "", openai: "" },
     judgeModel: "anthropic/claude-sonnet-5",
     namingModel: "anthropic/claude-haiku-4.5",
     program: { claude: "claude", codex: "codex", opencode: "opencode" },
@@ -318,7 +331,7 @@ export function nameInEnv(path: string[]): string {
  * The settings that are secrets: a config hands each one over as
  * `process.env.SOME_NAME`, from .env. `agents` is every agent's channel tokens.
  */
-export const KEYS = ["model.key", "connections.resend.api_key", "connections.google.client", "dashboard.remote.api_key", "agents"];
+export const KEYS = ["model.key", "model.keys", "connections.resend.api_key", "connections.google.client", "dashboard.remote.api_key", "agents"];
 
 
 /**

@@ -41,6 +41,11 @@ import { work } from "./shared.ts";
     modelLine({ defaultModel: "openrouter/free" }, "CHLOE_MODEL_KEY"),
     'model: { defaultModel: "openrouter/free", key: process.env.CHLOE_MODEL_KEY },',
   );
+  is(
+    "and a provider's own key goes under keys and that provider",
+    modelLine({ defaultModel: "openai/gpt-6-luna" }, "OPENAI_API_KEY", ["keys", "openai"]),
+    'model: { defaultModel: "openai/gpt-6-luna", keys: { openai: process.env.OPENAI_API_KEY } },',
+  );
   const keyLine = "dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } },";
   const withKey = withSetting(config, keyLine);
   is("a key's line goes into the settings setup wrote", withKey?.includes(`  settings: {\n    ${keyLine}\n`), true);

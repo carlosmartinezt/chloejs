@@ -14,9 +14,12 @@
 // What a pass can do is exactly what a frame needs and nothing else: read files
 // in one agent's memory, for ten minutes. It cannot write, cannot reach another
 // agent's memory, cannot make a token or talk to an agent. A script in a note
-// can read the pass from its own address, which is fine: it is already running
-// inside that agent's memory, and connect-src 'none' stops it sending the pass
-// anywhere.
+// can read the pass from its own address, and can carry it out by navigating
+// or opening a window, which no content policy stops (connect-src 'none' only
+// stops fetch and the like). On this box that reaches nobody, since the port
+// is on loopback. A dashboard that relays frames must make a copied pass
+// worthless elsewhere: Chloe Cloud answers one only from the address that
+// asked for it.
 import { seal, unseal } from "./login.ts";
 
 /** Long enough to load a frame and everything it links, short enough to be worthless later. */

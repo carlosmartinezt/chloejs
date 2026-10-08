@@ -323,13 +323,14 @@ function readTagged(whole: string, tools: ToolSpec[]): { said: string; call: Too
  * Runs the program with the prompt on stdin, never as an argument: Linux caps
  * one argument at 128KB and a long conversation goes past that. `missing` is
  * the message for a program that is not on the path, and `env` is added to
- * this process's environment for the program.
+ * this process's environment for the program, where a name given undefined
+ * is left out.
  */
 export function invoke(
   cli: string,
   args: string[],
   input: string,
-  options: { signal?: AbortSignal; cwd?: string; missing: string; env?: Record<string, string> },
+  options: { signal?: AbortSignal; cwd?: string; missing: string; env?: Record<string, string | undefined> },
 ): Promise<{ code: number; out: string; err: string }> {
   return new Promise((done, fail) => {
     const child = spawn(cli, args, {

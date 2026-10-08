@@ -383,15 +383,17 @@ npm run evals <agent>  # the prompts: did the model decide well
 
 Which route a call goes by is decided in `model/model.ts` from the provider in
 front of the model's name: the first entry in `model.preferredRoute` that can
-carry the provider and is set up here. Four routes: the Claude Code CLI on a Claude subscription, the Codex CLI on
-a ChatGPT plan, the opencode CLI on whatever it is signed in to, and the gateway
-on a key, charged per call. The default order is that one, so a subscription is
-spent before a key is, and the gateway is last because it is the only one that
-can carry any provider.
+carry the provider and is set up here. Five routes: the Claude Code CLI on a Claude subscription, the Codex CLI on
+a ChatGPT plan, the opencode CLI on whatever it is signed in to, the provider's
+own API on its key in `model.keys` (direct), and the gateway on its key. The
+last two are charged per call. The default order is that one, so a subscription
+is spent before a key is, and the gateway is last because it is the only one
+that can carry any provider.
 
 **A subscription and an API key are both ways to the same model.** Anthropic or
-OpenAI models over a key is the gateway route: put `gateway` first in
-`model.preferredRoute`.
+OpenAI models over a key is the direct route, or the gateway's: put that one
+first in `model.preferredRoute`. The claude route strips `ANTHROPIC_API_KEY` from
+the CLI's environment, because the CLI would bill it ahead of the subscription.
 Nothing about a model's name decides which account pays for it.
 
 Each CLI route is one file the shape of `model/claude.ts` with the CLI's own
@@ -711,7 +713,9 @@ when the process starts and never written anywhere. That makes the caller kind
 `dashboard`, and `api()` in `serve/http.ts` lets it have a route only if the route
 names an `allow` switch and `dashboard.remote.allow` in settings has every one it names
 on. A route with no `allow` is never answered through the dashboard: signing in,
-setting up, and the tokens. Do not add one without deciding which switch it
+setting up, the tokens, and the web channel's routes. The dashboard is for the
+owner and the people they invite, never the public: a visitor reaches a web
+channel through the owner's own server. Do not add one without deciding which switch it
 is, and do not let the secret out of the process. `from()` says "via dashboard as
 <email>" for such a request, so the memory audit log still says who.
 What goes up is `dashboard.remote.sync`: run rows as they are written (`core/events.ts`

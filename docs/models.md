@@ -35,7 +35,14 @@ asks.
 through the CLI that credential authorises, below. Nothing to paste and no key to
 keep.
 
-**A key of your own**, in `model.key`, against whatever `model.gatewayUrl` points at.
+**A key from Anthropic or OpenAI**, the one you made in its console, in
+`model.keys` under the provider's name. Setup finds one already in
+`ANTHROPIC_API_KEY` or `OPENAI_API_KEY` and offers it, and the config hands it
+over as `model: { keys: { openai: process.env.OPENAI_API_KEY } }`. Each call is
+charged to that account, and priced in the run record from its tokens at the
+gateway's public list price. A key carries only its own provider's models.
+
+**A gateway key**, in `model.key`, against whatever `model.gatewayUrl` points at.
 The key goes in `.env` as `CHLOE_MODEL_KEY` and the config hands it over as
 `model: { key: process.env.CHLOE_MODEL_KEY }`.
 One gateway for the whole machine, so if you might add a second provider later,
@@ -56,11 +63,11 @@ asks any of the above.
 
 ## A key or a subscription
 
-A model call goes one of four ways. Everything above the one function that makes
+A model call goes one of five ways. Everything above the one function that makes
 the call is the same either way, which is why that function is the only seam.
 
 ```ts
-settings: { model: { preferredRoute: ["claude", "codex", "opencode", "gateway"] } }
+settings: { model: { preferredRoute: ["claude", "codex", "opencode", "direct", "gateway"] } }
 ```
 
 That is the default, and it is an order, not a choice. Each model goes by the
@@ -72,16 +79,23 @@ machine can with nothing set.
 
 **A subscription and an API key are two ways to the same model.** Nothing about a
 model's name says which account pays for it. To put Anthropic and OpenAI models on
-a key rather than on their subscriptions, put the gateway first:
+a key rather than on their subscriptions, put the route with the key first,
+which is what setup writes when you give it one:
 
 ```ts
-settings: { model: { preferredRoute: ["gateway", "claude", "codex", "opencode"] } }
+settings: { model: { preferredRoute: ["direct", "claude", "codex", "opencode", "gateway"] } }
 ```
 
 **gateway** is the plain one: one `fetch`, a model named
 `anthropic/claude-sonnet-5`, and `model.gatewayUrl` points it at anything that
 speaks the same shape, so another provider works without touching the code. It
 needs `model.key`.
+
+**direct** is the provider's own API, through its AI SDK package, on its key in
+`model.keys`. It carries each provider that has a key there, Anthropic and
+OpenAI, and a model an agent's file gave as an AI SDK model, like
+`anthropic("claude-opus-5-5")`, always goes this way, on whatever key that
+package reads.
 
 **claude** exists for the credential rather than the model. A subscription
 authorises the Claude Code CLI and is not an API key, so there is nothing to put
@@ -90,7 +104,10 @@ per step, with `--tools ""`, `--restricted` and `--strict-mcp-config`, so the CL
 brings none of its own tools, none of that machine's settings and no MCP servers.
 Chloe still runs every tool itself, checks it against its schema and writes it
 down, because a model that quietly read a file would leave nothing in the run
-record. Only Anthropic models run this way.
+record. Only Anthropic models run this way. The CLI is never handed
+`ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, because it would use either ahead
+of the subscription, and a key in `.env` would quietly be paying for a route that
+says it is free.
 
 **codex** is the same shape for OpenAI models on a ChatGPT plan: `codex exec`
 once per step, in an empty temporary folder, with its shell, skills, browser,

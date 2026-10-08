@@ -246,8 +246,9 @@ itself in a shadow root, so the site's styles cannot break it, and follows
 `data-title`, `data-note`, `data-position="left"` and `data-open` change the
 rest.
 
-**Reaching the runtime.** It listens on loopback, and stays there. Two ways in,
-and the box is the same either way:
+**Reaching the runtime.** It listens on loopback, and stays there. Visitors
+reach it through your own web server, never through the dashboard, which is
+for you and the people you invite:
 
 - **Your own proxy**, whatever already serves the site, gives the agent an
   address of its own, here agent.myshop.com, and passes the web routes and
@@ -268,12 +269,6 @@ agent.myshop.com {
   route is not in it: your site's server reaches the runtime directly. The
   page, the API and the memories stay out of reach. The page on myshop.com may
   call agent.myshop.com because myshop.com is in the channel's `origins`.
-
-- **Through the dashboard**, for a machine nobody can reach from outside. Load
-  the box from `https://dashboard.chloejs.org/w/<workspace>/api/web/chat.js`, and have
-  your site's server ask for passes at the same address with its token. It
-  answers the web routes of agents with a web channel and nothing else, and
-  keeps none of what passes through.
 
 **Who they are.** Each message reaches the model with what is known about the
 visitor, in `<web_context>`: their id, the site, when they first came, how many

@@ -26,8 +26,9 @@ It asks five things:
    lines a `.gitignore` needs, and an `AGENTS.md` (with a `CLAUDE.md` that reads
    it) sending a coding agent to these guides, which the package carries for
    the version you installed.
-2. **Which model.** It finds the `claude` and `codex` commands and any gateway key
-   already in your environment, and offers a free one when there is neither. Then
+2. **Which model.** It finds the `claude` and `codex` commands and any
+   Anthropic, OpenAI or gateway key already in your environment, takes one you
+   paste, and offers a free one when there is none. Then
    it makes one real call and says whether that model answered and whether it can
    call a tool. [Models](/docs/models) is the longer version.
 3. Nothing: it runs the job that asks no model, so the first thing you see is a

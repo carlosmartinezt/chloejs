@@ -77,7 +77,7 @@ import { about, is } from "#chloe/ops/check";
   };
   is("a setting that is not a choice is refused, and the choices are named",
     said({ model: { preferredRoute: ["telepathy"] } }),
-    'model.preferredRoute has "telepathy" in it, and each one is "claude", "codex", "opencode", "gateway".');
+    'model.preferredRoute has "telepathy" in it, and each one is "claude", "codex", "opencode", "direct", "gateway".');
   is("a key that is no setting is refused, and says what there is",
     said({ modle: {} }).startsWith("settings.modle is not a setting. Under settings there is model,"), true);
   is("a misspelt key under an agent names the agent, not a star",

@@ -6,7 +6,8 @@
 // not, and which setting it is, so somebody knows what to go and put there.
 import { settings } from "#chloe/core/settings";
 import { modelFor } from "#chloe/model/choices";
-import { routeFor } from "#chloe/model/model";
+import { ownKey, sdkModel } from "#chloe/model/key";
+import { providerOf, routeFor, type Route } from "#chloe/model/model";
 import { connectionsUsed, descriptionOf } from "#chloe/model/tool";
 import type { Agent } from "#chloe/load/load";
 import { collectsAt } from "#chloe/channels/whatsapp";
@@ -185,6 +186,30 @@ export function channelsOf(agent: Agent): Way[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Where a model is asked, as one of the ways out of this box. */
+function wayOf(model: string, route: Route): Way {
+  if (route === "gateway") {
+    return {
+      name: "model gateway",
+      does: `Where ${model} is asked. Every run of this agent goes through it.`,
+      needs: "model.key",
+      ready: filled(settings.model.key),
+    };
+  }
+  if (route === "direct" && sdkModel(model)) {
+    return { name: `${providerOf(model)} API`, does: `Where ${model} is asked, on the key its own package reads.`, needs: "", ready: null };
+  }
+  if (route === "direct") {
+    return {
+      name: `${providerOf(model)} API`,
+      does: `Where ${model} is asked, on ${providerOf(model)}'s own key. Every run of this agent goes through it.`,
+      needs: `model.keys.${providerOf(model)}`,
+      ready: filled(ownKey(providerOf(model))),
+    };
+  }
+  return { name: `${route} CLI`, does: `Where ${model} is asked, over a subscription rather than a key.`, needs: "", ready: null };
+}
+
 /**
  * What this agent can reach that is not on this box: where its thinking goes,
  * and each connection its tools work through, asked what is missing. A tool
@@ -193,22 +218,7 @@ export function channelsOf(agent: Agent): Way[] {
  */
 export async function connectionsOf(agent: Agent): Promise<Way[]> {
   const model = modelFor(agent);
-  const route = routeFor(model);
-  const out: Way[] = [
-    route === "gateway"
-      ? {
-          name: "model gateway",
-          does: `Where ${model} is asked. Every run of this agent goes through it.`,
-          needs: "model.key",
-          ready: filled(settings.model.key),
-        }
-      : {
-          name: `${route} CLI`,
-          does: `Where ${model} is asked, over a subscription rather than a key.`,
-          needs: "",
-          ready: null,
-        },
-  ];
+  const out: Way[] = [wayOf(model, routeFor(model))];
   for (const connection of new Set([...connectionsUsed(agent.tools ?? {}), ...(agent.connections ?? [])])) {
     const missing = await connection.missing().catch((error: Error) => [error.message]);
     out.push({

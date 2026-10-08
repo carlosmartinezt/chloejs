@@ -1,15 +1,19 @@
 // Asking a model on a key, through the AI SDK: the gateway on its key, or a
-// model an agent's file gave as an AI SDK model, like anthropic("claude-opus-5-5"),
-// which reaches its provider however that package was set up.
+// provider's own API, either by a name whose provider has a key in
+// `model.keys` or by a model an agent's file gave as an AI SDK model, like
+// anthropic("claude-opus-5-5"), which reaches its provider however that
+// package was set up.
 //
 // Tools are handed over as schemas with nothing to run, so the SDK hands the
 // calls back after one step and core/turn.ts runs them. That loop is where
 // toolApproval, stopWhen, the budget and the per-step record are, so it stays ours.
 
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError, generateText, jsonSchema, RetryError, streamText, tool, type LanguageModel, type LanguageModelUsage, type ModelMessage } from "ai";
 
-import { settings, whereKeyGoes } from "#chloe/core/settings";
+import { PROVIDERS, settings, whereKeyGoes, type Provider } from "#chloe/core/settings";
 
 import type { Answer, Ask, Message, ToolCall } from "./model.ts";
 
@@ -41,6 +45,42 @@ export function sdkModel(name: string): SdkModel | undefined {
 /** Whether any agent named an AI SDK model. */
 export function anySdkModel(): boolean {
   return given.size > 0;
+}
+
+/**
+ * How a model is made on each provider's own API from its key and the model's
+ * name without the provider in front.
+ */
+const OWN: Record<Provider, (apiKey: string, id: string) => LanguageModel> = {
+  // Anthropic's names have no dots, and the gateway's list writes them with
+  // one ("claude-haiku-4.5"), so a name picked from that list is put back.
+  anthropic: (apiKey, id) => createAnthropic({ apiKey })(id.replace(/\./g, "-")),
+  openai: (apiKey, id) => createOpenAI({ apiKey })(id),
+};
+
+/** The key `model.keys` holds for a provider's own API, or "" for none or for a provider it has no place for. */
+export function ownKey(provider: string): string {
+  return (PROVIDERS as readonly string[]).includes(provider) ? settings.model.keys[provider as Provider] : "";
+}
+
+/** Whether `model.keys` holds a key for any provider. */
+export function anyOwnKey(): boolean {
+  return PROVIDERS.some((provider) => settings.model.keys[provider]);
+}
+
+/** A model named "provider/name" on that provider's own API, on its key in `model.keys`, and the provider. */
+function onOwnKey(model: string): { reach: LanguageModel; provider: string } {
+  const at = model.indexOf("/");
+  const provider = at < 0 ? "anthropic" : model.slice(0, at);
+  const key = ownKey(provider);
+  if (!key) {
+    throw new Error(
+      (PROVIDERS as readonly string[]).includes(provider)
+        ? `No ${provider} key. Put it ${whereKeyGoes(["model", "keys", provider])}.`
+        : `${provider} has no place in model.keys, which holds ${PROVIDERS.join(" and ")}. Reach it through the gateway, or name it as an AI SDK model in the agent's file.`,
+    );
+  }
+  return { reach: OWN[provider as Provider](key, model.slice(at + 1)), provider };
 }
 
 /** Dollars per token, as the gateway's list of models writes them. */
@@ -161,8 +201,7 @@ function parsed(text: string): unknown {
 }
 
 /**
- * Asks once on a key, by the gateway or the AI SDK model an agent's file gave,
- * and answers in chloe's shape. With `onText` the answer is streamed and its
+ * Asks once on a key, by the gateway or on the provider's own API, and answers in chloe's shape. With `onText` the answer is streamed and its
  * words handed over as they come; what it costs is read at the end either way.
  */
 export async function viaKey({ model, messages, tools, maxOutputTokens, signal, onText }: Ask, route: "gateway" | "direct"): Promise<Answer> {
@@ -179,9 +218,9 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal, 
     where = "the gateway";
   } else {
     const found = sdkModel(model);
-    if (!found) throw new Error(`No agent on this box names ${model} as an AI SDK model.`);
-    reach = found;
-    where = found.provider.split(".")[0];
+    const own = found ? { reach: found, provider: found.provider.split(".")[0] } : onOwnKey(model);
+    reach = own.reach;
+    where = own.provider;
   }
 
   try {

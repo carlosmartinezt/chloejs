@@ -26,12 +26,22 @@ import { parseArgs } from "node:util";
 
 import { GUIDES, identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } from "./starter.ts";
 import { ask, askHidden, pick, setPassword, takeDefaults, yes } from "./terminal.ts";
+import type { Provider } from "#chloe/core/settings";
 
 /** The folder being set up: where the person ran the command. */
 const HERE = process.cwd();
 
 /** Free models, and every provider through one key. Written only if they ask for it. */
 const OPENROUTER = "https://openrouter.ai/api/v1/chat/completions";
+
+/** How each provider is called in a sentence. */
+const SAID: Record<Provider, string> = { anthropic: "Anthropic", openai: "OpenAI" };
+
+/** The name each provider's own tools read its key from, which is where somebody who has one already keeps it. */
+const OWN_KEY_NAMES: Record<Provider, string> = { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY" };
+
+/** The model offered first on each provider's own key. */
+const OWN_DEFAULT: Record<Provider, string> = { anthropic: "anthropic/claude-sonnet-5", openai: "openai/gpt-6-luna" };
 
 /** What was written, said once at the end rather than line by line as it happens. */
 const wrote: [string, string][] = [];
@@ -186,16 +196,23 @@ async function theAgent(): Promise<string> {
  */
 async function theModel(): Promise<string> {
   const { runnable } = await import("#chloe/model/model");
-  const { settings } = await import("#chloe/core/settings");
+  const { nameInEnv, PROVIDERS, settings } = await import("#chloe/core/settings");
 
   const held = ["AI_GATEWAY_API_KEY", "OPENROUTER_API_KEY", "CHLOE_MODEL_KEY"].find((name) => process.env[name]);
+  // A provider's key under the name its own tools read, or the one setup writes.
+  const heldOwn = PROVIDERS.flatMap((provider) => {
+    const name = [OWN_KEY_NAMES[provider], nameInEnv(["model", "keys", provider])].find((one) => process.env[one]);
+    return name ? [{ provider, name }] : [];
+  });
 
   const choice = await pick("\nA model. Only the prompt job asks one, so this can wait: the code job runs either way.", [
     ...(runnable("claude") ? [{ key: "claude" as const, what: "your Claude subscription, through the claude command on this box" }] : []),
     ...(runnable("codex") ? [{ key: "codex" as const, what: "your ChatGPT plan, through the codex command on this box" }] : []),
     ...(runnable("opencode") ? [{ key: "opencode" as const, what: "whatever opencode is signed in to on this box" }] : []),
+    ...heldOwn.map(({ provider, name }) => ({ key: provider, what: `your ${SAID[provider]} key, already in ${name} in your environment, charged per call` })),
     ...(held ? [{ key: "held" as const, what: `the key already in ${held} in your environment` }] : []),
     { key: "free" as const, what: "a free key from OpenRouter: no card, and rate limited to a few runs an hour" },
+    { key: "own" as const, what: "a key from Anthropic or OpenAI, charged per call to that account" },
     { key: "key" as const, what: "a gateway key of your own (Vercel AI Gateway, OpenRouter, anything of that shape)" },
     { key: "later" as const, what: "nothing yet" },
   ]);
@@ -213,6 +230,19 @@ async function theModel(): Promise<string> {
     }
     const asked = (await ask(`Which of opencode's models? (${first}) `)).trim();
     return await settle({ defaultModel: asked || first });
+  }
+
+  const found = heldOwn.find((one) => one.provider === choice);
+  if (found) return await onOwnKey(found.provider, undefined, found.name);
+
+  if (choice === "own") {
+    const key = (await askHidden("Paste the key: ")).trim();
+    // Anthropic's keys start sk-ant-, OpenAI's sk-, which is enough to tell
+    // them apart without asking.
+    const guessed: Provider | undefined = key.startsWith("sk-ant-") ? "anthropic" : key.startsWith("sk-") ? "openai" : undefined;
+    const asked = guessed ?? (await ask(`Whose key is it, ${PROVIDERS.join(" or ")}? (${PROVIDERS[0]}) `)).trim().toLowerCase();
+    const provider = (PROVIDERS as readonly string[]).includes(asked) ? (asked as Provider) : PROVIDERS[0];
+    return await onOwnKey(provider, key || undefined, nameInEnv(["model", "keys", provider]));
   }
 
   if (choice === "held") {
@@ -242,7 +272,22 @@ async function theModel(): Promise<string> {
   const key = (await askHidden("Paste the key: ")).trim();
   // The gateway first, because somebody who just pasted a key meant to use it,
   // and a subscription on this box would otherwise be ahead of it in the order.
-  return await settle({ defaultModel: model, gatewayUrl: gateway, preferredRoute: "gateway,claude,codex,opencode" }, key);
+  return await settle({ defaultModel: model, gatewayUrl: gateway, preferredRoute: "gateway,claude,codex,opencode,direct" }, key);
+}
+
+/**
+ * A provider's own key, pasted (`key`) or already in the environment, kept
+ * under `named` and read by the config as `model.keys`. The direct route goes
+ * first, because somebody who chose a key meant to use it, and a subscription
+ * on this box would otherwise be ahead of it in the order. The default judge
+ * and namer are Anthropic's, so on any other provider they are the chosen
+ * model too.
+ */
+async function onOwnKey(provider: Provider, key: string | undefined, named: string): Promise<string> {
+  const asked = (await ask(`Which model? (${OWN_DEFAULT[provider]}) `)).trim();
+  const model = asked ? (asked.includes("/") ? asked : `${provider}/${asked}`) : OWN_DEFAULT[provider];
+  const others: Record<string, string> = provider === "anthropic" ? {} : { judgeModel: model, namingModel: model };
+  return await settle({ defaultModel: model, ...others, preferredRoute: "direct,claude,codex,opencode,gateway" }, key, named, ["keys", provider]);
 }
 
 /**
@@ -251,10 +296,11 @@ async function theModel(): Promise<string> {
  * been retired all look the same until something asks.
  *
  * The choice goes in chloe.config.ts and the key in .env, under `named`, which
- * the config's model line reads as `process.env.` that name. A config this did
- * not write is somebody's own and is told rather than edited.
+ * the config's model line reads as `process.env.` that name, at `where` under
+ * `model`: the gateway's key unless it says otherwise. A config this did not
+ * write is somebody's own and is told rather than edited.
  */
-async function settle(model: Record<string, string>, key?: string, named = "CHLOE_MODEL_KEY"): Promise<string> {
+async function settle(model: Record<string, string>, key?: string, named = "CHLOE_MODEL_KEY", where: string[] = ["key"]): Promise<string> {
   const { declareSettings } = await import("#chloe/core/settings");
   const { loadEnv } = await import("#chloe/core/env");
   if (key) {
@@ -263,7 +309,7 @@ async function settle(model: Record<string, string>, key?: string, named = "CHLO
   }
   loadEnv();
 
-  const line = modelLine(model, named);
+  const line = modelLine(model, named, where);
   const configFile = join(HERE, "chloe.config.ts");
   const config = readFileSync(configFile, "utf8");
   if (config.includes(STARTER_MODEL_LINE)) {
@@ -282,12 +328,13 @@ async function settle(model: Record<string, string>, key?: string, named = "CHLO
   };
   const settings = declared.settings ?? {};
   const preferredRoute = model.preferredRoute ? { preferredRoute: model.preferredRoute.split(",") } : {};
+  const keyed = where.reduceRight<unknown>((inside, part) => ({ [part]: inside }), process.env[named]) as Record<string, unknown>;
   declareSettings(
-    { ...settings, model: { ...(settings.model as object), ...model, ...preferredRoute, key: process.env[named] } } as Parameters<typeof declareSettings>[0],
+    { ...settings, model: { ...(settings.model as object), ...model, ...preferredRoute, ...keyed } } as Parameters<typeof declareSettings>[0],
   );
 
   // Asked of the runtime rather than worked out here, so this cannot disagree
-  // with what the first job will find: a key for the gateway, the program for a CLI.
+  // with what the first job will find: a key for the gateway or a provider, the program for a CLI.
   const { routeFor, runnable } = await import("#chloe/model/model");
   const asking = model.defaultModel;
   if (!runnable(routeFor(asking))) {

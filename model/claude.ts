@@ -171,7 +171,10 @@ async function asked({ model, system, transcript, messages, tools, signal, folde
   const { code, out, err } = await invoke(cli, args, input, {
     signal,
     missing: `The claude route needs ${JSON.stringify(cli)} on the path. Install Claude Code, or put it on the path.`,
-    env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: MOST },
+    // The claude command uses either of these ahead of the subscription when
+    // it finds one, so a project with an Anthropic key in .env would pay per
+    // call on the route that says it is a subscription.
+    env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: MOST, ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined },
   });
   let answer: CliAnswer | undefined;
   let read: ReturnType<typeof readStream> | undefined;
