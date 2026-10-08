@@ -143,6 +143,17 @@ function readable(who: Caller): string[] | null {
 }
 
 /**
+ * The email a guest's runs are under, or null for anybody who is not a guest.
+ * A turn's owner is "<channel>:<who wrote>", and a guest writes as their email.
+ */
+function guestOf(who: Caller): string | null {
+  return who?.kind === "dashboard" && who.guest ? who.user.toLowerCase() : null;
+}
+
+/** The part of a run's owner after its channel, lowercased: a guest's email. */
+const OWNED_BY = "lower(substr(owner, instr(owner, ':') + 1))";
+
+/**
  * The conversation, when this caller may have it. A guest's are the ones whose
  * owner is their email, and with `claim` one nobody has said anything in
  * becomes theirs. Anybody else may have any. One that is not theirs is
@@ -405,17 +416,18 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents/:id/log",
-    does: "That agent's runs, newest first. Takes ?limit=, at most 200.",
+    does: "That agent's runs, newest first. Takes ?limit=, at most 200. A guest gets only their own.",
     token: true,
     allow: "read",
-    handle: ({ response, context, params, url }) => {
+    handle: ({ response, context, params, url, who }) => {
       context.agent(params.id);
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
+      const guest = guestOf(who);
       json(
         response,
         db
-          .prepare(`select ${RUN_COLUMNS} from runs where agent = ? order by started desc limit ?`)
-          .all(params.id, limit),
+          .prepare(`select ${RUN_COLUMNS} from runs where agent = ? and (? is null or ${OWNED_BY} = ?) order by started desc limit ?`)
+          .all(params.id, guest, guest, limit),
       );
     },
   },
@@ -471,7 +483,7 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/runs",
-    does: "Every agent's runs, newest first. Takes ?agent= and ?limit=.",
+    does: "Every agent's runs, newest first. Takes ?agent= and ?limit=. A guest gets only their own.",
     token: true,
     allow: "read",
     guest: "filtered",
@@ -485,8 +497,8 @@ export const routes: Route[] = [
         return json(
           response,
           db
-            .prepare(`select ${RUN_COLUMNS} from runs where agent in (${agents.map(() => "?").join(", ")}) order by started desc limit ?`)
-            .all(...agents, limit),
+            .prepare(`select ${RUN_COLUMNS} from runs where agent in (${agents.map(() => "?").join(", ")}) and ${OWNED_BY} = ? order by started desc limit ?`)
+            .all(...agents, guestOf(who), limit),
         );
       }
       json(
@@ -506,9 +518,18 @@ export const routes: Route[] = [
     guest: "filtered",
     handle: ({ response, params, who }) => {
       const row = db.prepare("select * from runs where id = ?").get(params.id) as
-        | { agent: string; trace: string; commits: string | null }
+        | { agent: string; owner: string | null; trace: string; commits: string | null }
         | undefined;
       if (!row || !may(who, row.agent, "read")) throw new NotFound("No run with that id.");
+      const guest = guestOf(who);
+      if (guest) {
+        // Their own turn, as they said it and as it was answered. The prompt,
+        // the context and the steps carry the agent's instructions and what its
+        // tools read, which are the owner's.
+        if (row.owner?.slice(row.owner.indexOf(":") + 1).toLowerCase() !== guest) throw new NotFound("No run with that id.");
+        const { prompt, context, trace, state, args, input, parked, owner, ...rest } = row as Record<string, unknown>;
+        return json(response, { ...rest, trace: [], commits: [], carryOn: false });
+      }
       json(response, { ...row, trace: JSON.parse(row.trace), commits: row.commits ? JSON.parse(row.commits) : [], carryOn: canCarryOn(params.id) });
     },
   },
@@ -718,7 +739,11 @@ export const routes: Route[] = [
     does: "Everybody that agent's web channel has had, newest first: when they came, their address, country and browser, and what their site said about them.",
     token: true,
     allow: "read",
-    handle: webVisitors,
+    handle: (at) => {
+      // Who came and from where is the owner's, whatever a guest was given.
+      if (guestOf(at.who)) return json(at.response, { error: "A guest cannot do that. It is the workspace owner's." }, 403);
+      return webVisitors(at);
+    },
   },
   {
     method: "POST",

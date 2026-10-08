@@ -72,7 +72,7 @@ import { agentFor, answer, answers, asked, codeJob, db, lastAsked, sent, work } 
   // Set rather than assumed: this suite runs from whichever repo installed the
   // runtime, and that repo's config may well name a dashboard of its own.
   live.dashboard.remote.url = "";
-  live.dashboard.remote.sync = { runs: true, agents: true };
+  live.dashboard.remote.upload = { runs: true, replies: false, agents: true };
   live.dashboard.remote.allow = { read: true, chat: true, run: true, memory: false, write: false, google: false };
 
   // Nothing named: nothing opened.
@@ -108,7 +108,13 @@ import { agentFor, answer, answers, asked, codeJob, db, lastAsked, sent, work } 
   await tick();
   const rows = said("run").slice(before);
   is("a run is sent when it starts and when it ends", rows.length, 2);
-  is("as the row GET /api/runs would show", [rows[0].run.agent, rows[0].run.finished, typeof rows[1].run.finished], ["test", null, "string"]);
+  is("with what happened", [rows[0].run.agent, rows[0].run.finished, typeof rows[1].run.finished], ["test", null, "string"]);
+  is("and not what was said", [rows[1].run.reply, rows[1].run.summary, "asked" in rows[1].run], [null, null, false]);
+  live.dashboard.remote.upload.replies = true;
+  await work({ agent: keeper, job: keeper.jobs[0] });
+  await tick();
+  is("unless the owner says so", (said("run").at(-1) as { run: { reply: unknown } }).run.reply, "done");
+  live.dashboard.remote.upload.replies = false;
 
   // A request down the socket is a request to the runtime's own port.
   const agents = await answer("1", "GET", "/api/agents");
@@ -189,7 +195,20 @@ import { agentFor, answer, answers, asked, codeJob, db, lastAsked, sent, work } 
   is("chat alone does not read its log", (await answer("g5", "GET", "/api/agents/test/log", chatOnly)).status, 403);
   is("but does say which model answers", (await answer("g6", "GET", "/api/agents/test", chatOnly)).status, 200);
   is("and its runs are not listed", JSON.parse((await answer("g7", "GET", "/api/runs", chatOnly)).text), []);
-  is("given read, they are", JSON.parse((await answer("g8", "GET", "/api/runs", asGuest({ test: ["read"] }))).text).length > 0, true);
+  // Two people's turns on one agent: a guest given read sees their own and
+  // nobody else's, in the log, the list and one run.
+  const turn = db.prepare("insert into runs (id, agent, started, source, model, prompt, reply, context, trace, owner, thread) values (?, 'test', ?, 'chat', 'm', ?, ?, 'the context', '[1]', ?, ?)");
+  turn.run("run-g", new Date().toISOString(), "the instructions and g's words", "to g", "chat:G@example.com", "test/web-g");
+  turn.run("run-h", new Date().toISOString(), "h's words", "to h", "chat:h@example.com", "test/web-h");
+  const reads = asGuest({ test: ["read"] });
+  const ids = (text: string) => (JSON.parse(text) as { id: string }[]).map((one) => one.id);
+  is("given read, a guest lists their own runs", ids((await answer("g8", "GET", "/api/runs", reads)).text), ["run-g"]);
+  is("and the log is only theirs too", ids((await answer("g8b", "GET", "/api/agents/test/log", reads)).text), ["run-g"]);
+  is("another guest's run is not there", (await answer("g8c", "GET", "/api/runs/run-h", reads)).status, 404);
+  const own = JSON.parse((await answer("g8d", "GET", "/api/runs/run-g", reads)).text);
+  is("their own run comes without the prompt, the context or the steps", [own.reply, own.prompt, own.context, own.trace], ["to g", undefined, undefined, []]);
+  is("the owner still sees every run", ids((await answer("g8e", "GET", "/api/agents/test/log")).text).includes("run-h"), true);
+  is("nor the web visitors, whatever they were given", (await answer("g8f", "GET", "/api/agents/test/web/visitors", reads)).status, 403);
   is("a job needs run", (await answer("g9", "POST", "/api/agents/test/job/relayed", { ...chatOnly, "content-type": "application/json" }, "{}")).status, 403);
   is("and with it, starts", (await answer("g10", "POST", "/api/agents/test/job/relayed", { ...asGuest({ test: ["run"] }), "content-type": "application/json" }, "{}")).status, 200);
   live.dashboard.remote.allow.memory = true;
@@ -251,6 +270,10 @@ import { agentFor, answer, answers, asked, codeJob, db, lastAsked, sent, work } 
   await answer("g24", "POST", `/api/threads/${encodeURIComponent("test/web-new")}/forget`, { ...chatOnly, "content-type": "application/json" }, "{}");
   is("forgetting their own forgets it", (await conversations("g25", chatOnly)).map((one) => one.thread), ["test/web-g"]);
   is("forgetting their own keeps it theirs, so nobody else can take it up", db.prepare("select owner from threads where thread = ?").get("test/web-new"), { owner: "g@example.com" });
+  const { forget } = await import("#chloe/model/memory");
+  forget("test/web-h");
+  is("forgetting a conversation blanks the words in its runs", db.prepare("select prompt, asked, reply, context, trace from runs where id = 'run-h'").get(), { prompt: "", asked: null, reply: null, context: null, trace: "[]" });
+  is("and leaves another's alone", (db.prepare("select reply from runs where id = 'run-g'").get() as { reply: string }).reply, "to g");
   live.dashboard.remote.allow.write = false;
 
   // A conversation can be named and archived, by whoever may chat in it.

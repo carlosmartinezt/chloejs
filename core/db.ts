@@ -106,6 +106,9 @@ if (added("runs", "asked", "text")) {
     where prompt like '<%' and instr(prompt, '_context>' || char(10, 10)) > 0
   `);
 }
+// The conversation a turn was in, so forgetting it can blank its runs too.
+// Null for a job, and for a turn from before this column.
+added("runs", "thread", "text");
 db.exec("create index if not exists runs_parked on runs (parked) where parked is not null");
 
 // What a person calls a conversation, when they archived it, and the email of

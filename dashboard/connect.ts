@@ -8,8 +8,9 @@
 // and which switches in `dashboard.remote.allow` are on. After that two things happen on
 // it:
 //
-//   up      a run's row when a run starts or ends, and the agents when they
-//           reload, each only if `dashboard.remote.sync` says so
+//   up      a run's facts when a run starts or ends (its words only with
+//           `upload.replies`), and the agents when they reload, each only if
+//           `dashboard.remote.upload` says so
 //   down    a request, which is an ordinary HTTP request to this runtime's own
 //           API carried in a message. It is made against the one port with a
 //           secret only this process knows, so `caller()` in serve/login.ts
@@ -31,7 +32,7 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
-import { db, RUN_COLUMNS } from "#chloe/core/db";
+import { db } from "#chloe/core/db";
 import { events } from "#chloe/core/events";
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 import type { Agent } from "#chloe/load/load";
@@ -110,6 +111,9 @@ const KEPT_BACK = new Set(["set-cookie", "connection", "transfer-encoding", "con
 /** How many runs go up when the connection opens, so the dashboard has a history to show while this runtime is offline. */
 const CATCH_UP = 200;
 
+/** What goes up of every run: what happened, never what was said. */
+const SENT = "id, agent, started, finished, source, job, model, steps, cost, error, archived";
+
 /** A dashboard that takes the socket and does not say welcome is not one: the socket is closed and tried again. */
 const WELCOME_WITHIN = 15_000;
 
@@ -184,10 +188,10 @@ export function startDashboard(options: DashboardOptions): Dashboard {
       // "guests": this runtime checks what an invited person may do itself, so
       // the dashboard may relay their requests here.
       capabilities: ["relay", "runs", "agents", "guests"],
-      sync: settings.dashboard.remote.sync,
+      upload: settings.dashboard.remote.upload,
       allow: settings.dashboard.remote.allow,
       routes: routeList(),
-      agents: settings.dashboard.remote.sync.agents ? agentList() : [],
+      agents: settings.dashboard.remote.upload.agents ? agentList() : [],
     };
   }
 
@@ -267,7 +271,7 @@ export function startDashboard(options: DashboardOptions): Dashboard {
       wait = backoff.first;
       const said = (message as { workspace?: { name?: string; label?: string } }).workspace;
       say(`connected to ${using.url} as ${said?.label ?? said?.name ?? "a workspace"}`);
-      if (settings.dashboard.remote.sync.runs) send(one, { type: "runs", runs: recentRuns() });
+      if (settings.dashboard.remote.upload.runs) send(one, { type: "runs", runs: recentRuns() });
       return;
     }
 
@@ -346,13 +350,19 @@ export function startDashboard(options: DashboardOptions): Dashboard {
     });
   }
 
+  // A run's facts, and its words only when the owner said so. Sent with
+  // nulls rather than left out, so a row sent again blanks the copy kept.
+  function sent(): string {
+    return settings.dashboard.remote.upload.replies ? `${SENT}, reply, summary` : `${SENT}, null as reply, null as summary`;
+  }
+
   function recentRuns(): unknown[] {
-    return db.prepare(`select ${RUN_COLUMNS} from runs order by started desc limit ?`).all(CATCH_UP);
+    return db.prepare(`select ${sent()} from runs order by started desc limit ?`).all(CATCH_UP);
   }
 
   const onRun = (id: string): void => {
-    if (!socket || !welcomed || !settings.dashboard.remote.sync.runs) return;
-    const row = db.prepare(`select ${RUN_COLUMNS} from runs where id = ?`).get(id);
+    if (!socket || !welcomed || !settings.dashboard.remote.upload.runs) return;
+    const row = db.prepare(`select ${sent()} from runs where id = ?`).get(id);
     if (row) send(socket, { type: "run", run: row });
   };
   events.on("run", onRun);
@@ -372,8 +382,8 @@ export function startDashboard(options: DashboardOptions): Dashboard {
       // The switches go with it, so what the dashboard shows about this
        // workspace follows a settings change without a reconnect. The
        // runtime enforces them from the live settings either way.
-      if (socket && welcomed && settings.dashboard.remote.sync.agents) {
-        send(socket, { type: "agents", agents: agentList(), sync: settings.dashboard.remote.sync, allow: settings.dashboard.remote.allow });
+      if (socket && welcomed && settings.dashboard.remote.upload.agents) {
+        send(socket, { type: "agents", agents: agentList(), upload: settings.dashboard.remote.upload, allow: settings.dashboard.remote.allow });
       }
     },
     connected: () => Boolean(socket) && welcomed,

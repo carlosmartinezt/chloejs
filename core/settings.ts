@@ -193,9 +193,15 @@ export interface Settings {
       /** Where the remote dashboard is. Point it at your own by setting this. */
       url: string;
       /** What is sent up as it happens, so the remote dashboard can show it when this runtime is offline. */
-      sync: {
-        /** Each run's row, as GET /api/runs shows it, when it starts and when it ends. */
+      upload: {
+        /**
+         * Each run's facts when it starts and when it ends: when, which agent
+         * and job, the model, the steps, the cost, the error. Never what was
+         * said: that is `replies`.
+         */
         runs: boolean;
+        /** With `runs`, each run's reply and its one-line summary too, so the remote dashboard keeps what the agents said. */
+        replies: boolean;
         /** Every agent's configuration, as GET /api/agents shows it, on connect and on each reload. */
         agents: boolean;
       };
@@ -274,7 +280,7 @@ export const DEFAULTS: Settings = {
     remote: {
       api_key: "",
       url: "https://dashboard.chloejs.org",
-      sync: { runs: true, agents: true },
+      upload: { runs: true, replies: false, agents: true },
       allow: { read: true, chat: true, run: true, memory: false, write: false, google: false },
     },
   },

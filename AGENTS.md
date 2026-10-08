@@ -718,8 +718,10 @@ owner and the people they invite, never the public: a visitor reaches a web
 channel through the owner's own server. Do not add one without deciding which switch it
 is, and do not let the secret out of the process. `from()` says "via dashboard as
 <email>" for such a request, so the memory audit log still says who.
-What goes up is `dashboard.remote.sync`: run rows as they are written (`core/events.ts`
-is how the runners say so) and the agent summaries on reload.
+What goes up is `dashboard.remote.upload`: each run's facts as its row is written
+(`core/events.ts` is how the runners say so) and the agent summaries on reload.
+What a run said (its reply and summary) goes up only with `upload.replies`, off
+unless said: the cloud keeps what happened, not the conversations.
 
 **The runtime serves its own dashboard**, a React app in `site/`. `npm run
 build:site` bundles it into `site/page/`, and the package ships that folder as

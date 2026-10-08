@@ -109,8 +109,8 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
 
   const started = new Date().toISOString();
   db.prepare(
-    "insert into runs (id, agent, started, source, job, model, prompt, asked, kind, owner) values (?, ?, ?, ?, ?, ?, ?, ?, 'turn', ?)",
-  ).run(runId, agent.id, started, source, job ?? null, using, prompt, asked ?? null, owner ?? null);
+    "insert into runs (id, agent, started, source, job, model, prompt, asked, kind, owner, thread) values (?, ?, ?, ?, ?, ?, ?, ?, 'turn', ?, ?)",
+  ).run(runId, agent.id, started, source, job ?? null, using, prompt, asked ?? null, owner ?? null, thread ?? null);
   runChanged(runId);
 
   const overviews = await overviewsOf(toolsFor(agent, without));

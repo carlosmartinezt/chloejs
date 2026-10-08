@@ -331,7 +331,7 @@ export interface Workspace {
   protocol?: number;
   capabilities?: string[];
   remote?: { read: boolean; chat: boolean; run: boolean; memory: boolean; write: boolean };
-  sync?: { runs: boolean; agents: boolean };
+  upload?: { runs: boolean; replies?: boolean; agents: boolean };
   /** The agents' ids. */
   agents: string[];
   today: { runs: number; failed: number; cost: number };
