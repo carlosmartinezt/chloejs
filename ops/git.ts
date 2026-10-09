@@ -49,9 +49,3 @@ export function firstCommit(cwd: string): void {
     if (!done.ok) throw new Error(`git ${step} failed: ${done.err.split("\n")[0] || "no reason given"}`);
   }
 }
-
-/** Which of `paths`, inside `cwd`, have changes nobody has committed, new files included. */
-export function uncommittedIn(cwd: string, paths: string[]): string[] {
-  const status = git(cwd, ["status", "--porcelain", "--untracked-files=all", "--", ...paths]);
-  return status.ok ? status.out.split("\n").filter(Boolean).map((line) => line.slice(3)) : [];
-}

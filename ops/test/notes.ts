@@ -401,16 +401,19 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   git("commit", "-q", "-m", "the agent as a person wrote it");
 
   const home = { id: "coder", folder, memory: { folder: memory } };
-  const words = ownFileRules(true);
-  const code = ownFileRules({ code: true });
-  is("without code, a job's code is not its to write", whyNot(home, words, "jobs/hello.ts"), "it is code");
-  is("nor its tools", whyNot(home, words, "tools/look.md"), "tools/ is code");
-  is("with code it is", [whyNot(home, code, "jobs/hello.ts"), whyNot(home, code, "tools/look.ts"), whyNot(home, code, "agent.ts")], [undefined, undefined, undefined]);
-  is("and a job's code may sit in a folder of its own", whyNot(home, code, "jobs/lib/feeds.ts"), undefined);
-  is("but never its evals", whyNot(home, code, "evals/hello.json"), "evals/ is how your runs are marked");
+  const words = ownFileRules({ selfImprovement: { code: false } });
+  const code = ownFileRules({});
+  is("code is on unless it says code: false", [code?.code, words?.code, ownFileRules({ selfImprovement: true as never })?.code], [true, false, true]);
+  is("and false turns it all off", ownFileRules({ selfImprovement: false }), undefined);
+  is("a file kept back turns code off, since code could change it", ownFileRules({ selfImprovement: { except: ["PERMISSIONS.md"] } })?.code, false);
+  is("without code, a job's code is not its to write", whyNot(home, words!, "jobs/hello.ts"), "it is code");
+  is("nor its tools", whyNot(home, words!, "tools/look.md"), "tools/ is code");
+  is("with code it is", [whyNot(home, code!, "jobs/hello.ts"), whyNot(home, code!, "tools/look.ts"), whyNot(home, code!, "agent.ts")], [undefined, undefined, undefined]);
+  is("and a job's code may sit in a folder of its own", whyNot(home, code!, "jobs/lib/feeds.ts"), undefined);
+  is("but never its evals", whyNot(home, code!, "evals/hello.json"), "evals/ is how your runs are marked");
 
   const wrote = (path: string, content: string) =>
-    writeOwn(home, code, [{ path, content }], "a change worth making").then((done) => done.commit ?? "not committed", (error: Error) => error.message);
+    writeOwn(home, code!, [{ path, content }], "a change worth making").then((done) => done.commit ?? "not committed", (error: Error) => error.message);
   const job = (cron: string) =>
     `import { defineJob } from "@chloejs/core";\nexport default defineJob({ id: "hello", description: "Says hello.", cron: "${cron}", run: async () => "Hello." });\n`;
 
@@ -442,7 +445,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
 
   // A change that only loads with two files changed together.
   const together = (files: { path: string; content: string }[]) =>
-    writeOwn(home, code, files, "hello reads its words from a file of its own").then((done) => done.commit, (error: Error) => error.message);
+    writeOwn(home, code!, files, "hello reads its words from a file of its own").then((done) => done.commit, (error: Error) => error.message);
   const greetingFile = { path: "jobs/lib/words.ts", content: 'export const greeting = "Hello again.";\n' };
   const using = {
     path: "jobs/hello.ts",

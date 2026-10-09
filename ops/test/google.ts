@@ -180,7 +180,7 @@ import type { Tools } from "./shared.ts";
   const { defineAgent: define } = await import("@chloejs/core");
   const { resolveAgent: resolve } = await import("#chloe/load/load");
   const toolsOf = async (tools: Tools) =>
-    Object.keys((await resolve(define({ id: "mail", folder: await mkdtemp(join(tmpdir(), "chloe-mail-")), model: "m", description: "", instructions: "Hi.", features: { memory: false }, tools }))).tools ?? {}).sort();
+    Object.keys((await resolve(define({ id: "mail", folder: await mkdtemp(join(tmpdir(), "chloe-mail-")), model: "m", description: "", instructions: "Hi.", features: { memory: false, selfImprovement: false }, tools }))).tools ?? {}).sort();
   is("gmailReadEmail comes with no sign-in tool", await toolsOf({ gmailReadEmail: gmail.readEmail({ search: "in:inbox" }) }), ["gmailReadEmail"]);
   const sender = { when: "it reaches nobody", from: "a@b.co", to: ["c@d.co"] };
   is("resendSendEmail has nothing to sign in to", await toolsOf({ resendSendEmail: resend.sendEmail(sender) }), ["resendSendEmail"]);

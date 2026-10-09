@@ -484,7 +484,7 @@ export interface Job {
 
 /**
  * Tools that chloe can add to an agent. Turn each one on or off here, for
- * example `features: { selfImprovement: true }`.
+ * example `features: { runScripts: true }`.
  */
 export interface Features {
   /**
@@ -493,15 +493,15 @@ export interface Features {
    * the agent's memory folder (see `memory` on the agent). On by default.
    * Set it to `false` to leave them out.
    */
-  memory?: boolean;
+  memory?: false;
   /**
-   * Adds the tool `selfWriteFile`, which lets the agent change its own plain
-   * text files, such as its instructions, skills and markdown jobs. Off by
-   * default.
+   * Adds the tool `selfWriteFile`, which lets the agent change its own files:
+   * its instructions, skills and jobs, and its code (`agent.ts`, jobs, tools,
+   * scripts). On by default.
    *
-   * `true` allows every plain text file (.md, .txt, .html, .json, .yml,
-   * .yaml, .csv). Give an object instead to allow fewer files, protect some
-   * files, or allow code too. See `SelfImprovement`.
+   * Set it to `false` to turn it off. Give an object instead to allow fewer
+   * files, protect some files, or leave code out with `code: false`. See
+   * `SelfImprovement`.
    *
    * Each change is saved as a git commit, so you can see it and undo it on
    * the dashboard. The agent can only use this tool in a reply to a message
@@ -513,7 +513,7 @@ export interface Features {
    * (`selfListFiles`, `selfReadFile`, `selfListRuns`, `selfReadRun`) in
    * replies to its owner. It does not need this setting for that.
    */
-  selfImprovement?: boolean | SelfImprovement;
+  selfImprovement?: false | SelfImprovement;
   /**
    * Adds the tool `scriptRun`, which lets the agent run any file in its own
    * `scripts/` folder. Off by default.
@@ -544,39 +544,40 @@ export interface OwnFileRules extends SelfImprovement {
   files: string[];
 }
 
-/** The plain text an agent may change when `selfImprovement` is `true`, without the dots. */
+/** The plain text an agent may change, without the dots. */
 export const PLAIN_TEXT = ["md", "txt", "html", "json", "yml", "yaml", "csv"];
 
-/** The code it may also change with `code: true`, without the dots. */
+/** The code it may also change unless it says `code: false`, without the dots. */
 export const CODE_FILES = ["ts", "js", "mjs", "py", "sh"];
 
 /**
  * Which of its own files an agent may change with `selfWriteFile`. Give it as
  * `features.selfImprovement`, for example `{ except: ["PERMISSIONS.md"] }`, or
- * `{ files: ["md"] }` to allow fewer files than `true` does.
+ * `{ code: false }` to keep it to plain text.
  *
  * The agent never writes its `evals/` folder or its memory (it changes its
- * memory with `memoryWriteFile`). It writes code only with `code: true`.
+ * memory with `memoryWriteFile`).
  */
 export interface SelfImprovement {
   /**
    * The file endings the agent may write, without the dot, like `["md"]`.
-   * Default: `md`, `txt`, `html`, `json`, `yml`, `yaml` and `csv`. With
-   * `code: true`, the default also has `ts`, `js`, `mjs`, `py` and `sh`.
+   * Default: `md`, `txt`, `html`, `json`, `yml`, `yaml` and `csv`, and
+   * unless `code: false`, `ts`, `js`, `mjs`, `py` and `sh` too.
    *
-   * A code ending here does nothing without `code: true`. An empty list stops
+   * A code ending here does nothing with `code: false`. An empty list stops
    * the agent from loading.
    */
   files?: string[];
   /**
    * Paths inside the agent's folder that it may read but never write, like a
-   * file of rules it must follow: `["PERMISSIONS.md"]`. Default: none.
+   * file of rules it must follow: `["PERMISSIONS.md"]`. Default: none. With
+   * any, the agent writes no code, because code it wrote could change them.
    */
   except?: string[];
   /**
    * Lets the agent change its code too: `agent.ts`, and the code of its jobs,
-   * tools, services, channels and scripts. Off by default. Without it, the
-   * agent cannot add a new job, because a new job must be named in
+   * tools, services, channels and scripts. On by default. With `code: false`
+   * the agent cannot add a new job, because a new job must be named in
    * `agent.ts`.
    *
    * Before a code change is kept, chloe loads the agent with it, and type
@@ -585,7 +586,7 @@ export interface SelfImprovement {
    * why.
    *
    * Warning: code the agent writes then runs on your machine with the same
-   * rights as chloe.
+   * rights as chloe, which is why `except` turns code off.
    */
   code?: boolean;
 }
@@ -995,20 +996,32 @@ export function hasChannel(agent: Pick<Agent, "channels">, name: string): boolea
 }
 
 /** What an agent's `features` turn on, as tools. The memory tools unless it says memory: false. */
-/** What `selfImprovement` comes to: `true` is the plain text, an object is itself. */
-export function ownFileRules(self: true | SelfImprovement): OwnFileRules {
-  const said = self === true ? {} : self;
-  return { ...said, files: said.files ?? (said.code ? [...PLAIN_TEXT, ...CODE_FILES] : PLAIN_TEXT) };
+/**
+ * What `selfImprovement` comes to: undefined when it is `false`, and otherwise
+ * the files the agent may change, code among them unless it says `code: false`
+ * or has an `except`, which code could get round.
+ */
+export function ownFileRules(features: Features = {}): OwnFileRules | undefined {
+  const self = features.selfImprovement;
+  if (self === false) return undefined;
+  // An object, or nothing; `true` from plain JavaScript reads as nothing.
+  const said = typeof self === "object" ? self : {};
+  const code = said.code !== false && !said.except?.length;
+  return { ...said, code, files: said.files ?? (code ? [...PLAIN_TEXT, ...CODE_FILES] : PLAIN_TEXT) };
 }
 
 function featureTools(features: Features = {}, home: Home, where: string): Tools {
   const self = features.selfImprovement;
   if (typeof self === "object" && self.files && self.files.length === 0) {
-    throw new Error(`${where}: selfImprovement is true, or says which files it may change, like { files: ["md"] }.`);
+    throw new Error(`${where}: selfImprovement is false, or says which files it may change, like { files: ["md"] }.`);
   }
+  if (typeof self === "object" && self.except?.length && self.code !== false) {
+    console.warn(`${where}: selfImprovement has except, so this agent writes no code, which could change those files. Say code: false to keep it so.`);
+  }
+  const rules = ownFileRules(features);
   return {
     ...(features.memory === false ? {} : memoryTools()(home)),
-    ...(self ? selfWriteTools(ownFileRules(self))(home) : {}),
+    ...(rules ? selfWriteTools(rules)(home) : {}),
     ...(features.runScripts ? scriptTools()(home) : {}),
     ...(features.memoryPerUser ? userNotesTools()() : {}),
   };

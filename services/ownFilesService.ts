@@ -48,7 +48,7 @@ function inMemory(agent: Home, path: string): boolean {
 export function whyNot(agent: Home, rules: OwnFileRules | undefined, path: string): string | undefined {
   const at = within(agent, path);
   if (inMemory(agent, at)) return "that is your memory, which you write with memoryWriteFile";
-  if (!rules) return "changing your own files is not switched on (selfImprovement in your definition)";
+  if (!rules) return "changing your own files is switched off (selfImprovement: false in your definition)";
   const top = at.split("/")[0];
   if (top === "evals") return "evals/ is how your runs are marked";
   if (JUNK.includes(top)) return `${top}/ is made by a program`;

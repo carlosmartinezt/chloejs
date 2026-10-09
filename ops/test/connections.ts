@@ -50,7 +50,7 @@ import { about, is } from "#chloe/ops/check";
   const agent = await resolveAgent(
     defineAgent({ id: "mcp", folder: await mkdtemp(join(tmpdir(), "chloe-mcp-")), model: "m", description: "", instructions: "Hi.", features: { memory: false }, connections: [github] }) as any,
   );
-  is("its tools are named like chloe's own, and only the ones it was given", Object.keys(agent.tools ?? {}), ["githubListIssues"]);
+  is("its tools are named like chloe's own, and only the ones it was given", Object.keys(agent.tools ?? {}).filter((one) => one !== "selfWriteFile"), ["githubListIssues"]);
   is("the key goes as a bearer key", seen.includes("Bearer ghp_test"), true);
   const context = { agent: { id: "mcp", folder: agent.folder, memory: agent.memory } };
   is("a call reaches the server and hands back its words", await run(agent.tools!.githubListIssues, { state: "open" }, "c1", context), "issues that are open");
@@ -71,6 +71,6 @@ import { about, is } from "#chloe/ops/check";
   const without = await resolveAgent(
     defineAgent({ id: "mcp2", folder: await mkdtemp(join(tmpdir(), "chloe-mcp-")), model: "m", description: "", instructions: "Hi.", features: { memory: false }, connections: [gone] }) as any,
   );
-  is("a server that does not answer leaves the agent loading without its tools", Object.keys(without.tools ?? {}), []);
+  is("a server that does not answer leaves the agent loading without its tools", Object.keys(without.tools ?? {}).filter((one) => one !== "selfWriteFile"), []);
   is("and the setup page says why", (await connectionsOf(without)).find((one) => one.name === "gone")?.ready, false);
 }

@@ -12,7 +12,7 @@ See https://chloejs.org.
 
 ${bold("Starting out")}
   npx chloe setup                write the files, pick a model, pick a free port
-  npx chloe setup --yes          the same, taking every default (--agent <id> names it)
+  npx chloe setup --yes          the same, taking every default
   npx chloe                      run it: every agent, every cron line, one page,
                                  and a link that opens the page signed in
 

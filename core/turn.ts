@@ -726,9 +726,8 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
  */
 function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean } = {}): Tools {
   const owner = Boolean(who.fromOwner || who.mayChangeAgent);
-  const self = agent.features?.selfImprovement;
   const tools: Tools = {
-    ...(owner ? selfReadTools(self ? ownFileRules(self) : undefined)(agent) : {}),
+    ...(owner ? selfReadTools(ownFileRules(agent.features))(agent) : {}),
     ...(agent.tools ?? {}),
     skillRead: skillTool(agent.skills),
   };
@@ -745,12 +744,12 @@ function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boole
  * or never could.
  */
 function cannotChange(agent: Agent, tools: Tools): string {
-  if (!agent.features?.selfImprovement || Object.values(tools).some((one) => one.changesAgent)) return "";
+  if (!ownFileRules(agent.features) || Object.values(tools).some((one) => one.changesAgent)) return "";
   return (
     "## Changing yourself\n\n" +
     "You cannot change your own instructions, skills or jobs in this turn: only your owner can ask for that, in a " +
     "message to you. " +
-    (agent.features.memory === false ? "When" : "Keep what you learned in your memory, and when") +
+    (agent.features?.memory === false ? "When" : "Keep what you learned in your memory, and when") +
     " it should change one of those files, say which and how in one line, so they can ask."
   );
 }

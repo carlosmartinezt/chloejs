@@ -236,16 +236,16 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("nor a turn nobody said may, like a scheduled one", lastTools.includes("selfWriteFile"), false);
 
   const told = () => lastAsked.find((m) => m.role === "system")?.content ?? "";
-  const improving = { ...agent, features: { selfImprovement: true } };
+  const improving = agent;
+  answers.push("No.");
+  await turn({ agent: { ...agent, features: { selfImprovement: false } }, prompt: "improve yourself", source: "schedule", job: "nightly" });
+  is("an agent with selfImprovement: false is not told about changing itself", told().includes("## Changing yourself"), false);
   answers.push("No.");
   await turn({ agent: improving, prompt: "improve yourself", source: "schedule", job: "nightly" });
   is("an agent that may change itself is told in a turn that cannot who can ask, and to keep the lesson", told().includes("## Changing yourself") && told().includes("Keep what you learned in your memory"), true);
   answers.push("Done.");
   await turn({ agent: improving, prompt: "change it", source: "test", mayChangeAgent: true });
   is("and not in a turn that can", told().includes("## Changing yourself"), false);
-  answers.push("No.");
-  await turn({ agent, prompt: "improve yourself", source: "schedule", job: "nightly" });
-  is("nor is one that never could", told().includes("## Changing yourself"), false);
 
   const call = (id: string, name: string) => ({ id, type: "function", function: { name, arguments: "{}" } });
   answers.push({ content: "", tool_calls: [call("a", "memoryReadFile"), call("b", "selfWriteFile")] }, "Changed.");
@@ -287,7 +287,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   answers.push("Hi.");
   await turn({ agent, prompt: "hi", source: "test", fromOwner: true });
   is("every agent's owner gets the tools that read its own files and runs", readers.every((one) => lastTools.includes(one)), true);
-  is("and not the one that changes it, without selfImprovement", lastTools.includes("selfWriteFile"), false);
+  is("and not the one that changes it, which loading adds", lastTools.includes("selfWriteFile"), false);
   answers.push("Hi.");
   await turn({ agent, prompt: "hi", source: "schedule", job: "nightly" });
   is("a turn its owner did not write has none of them", readers.some((one) => lastTools.includes(one)), false);
@@ -336,7 +336,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
 
   const { readOwn } = await import("#chloe/services/ownFilesService");
   const own = await readOwn(agent, undefined, "instructions.md");
-  is("without selfImprovement it reads its files and is told it cannot change them", [own.content, own.canWrite, own.why?.includes("selfImprovement")], ["Be brief.", false, true]);
+  is("with selfImprovement: false it reads its files and is told it cannot change them", [own.content, own.canWrite, own.why?.includes("selfImprovement")], ["Be brief.", false, true]);
 
   const written: string[] = [];
   const writer = { ...agent, tools: { selfWriteFile: Object.assign(tool({ description: "Change a file.", inputSchema: z.object({}), execute: async () => (written.push("x"), "Written.") }), { own: true, forOwner: true, changesAgent: true }) } };

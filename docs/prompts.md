@@ -68,23 +68,24 @@ defines itself is yours, so name it as you like.
 
 ## What an agent may change about itself
 
-With `selfImprovement` on, it may rewrite its own instructions, skills and
-markdown jobs. Every change is a commit under its name, which you can read and
-undo from the dashboard. It never writes its evals or its memory. See
-[An agent](/docs/agents#features).
+Every agent may rewrite its own instructions, skills and jobs, and its code:
+`agent.ts`, its tools, services, channels and scripts. `selfImprovement: false`
+turns that off, and `{ code: false }` keeps it to plain text. Every change is a
+commit under its name, which you can read and undo from the dashboard. It never
+writes its evals or its memory. See [An agent](/docs/agents#features).
 
-With `selfImprovement: { code: true }` it writes its code too: `agent.ts`, its
-jobs, tools, services, channels and scripts, so "every morning at 7, tell me
+So "every morning at 7, tell me
 what is most urgent in my mail" can end as a job it wrote. It writes every
 file one change needs in one call, committed as one change. With code among
 them, the agent is loaded once with all of them, as the next reload would load
 it, and type checked when your project has TypeScript and a `tsconfig.json`;
 if it would not load, would not type check, or a job would run more than once
 an hour, every file is put back as it was, and the agent is told why. Reloads wait for that check, so
-nothing unchecked goes live. `npx chloe setup` turns words on for its starter.
+nothing unchecked goes live.
 Code an agent writes runs as chloe does and can reach whatever chloe can, so
-`except` and its folder bound what `selfWriteFile` writes, not what that code
-does: turn `code` on only for an agent whose owner reads what it writes.
+its folder bounds what `selfWriteFile` writes, not what that code does. For
+the same reason, an agent with `except` (files it may never change) writes no
+code, and says so with a warning as it loads until it says `code: false`.
 
 Any agent can read its own folder and runs when its owner asks
 (`selfListFiles`, `selfReadFile`, `selfListRuns`, `selfReadRun`). It changes
@@ -98,6 +99,6 @@ from outside the agent (mail, a web page, a script, an MCP server, one of its
 own runs, which holds what those said), a change is refused for the rest of
 that conversation, because what it read may be what asked for the change, and
 the agent's own replies can carry it into a later message. Ask for the change
-in a new conversation, or after `/clear`. In a turn without `selfWriteFile`, an agent with `selfImprovement`
+in a new conversation, or after `/clear`. In a turn without `selfWriteFile`, an agent that may change itself
 is told so by the runtime, and to keep what it learned in its memory and say
 which file it would change, so its instructions need not say it.

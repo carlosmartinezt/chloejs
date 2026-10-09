@@ -2,7 +2,7 @@
 // an agent reading its own folder and its own runs, and changing its folder as
 // far as its definition allows. The four that read are the runtime's, added to
 // every turn its owner wrote (`forOwner` in model/tool.ts), like skillRead.
-// `selfImprovement` in the definition adds selfWriteFile to the agent's tools,
+// selfWriteFile is in every agent's tools unless `selfImprovement: false`, and
 // in a turn only when the owner asked and may change it (`changesAgent`).
 import { tool } from "ai";
 import { z } from "zod";

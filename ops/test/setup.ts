@@ -1,34 +1,28 @@
 // The files npx chloe setup writes.
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { about, is } from "#chloe/ops/check";
-import { work } from "./shared.ts";
 
 {
   about("the files npx chloe setup writes");
 
-  const { GUIDES, identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } = await import("#chloe/ops/starter");
-  const { resolveAgent, jobsOf, markdownJob } = await import("#chloe/load/load");
-  const { ROOT, settings } = await import("@chloejs/core");
-
+  const { GUIDES, modelLine, STARTER_MODEL_LINE, starterFiles, withSetting } = await import("#chloe/ops/starter");
+  const { ROOT } = await import("@chloejs/core");
 
   const { findConfig } = await import("#chloe/core/find");
   is("the project is found by walking up", findConfig(join(ROOT, "ops")), ROOT);
   is("and nowhere above the root of the disk has one", findConfig("/"), "");
 
-  is("a name with a dash imports as one word", identifier("night-watch"), "nightWatch");
-  is("a plain id is fine", idProblem("watcher"), "");
-  is("an id with a capital in it is not", idProblem("Watcher").startsWith("An id is lower case"), true);
-  is("and neither is one that starts with a digit", idProblem("2fast").startsWith("An id is lower case"), true);
-
-  const files = starterFiles("watcher");
+  const files = starterFiles();
   const config = files.find((one) => one.path === "chloe.config.ts")!.body;
-  is("chloe.config.ts names the agent it wrote", config.includes('from "./agents/watcher/agent.ts"'), true);
-  is("and lists it, because an agent not on the list does not exist", config.includes("agents: [watcher]"), true);
+  is("setup writes no agent", files.map((one) => one.path), ["chloe.config.ts", ".gitignore", "AGENTS.md", "CLAUDE.md"]);
+  is("and chloe.config.ts lists none", config.includes("agents: [],"), true);
   is("it has the line setup puts the chosen model in", config.includes(STARTER_MODEL_LINE), true);
-  is("AGENTS.md sends a coding agent to the guides for the installed version", files.find((one) => one.path === "AGENTS.md")?.body.includes(GUIDES), true);
+  const guide = files.find((one) => one.path === "AGENTS.md")?.body ?? "";
+  is("AGENTS.md sends a coding agent to the guides for the installed version", guide.includes(GUIDES), true);
+  is("and tells it the first agent is its to write", guide.includes("write the first agent"), true);
   is("which the build writes into dist/docs", GUIDES, "node_modules/@chloejs/core/dist/docs/README.md");
   is("and CLAUDE.md reads AGENTS.md", files.find((one) => one.path === "CLAUDE.md")?.body, "@AGENTS.md\n");
   is(
@@ -52,70 +46,20 @@ import { work } from "./shared.ts";
   is("and not twice", withSetting(withKey!, keyLine), null);
   is("nor into a config that already says dashboard", withSetting(withKey!, "dashboard: { remote: { url: \"https://example.com\" } },"), null);
 
-  // Written inside the repo rather than in tmp, because the agent.ts it writes
-  // imports "@chloejs/core" and a package can only import itself from inside
-  // itself. This is the case that catches a renamed export: the starter is text
-  // here, so nothing else typechecks it.
+  // Written inside the repo rather than in tmp, because the config imports
+  // "@chloejs/core" and a package can only import itself from inside itself.
+  // The config is text here, so this is what catches a renamed export.
   await mkdir(join(ROOT, "data"), { recursive: true });
   const folder = await mkdtemp(join(ROOT, "data", "starter-"));
-  for (const file of files) {
-    if (file.add) continue;
-    const path = join(folder, file.path.replace("agents/watcher/", ""));
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, file.body);
-  }
-
-  const definition = (await import(pathToFileURL(join(folder, "agent.ts")).href)).default;
-
-  // Set here rather than left to the config, because the project this suite runs
-  // in may declare one, and both halves of this are about what happens when it
-  // does and when it does not.
-  const was = settings.model.defaultModel;
-  settings.model.defaultModel = "";
-  const refused = await resolveAgent(definition).then(() => "", (error: Error) => error.message);
-  is("with no model.defaultModel set, an agent that names none is refused", refused.includes("does not say which model"), true);
-
-  // model.defaultModel, which is where the model a new project chose is written down
-  // once for every agent.
-  settings.model.defaultModel = "anthropic/claude-haiku-4.5";
-  const agent = await resolveAgent(definition);
-  is("the agent it wrote loads", agent.id, "watcher");
-  is("its words come from the file beside it", agent.instructions.startsWith("You are watcher."), true);
-  is("it names no model, so it asks the one in settings", definition.model, undefined);
-  is("and that is what it loads with", agent.model, settings.model.defaultModel);
-  is("it has both kinds of job", agent.jobs.map((one) => one.id), ["daily-note", "summary"]);
-  is("the code one has a cron line", agent.jobs[0].cron, "0 8 * * *");
-  is("and asks no model", Boolean(agent.jobs[0].run), true);
-  is("the prompt one is words", Boolean(agent.jobs[1].prompt), true);
-  is("and runs only when somebody starts it", agent.jobs[1].cron, undefined);
-  is("it may change its own words, when its owner asks", Boolean(agent.tools?.selfWriteFile), true);
-
-  // The job for real, against the same runner the clock uses.
-  const [dailyNote] = await jobsOf("watcher", folder, [(await import(pathToFileURL(join(folder, "jobs/daily-note.ts")).href)).default]);
-  const ran = await work({ agent: { ...agent, jobs: [dailyNote] }, job: dailyNote, source: "terminal" });
-  is("it writes a day and counts them", ran.steps, 3);
-  is("and the line is in its memory", (await readFile(join(agent.memory.folder, "days.md"), "utf8")).startsWith("- "), true);
-
-  const summary = await jobsOf("watcher", folder, [markdownJob("jobs/summary.md")]);
-  is("the prompt job's description is read from its frontmatter", summary[0].description?.includes("asks a model"), true);
-
-  // The channel setup adds for somebody who says yes to WhatsApp: written into
-  // the file it just wrote, and loaded here, so a renamed export fails this.
-  const body = files.find((one) => one.path.endsWith("agent.ts"))!.body;
-  const added = withChannel(body, 'import { whatsappChannel } from "@chloejs/core/channels";', 'whatsappChannel({ allowFrom: ["+447700900123"] })');
-  is("a channel setup adds is imported and listed", [added.includes('from "@chloejs/core/channels"'), added.includes("channels: [whatsappChannel(")], [true, true]);
-  is("a file that already says channels is somebody's own, and is left alone", withChannel(added, "x", "y"), "");
-  await writeFile(join(folder, "with-channel.ts"), added);
-  const onWhatsApp = await resolveAgent((await import(pathToFileURL(join(folder, "with-channel.ts")).href)).default);
-  is("and the agent it wrote is on that channel", onWhatsApp.channels.map((one) => one.name), ["whatsapp"]);
-
-  settings.model.defaultModel = was;
+  await writeFile(join(folder, "chloe.config.ts"), config);
+  const declared = (await import(pathToFileURL(join(folder, "chloe.config.ts")).href)).default;
+  is("the config it writes loads, with no agents", declared.agents, []);
   await rm(folder, { recursive: true, force: true });
 }
 
 {
   about("the repository npx chloe setup makes");
-  const { firstCommit, hasGit, hasGitName, repositoryOf, uncommittedIn } = await import("#chloe/ops/git");
+  const { firstCommit, hasGit, hasGitName, repositoryOf } = await import("#chloe/ops/git");
   const { tmpdir } = await import("node:os");
   const { realpathSync } = await import("node:fs");
   const { spawnSync } = await import("node:child_process");
@@ -136,13 +80,12 @@ import { work } from "./shared.ts";
   is("with no name set, git has none", hasGitName(project), false);
   firstCommit(project);
   is("it becomes one", repositoryOf(project), project);
-  is("with what was there committed", uncommittedIn(project, ["agents/watcher"]), []);
+  const left = spawnSync("git", ["status", "--porcelain"], { cwd: project, encoding: "utf8" }).stdout.trim();
+  is("with what was there committed", left, "");
   const author = spawnSync("git", ["log", "-1", "--format=%an"], { cwd: project, encoding: "utf8" }).stdout.trim();
   is("under setup's name when git has none", author, "npx chloe setup");
   const tracked = spawnSync("git", ["ls-files"], { cwd: project, encoding: "utf8" }).stdout.trim().split("\n");
   is("and nothing .gitignore leaves out", tracked, [".gitignore", "agents/watcher/instructions.md"]);
-  await writeFile(join(project, "agents/watcher/skill.md"), "new");
-  is("a new file is one nobody has committed", uncommittedIn(project, ["agents/watcher"]), ["agents/watcher/skill.md"]);
   for (const key of Object.keys(process.env)) if (!(key in was)) delete process.env[key];
   Object.assign(process.env, was);
   await rm(project, { recursive: true, force: true });

@@ -13,13 +13,14 @@ In a folder without Chloe:
 ```sh
 npm init -y
 npm install @chloejs/core
-npx chloe setup --agent <id>
+npx chloe setup
 ```
 
-Pick an `<id>` that says what the agent does (`postie` for mail, `scout` for
-research): it becomes its folder and the name its runs are kept under. Setup
-asks nothing when there is no keyboard: it takes every default, writes the
-files, picks a free port, checks the model answers and runs a first job. Run
+Setup asks nothing when there is no keyboard: it takes every default, writes
+the config with no agents, picks a free port and checks the model answers. The
+first agent is yours to write, for what the person asked, from the guides
+below. Give it an id that says what it does (`postie` for mail, `scout` for
+research): it becomes its folder and the name its runs are kept under. Run
 `npx chloe` only after the install, because without the package it fetches an
 unrelated one.
 

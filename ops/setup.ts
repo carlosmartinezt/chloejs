@@ -1,12 +1,12 @@
 // Setting chloe up, one question at a time.
 //
 //   npx chloe setup
-//   npx chloe setup --agent postie   names the first agent rather than asking
 //   npx chloe setup --yes            takes every default and asks nothing
 //
-// It writes the files a project needs, puts the server on a free port, asks
-// which model to use and checks that model actually answers, and runs the
-// starter agent's first job. Every answer has a default, so holding Enter
+// It writes the files a project needs, puts the server on a free port, and asks
+// which model to use and checks that model actually answers. It writes no
+// agent: the person's coding agent writes the first one, for what they want,
+// from the guides AGENTS.md points it to. Every answer has a default, so holding Enter
 // through it works. It sets no password: the server prints a link that opens
 // the page signed in, and a password is for later, if ever.
 //
@@ -26,8 +26,8 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import { firstCommit, hasGit, hasGitName, repositoryOf, uncommittedIn } from "./git.ts";
-import { GUIDES, identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } from "./starter.ts";
+import { firstCommit, hasGit, hasGitName, repositoryOf } from "./git.ts";
+import { GUIDES, modelLine, STARTER_MODEL_LINE, starterFiles, withSetting } from "./starter.ts";
 import { ask, askHidden, pick, takeDefaults, yes } from "./terminal.ts";
 import type { Provider } from "#chloe/core/settings";
 
@@ -74,12 +74,12 @@ const given = (() => {
   try {
     const { values } = parseArgs({
       args: process.argv.slice(2),
-      options: { agent: { type: "string" }, yes: { type: "boolean", short: "y" } },
+      options: { yes: { type: "boolean", short: "y" } },
       allowPositionals: true,
     });
     return values;
   } catch (error) {
-    console.error(`${error instanceof Error ? error.message : String(error)}\nnpx chloe setup takes --agent <id> and --yes, and nothing else.`);
+    console.error(`${error instanceof Error ? error.message : String(error)}\nnpx chloe setup takes --yes, and nothing else.`);
     process.exit(1);
   }
 })();
@@ -93,14 +93,12 @@ if (nobodyHere) console.log("Nobody is at a keyboard here, so every question tak
 // setting up a project and every step above this one already happened.
 try {
   await theProject();
-  const agent = await theAgent();
+  await theFiles();
   const port = await thePort();
-  const model = await theModel();
-  await firstRun(agent);
-  await onWhatsApp(agent);
+  await theModel();
   await somewhereToWatch(port);
-  await theRepository(agent);
-  await sayWhatNext(agent, model, port);
+  await theRepository();
+  sayWhatNext(port);
 } catch (error) {
   console.error(`\n${error instanceof Error ? error.message : String(error)}`);
   if (wrote.length) console.error(`\nWhat was written before that:\n${columns(wrote)}`);
@@ -138,30 +136,11 @@ async function theProject(): Promise<void> {
   }
 }
 
-/** The starter agent: its id, then every file it is made of. */
-async function theAgent(): Promise<string> {
-  // A config that is already there is somebody's own, so it is read and never
-  // written: what it says about an agent decides whether this is that agent again.
-  const configFile = join(HERE, "chloe.config.ts");
-  const config = existsSync(configFile) ? readFileSync(configFile, "utf8") : "";
-  const listed = (id: string) => config.includes(`agents/${id}/agent.ts`);
-  if (config) console.log("chloe.config.ts is already here, so this leaves it alone.\n");
+/** chloe.config.ts with no agents, and the files beside it. A config already here is somebody's own and is left alone. */
+async function theFiles(): Promise<void> {
+  if (existsSync(join(HERE, "chloe.config.ts"))) console.log("chloe.config.ts is already here, so this leaves it alone.\n");
 
-  /** What is wrong with `said` as the new agent's id, or "" when nothing is. */
-  const wrongId = (said: string) =>
-    idProblem(said) ||
-    (existsSync(join(HERE, "agents", said)) && !listed(said) ? `agents/${said} is there already and chloe.config.ts does not list it. Pick another.` : "");
-
-  let id = given.agent ?? "";
-  if (id && wrongId(id)) throw new Error(`--agent ${id}: ${wrongId(id)}`);
-  while (!id) {
-    const said = (await ask("What is your first agent called? (starter) ")).trim() || "starter";
-    const problem = wrongId(said);
-    if (problem) console.log(`  ${problem}`);
-    else id = said;
-  }
-
-  for (const file of starterFiles(id)) {
+  for (const file of starterFiles()) {
     const path = join(HERE, file.path);
     if (file.add) {
       // A file the project may have already, added to and never replaced, so
@@ -186,14 +165,6 @@ async function theAgent(): Promise<string> {
     written(file.path, "written");
     if (file.path === "chloe.config.ts") configWritten = true;
   }
-
-  if (config && !listed(id)) {
-    console.log(`\nagents/${id} is written. chloe.config.ts is yours, so add it there:`);
-    console.log(`  import ${identifier(id)} from "./agents/${id}/agent.ts";`);
-    console.log(`  export default defineConfig({ agents: [${identifier(id)}] });`);
-  }
-  console.log(`\n${id} has two jobs: daily-note is code and asks no model, summary is a prompt and asks one.\n`);
-  return id;
 }
 
 /** Whether something on this machine already listens on that port. */
@@ -244,7 +215,7 @@ async function theModel(): Promise<string> {
     return name ? [{ provider, name }] : [];
   });
 
-  const choice = await pick("\nA model. Only the prompt job asks one, so this can wait: the code job runs either way.", [
+  const choice = await pick("\nA model, which your agents ask. This can wait.", [
     ...(runnable("claude") ? [{ key: "claude" as const, what: "your Claude subscription, through the claude command on this box" }] : []),
     ...(runnable("codex") ? [{ key: "codex" as const, what: "your ChatGPT plan, through the codex command on this box" }] : []),
     ...(runnable("opencode") ? [{ key: "opencode" as const, what: "whatever opencode is signed in to on this box" }] : []),
@@ -424,70 +395,6 @@ async function tryIt(model: string): Promise<string> {
 }
 
 /**
- * The starter agent's code job, run here so the first thing that happens is a
- * run and not a page. It asks no model, so it works before any of the above
- * did, and it costs nothing.
- *
- * The clock is not started and no channel is opened, so this is one writer for
- * one run even if the service is already going.
- */
-async function firstRun(id: string): Promise<void> {
-  console.log(`\nRunning ${id}/daily-note, which asks no model.`);
-  try {
-    const { load } = await import("#chloe/load/load");
-    const { work } = await import("#chloe/core/steps");
-    const agent = await load(id);
-    const job = agent.jobs.find((one) => one.id === "daily-note");
-    if (!job) return void console.log("  it is not there any more, so nothing ran.");
-
-    const result = await work({ agent, job, source: "terminal" });
-    console.log(`  ${result.steps} steps, $${result.cost.toFixed(4)}, and a line in ${agent.memory.folder}/days.md`);
-  } catch (error) {
-    console.log(`  it did not run: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-/**
- * WhatsApp. A number registered with Meta, and an address they post each
- * message to, so this is the one channel that needs the box reachable from
- * outside. Three things to paste, and the channel is written into the agent.
- *
- * Holding Enter skips it, because it asks for things nobody has to hand, and an
- * empty answer on a second run keeps whatever is already there.
- */
-async function onWhatsApp(agent: string): Promise<void> {
-  console.log("\nWhatsApp. It answers as a number registered with Meta, which cannot be a number already in the app.");
-  console.log("Meta posts each message to an address, so chloe keeps a post box somewhere else and collects from it.");
-  console.log("Nothing here is opened, and the post box can neither read a message nor make one up.");
-  if (!(await yes("Set it up now? (y/N)", false))) return;
-
-  console.log("\nAt developers.facebook.com: make an app, add WhatsApp to it, and it hands you a number to try with.");
-  console.log("The token on that page lasts a day. A permanent one comes from a system user with whatsapp_business_messaging.");
-  // What is already there, so a second run can be held through without
-  // blanking a token: an empty answer keeps the one in the file.
-  const { nameInEnv } = await import("#chloe/core/settings");
-  const name = (what: string) => nameInEnv(["agents", agent, "whatsapp", what]);
-  const had = (what: string) => process.env[name(what)] ?? "";
-  const keep = (what: string) => (had(what) ? " (or Enter to keep the one there)" : "");
-  const phoneNumberId = (await ask(`The number's id, called phone_number_id there${keep("phone_number_id") || " (or Enter to skip)"}: `)).trim() || had("phone_number_id");
-  if (!phoneNumberId) return void console.log(`  Nothing written. Put ${name("phone_number_id")} in .env when you want it.`);
-  const token = (await askHidden(`Paste a token for it${keep("token")}: `)).trim() || had("token");
-  const appSecret = (await askHidden(`Paste the app's secret, which signs everything WhatsApp posts in${keep("app_secret")}: `)).trim() || had("app_secret");
-  for (const [what, value] of Object.entries({ phone_number_id: phoneNumberId, token, app_secret: appSecret })) {
-    putInEnv(name(what), value);
-  }
-  written(".env", `${name("phone_number_id")} and the two beside it, mode 600`);
-  inSettings(
-    `agents: { ${JSON.stringify(agent)}: { whatsapp: { phone_number_id: process.env.${name("phone_number_id")}, ` +
-      `token: process.env.${name("token")}, app_secret: process.env.${name("app_secret")} } } },`,
-  );
-  channelIn(agent, 'import { whatsappChannel } from "@chloejs/core/channels";', "whatsappChannel({ allowFrom: [] })");
-  console.log("\nStart chloe and it writes one address to the log, its own post box. Paste that into the app's WhatsApp");
-  console.log("page, subscribed to messages, and WhatsApp posts there while chloe collects from it. Nothing is opened here.");
-  console.log("allowFrom is empty, so the first message is answered with the sender's number, which is what goes in it.");
-}
-
-/**
  * Writes one line into chloe.config.ts's settings, or says it when the file is
  * somebody's own or already says it.
  */
@@ -499,29 +406,6 @@ function inSettings(line: string): void {
   if (!added) return void console.log(`\nchloe.config.ts is yours, so put this in its settings:\n  ${line}`);
   writeFileSync(configFile, added);
   written("chloe.config.ts", line);
-}
-
-/**
- * Writes a channel into the agent's own file, or says the two lines to add when
- * the file already has channels of its own. A file that already names this one
- * is left alone and said to be, because setup is run again and again and the
- * second run should not ask for a line that is already in there.
- */
-function channelIn(agent: string, importLine: string, entry: string): void {
-  const where = join("agents", agent, "agent.ts");
-  const path = join(HERE, where);
-  const held = existsSync(path) ? readFileSync(path, "utf8") : "";
-  const channel = `${entry.split("(")[0]}(`;
-  if (held.includes(channel)) return void console.log(`\n${where} is already on it, so it is left alone.`);
-  const added = withChannel(held, importLine, entry);
-  if (!added) {
-    console.log(`\n${where} is yours, so add these two lines to it:`);
-    console.log(`  ${importLine}`);
-    console.log(`  channels: [${entry}],`);
-    return;
-  }
-  writeFileSync(path, added);
-  written(where, "the channel added");
 }
 
 /** Where the runs are watched from: this box always, and dashboard.chloejs.org as well if they want. */
@@ -550,25 +434,19 @@ async function somewhereToWatch({ port }: { port: number }): Promise<void> {
  * if they say so; one that is somebody's own is never committed to, only said.
  * git is never installed from here.
  */
-async function theRepository(id: string): Promise<void> {
+async function theRepository(): Promise<void> {
   if (!hasGit()) {
-    console.log(`\ngit is not installed. Every change ${id} makes to itself is a git commit you can read and undo, so`);
-    console.log(`without git it cannot change itself. Install it (https://git-scm.com/downloads), then run npx chloe setup again.`);
+    console.log("\ngit is not installed. Every change an agent makes to itself is a git commit you can read and undo, so");
+    console.log("without git it cannot change itself. Install it (https://git-scm.com/downloads), then run npx chloe setup again.");
     return;
   }
   if (!repositoryOf(HERE)) {
-    if (!(await yes(`\nMake this folder a git repository, so every change ${id} makes to itself can be read and undone? (Y/n)`, true))) {
-      console.log(`  Left as it is. ${id} cannot change itself until it is one: git init, then commit what is here.`);
+    if (!(await yes("\nMake this folder a git repository, so every change an agent makes to itself can be read and undone? (Y/n)", true))) {
+      console.log("  Left as it is. An agent cannot change itself until it is one: git init, then commit what is here.");
       return;
     }
     firstCommit(HERE);
     written(".git", "a repository, with what is here as its first commit");
-  } else {
-    const waiting = uncommittedIn(HERE, [join("agents", id)]);
-    if (waiting.length) {
-      console.log(`\n${id}'s files are not committed, and it may not change a file nobody has committed. Commit them:`);
-      console.log(`  git add agents/${id} && git commit -m "${id}, from npx chloe setup"`);
-    }
   }
   if (!hasGitName(HERE)) {
     console.log("\ngit has no name to commit under here, which what you change in an agent's memory by hand is committed under:");
@@ -577,28 +455,27 @@ async function theRepository(id: string): Promise<void> {
   }
 }
 
-async function sayWhatNext(id: string, model: string, { port, moved }: { port: number; moved: boolean }): Promise<void> {
+function sayWhatNext({ port, moved }: { port: number; moved: boolean }): void {
   if (wrote.length) console.log(`\nWritten:\n${columns(wrote)}`);
   console.log(
     `\nTry these:\n${columns([
       ["npx chloe", "the server: every cron line, the page, the API, and a link that opens the page signed in"],
-      [`npx chloe agent ${id}`, "talk to it in this terminal, once the server is going"],
-      ...(model ? ([[`npx chloe agent ${id} summary`, "run the prompt job now"]] as [string, string][]) : []),
       // A machine runs one chloe service, and install points it at the folder
       // it is run from, so here it would move the other copy's.
       ...(moved ? [] : ([["npx chloe install", "keep it running after you close this terminal"]] as [string, string][])),
     ])}`,
   );
   if (moved) console.log("\nnpx chloe install is left out: a machine runs one chloe service, most likely the one already running, and install would point it here instead.");
-  console.log(`\nTalk to ${id} on the page once npx chloe is going: http://127.0.0.1:${port}/agents/${id}/chat`);
-  console.log(`Ask it for what you want done, like "every morning at 7, tell me what is most urgent in my mail".`);
-  console.log(`\nWhat to write next, and every setting there is: ${GUIDES}`);
+  console.log("\nThere is no agent yet. Ask your coding agent, here in this folder, for the first one and what it should do,");
+  console.log('like "an agent that tells me every morning at 7 what is most urgent in my mail". Then talk to it on the page');
+  console.log(`(http://127.0.0.1:${port}) and ask it to change itself: its words, its jobs, its code.`);
+  console.log(`\nThe guides, for this version: ${GUIDES}`);
   // Whoever ran this without a keyboard is most likely a coding agent, about to
   // build what somebody asked for, and the guides it needs are already here.
   if (nobodyHere) {
+    console.log("Read the guides above before writing any code: they are for this version. AGENTS.md here says so for later sessions.");
     console.log("To show the person the page: start npx chloe in the background, leave it running, and give them the link it prints.");
     console.log("It opens the page signed in, with no password to set. npx chloe link prints another.");
-    console.log(`Read the guides above before writing any code: they are for this version. AGENTS.md here says so for later sessions.`);
   }
 }
 

@@ -65,8 +65,9 @@ taken, because two copies on one machine is how somebody tries chloe beside
 one already running. It sets no password: the server prints a link as it
 starts, which works once and only within the hour, so the one a coding agent
 reads and passes on is dead once used, where a password would not be.
-`ops/setup.ts` is that, `ops/starter.ts` is the files it writes, and neither is
-imported by the service.
+It writes no agent: the person's coding agent writes the first one from the
+guides, which the `AGENTS.md` it writes points to. `ops/setup.ts` is that,
+`ops/starter.ts` is the files it writes, and neither is imported by the service.
 
 **Two places, and which one a value goes in is the question to ask.** A choice
 about how the runtime behaves goes in `settings` in `chloe.config.ts`, beside the
@@ -167,13 +168,14 @@ boilerplate rather than build a system.
 can leave the next one better informed. Every agent can read its own folder
 and runs in its owner's turns (`selfReadTools` in `model/tools/self.ts`,
 added by `toolsFor()` in `core/turn.ts` like `skillRead`, so they are not in
-the agent's `tools`). `selfImprovement: true` also lets it
-change the plain text in its own folder, `PLAIN_TEXT` in `load/load.ts`: its
-instructions, its skills, the words of its jobs. `files` narrows that and
-`except` keeps a path back. Code (its tools, services, channels and scripts,
-`agent.ts`, anything ending in .ts, .js, .py or .sh) only with `code: true`,
-because code an agent writes is code it then runs as itself, and without it
-it cannot add a job. `selfWriteFile` takes every file one
+the agent's `tools`). Unless it says `selfImprovement: false`, it may also
+change its own folder, `ownFileRules()` in `load/load.ts`: its instructions,
+its skills, its jobs, and its code (its tools, services, channels and scripts,
+`agent.ts`, anything ending in .ts, .js, .py or .sh). `code: false` keeps it to
+`PLAIN_TEXT`, and then it cannot add a job; `files` narrows it and `except`
+keeps a path back and turns code off, with a warning as it loads unless it
+says `code: false`, because code an agent writes is code it then runs as
+itself and could change that path. `selfWriteFile` takes every file one
 change needs and commits them as one. With code among them,
 `loadsOrPutBack()` in `services/ownFilesService.ts` writes them all, loads the
 agent once with `loadAgain()` as the next reload would, type checks when the
