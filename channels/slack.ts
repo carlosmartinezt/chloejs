@@ -45,30 +45,67 @@ import { type Bound, defineChannel, type Incoming, receive, rulesOf, type Shared
 const MAX_MESSAGE = 4000; // Slack cuts a message's text at 40000, and advises under 4000.
 const READS = new Set(["auth.test", "apps.connections.open", "users.info", "conversations.info"]);
 
-/** How an agent is put on Slack: who may reach it, and how it behaves in a channel. */
+/** The options for `slackChannel()`: who may reach the agent, and when it answers in a Slack channel. */
 export interface SlackOptions extends Shared {
   /**
-   * "slack" unless the agent is in two workspaces. It is what the log shows a
-   * run came in on, and the start of every address on this app, like "slack:U0123ABCD".
+   * The channel's name. Default: "slack".
+   *
+   * Set it only when the agent is in two Slack workspaces, because two
+   * channels of one agent cannot share a name. The name shows in the log,
+   * and it is the first part of every address on this app, like
+   * `slack:U0123ABCD`.
    */
   name?: string;
-  /** Instead of the tokens in settings. */
+  /**
+   * The app's tokens, if you do not keep them in settings. `botToken`
+   * ("xoxb-...") and `appToken` ("xapp-...") are used in place of
+   * `agents.<id>.slack.bot_token` and `agents.<id>.slack.app_token`.
+   *
+   * Read them from `process.env`. Never write a token in the file itself.
+   */
   credentials?: { botToken?: string; appToken?: string };
-  /** Slack member ids that may reach the agent. */
+  /**
+   * The Slack member ids allowed to talk to the agent, like "U0123ABCD". You
+   * find one in a person's profile, under "Copy member ID". Default: `[]`
+   * (nobody).
+   *
+   * Leave it empty only at first: until it has an id, the bot answers a
+   * direct message with the sender's id, so you can add it.
+   *
+   * The first id counts as the agent's owner. Their messages can use the
+   * tools only the owner may use, and jobs ask them, in a direct message,
+   * when they name nobody.
+   */
   allowFrom?: string[];
   /**
-   * In a channel, "when-addressed" (the default) answers only a slash
-   * command, a mention, or a reply in a thread the bot started. "always"
-   * answers every message from someone in allowFrom.
+   * Which messages in a Slack channel get an answer. Default: "when-addressed".
+   *
+   * - "when-addressed": a slash command, a mention of the bot, or a reply in
+   *   a thread the bot started.
+   * - "always": every message from somebody in `allowFrom`.
    */
   inGroups?: "when-addressed" | "always";
-  /** How much of a conversation a turn is shown: `{ messages, days }`. */
+  /**
+   * How much of the conversation the agent sees with each new message:
+   * `{ messages, days }`. `messages` is the most it sees, and `days` leaves
+   * out anything older. Default: the last 10 messages.
+   */
   chatHistory?: ChatHistory;
-  /** Send what the model writes on its way to an answer as it writes it, not only the answer. Off unless true. */
+  /**
+   * Sends what the model writes before its final answer (like a "let me
+   * check" line) as soon as it is written. Off by default.
+   */
   sendWhileWorking?: boolean;
-  /** Which files are taken, and how big. Anything else is named to the agent but not handed over. */
+  /**
+   * Which files the agent receives, and how big they may be.
+   *
+   * - `allowedMediaTypes`: default `["image/*", "application/pdf", "text/*"]`.
+   * - `maxBytes`: default 10 MB (`10 * 1024 * 1024`).
+   *
+   * The agent is told the name of any other file, but does not receive it.
+   */
   uploadPolicy?: { allowedMediaTypes?: string[]; maxBytes?: number };
-  /** Where Slack is. Only the tests change it. */
+  /** The address of Slack's API. Default: "https://slack.com/api". Only the tests change it. */
   api?: string;
 }
 
@@ -102,7 +139,29 @@ interface Envelope {
   payload?: any;
 }
 
-/** An agent on Slack, as a channel its own `agent.ts` names. */
+/**
+ * Puts an agent on Slack. Add it to the `channels` list in the agent's
+ * `agent.ts`:
+ *
+ * ```ts
+ * channels: [slackChannel({ allowFrom: ["U0123ABCD"] })],
+ * ```
+ *
+ * It needs a Slack app with Socket Mode on. chloe connects out to Slack, so
+ * nothing on your machine needs to be reachable from the internet. The app
+ * has two tokens, the bot token ("xoxb-...") and the app token ("xapp-...").
+ * They go in settings in `chloe.config.ts`, as
+ * `agents: { <id>: { slack: { bot_token, app_token } } }`, each read from
+ * `.env`.
+ *
+ * - Invite the bot to a Slack channel before it can read messages there.
+ * - A job runs from a slash command only after you add that command under
+ *   Slash Commands in the app's settings, named like the job with "_" for "-".
+ * - Each Slack thread is its own conversation, and gets its answer in the
+ *   thread.
+ * - Each agent needs its own app. An app that another agent already uses is
+ *   ignored, with a line in the log.
+ */
 export function slackChannel(options: SlackOptions = {}): Channel {
   return defineChannel("slack", options, ({ agent, agentId, name, bound }) => {
     const token = options.credentials?.botToken || settings.agents[agentId]?.slack.bot_token || "";

@@ -4,10 +4,18 @@
 // list, so nothing a model says can be spliced into a command.
 import { execFile } from "node:child_process";
 
-/** What a command came back with. */
+/** What `run` returns when a program has finished. */
 export interface Result {
+  /**
+   * The program's exit code. `0` means it worked.
+   *
+   * `127` means the program was not found. `1` is also used when the program
+   * could not start, or was stopped because it ran too long.
+   */
   exitCode: number;
+  /** What the program printed. Cut after 80,000 characters. */
   stdout: string;
+  /** What the program printed as errors. Cut after 80,000 characters. */
   stderr: string;
 }
 
@@ -20,8 +28,19 @@ function clip(s: string): string {
 }
 
 /**
- * Runs one command with its arguments, never through a shell, and cuts output
- * that is very long.
+ * Runs one program on this machine and waits for it to finish.
+ *
+ * - `file`: the program, by name (found on the `PATH`) or by full path.
+ * - `args`: the program's arguments, one string each.
+ * - `options.timeoutMs`: how long it may run, in milliseconds. Default: 60000 (one minute).
+ * - `options.cwd`: the folder it runs in. Default: the folder chloe runs in.
+ * - `options.env`: extra environment variables. The program also gets all of chloe's own.
+ *
+ * It never uses a shell. Each argument reaches the program exactly as you
+ * wrote it, so text from a model or a person cannot start a second command.
+ *
+ * Returns a `Result`. It does not throw when the program fails: check
+ * `exitCode`. Each output is cut after 80,000 characters.
  */
 export function run(
   file: string,

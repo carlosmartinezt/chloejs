@@ -26,20 +26,22 @@ import { hasPassword, makeLink } from "#chloe/serve/login";
 import { alertsSay } from "#chloe/core/alerts";
 
 /**
- * Starts the server in this process: every agent's cron lines and channels, the
- * one port, and the dashboard connection, and keeps running until the process
- * is stopped. To run one job and exit, call `agent.run` and not this.
+ * Starts chloe in this process: every agent's cron lines and channels, chloe's
+ * web server, and the connection to a remote dashboard if you set one. The
+ * promise resolves once everything has started, and chloe keeps running until
+ * the process stops. To run one job and exit, use `agent.run`.
  *
- * `npx chloe` calls it with nothing and reads chloe.config.ts. A script with no
- * chloe.config.ts gives it the agents and settings that file would hold, so one
- * file can be a whole project:
+ * `npx chloe` calls it with no options, and it reads `chloe.config.ts`. A
+ * script with no `chloe.config.ts` can pass the agents and settings that file
+ * would hold, so one file can be a whole project:
  *
  * ```ts
  * await startChloe({ agents: [inbox], settings: { agents: { inbox: { telegram: process.env.TELEGRAM_TOKEN } } } });
  * ```
  *
- * An edit to that script, or to its `.env`, takes a restart: `node --watch` does
- * that by itself.
+ * If you pass them and there is a `chloe.config.ts`, it throws an error. After
+ * you edit that script or its `.env`, restart it: `node --watch` does that for
+ * you.
  */
 export async function startChloe(given?: Config): Promise<void> {
   if (given && existsSync(CONFIG)) {

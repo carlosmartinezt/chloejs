@@ -18,7 +18,19 @@ import { confine, unreachable } from "#chloe/core/confine";
 import { commitPaths, noteCommit, type Place } from "./historyService.ts";
 import { run } from "./runService.ts";
 
-/** List a folder. `path` is relative to `root`, and omitting it means the top. */
+/**
+ * Lists what is in one folder.
+ *
+ * - `root`: the folder you allow. Nothing outside it can be listed.
+ * - `path`: a folder inside `root`, relative to it. If not set, `root` itself.
+ *
+ * Returns `{ path, entries }`: the full path of the folder it listed, and the
+ * names in it, sorted. A folder's name ends with `/`. Hidden names (starting
+ * with `.`) are left out.
+ *
+ * Throws if `path` is outside `root`, goes into `.git`, `.ssh`, `secrets` or
+ * `node_modules`, or does not exist.
+ */
 export async function listFiles(root: string, path?: string) {
   const resolved = path ? confine(root, path) : root;
   const entries = await readdir(resolved, { withFileTypes: true });
@@ -32,10 +44,19 @@ export async function listFiles(root: string, path?: string) {
 }
 
 /**
- * The folders inside `root`, `depth` levels down, one a line, each level
- * indented two spaces further. Files, hidden folders and the ones no file tool
- * may open are left out. At most `most` lines, then a line saying more were
- * left out.
+ * Draws the folders inside `root` as lines of text, one folder per line. Each
+ * level down is indented two more spaces.
+ *
+ * - `root`: the folder to start from.
+ * - `options.depth`: how many levels down to go. Default: 2.
+ * - `options.most`: the most folders to show. Default: 200. If there are more, the last line is `(more folders, left out)`.
+ *
+ * Files are left out, and so are hidden folders (starting with `.`) and
+ * `secrets` and `node_modules`.
+ *
+ * Returns the lines, such as `["notes/", "  2026/", "projects/"]`. A folder
+ * it cannot read is skipped, so it does not throw. If `root` does not exist,
+ * the list is empty.
  */
 export async function folderTree(root: string, { depth = 2, most = 200 } = {}): Promise<string[]> {
   const lines: string[] = [];
@@ -58,13 +79,24 @@ export async function folderTree(root: string, { depth = 2, most = 200 } = {}): 
 }
 
 /**
- * Read one file. `path` is relative to `root` and cannot leave it.
+ * Reads one text file.
  *
- * With `from` (the first line, counting from 1) or `lines` (how many), only
- * that part comes back, with `from`, `to` and the file's `totalLines`. With
- * `limit` (characters) and no range, a longer file comes back cut at the last
- * whole line that fits, saying so, so a big file is not read whole by
- * accident. With none of the three it is the whole file, as it always was.
+ * - `root`: the folder you allow. The file must be inside it.
+ * - `path`: the file, relative to `root`. Its full path also works, if it is inside `root`.
+ * - `options.from`: the first line to read, counting from 1.
+ * - `options.lines`: how many lines to read.
+ * - `options.limit`: the most characters to return, when you give neither `from` nor `lines`.
+ *
+ * With no options, it returns the whole file as `{ path, bytes, content }`:
+ * the full path, the file's length in characters, and its text.
+ *
+ * With `from` or `lines`, `content` holds only those lines. The result also
+ * has `totalLines`, and `from` and `to` (the first and last line returned).
+ * With `limit`, a longer file is cut at the last whole line that fits. In
+ * both cases, `note` says when there is more to read.
+ *
+ * Throws if `path` is outside `root`, goes into `.git`, `.ssh`, `secrets` or
+ * `node_modules`, or does not exist.
  */
 export async function readFiles(
   root: string,
@@ -108,14 +140,23 @@ export async function readFiles(
 }
 
 /**
- * Search a folder for text, case-insensitive and as written, not as a
- * pattern. `folder` narrows it, to a folder or one file. Paths in
- * the results are relative to `root`, the way the other functions here take
- * them. With `around`, each match comes with that many lines either side, and
- * matches close together in one file share one block, so a match can often be
- * understood without reading the file. Five matches a file at most, and
- * `results` stops at 80 matches, or 30 with `around`; `matches` counts what
- * was found before that.
+ * Searches the text files in a folder for some words.
+ *
+ * - `root`: the folder you allow. Nothing outside it is searched.
+ * - `query`: the words to find. Upper and lower case are the same, and the words are matched exactly as written (not as a pattern).
+ * - `folder`: a folder or one file inside `root`, to search only there. If not set, all of `root`.
+ * - `options.around`: how many lines before and after each match to show. Default: 0.
+ *
+ * It looks in every file and folder inside, hidden ones too, except `.git`,
+ * `.ssh`, `secrets` and `node_modules`. It skips files that are not text and
+ * files over 20 MB. It finds at most 5 matches in each file.
+ *
+ * Returns `{ matches, results, note }`:
+ * - `matches`: how many matches it found.
+ * - `results`: with `around` at 0, one line per match, as `path:line:text`. With `around`, one block of text for each group of nearby matches, with line numbers, and `>` on the lines that matched. At most 80 matches, or 30 with `around`. Paths are relative to `root`.
+ * - `note`: set when nothing matched or when some matches were left out.
+ *
+ * Throws if `folder` is outside `root` or does not exist.
  */
 export async function searchFiles(root: string, query: string, folder?: string, { around = 0 }: { around?: number } = {}) {
   const base = realpathSync(root);
@@ -201,12 +242,25 @@ async function withLinesAround(root: string, found: Array<{ path: string; line: 
 }
 
 /**
- * Write one file, replacing it, or with `append` adding to the end of it on a
- * line of its own, so a long file that only grows is never written out whole.
- * `commit` makes the write a git commit of that file alone, for a folder in a
- * repo, and then `message` is required. `author` is the agent it is written
- * under, and `in` which of its places this is, so the run writing it lists
- * the commit. Without an author it is this box's own git name.
+ * Writes one text file, and makes any folders it needs.
+ *
+ * - `root`: the folder you allow. The file must be inside it.
+ * - `path`: the file, relative to `root`.
+ * - `content`: the text to write.
+ * - `options.append`: adds `content` to the end of the file, on a new line, instead of replacing the file. Off by default.
+ * - `options.commit`: saves the change as a git commit of this one file. Other changes in the repository stay as they were. Off by default.
+ * - `options.message`: the commit message, at least 10 characters. Required when `commit` is `true`.
+ * - `options.author`: the name the commit is made under, usually the agent's id. If not set, the git user set on this machine.
+ * - `options.in`: `"memory"` if the file is in the agent's memory, `"folder"` if it is in the agent's own folder. If set, and a run is going, the run's record lists the commit.
+ *
+ * Returns `{ path, bytes }`: the full path, and the length of `content` in
+ * characters. With `commit`, it also has `commit`: the commit's id, or words
+ * saying why nothing was committed (for example, `root` is not in a git
+ * repository). A commit that fails does not throw: the file is still written.
+ *
+ * Throws if `path` is outside `root` or goes into `.git`, `.ssh`, `secrets` or
+ * `node_modules`, or if `commit` is `true` and `message` is shorter than 10
+ * characters.
  */
 export async function writeFiles(
   root: string,
@@ -243,11 +297,20 @@ export async function writeFiles(
 }
 
 /**
- * Change one part of a file: `old` must appear in it exactly once, and is
- * replaced by `new`, so a small change to a big file never sends the whole
- * file. Throws when `old` is not there or is there more than once, saying
- * which, so the caller can add the text around it. An empty `new` deletes
- * `old`. `commit`, `message`, `author` and `in` are as for writeFiles.
+ * Replaces one piece of text in a file, and leaves the rest as it was.
+ *
+ * - `root`: the folder you allow. The file must be inside it.
+ * - `path`: the file, relative to `root`.
+ * - `old`: the text to replace. It must be in the file exactly once, spaces and line breaks included.
+ * - `replacement`: the new text. An empty string deletes `old`.
+ * - `options`: `commit`, `message`, `author` and `in`, the same as for `writeFiles`.
+ *
+ * Returns the same as `writeFiles`, plus `line`: the line where the change
+ * starts.
+ *
+ * Throws if `old` is empty, is not in the file, or is in the file more than
+ * once (the message says how many times). Also throws if the file does not
+ * exist, and for the same reasons as `writeFiles`.
  */
 export async function editFiles(
   root: string,

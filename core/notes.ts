@@ -13,16 +13,40 @@ import type { z } from "zod";
 
 import { memoryDir, memoryFolderOf } from "./paths.ts";
 
-/** One JSON file an agent keeps, read and written against a schema. */
+/**
+ * A small JSON file an agent keeps in its memory, read with a zod schema.
+ * Made by `note()`.
+ */
 export interface Note<T> {
+  /** The full path of the file. */
   path: string;
+  /**
+   * Reads the file and checks it with the schema. If the schema ends in
+   * `.catch(...)`, a missing or broken file gives that default value.
+   * Without it, a missing or broken file throws.
+   */
   read(): Promise<T>;
+  /**
+   * Writes `value` as the whole file, and returns it. The old file is
+   * replaced in one step, so a reader never sees half a file. Makes the
+   * folder if it is missing.
+   */
   write(value: T): Promise<T>;
 }
 
 /**
- * A note by name, in that agent's memory. A shape with a `catch` makes a note
- * that is not there read as its default.
+ * Returns a small JSON file, `<name>.json`, in the memory folder of the agent
+ * with the id `agent`. Use it for something a job needs to remember until its
+ * next run.
+ *
+ * `shape` is the zod schema the file is read with. End it with
+ * `.catch(...)`, so a file that is missing or broken reads as that default
+ * value and does not stop the run.
+ *
+ * @example
+ * const seen = note("shop", "seen-orders", z.object({ ids: z.array(z.string()) }).catch({ ids: [] }));
+ * const { ids } = await seen.read();
+ * await seen.write({ ids: [...ids, "A-1001"] });
  */
 export function note<T>(agent: string, name: string, shape: z.ZodType<T>): Note<T> {
   const path = join(memoryFolderOf(agent), `${name}.json`);

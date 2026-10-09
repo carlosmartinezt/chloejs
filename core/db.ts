@@ -6,15 +6,21 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { STATE } from "./paths.ts";
 
 /**
- * The run history and the conversations, in one file inside the state folder.
- * Read as this file loads, which is before any config is, so it comes from the
- * environment as CHLOE_DB and is not a setting. The tests set it to ":memory:"
- * so they never write into the real one.
+ * The path of the SQLite file that holds the run history and the
+ * conversations. Default: `agents.db` inside `STATE`.
+ *
+ * To move it, set `CHLOE_DB` in the environment or in `.env`. A change needs
+ * a restart. ":memory:" keeps the database in memory only, so nothing is
+ * written to disk.
  */
 export const DATABASE = process.env.CHLOE_DB || `${STATE}/agents.db`;
 if (DATABASE !== ":memory:") mkdirSync(STATE, { recursive: true });
 
-/** The SQLite handle every run, step and conversation is written to. */
+/**
+ * The open SQLite database in `DATABASE` (a `DatabaseSync` from
+ * `node:sqlite`). chloe writes every run, with its steps, to the `runs`
+ * table, and every conversation message to the `messages` table.
+ */
 export const db = new DatabaseSync(DATABASE);
 
 // Without WAL, a long turn blocks the web page's reads.
@@ -181,8 +187,9 @@ function added(table: string, column: string, declaration: string): boolean {
 }
 
 /**
- * A whole copy of the database in the file `to`, taken from the open
- * connection, so it is consistent even while runs are writing to it.
+ * Copies the whole database into the file `to`, and returns the file's path
+ * and its size in bytes. The copy is complete and correct even while runs are
+ * writing. Makes the folder if it is missing.
  */
 export async function copyDatabase(to: string): Promise<{ path: string; bytes: number }> {
   await mkdir(dirname(to), { recursive: true });
@@ -217,7 +224,10 @@ export function closeCutOff(): number {
   );
 }
 
-/** Drop runs older than this. Called once at startup. */
+/**
+ * Deletes the runs that started more than `keepDays` days ago. Default: 60.
+ * chloe calls it once each time it starts.
+ */
 export function trim(keepDays = 60): void {
   const cutoff = new Date(Date.now() - keepDays * 86_400_000).toISOString();
   db.prepare("delete from runs where started < ?").run(cutoff);

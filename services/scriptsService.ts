@@ -13,7 +13,15 @@ import { agentDir, memoryDir } from "#chloe/core/paths";
 import { settings } from "#chloe/core/settings";
 import { run, type Result } from "./runService.ts";
 
-/** What this agent has in scripts/, sorted. Nothing hidden. */
+/**
+ * Lists an agent's scripts: the files in its `scripts/` folder, sorted by
+ * name. Hidden files (starting with `.`) and folders are left out.
+ *
+ * - `agent`: the agent's id.
+ *
+ * Returns the file names. The list is empty if the agent has no `scripts/`
+ * folder. Throws if no agent with this id has been loaded.
+ */
 export async function listScripts(agent: string): Promise<string[]> {
   const dir = `${agentDir(agent)}/scripts`;
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
@@ -24,11 +32,24 @@ export async function listScripts(agent: string): Promise<string[]> {
 }
 
 /**
- * Run one. A name not on disk is refused rather than resolved as a path, which
- * is what stops a `../` in a name reaching anything else on the box.
+ * Runs one of an agent's scripts and waits for it to finish.
  *
- * `cwd` defaults to the scripts folder, so a script may use relative paths.
- * An agent whose scripts work on a tree somewhere else passes that instead.
+ * - `agent`: the agent's id.
+ * - `name`: the script's file name in the agent's `scripts/` folder, such as `"backup.sh"`. It must be a name `listScripts` returns, so it cannot be a path to anything else.
+ * - `args`: the script's arguments, one string each. They reach the script exactly as written, never through a shell. Default: none.
+ * - `options.timeoutMs`: how long it may run, in milliseconds. Default: 300000 (five minutes).
+ * - `options.cwd`: the folder it runs in. Default: the agent's `scripts/` folder, so the script can use paths relative to it.
+ *
+ * The script file must be executable, with a first line such as `#!/bin/sh`.
+ * It gets chloe's environment variables, plus `MEMORY_FOLDER` (the agent's
+ * memory folder) and `GA_KEY_FILE` (when `connections.google.GA_KEY_FILE` is
+ * set in the settings).
+ *
+ * Returns a `Result`, plus `script` and `args`. It does not throw when the
+ * script fails: check `exitCode`.
+ *
+ * Throws if the agent has no script with this name, or if no agent with this
+ * id has been loaded.
  */
 export async function runScripts(
   agent: string,

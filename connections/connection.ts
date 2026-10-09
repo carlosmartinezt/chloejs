@@ -11,50 +11,70 @@
 // an agent's own folder is the same shape and needs nothing from the runtime.
 
 /**
- * How somebody signs in to a connection from a chat. Three plain functions, run
- * by the runtime: a model never starts a sign-in, never copies its link and
- * never handles what comes back, because a model asked to copy a long link
- * rewrites it.
+ * How a person signs in to a connection from a chat. chloe runs these three
+ * functions itself. The model never starts a sign-in, never sees the link and
+ * never sees the answer, because a model asked to copy a long link changes it.
  */
 export interface SignIn {
   /**
-   * Start one, and say what to send the person: `say` in words, and `link`, the
-   * address they open, sent exactly as it is. No link when there is nothing to
-   * open yet, like a client nobody has made, and then `say` is the steps.
+   * Starts a sign-in and returns what to send the person: `say` is the words,
+   * and `link` is the address they open. chloe sends the link exactly as you
+   * return it.
+   *
+   * Leave out `link` when there is nothing to open yet (for example, the
+   * account has no app set up). Then put the steps to follow in `say`.
    */
   start(): Promise<{ say: string; link?: string }>;
   /**
-   * Whether a message is the answer to a sign-in that is waiting. Reads files
-   * and nothing else, because it is asked of every message, and is strict:
-   * a message it claims never reaches the model.
+   * Returns `true` if a chat message is the answer to a sign-in that is
+   * waiting, such as a pasted code. chloe checks every message with it, so keep
+   * it fast: read files, nothing slower. Be strict: a message it returns `true`
+   * for never reaches the model.
    */
   answers(text: string): boolean;
-  /** Finish with that answer, and say what to tell the person. Throws in words they can act on. */
+  /**
+   * Finishes the sign-in with that answer and returns what to tell the person.
+   * When it fails, throw an error whose message tells the person what to do.
+   */
   finish(text: string): Promise<string>;
 }
 
 /**
- * An outside account a tool works through. A tool names it as its `needs`, and
- * the runtime asks it what is missing and runs its sign-in.
+ * An outside account or service that a tool works through, such as Google.
+ *
+ * A tool names its connection in its `needs` field. chloe then asks the
+ * connection what is missing, shows that on the dashboard, and runs its
+ * sign-in when the tool throws `NeedsSignIn`.
  */
 export interface Connection {
-  /** What the setup page calls it, and what `NeedsSignIn` names. */
+  /** The connection's name, as shown on the dashboard, such as `"google"`. `NeedsSignIn` uses the same name. Required. */
   name: string;
-  /** What it is for, in one line. */
+  /** What the connection is for, in one line, shown on the dashboard. Required. */
   does: string;
-  /** The settings it reads, as paths. Never their values. */
+  /**
+   * The settings it reads, as paths such as `"connections.resend.api_key"`.
+   * Shown on the dashboard. Never put the values here. Required (can be empty).
+   */
   settings: string[];
-  /** How somebody signs in from a chat, when it can be done from one. */
+  /** How a person signs in from a chat. Leave it out if they cannot sign in from a chat. */
   signIn?: SignIn;
-  /** What is missing before it works, one line each, in words. Empty when it is ready. */
+  /**
+   * Returns what is still missing before the connection works, one short
+   * line each. Returns an empty list when it is ready. Shown on the dashboard
+   * and printed when chloe starts.
+   */
   missing(): Promise<string[]>;
 }
 
 /**
- * Thrown by a connection's service when what failed is fixed by signing in: no
- * sign-in, one that expired or was taken back, one not allowed to do this. A
- * turn that meets it stops and the runtime starts the sign-in itself, so the
- * message is for a person, not for a model to act on.
+ * Throw this from a connection's code when signing in would fix the error: no
+ * one has signed in, the sign-in expired or was taken back, or it does not
+ * allow this action.
+ *
+ * When a tool throws it during a chat, the model's reply stops, and chloe
+ * starts the connection's sign-in and sends the link to the person. So write
+ * the message for a person, not for the model. In a job, with no one to
+ * answer, the run fails with the message.
  */
 export class NeedsSignIn extends Error {
   /** The `name` of the connection to sign in to. */

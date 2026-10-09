@@ -9,12 +9,15 @@ import type { Result } from "#chloe/core/turn";
 import type { Mark } from "./calls.ts";
 
 /**
- * The situation a case sets up, and what the agent should and should not have
- * done about it.
+ * What was true when the run happened, and what the agent should and should
+ * not have done about it. Imported as `ExpectedOutcome`.
  */
 export interface Expected {
+  /** What was true at the time, in words, such as "The site has been down for an hour." Shown to the judging model. */
   situation?: string;
+  /** Things the agent should have said or done, one per line, such as "says which site is down". */
   should?: string[];
+  /** Things the agent should not have said or done, one per line. */
   shouldNot?: string[];
 }
 
@@ -30,10 +33,20 @@ Answer with JSON and nothing else, in this shape:
 One check per expectation, in the order they are given.`;
 
 /**
- * Marks what a run said against what it should have said, by asking a model to
- * judge it. `instructions` are the agent's own, shown to the judge as what it
- * was told, so an expectation like "invents nothing the CV does not say" can be
- * judged when the CV is in them.
+ * Scores a run against `expected` by asking a model to judge it. Each line in
+ * `should` and `shouldNot` is checked one by one, and the score is the share
+ * of lines that were met (from 0 to 1).
+ *
+ * - `prompt`: what the agent was asked.
+ * - `result`: the run, with its reply and its tool calls.
+ * - `model`: the model that judges, such as `"anthropic/claude-haiku-4.5"`.
+ * - `instructions`: the agent's own instructions. Optional. Give them when an
+ *   expectation depends on them, such as "invents nothing the instructions do
+ *   not say".
+ *
+ * Each call costs one model call, or two if the judge's first answer is not
+ * valid JSON. With no lines in `should` or `shouldNot`, it returns 1 and asks
+ * no model.
  */
 export async function expectations(
   prompt: string,

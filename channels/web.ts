@@ -36,37 +36,61 @@ import { reachBy, unreach } from "#chloe/model/ask";
 import type { ChloeTool } from "#chloe/model/tool";
 import { bind, type Answering } from "./shared.ts";
 
-/** What a web channel is made with: the sites that may show it, the tools a visitor's turn gets and what visitors may spend. */
+/** The options for `webChannel()`: the sites that may show the chat box, the tools visitors get, and what they may spend. */
 export interface WebOptions {
-  /** The sites that may show the chat box, each a scheme and a host: "https://myshop.com". A page anywhere else is refused. */
+  /**
+   * The websites that may show the chat box, each a scheme and a host with
+   * no path, like "https://myshop.com". A page on any other site is refused.
+   * Required.
+   */
   origins: string[];
   /**
-   * The only tools a web turn has, each the tool itself or its name in the
-   * agent's `tools`, as on every channel. None when unsaid, and unlike other
-   * channels no memory or skills unless named: a visitor is a stranger. Its
-   * memory and self tools are refused, apart from `memoryWriteUserNotes`,
-   * which a visitor's turn has without it being named when the agent keeps
-   * `memoryPerUser`.
+   * The only tools the agent may use when it replies to a visitor. Give each
+   * one as the tool itself or as its name in the agent's `tools`. Default:
+   * none.
+   *
+   * A visitor is a stranger, so unlike other channels the agent does not keep
+   * its memory tools or skills here unless you name them. Naming a memory or
+   * self tool stops the agent from loading. When the agent has
+   * `memoryPerUser` on, a visitor's reply also gets `memoryWriteUserNotes`,
+   * for the agent's note on that visitor.
    */
   tools?: (ChloeTool | string)[];
-  /** A job every visitor's message starts, in place of a turn, as on every channel. See Answering. */
+  /** A job that every visitor's message starts, in place of a normal reply. See `Answering`. */
   job?: Answering["job"];
-  /** What the box shows before anybody has written. */
+  /** What the chat box shows before anybody has written. Default: nothing. */
   greeting?: string;
+  /**
+   * What visitors may spend. See `WebLimits`. Default: 30 messages and $0.50
+   * for each visitor, and $5 for all visitors together, each over the last
+   * 24 hours.
+   */
   limits?: WebLimits;
-  /** How much of a visitor's conversation a turn is shown. */
+  /**
+   * How much of a visitor's conversation the agent sees with each new
+   * message: `{ messages, days }`. Default: the last 10 messages.
+   */
   chatHistory?: ChatHistory;
-  /** The model web turns use, when it is not the agent's own. */
+  /**
+   * The model to use when the agent replies to a visitor, as a name or an AI
+   * SDK model. If not set, the agent's own model.
+   */
   model?: string | SdkModel;
-  /** Whether a visitor may send pictures. Off unless true. */
+  /** Lets a visitor send pictures, up to 2 in one message. Off by default. */
   pictures?: boolean;
 }
 
-/** What visitors may spend, each over the last 24 hours. A turn that would start past one is refused, politely. */
+/**
+ * What visitors may spend, counted over the last 24 hours. Once a limit is
+ * reached, new messages are refused with a polite note.
+ *
+ * The dollar limits use the cost recorded for each run. A model whose runs
+ * record no cost is never stopped by a dollar limit.
+ */
 export interface WebLimits {
-  /** For one visitor: 30 messages and $0.50 when unsaid. */
+  /** For each visitor: the most messages, and the most dollars. Default: 30 messages and $0.50. */
   perVisitor?: { messages?: number; dollars?: number };
-  /** For every visitor together: $5 when unsaid. */
+  /** For all visitors together: the most dollars. Default: $5. */
   perDay?: { dollars?: number };
 }
 
@@ -90,10 +114,25 @@ export function visitorThread(agent: string, visitor: string): string {
 }
 
 /**
- * The web channel. Throws as it is made when `origins` is empty or holds
- * something that is not a site, and as the agent loads when `tools` names one
- * of its memory or self tools. A tool the agent does not have is said in the
- * log and left out, the same as a connection that did not answer.
+ * Puts a chat box for visitors on your website. Add it to the `channels` list
+ * in the agent's `agent.ts`:
+ *
+ * ```ts
+ * channels: [webChannel({ origins: ["https://myshop.com"], tools: ["getOrders"] })],
+ * ```
+ *
+ * Nothing reaches it unless your site's own server lets the visitor in. Your
+ * server holds a token made for this agent, asks
+ * `POST /api/agents/<id>/web/pass` for a pass for each visitor, and gives the
+ * pass to its page. The page loads the chat box from `/api/web/chat.js`.
+ *
+ * A visitor is a stranger. Their messages get only the tools named in
+ * `tools`, no `/commands` apart from `/clear`, no model picking, and never a
+ * sign-in. What they may spend is limited by `limits`.
+ *
+ * Throws when `origins` is empty or holds something that is not a site. The
+ * agent does not load when `tools` names a memory or self tool. A tool name
+ * the agent does not have is skipped, with a line in the log.
  */
 export function webChannel(options: WebOptions): Channel & { web: Web } {
   const origins = (options.origins ?? []).map(originOf);

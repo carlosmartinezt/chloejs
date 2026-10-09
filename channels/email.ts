@@ -98,29 +98,51 @@ const EVERY = 15_000;
 /** How long an address stays open with nothing sent or received on it. */
 const OPEN_FOR = 30 * 24 * 3600 * 1000;
 
-/** How an agent is put on email: who may write to it, and what its messages get (`tools` or `job`, see Answering). */
+/**
+ * The options for `emailChannel()`: who the agent may write to, and which
+ * mailbox it uses. It also takes `tools` and `job` (see `Answering`).
+ */
 export interface EmailOptions extends Shared {
-  /** "email" unless the agent has two. The first half of an address a job asks, "email:someone@example.com". */
+  /**
+   * The channel's name. Default: "email".
+   *
+   * Set it only when the agent has two email channels, because two channels
+   * of one agent cannot share a name. It is the first part of the address a
+   * job uses to ask somebody, like `email:someone@example.com`.
+   */
   name?: string;
-  /** The people it may write to and hear from, by address. Nobody else is ever sent anything. */
+  /**
+   * The email addresses of the people the agent may write to and hear from.
+   * Nobody else is ever sent anything, and mail from anybody else is
+   * dropped. Required.
+   */
   allowFrom: string[];
-  /** How much of a conversation a turn is shown: `{ messages, days }`. */
+  /**
+   * How much of the conversation the agent sees with each new message:
+   * `{ messages, days }`. `messages` is the most it sees, and `days` leaves
+   * out anything older. Default: the last 10 messages.
+   */
   chatHistory?: ChatHistory;
   /**
-   * "gmail" sends and receives through the Gmail account Google is signed in
-   * to. Left out, the mail goes through a remote dashboard, when one is
-   * connected.
+   * Which mailbox the mail goes through.
+   *
+   * - "gmail": the Gmail account Google is signed in to
+   *   (`connections.google.account` in settings).
+   * - Not set: a remote dashboard, which needs `dashboard.remote.api_key` in
+   *   settings.
+   *
+   * With neither, the channel does nothing and says why in the log.
    */
   mailbox?: "gmail";
-  /** What stands in for Gmail. Only the tests change it. */
+  /** Stands in for Gmail. Only the tests set it. */
   gmail?: Mailbox;
-  /** How often Gmail is asked what is new, in milliseconds. Only the tests change it. */
+  /** How often Gmail is asked for new mail, in milliseconds. Default: 15000. Only the tests change it. */
   every?: number;
-  /** Where the dashboard is, instead of `dashboard.remote.url` in settings. Only the tests change it. */
+  /** The remote dashboard's address, used in place of `dashboard.remote.url` in settings. Only the tests change it. */
   dashboard?: string;
-  /** The workspace key, instead of `dashboard.remote.api_key`. Only the tests change it. */
+  /** The workspace key, used in place of `dashboard.remote.api_key` in settings. Only the tests change it. */
   key?: string;
-  /** How DNS is asked for a DKIM key. Only the tests change it. */
+  /** How DNS is asked for the key that checks a DKIM signature. Only the tests change it. */
   lookUp?: LookUp;
 }
 
@@ -139,11 +161,11 @@ interface Row {
   refs: string | null;
 }
 
-/** What starting a conversation gives back. */
+/** What `openEmail()` returns: the new conversation. */
 export interface Started {
-  /** The address the person replies to. */
+  /** The new address the person replies to. */
   address: string;
-  /** The conversation it is, as every channel names one. */
+  /** The id of the conversation. The agent remembers it under this id. */
   thread: string;
 }
 
@@ -152,10 +174,17 @@ type Starter = (to: string, subject: string, text: string) => Promise<Started>;
 const starters = new Map<string, Starter>();
 
 /**
- * Emails one of the people an agent's email channel allows, from a new address
- * made for that conversation, and keeps the words in it so a reply is read with
- * them. Refused for anybody not in allowFrom, and when the channel is not
- * running.
+ * Starts an email conversation. Sends an email to one of the people in the
+ * `allowFrom` of an agent's email channel, from a new address made for this
+ * conversation. The words are kept in the conversation, so when the person
+ * replies, the agent knows what it wrote.
+ *
+ * - `agent`: the agent's id.
+ * - `to`, `subject`, `text`: the email. `text` is Markdown.
+ * - `channel`: the email channel's name. Default: "email".
+ *
+ * Throws when `to` is not in `allowFrom`, or when the channel is not running
+ * in this process.
  */
 export async function openEmail(agent: string, to: string, subject: string, text: string, channel = "email"): Promise<Started> {
   const start = starters.get(`${agent}/${channel}`);
@@ -211,7 +240,31 @@ function tagged(address: string): string {
   return `${address.slice(0, at).split("+")[0]}+${tag}${address.slice(at)}`;
 }
 
-/** An agent on email, as a channel its own `agent.ts` names. */
+/**
+ * Puts an agent on email. Add it to the `channels` list in the agent's
+ * `agent.ts`:
+ *
+ * ```ts
+ * channels: [emailChannel({ allowFrom: ["someone@example.com"], mailbox: "gmail" })],
+ * ```
+ *
+ * Each conversation has its own address, made for one person. The agent
+ * starts one with `openEmail()`, the `email.startConversation` tool, or a
+ * job's `ask("email:<address>")`. The person's replies to that address come
+ * back as messages in that conversation.
+ *
+ * A reply is taken only when all of these are true. Anything else is dropped,
+ * with a line in the log.
+ *
+ * - It is sent to an open address made for this agent and channel, used in
+ *   the last 30 days.
+ * - It has one sender, the person the address was made for, and that person
+ *   is in `allowFrom`.
+ * - It has a DKIM signature from the sender's domain that checks out.
+ *   Anybody can write any From line, so this is what shows who sent it.
+ *
+ * Files on a message are named to the agent, but it does not receive them.
+ */
 export function emailChannel(options: EmailOptions): Channel {
   // Ignored, it would hand every tool to a turn that was meant to have fewer.
   if ("withoutTools" in options) throw new Error("emailChannel's withoutTools is gone: name the tools its turns may have instead, like tools: [tools.readPage].");

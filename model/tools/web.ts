@@ -7,7 +7,21 @@ import { z } from "zod";
 
 import * as webService from "#chloe/services/webService";
 
-/** A tool that reads one public web page as plain text. */
+/**
+ * Makes a tool that lets the model read one public web page as plain text,
+ * with links written as `[text](url)`. A long page comes back in parts of
+ * about 20,000 characters, and the model asks for the next part.
+ *
+ * It reads only public addresses: it refuses this machine, your local network
+ * and other private addresses, even through a redirect. It does not run the
+ * page's JavaScript, so a page built in the browser comes back nearly empty.
+ *
+ * Takes no options and needs no connection.
+ *
+ * ```ts
+ * tools: { webReadPage: web.readPage() }
+ * ```
+ */
 export function readPage() {
   return tool({
     description:

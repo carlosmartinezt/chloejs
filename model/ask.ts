@@ -11,15 +11,26 @@
 
 import { settings } from "#chloe/core/settings";
 
-/** `choices` is every answer that fits, when there are few enough to list: a channel may show them as buttons. */
+/**
+ * A function that sends a message to one person on a channel.
+ *
+ * `to` is the part of the address after the `:`, such as `12345` in
+ * `telegram:12345`. `choices` lists the possible answers when there are only
+ * a few, so the channel can show them as buttons.
+ */
 export type Send = (to: string, text: string, choices?: string[]) => Promise<void>;
 
 const ways = new Map<string, Send>();
 
 /**
- * Called once per channel that can carry a question out. With an agent, it is
- * that agent's way out only: two agents on Telegram are two bots, and a
- * question from one must not arrive from the other.
+ * Tells chloe how to send messages on a channel, so a job's `ask` can reach
+ * people there. A channel you write yourself calls this once, when it starts.
+ *
+ * `channel` is the first part of an address, such as `telegram`. Pass the
+ * agent's id as `agent` so that only this agent's messages go out this way:
+ * two agents on Telegram are two bots, and a question from one must not come
+ * from the other. Without `agent`, it is used for any agent that has no way
+ * of its own on that channel.
  */
 export function reachBy(channel: string, send: Send, agent = ""): void {
   ways.set(agent ? `${agent}/${channel}` : channel, send);
@@ -34,7 +45,10 @@ function way(channel: string, agent: string): Send | undefined {
   return (agent && ways.get(`${agent}/${channel}`)) || ways.get(channel);
 }
 
-/** An address, `channel:who`, as its two halves. */
+/**
+ * Splits an address such as `telegram:12345` into its two parts:
+ * `{ channel: "telegram", to: "12345" }`. Throws if the text is not an address.
+ */
 export function split(address: string): { channel: string; to: string } {
   const at = address.indexOf(":");
   if (at < 1 || at === address.length - 1) {
@@ -44,8 +58,9 @@ export function split(address: string): { channel: string; to: string } {
 }
 
 /**
- * Whether a channel that is running for that agent could deliver to that
- * address.
+ * Returns `true` if a running channel can send to this address for this
+ * agent. It checks the channel part only, not that the person exists.
+ * Returns `false` for text that is not an address.
  */
 export function canReach(address: string, agent = ""): boolean {
   try {
@@ -56,8 +71,11 @@ export function canReach(address: string, agent = ""): boolean {
 }
 
 /**
- * Sends text to an address through whichever channel is running for that
- * agent, with buttons when choices are given.
+ * Sends a message to an address, such as `telegram:12345`, through the
+ * channel running for that agent. Pass `choices` to show the possible answers
+ * as buttons, where the channel can.
+ *
+ * Throws if no running channel can reach the address.
  */
 export async function deliver(address: string, text: string, agent = "", choices?: string[]): Promise<void> {
   const { channel, to } = split(address);
@@ -78,7 +96,14 @@ export function ownedBy(agent: string, address: string): void {
   owners.set(agent, address);
 }
 
-/** Who a run belongs to when nothing says otherwise. */
+/**
+ * Returns the address of the agent's owner, such as `telegram:12345`. A job's
+ * questions and approvals go to this person when no one else is named.
+ *
+ * It is `owner` in settings, if set. If not, it is the first id in
+ * `allowFrom` of the agent's Telegram, Slack or WhatsApp channel. Returns
+ * `""` if there is neither.
+ */
 export function owner(agent = ""): string {
   return settings.owner || owners.get(agent) || "";
 }

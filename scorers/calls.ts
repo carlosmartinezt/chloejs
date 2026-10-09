@@ -10,23 +10,34 @@
 import type { Result } from "#chloe/core/turn";
 
 /**
- * Which tools a run should have used, must not have used, and may use only
- * once.
+ * The tools a run should use, must not use, and may use only once. Each list
+ * holds tool names, as the model calls them. Imported as `ExpectedCalls`.
  */
 export interface Expected {
+  /** Tools the run must call at least once. */
   mustCall?: string[];
+  /** Tools the run must never call. */
   mustNotCall?: string[];
-  /** Tools it may use, but only once in a run. Restarting twice is why this exists. */
+  /** Tools the run may call, but no more than once. Useful for a tool that should not run twice, such as a restart. */
   atMostOnce?: string[];
 }
 
-/** A score between zero and one, and why it came out that way. */
+/** A score from 0 to 1, and the reason for it. */
 export interface Mark {
+  /** From 0 (failed) to 1 (passed). */
   score: number;
+  /** Why the run got this score, in words. */
   reason: string;
 }
 
-/** Marks a run on the tools it used, which is arithmetic and asks nobody. */
+/**
+ * Scores a run on the tools it called, against `expected`. It only counts
+ * the calls and asks no model, so it is free and gives the same answer every
+ * time.
+ *
+ * The score is 1 if every rule is kept, and 0 if any rule is broken. The
+ * reason lists what went wrong and every tool the run used.
+ */
 export function calls(result: Result, expected: Expected): Mark {
   const used = result.calls.map((c) => c.toolName);
   const times = (tool: string) => used.filter((name) => name === tool).length;

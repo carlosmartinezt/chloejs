@@ -103,9 +103,12 @@ const PASTE_BACK = "http://127.0.0.1:33067/oauth2/callback";
 export const SHOWS_THE_CODE = "https://chloejs.org/connected";
 
 /**
- * Thrown when this copy has no client to sign in with, which is the one thing
- * a sign-in cannot start without and the one thing an agent cannot do itself.
- * Its own type, so the tool can hand over the steps instead of the message.
+ * Thrown when chloe has no Google client to sign in with.
+ *
+ * A client is an id and a secret that you make once in Google's console, so
+ * chloe can ask Google for a sign-in. A person has to make it, and put it in
+ * `connections.google.client` in the settings. `setupSteps()` returns the
+ * steps to show them.
  */
 export class NeedsClient extends Error {
   constructor() {
@@ -130,14 +133,19 @@ export interface Pending {
   started: string;
 }
 
-/** Where a sign-in stands, without asking Google anything. */
+/** Where the Google sign-in stands. `signInState()` returns it. */
 export interface SignInState {
-  /** Whether mail and the rest can be reached right now. */
+  /**
+   * `true` when chloe has a saved sign-in for this account that can reach
+   * Gmail, Calendar and Drive. Google is not asked, so a sign-in that Google
+   * has cancelled can still show `true`.
+   */
   ready: boolean;
+  /** The Google account from `connections.google.account` in the settings. Empty if it is not set. */
   account: string;
-  /** What is missing, in plain words, or empty when nothing is. */
+  /** What is missing, in plain words you can show a person. Empty when nothing is. */
   missing: string;
-  /** Whether a link has been sent and the answer has not come back. */
+  /** `true` when a sign-in was started and its code has not come back yet. */
   waiting: boolean;
 }
 
@@ -301,8 +309,14 @@ export function clientKind(): "web" | "installed" | "" {
 }
 
 /**
- * Where the sign-in stands. Reads files and asks Google nothing, so it is
- * cheap enough for a job to check before it needs mail.
+ * Tells you where the Google sign-in stands: whether it is ready, and if not,
+ * what is missing. Takes nothing.
+ *
+ * It only reads chloe's own files and never calls Google, so it is fast. A job
+ * can call it before it reads mail. Because it does not ask Google, it cannot
+ * see a sign-in that Google has cancelled.
+ *
+ * Returns a `SignInState`. A problem is put in `missing`, not thrown.
  */
 export async function signInState(): Promise<SignInState> {
   const account = settings.connections.google.account;
@@ -329,14 +343,19 @@ export async function signInState(): Promise<SignInState> {
   };
 }
 
-/** What `start()` hands back. */
+/** What `start()` returns. */
 export interface Started {
-  /** The link the person opens. Nothing else in here matters to them. */
+  /** The link the person opens to approve the sign-in. Send it exactly as it is: a changed link fails. */
   link: string;
+  /** The Google account the sign-in is for, from `connections.google.account`. */
   account: string;
-  /** Whether the answer comes back on its own, or the person pastes it. */
+  /**
+   * `true` when Google's answer comes back to chloe by itself, through a
+   * remote dashboard. `false` when the person has to send back a code or an
+   * address.
+   */
   relayed: boolean;
-  /** What to say to the person, in plain words, and true whichever way it finishes. */
+  /** What to tell the person, in plain words. It matches how this sign-in will finish. */
   say: string;
 }
 
@@ -349,11 +368,22 @@ function scopesFor(services: string): string[] {
 }
 
 /**
- * Start a sign-in: hand back a link for the person to open.
+ * Starts a Google sign-in for the account in `connections.google.account`.
+ * Returns a link for the person to open and approve.
  *
- * Everything the second half needs is written down here, so the process can
- * restart, or a job can park for a day, between the two. Google is always
- * asked for consent, because it only hands back a key that lasts when it asks.
+ * - `services`: the Google services to ask for, separated by commas. Default: `"gmail,calendar,drive"`. Keep the default: chloe only counts a sign-in as ready when it has all three.
+ *
+ * Send the person `say` and `link`. Unless `relayed` is `true`, they send
+ * back a short code, or the address of the page their browser landed on. Pass
+ * that to `finish()`.
+ *
+ * The started sign-in is saved in a file, so chloe can restart, or a job can
+ * wait a day, before `finish()`. Starting a new one replaces the one that was
+ * waiting.
+ *
+ * Throws `NeedsClient` if there is no Google client. Throws an `Error` if
+ * `connections.google.account` is not set, if the client cannot be read, or if
+ * `services` names a service that does not exist.
  */
 export async function start({ services = SERVICES }: { services?: string } = {}): Promise<Started> {
   const account = settings.connections.google.account;
@@ -455,16 +485,25 @@ export function isAnswer(text: string): boolean {
 }
 
 /**
- * Finish a sign-in with whatever came back from the browser.
+ * Finishes the Google sign-in that `start()` began, and saves it.
  *
- * Takes the whole address, or just the code out of it, because a person on a
- * phone sends one or the other and neither is wrong.
+ * - `answer`: what the person sent back. Either the short code, or the whole address of the page their browser landed on.
  *
- * **Whoever approved has to be the account that was asked for.** A code can be
- * handed in by anybody who has the link, and somebody who approved with their
- * own account would leave the agent reading their mailbox and calling it the
- * configured one. So the address Google vouches for is checked against the
- * account in settings, and anything else is thrown away.
+ * Returns `{ account, signedIn: true }`.
+ *
+ * The person must approve with the same Google account as
+ * `connections.google.account`. Anyone with the link could approve with their
+ * own account, so a sign-in by any other account is thrown away.
+ *
+ * Throws an `Error`, with words you can show the person, when:
+ * - no sign-in is waiting,
+ * - the answer is not a code or an address, or is from another sign-in,
+ * - Google does not accept the code (a code works once, for a few minutes),
+ * - someone approved with a different Google account,
+ * - the person unticked a box on Google's page, so a service is missing.
+ *
+ * Most of these mean starting again with `start()`. Throws `NeedsClient` if
+ * there is no Google client.
  */
 export async function finish(answer: string): Promise<{ account: string; signedIn: true }> {
   const waiting = readJson<Pending>(PENDING);
@@ -599,17 +638,17 @@ export async function googleApi<T>(
 }
 
 /**
- * The trip through Google's console, in order, for the person doing it once.
+ * Returns the steps to make a Google client in Google's console. A person
+ * follows them once. Show them when `NeedsClient` is thrown, or when
+ * `connections.google.client` is not set. Takes nothing.
  *
- * These words are here rather than in a README because the person is on a
- * phone in a chat, and an agent improvising the steps of somebody else's
- * console is an agent inventing menu names. Handed over whole when
- * `connections.google.client` is not set, and that is the only time it is needed.
+ * Every copy of chloe needs its own client, because Google treats reading
+ * Gmail as its most sensitive kind of access.
  *
- * Reading mail is in Google's strictest tier, so a copy of this cannot be
- * signed in to without its own client. There is no way around that short of
- * chloejs itself passing Google's review and paying for the yearly audit that
- * tier requires, which is why the trip exists at all.
+ * Returns:
+ * - `why`: a sentence on why the steps are needed.
+ * - `steps`: the steps, in order, in plain words.
+ * - `addresses`: the addresses Google may send the person back to after they approve. The steps say to add them to the client, exactly as written.
  */
 export function setupSteps(): { steps: string[]; addresses: string[]; why: string } {
   const to = callback();

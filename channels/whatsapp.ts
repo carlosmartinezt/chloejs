@@ -92,38 +92,88 @@ const BUTTON_LABEL = 20; // Characters it takes on one button.
 const MAX_BODY = 1024; // Characters it takes on a message that has buttons.
 const TYPING = 20_000; // WhatsApp clears "typing..." after 25 seconds.
 
-/** How an agent is put on WhatsApp's own API: who may reach it, and where its messages arrive. */
+/** The options for `whatsappChannel()`: who may reach the agent, and how its messages arrive. */
 export interface WhatsAppOptions extends Shared {
   /**
-   * "whatsapp" unless the agent is on two numbers. It is what the log shows
-   * a run came in on, the end of the address Meta sends to, and the start of
-   * every address on this number, like "whatsapp:+447700900123".
+   * The channel's name. Default: "whatsapp".
+   *
+   * Set it only when the agent is on two numbers, because two channels of
+   * one agent cannot share a name. The name shows in the log, it ends the
+   * channel's own address (`/chloe/v1/<agent id>/<name>`), and it is the first
+   * part of every address on this number, like `whatsapp:+447700900123`.
    */
   name?: string;
-  /** Instead of the three in settings. `verifyToken` is the word Meta is told to check the address with. */
+  /**
+   * The number's secrets, if you do not keep them in settings.
+   *
+   * - `phoneNumberId`, `token` and `appSecret`: used in place of
+   *   `agents.<id>.whatsapp.phone_number_id`, `token` and `app_secret`.
+   * - `verifyToken`: the word Meta sends when it checks the channel's own
+   *   address. If not set, a new random one is made each time the channel
+   *   starts, and written to the log.
+   *
+   * Read them from `process.env`. Never write a token in the file itself.
+   */
   credentials?: { phoneNumberId?: string; token?: string; appSecret?: string; verifyToken?: string };
-  /** Numbers that may reach the agent, in full international form. */
+  /**
+   * The phone numbers allowed to talk to the agent, in full international
+   * form, like "+447700900123".
+   *
+   * If not set, anybody who writes to the number gets an answer. With an
+   * empty list, nobody does: a message is answered with the sender's number,
+   * so you can add it.
+   *
+   * The first number counts as the agent's owner. Their messages can use the
+   * tools only the owner may use, and jobs ask them when they name nobody.
+   */
   allowFrom?: string[];
   /**
-   * The post box to collect messages from: a service that takes Meta's
-   * delivery, because Meta pushes and never lets anything fetch, and holds it
-   * sealed until this runtime asks. `dashboard.remote.url` in settings when a
-   * remote dashboard is connected, and nowhere otherwise, which leaves only the
-   * route below, reached through a web server of your own. "" collects from
-   * nowhere even with a remote dashboard.
+   * The address of a post box service to collect messages from.
+   *
+   * Meta only sends messages to a public address, and never lets anything
+   * fetch them. A post box takes the messages at a public address and holds
+   * them, sealed, until chloe collects them, so nothing on your machine needs
+   * to be reachable from the internet. When the channel starts, it writes the
+   * post box's address to the log: register that address with Meta.
+   *
+   * Default: `dashboard.remote.url` in settings when a remote dashboard is
+   * connected (`dashboard.remote.api_key` is set), otherwise none. Set it to
+   * "" for no post box even with a remote dashboard.
+   *
+   * With no post box, Meta must reach the channel's own address,
+   * `/chloe/v1/<agent id>/<name>` on chloe's web server port, through a web
+   * server of your own.
    */
   postBox?: string;
-  /** Where this server is reachable from outside, like "https://agents.example.com". Only used to say the address to register. */
+  /**
+   * The address where this server can be reached from the internet, like
+   * "https://agents.example.com". Only used, when there is no post box, to
+   * write the full address to register with Meta in the log.
+   */
   publicUrl?: string;
-  /** How much of a conversation a turn is shown: `{ messages, days }`. */
+  /**
+   * How much of the conversation the agent sees with each new message:
+   * `{ messages, days }`. `messages` is the most it sees, and `days` leaves
+   * out anything older. Default: the last 10 messages.
+   */
   chatHistory?: ChatHistory;
-  /** Send what the model writes on its way to an answer as it writes it, not only the answer. Off unless true. */
+  /**
+   * Sends what the model writes before its final answer (like a "let me
+   * check" line) as soon as it is written. Off by default.
+   */
   sendWhileWorking?: boolean;
-  /** Which files are taken, and how big. Anything else is named to the agent but not handed over. */
+  /**
+   * Which files the agent receives, and how big they may be.
+   *
+   * - `allowedMediaTypes`: default `["image/*", "application/pdf", "text/*"]`.
+   * - `maxBytes`: default 10 MB (`10 * 1024 * 1024`).
+   *
+   * The agent is told the name of any other file, but does not receive it.
+   */
   uploadPolicy?: { allowedMediaTypes?: string[]; maxBytes?: number };
-  /** Which version of the API to call. */
+  /** The version of WhatsApp's API to call. Default: "v23.0". */
   version?: string;
-  /** Where the API is. Only the tests change it. */
+  /** The address of WhatsApp's API. Default: "https://graph.facebook.com". Only the tests change it. */
   api?: string;
 }
 
@@ -178,7 +228,31 @@ export function collectsAt(agent: string, channel = "whatsapp"): string {
   return keptBox("whatsapp", agent, channel)?.at ?? "";
 }
 
-/** An agent on WhatsApp's own API, as a channel its own `agent.ts` names. */
+/**
+ * Puts an agent on WhatsApp, through WhatsApp's own API from Meta. Add it to
+ * the `channels` list in the agent's `agent.ts`:
+ *
+ * ```ts
+ * channels: [whatsappChannel({ allowFrom: ["+447700900123"] })],
+ * ```
+ *
+ * It needs a number registered with Meta, at developers.facebook.com. The
+ * number cannot be one already used in the WhatsApp app. Its three values go
+ * in settings in `chloe.config.ts`, as
+ * `agents: { <id>: { whatsapp: { phone_number_id, token, app_secret } } }`,
+ * each read from `.env`.
+ *
+ * - Use a permanent token from a system user. The first token the app's page
+ *   shows lasts only one day.
+ * - Without `app_secret`, every message is refused, because it is the only
+ *   way to tell a message from Meta apart from a fake one.
+ * - Messages arrive through a post box, or through the channel's own address.
+ *   See `postBox`.
+ * - WhatsApp's API has no groups: every message is one-to-one.
+ * - WhatsApp refuses a message sent more than 24 hours after that person's
+ *   last message. So a job that asks somebody who has not written in the
+ *   last day fails.
+ */
 export function whatsappChannel(options: WhatsAppOptions = {}): Channel {
   return defineChannel("whatsapp", options, ({ agent, agentId, name, bound }) => {
     const held = settings.agents[agentId]?.whatsapp;

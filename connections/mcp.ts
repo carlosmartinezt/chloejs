@@ -19,28 +19,34 @@ import { jsonSchema, tool } from "ai";
 import type { Connection } from "#chloe/connections/connection";
 import type { Tools } from "#chloe/model/tool";
 
-/** What `mcpConnection` is given: which server, its key, and which of its tools. */
+/** The options for `mcpConnection`: which server, its key, and which of its tools to use. */
 export interface McpOptions {
-  /** What it is called, and the first word of every tool it brings: `github`. */
+  /**
+   * The connection's name: one word that starts with a small letter, such as
+   * `"github"`. It is also the first word of every tool name it adds:
+   * the server's `list_issues` becomes `githubListIssues`. Required.
+   */
   name: string;
-  /** The server's address, which the service's docs give. Streamable HTTP. */
+  /** The server's address, from the service's docs. It must speak MCP over HTTP ("Streamable HTTP"). Required. */
   url: string;
   /**
-   * The key, sent as `Authorization: Bearer`. Either the key, handed over as
-   * `process.env.SOME_NAME`, or a function that fetches one when it is needed,
-   * for a key kept somewhere that hands out short-lived ones.
+   * The key, sent as `Authorization: Bearer <key>`. Give the key itself, as
+   * `process.env.SOME_NAME`, or a function that returns one. The function is
+   * called each time chloe talks to the server, which suits keys that expire
+   * soon. Not sent if not set.
    */
   token?: string | (() => string | undefined | Promise<string | undefined>);
-  /** Other headers the server wants, for a service that does not take a bearer key. */
+  /** Other headers to send, for a server that takes its key some other way. */
   headers?: Record<string, string>;
-  /** Only these of the server's tools, by the server's own names. Unsaid is all of them. */
+  /** Only these tools, by the server's own names, such as `["list_issues"]`. Default: all of the server's tools. */
   tools?: string[];
-  /** What it is for, in one line, for the setup page. */
+  /** What the connection is for, in one line, shown on the dashboard. Default: "The tools <host> publishes for models." */
   does?: string;
 }
 
-/** A service's MCP server: a connection that also hands the loader its tools. */
+/** An MCP server as a connection. It also lists the server's tools for the agent. */
 export interface McpConnection extends Connection {
+  /** Asks the server for its tools and returns them, named for the model. chloe calls this when the agent loads. */
   tools(): Promise<Tools>;
 }
 
@@ -61,7 +67,24 @@ function textOf(content: unknown): string {
     .join("\n");
 }
 
-/** One MCP server, for an agent's `connections`. Nothing is asked of it until the agent loads. */
+/**
+ * Connects an agent to a service's MCP server. An MCP server is a list of
+ * tools that a service offers to models, reached over HTTP. Put the result in
+ * the agent's `connections`, and the agent gets those tools with no code of
+ * your own.
+ *
+ * chloe asks the server for its tools when the agent loads. If the server does
+ * not answer, the agent loads without them and the dashboard says why. Throws
+ * at once if `name` is not one word starting with a small letter.
+ *
+ * The tools can do whatever the key allows. Use `tools` to give the agent
+ * only the ones it needs.
+ *
+ * ```ts
+ * connections: [mcpConnection({ name: "github", url: "https://api.githubcopilot.com/mcp/",
+ *   token: process.env.GITHUB_TOKEN, tools: ["list_issues", "get_issue"] })]
+ * ```
+ */
 export function mcpConnection(options: McpOptions): McpConnection {
   if (!/^[a-z][a-zA-Z0-9]*$/.test(options.name)) {
     throw new Error(`mcpConnection: name is one word starting with a small letter, like "github", not ${JSON.stringify(options.name)}.`);

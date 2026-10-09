@@ -11,13 +11,21 @@ import { writeFiles } from "#chloe/services/filesService";
 // The agent binds its own From line and its own recipients. All the
 // model writes is the subject and the body.
 
+/**
+ * The options for `gmail.sendEmail` and `resend.sendEmail`. You set who sends
+ * and who receives. The model writes only the subject and the body.
+ */
 export interface SendOptions extends EmailSender {
-  /** Who it reaches and when to use it, in the agent's own words. Shown to the model. */
+  /**
+   * Who the email reaches and when the model should send one, in your own
+   * words. Added to the tool's description for the model. Required.
+   */
   when: string;
   /**
-   * A folder in the agent's memory, like "outbox". Every email sent is copied
-   * there as `2026-09-23-0715-<subject>.md`, so the agent can see what it
-   * already said before saying it again. Unsaid, nothing is kept.
+   * A folder in the agent's memory, such as `"outbox"`. Each email sent is
+   * saved there as `<date>-<time>-<subject>.md` (for example
+   * `2026-09-23-0715-order-failed.md`), so the agent can check what it already
+   * said. Not set by default: no copies are kept.
    */
   keep?: string;
 }

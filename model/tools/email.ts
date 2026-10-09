@@ -12,10 +12,22 @@ import { agentOf } from "#chloe/model/tool";
 import { keepCopy } from "./sending.ts";
 
 /**
- * A tool that emails somebody the agent's email channel allows, from an address
- * made for that conversation. Their reply comes back to the agent on that
- * channel. `when` says, in the agent's own words, when to use it, and `keep`
- * is a folder in its memory that gets a copy of every email it starts.
+ * Makes a tool that lets the model start an email conversation with someone.
+ * Each conversation gets its own reply address, so when the person replies,
+ * the reply comes back to the agent as a message on its email channel.
+ *
+ * The model chooses the address, the subject and the text. It can write only
+ * to people in the `allowFrom` list of the agent's email channel, and only
+ * while that channel is running.
+ *
+ * Options:
+ * - `when`: when the model should use the tool, in your own words. Added to
+ *   the tool's description for the model. Required.
+ * - `channel`: the `name` of the agent's email channel. Default: `"email"`.
+ * - `keep`: a folder in the agent's memory, such as `"outbox"`. A copy of each
+ *   email it starts is saved there. Not set by default: no copies are kept.
+ *
+ * Needs an `emailChannel` on the agent.
  */
 export function startConversation({ when, channel = "email", keep }: { when: string; channel?: string; keep?: string }) {
   return tool({

@@ -20,14 +20,35 @@
 
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 
-/** Times of day, "HH:MM" on a 24 hour clock. Several must share the minute, because one cron line has only one. */
+/** The days a job runs on. Call `.at()` to choose the time of day. */
 interface OnDays {
+  /**
+   * Returns a cron line that runs on these days at these times. Write each
+   * time as `"HH:MM"` on a 24 hour clock, such as `"07:00"` or `"22:45"`.
+   *
+   * You can give more than one time, but they must all have the same minutes
+   * (`"10:45", "22:45"`), because one cron line holds only one minute. For
+   * different minutes, make two jobs. Throws if a time cannot be read.
+   */
   at(...times: string[]): string;
 }
 
 /**
- * `every(15).minutes` and `every(4).hours`, as a cron line. A count that does
- * not divide the hour or the day evenly is refused with the reason.
+ * Makes a cron line for a job's `cron`, written the way you would say it. The
+ * times are read in the job's `timezone`.
+ *
+ * - `every(15).minutes`: every 15 minutes, starting on the hour.
+ * - `every(4).hours`: every 4 hours, on the hour, starting at midnight.
+ * - `every.minute`: every minute.
+ * - `every.hour.at(30)`: every hour, at 30 minutes past.
+ * - `every.day.at("07:00")`: every day at 07:00.
+ * - `every.weekday.at("9:30")`: Monday to Friday. `every.weekend` is Saturday and Sunday.
+ * - `every.monday.at("9:00")`: every Monday. Each day of the week works the same way.
+ * - `every.month.on(1).at("09:00")`: the 1st of every month.
+ *
+ * With a number, it must divide an hour (for minutes) or a day (for hours)
+ * evenly, so the gaps are all the same: `every(7).minutes` throws, and the
+ * error lists the numbers that work.
  */
 export function every(count: number): { readonly minutes: string; readonly hours: string } {
   return {
@@ -44,7 +65,7 @@ export function every(count: number): { readonly minutes: string; readonly hours
 
 every.minute = "* * * * *";
 every.hour = {
-  /** Minutes past the hour: every.hour.at(0) is on the hour. */
+  /** Returns a cron line that runs every hour, this many minutes past the hour (0 to 59). `every.hour.at(0)` is on the hour. */
   at(minute: number): string {
     if (!Number.isInteger(minute) || minute < 0 || minute > 59) {
       throw new Error(`every.hour.at(${minute}): the minute past the hour is a whole number from 0 to 59.`);
@@ -63,6 +84,10 @@ every.thursday = onDays("4", "every.thursday");
 every.friday = onDays("5", "every.friday");
 every.saturday = onDays("6", "every.saturday");
 every.month = {
+  /**
+   * The day of the month to run on, from 1 to 28. Then call `.at()` for the
+   * time. Days 29 to 31 throw, because they are missing from some months.
+   */
   on(day: number): OnDays {
     // 29 and later are left out on purpose: a job on the 31st would skip
     // every short month without saying so.
@@ -112,7 +137,14 @@ function evenly(count: number, of: number, unit: string): void {
   );
 }
 
-/** A cron line in words, when it is one this file could have written. */
+/**
+ * Turns a cron line into words, such as `"every 15 minutes"` or
+ * `"weekdays at 09:30 New York"`. A line with a time of day ends with the
+ * city name of `timezone`. Default timezone: `"UTC"`.
+ *
+ * Works for the lines that `every` makes. Returns `undefined` for most other
+ * lines.
+ */
 export function describe(cron: string, timezone = "UTC"): string | undefined {
   const [minute, hour, dayOfMonth, month, dayOfWeek] = cron.trim().split(/\s+/);
   if (month !== "*") return undefined;

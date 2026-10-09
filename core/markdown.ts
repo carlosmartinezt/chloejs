@@ -41,28 +41,36 @@ function unquote(value: string): string {
 // or a job's prompt. The path is inside the agent's folder, "instructions.md"
 // or "jobs/morning-run.md", whichever file names it.
 
-/** Words in a file, read when they are needed rather than as the agent loads. */
+/**
+ * Words kept in a markdown file, made with `prompt()`. chloe reads the file
+ * when the agent loads, and again each time the file changes.
+ */
 export interface Prompt {
+  /** The path of the markdown file, inside the agent's folder unless it is a full path. */
   file: string;
-  /** Other files put after the words, each in a tag of its name. */
+  /** Other files to add after the words, each wrapped in a tag named after its key. See `prompt()`. */
   include?: Record<string, string>;
 }
 
 /**
- * Declares words in a markdown file inside the agent's folder: its
- * instructions, or a job's prompt.
+ * Points at words kept in a markdown file: an agent's `instructions`, or a
+ * job's `markdown` prompt. The path is inside the agent's folder unless it is
+ * a full path. If the file starts with a settings block between two `---`
+ * lines, only the text under it is used.
  *
- * `include` puts other files after them, each wrapped in a tag of its name,
- * for what the words are about and is kept somewhere else:
+ * `include` adds other files after the words, each wrapped in a tag named
+ * after its key. Use it for material the words are about that is kept
+ * somewhere else:
  *
  * ```ts
  * prompt("instructions.md", { include: { cv: "/home/you/cv.md" } })
  * ```
  *
- * is the words, then `<cv>` and the file's contents. A path is the agent's
- * folder's when it is not a full one. The files are watched like the agent's
- * own, so an edit is live in a second, and one that is missing stops the agent
- * loading, saying which.
+ * gives the words, then `<cv>`, the text of the file, and `</cv>`. Each key
+ * must start with a letter and hold only letters, digits, `_` and `-`, like
+ * `cv`. chloe watches these
+ * files like the agent's own, so an edit takes effect within a second. If one
+ * is missing, the agent does not load, and the error says which file.
  */
 export function prompt(file: string, options: { include?: Record<string, string> } = {}): Prompt {
   for (const name of Object.keys(options.include ?? {})) {
@@ -76,7 +84,7 @@ export function includedIn(from: unknown, dir: string): string[] {
   return isPrompt(from) ? Object.values(from.include ?? {}).map((one) => resolve(dir, one)) : [];
 }
 
-/** Whether a value is a declared prompt rather than words written inline. */
+/** Returns `true` if the value was made with `prompt()`, and `false` for anything else, such as words written as a plain string. */
 export function isPrompt(value: unknown): value is Prompt {
   return typeof value === "object" && value !== null && typeof (value as Prompt).file === "string";
 }
@@ -111,9 +119,12 @@ export async function readPrompt(
 }
 
 /**
- * The start of a reply as one plain line: list marks, emphasis and headings
- * gone, lines joined, cut at `max`. It is how the reply begins, not what it
- * means: nothing here reads it.
+ * Turns the start of a markdown reply into one plain line. It removes list
+ * marks, emphasis and heading marks, and joins the lines. If the line is
+ * longer than `max` characters, it is cut and ends with `…`. Default `max`:
+ * 200.
+ *
+ * It only shortens the text. It does not summarise what the text means.
  */
 export function oneLineSummary(text: string, max = 200): string {
   const line = text

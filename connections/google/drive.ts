@@ -10,20 +10,33 @@ import { z } from "zod";
 import { readDriveFile, searchDriveFiles } from "./driveService.ts";
 import { google } from "./connection.ts";
 
+/** The options for `drive.searchFiles` and `drive.readFile`. */
 interface Options {
   /**
-   * The Drive query this agent may see, and nothing else, like
-   * `'<folder id>' in parents`. Unsaid it is every file the account can open:
-   * a binding of its own is what keeps the agent to one folder.
+   * The Drive search that sets which files the model can see, such as
+   * `"'<folder id>' in parents"` for one folder. The model cannot change it.
+   * Default: `""`, every file the signed-in account can open.
+   *
+   * Set your own search to keep the agent to the files it needs.
    */
   search?: string;
-  /** How to describe those files in the tool's description, in plain words. */
+  /**
+   * A few words for those files, such as `"the shared reports folder"`. Used
+   * in the tool's description and messages to the model. Default: `"Drive"`.
+   */
   what?: string;
 }
 
 /**
- * A tool that finds files in the part of Drive the agent is bound to. Give it
- * the same `search` as the agent's `readFile`.
+ * Makes a tool that lets the model find files in Google Drive, newest first,
+ * or by words in their name or text. Files in the trash are left out.
+ *
+ * `search` sets which files the model can see, and the model cannot change
+ * it. The model chooses only the words to look for and how many files (up to
+ * 50, default 20).
+ *
+ * Give it the same `search` as the agent's `drive.readFile`. Needs the Google
+ * connection.
  */
 export function searchFiles({ search = "", what = "Drive" }: Options = {}) {
   const find = tool({
@@ -37,7 +50,16 @@ export function searchFiles({ search = "", what = "Drive" }: Options = {}) {
   return Object.assign(find, { needs: google });
 }
 
-/** A tool that reads one file the search listed, as text: a Doc, a Sheet, Slides or a text file. */
+/**
+ * Makes a tool that lets the model read one Drive file as text: a Google Doc,
+ * Sheet or Slides, or a plain text file. Other files (such as images) are
+ * refused. A very long file is cut short.
+ *
+ * The model can read only a file that `drive.searchFiles` has already listed
+ * with the same `search`, so give both tools the same `search`.
+ *
+ * Needs the Google connection.
+ */
 export function readFile({ search = "", what = "Drive" }: Options = {}) {
   const read = tool({
     description: `Read one file in ${what} as text: a Google Doc, Sheet or Slides, or a text file. Pass an id driveSearchFiles listed.`,

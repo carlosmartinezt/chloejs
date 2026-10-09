@@ -20,12 +20,24 @@ interface GoogleFile {
   webViewLink?: string;
 }
 
-/** One file, as a search hands it back. */
+/** One file in the list `searchDriveFiles` returns. */
 export interface DriveFile {
+  /** The file's id. Pass it to `readDriveFile` to read the file. */
   id: string;
+  /**
+   * The file's name. Wrapped in `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` markers,
+   * because someone else may have written it.
+   */
   name: string;
+  /**
+   * The file's type, as Google writes it, such as
+   * `"application/vnd.google-apps.document"` for a Google Doc, or
+   * `"application/pdf"`.
+   */
   kind: string;
+  /** When the file was last changed, such as `"2026-10-06T19:00:00.000Z"`. */
   modified?: string;
+  /** A link that opens the file in Google Drive. */
   link?: string;
 }
 
@@ -49,7 +61,23 @@ function remember(search: string, files: DriveFile[]): void {
 /** Words for a Drive query, with its quotes and backslashes escaped. */
 const quoted = (text: string) => `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 
-/** What the bound search matches, with these words in them when there are any. Nothing here widens it. */
+/**
+ * Finds files in Google Drive. Files in the trash are left out.
+ *
+ * - `search`: a search in Drive's own search language that sets which files can be found, such as `"'<folder id>' in parents"` for the files in one folder. Default: `""`, every file the account can open.
+ * - `text`: words to look for in the files' names and contents. If not set, every file `search` matches.
+ * - `limit`: the most files to return. Default: 20.
+ *
+ * Returns `{ count, files }`. Without `text`, the files changed most recently
+ * come first.
+ *
+ * `readDriveFile` only reads files that a search with the same `search`
+ * listed. So write `search` in your code, not from text a model gave you.
+ *
+ * Throws `NeedsSignIn` when someone has to sign in to Google. Throws an
+ * `Error` for any other problem with Google, such as a `search` that Drive
+ * cannot read.
+ */
 export async function searchDriveFiles({
   search = "",
   text,
@@ -99,8 +127,25 @@ const EXPORTS: Record<string, string> = {
 const isText = (kind: string) => /^text\/|json|xml|csv|markdown|yaml|javascript/.test(kind);
 
 /**
- * One file as text. Refused unless a search of this binding listed it, and
- * when it is not text (a picture, a PDF), which is said rather than read.
+ * Reads one file from Google Drive as text.
+ *
+ * A Google Doc or Slides is read as plain text, and a Google Sheet as CSV
+ * (comma-separated values). Any other file is read only if it is already text,
+ * such as `.txt`, `.md`, `.csv` or `.json`.
+ *
+ * - `search`: the same Drive search you gave `searchDriveFiles`. Default: `""`.
+ * - `what`: a short name for those files, used in the error message, such as `"the reports folder"`. Required.
+ * - `fileId`: the file's id, from the list `searchDriveFiles` returned. Required.
+ *
+ * Returns `{ id, name, kind, text, cut }`. `name` and `text` are wrapped in
+ * `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` markers, because someone else wrote them.
+ * Only the first 200,000 characters are read, and `cut` is `true` when the
+ * file was longer.
+ *
+ * Throws if `searchDriveFiles` has not listed this file with the same `search`
+ * since chloe started, or if the file is not text (such as a picture or a
+ * PDF). Throws `NeedsSignIn` when someone has to sign in to Google, and an
+ * `Error` for any other problem with Google.
  */
 export async function readDriveFile({
   search = "",

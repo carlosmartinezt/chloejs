@@ -17,12 +17,20 @@
 
 let failures = 0;
 
-/** The heading a group of cases runs under. */
+/** Prints a heading for the test cases that follow it, such as `about("what the nightly backup calls wrong")`. */
 export function about(what: string): void {
   console.log(`\n${what}`);
 }
 
-/** Compared as JSON, so two objects of the same shape are the same answer. */
+/**
+ * Checks one test case: prints `ok` if `got` equals `want`, or `FAIL` with
+ * both values if not. `what` is the case's name. A failure is counted, and
+ * makes `npm run test` fail. It does not throw.
+ *
+ * The two values are compared as JSON text, so two objects with the same
+ * fields and values are equal. Watch out: the fields must be in the same
+ * order, and fields set to `undefined` are ignored.
+ */
 export function is(what: string, got: unknown, want: unknown): void {
   const a = JSON.stringify(got);
   const b = JSON.stringify(want);
@@ -31,7 +39,7 @@ export function is(what: string, got: unknown, want: unknown): void {
   console.log(`  FAIL ${what}\n       got  ${a}\n       want ${b}`);
 }
 
-/** How many cases failed, across every file the runner loaded. */
+/** Returns how many `is` cases have failed so far, in every test file loaded. */
 export function failed(): number {
   return failures;
 }

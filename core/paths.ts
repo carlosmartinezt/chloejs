@@ -38,7 +38,11 @@ export function memoryFolderOf(id: string): string {
   return memories.get(id) ?? join(MEMORIES, id);
 }
 
-/** One agent's own folder: its skills, scripts, evals and prompts. */
+/**
+ * Returns an agent's own folder: the folder its `agent.ts` is in, with its
+ * skills, scripts, evals and prompts. Throws if no agent with this `id` has
+ * loaded.
+ */
 export function agentDir(id: string): string {
   const folder = folders.get(id);
   if (!folder) throw new Error(`No agent called ${JSON.stringify(id)} has been loaded.`);
@@ -46,20 +50,26 @@ export function agentDir(id: string): string {
 }
 
 /**
- * What the runtime keeps about the agents, as against what they write, which is
- * MEMORIES: the run history, the account, the tokens and the log of what each
- * memory served. None of it is ever in git, and two of those are why: a secret
- * in a repository stays in its history, and the run history is one SQLite file
- * rewritten every run. Unset, this is `data/` inside the repo, which git
- * ignores, so a second clone keeps its own state. `git clean -x` would delete it.
+ * The state folder, where chloe keeps its own records about the agents: the
+ * run history, the account, the tokens, the Google sign-in, and the log of
+ * which memory files were read. What the agents write is in `MEMORIES`,
+ * which is inside this folder by default.
+ *
+ * Default: `data` inside `ROOT`. To move it, set `CHLOE_STATE` in the
+ * environment or in `.env`. A change needs a restart.
+ *
+ * Keep it out of git: it holds secrets. `npx chloe setup` adds `data` to
+ * `.gitignore`. Warning: `git clean -x` deletes it.
  */
 export const STATE = process.env.CHLOE_STATE || `${ROOT}/data`;
 
 /**
- * Where the memories are: one folder per agent, and one git repository holding
- * all of them, so an agent's folder stays source and its notes stay out of the
- * repository that source is in. Unset, this is `memory/` inside STATE, so one
- * ignored folder holds everything this box keeps. It is a repository of its own
- * even so: what the agents write is in git, and nothing else in STATE ever is.
+ * The folder that holds the agents' memories, one folder per agent. By
+ * default chloe makes it one git repository, and commits what each run
+ * changed. An agent can keep its memory somewhere else with `memory` in its
+ * `agent.ts`.
+ *
+ * Default: `memory` inside `STATE`. To move it, set `CHLOE_MEMORY` in the
+ * environment or in `.env`. A change needs a restart.
  */
 export const MEMORIES = process.env.CHLOE_MEMORY || `${STATE}/memory`;

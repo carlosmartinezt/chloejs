@@ -44,50 +44,103 @@ import { type Bound, type Button, commands, defineChannel, type Incoming, inPiec
 const MAX_MESSAGE = 3500; // Telegram rejects anything over 4096, and the tags added below count.
 const WAIT = 50; // Seconds Telegram holds a poll open when there is nothing new.
 
-/**
- * How an agent is put on Telegram: who may reach it, and whether messages are
- * fetched or posted.
- */
+/** The options for `telegramChannel()`: who may reach the agent, and how messages arrive. */
 export interface TelegramOptions extends Shared {
   /**
-   * "telegram" unless the agent has two bots. It is what the log shows a run
-   * came in on, and the start of every address on this bot, like "telegram:123".
+   * The channel's name. Default: "telegram".
+   *
+   * Set it only when the agent has two Telegram bots, because two channels of
+   * one agent cannot share a name. The name shows in the log, and it is the
+   * first part of every address on this bot, like `telegram:123456789`.
    */
   name?: string;
-  /** For spotting a mention in a group. Asked of Telegram when left out. */
+  /**
+   * The bot's username, used to notice when somebody mentions the bot in a
+   * group. If not set, it is asked from Telegram when the channel starts.
+   */
   botUsername?: string;
-  /** Instead of the token in settings. Without a secret, webhook mode makes a new one each start. */
+  /**
+   * The bot's secrets, if you do not keep them in settings.
+   *
+   * - `botToken`: used in place of `agents.<id>.telegram` in settings.
+   * - `webhookSecretToken`: the secret Telegram sends with each message in
+   *   "webhook" mode. If not set, a new random one is made each time the
+   *   channel starts.
+   *
+   * Read them from `process.env`. Never write a token in the file itself.
+   */
   credentials?: { botToken?: string; webhookSecretToken?: string };
-  /** Telegram user ids that may reach the agent. */
+  /**
+   * The Telegram user ids allowed to talk to the agent, in any chat,
+   * including groups. Default: `[]` (nobody).
+   *
+   * Anybody can find a bot and message it, so leave this empty only at
+   * first: until it has an id, the bot answers a private message with the
+   * sender's user id, so you can add it.
+   *
+   * The first id counts as the agent's owner. Their messages can use the
+   * tools only the owner may use, and jobs ask them when they name nobody.
+   */
   allowFrom?: number[];
   /**
-   * In a group, "when-addressed" (the default) answers only a command, a
-   * mention or a reply to the bot. "always" answers every message from
-   * someone in allowFrom.
+   * Which messages in a group get an answer. Default: "when-addressed".
+   *
+   * - "when-addressed": a `/command`, a mention of the bot, or a reply to it.
+   * - "always": every message from somebody in `allowFrom`. Telegram only
+   *   sends a bot every group message when its privacy mode is off (in
+   *   BotFather, send /setprivacy) or when it is a group admin.
    */
   inGroups?: "when-addressed" | "always";
-  /** How much of a chat's conversation a turn is shown: `{ messages, days }`. */
+  /**
+   * How much of the chat the agent sees with each new message:
+   * `{ messages, days }`. `messages` is the most it sees, and `days` leaves
+   * out anything older. Default: the last 10 messages.
+   */
   chatHistory?: ChatHistory;
-  /** Send what the model writes on its way to an answer as it writes it, not only the answer. Off unless true. */
+  /**
+   * Sends what the model writes before its final answer (like a "let me
+   * check" line) as soon as it is written. Off by default.
+   */
   sendWhileWorking?: boolean;
   /**
-   * Seconds to wait before handling a text message, so that anything else sent
-   * in the same chat inside that time is handled as one message, joined by a
-   * blank line in the order it arrived. A share that arrives as two messages (a
-   * quote and a comment) is what this is for, and so is a person who writes a
-   * sentence, sends it, and then adds the rest.
+   * Seconds to wait before handling a text message. Default: 1.
    *
-   * One second by default, which is long enough to catch a second message
-   * somebody was already typing and short enough that nobody waits on it. Zero
-   * handles each message on its own. A message carrying a file is never held.
+   * Any more messages sent in the same chat in that time are joined to it,
+   * with a blank line between them, and handled as one message. The wait
+   * starts again with each new message. This helps when somebody shares
+   * something that arrives as two messages, or sends a sentence and then the
+   * rest.
+   *
+   * `0` handles each message on its own. A message with a file is never held.
    */
   stackWithin?: number;
+  /**
+   * How messages arrive. Default: "polling".
+   *
+   * - "polling": chloe asks Telegram for new messages. Nothing on your
+   *   machine needs to be reachable from the internet, and messages sent
+   *   while chloe is down arrive when it starts again.
+   * - "webhook": Telegram sends each message to `publicUrl` +
+   *   `/chloe/v1/<agent id>/<channel name>`, which must be reachable from the
+   *   internet. chloe registers that address with Telegram when the channel
+   *   starts.
+   */
   mode?: "polling" | "webhook";
-  /** Where this server is reachable from outside, for mode "webhook", like "https://agents.example.com". */
+  /**
+   * The address where this server can be reached from the internet, like
+   * "https://agents.example.com". Required when `mode` is "webhook".
+   */
   publicUrl?: string;
-  /** Which files are taken, and how big. Anything else is named to the agent but not handed over. */
+  /**
+   * Which files the agent receives, and how big they may be.
+   *
+   * - `allowedMediaTypes`: default `["image/*", "application/pdf", "text/*"]`.
+   * - `maxBytes`: default 10 MB (`10 * 1024 * 1024`).
+   *
+   * The agent is told the name of any other file, but does not receive it.
+   */
   uploadPolicy?: { allowedMediaTypes?: string[]; maxBytes?: number };
-  /** Where Telegram is. Only the tests change it. */
+  /** The address of Telegram's API. Default: "https://api.telegram.org". Only the tests change it. */
   api?: string;
 }
 
@@ -126,7 +179,22 @@ interface Update {
   callback_query?: { id: string; from: User; data?: string; message?: TgMessage };
 }
 
-/** An agent on Telegram, as a channel its own `agent.ts` names. */
+/**
+ * Puts an agent on Telegram. Add it to the `channels` list in the agent's
+ * `agent.ts`:
+ *
+ * ```ts
+ * channels: [telegramChannel({ allowFrom: [111111111] })],
+ * ```
+ *
+ * The bot's token goes in settings in `chloe.config.ts`, as
+ * `agents: { <id>: { telegram: process.env.CHLOE_AGENTS_<ID>_TELEGRAM } }`,
+ * with the token itself in `.env`. To make a bot, message BotFather in
+ * Telegram and send /newbot. It replies with the token.
+ *
+ * Each agent needs its own bot. A bot that another agent already uses is
+ * ignored, with a line in the log.
+ */
 export function telegramChannel(options: TelegramOptions = {}): Channel {
   return defineChannel("telegram", options, ({ agent, agentId, name, bound }) => {
     const token = options.credentials?.botToken || settings.agents[agentId]?.telegram || "";

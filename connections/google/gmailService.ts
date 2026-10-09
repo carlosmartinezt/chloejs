@@ -21,13 +21,24 @@ import { explain, googleApi, marked } from "./googleService.ts";
 
 export { explain };
 
-/** One message from a mailbox, as a search hands it back. */
+/**
+ * One email in the list `readEmailMessages` returns.
+ *
+ * `subject`, `from` and `snippet` come wrapped in
+ * `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` markers, because someone else wrote them.
+ */
 export interface Message {
+  /** The email's id. Pass it to `readOneEmailMessage` to read the whole email. */
   id: string;
+  /** The id of the conversation (thread) the email is in. */
   threadId?: string;
+  /** The subject line. */
   subject?: string;
+  /** The sender, as the From line writes it, such as `Ana <ana@example.com>`. */
   from?: string;
+  /** When it was sent, as the Date line writes it, such as `Tue, 6 Oct 2026 09:12:00 -0400`. */
   date?: string;
+  /** The first words of the email, as Gmail shows them in a list. */
   snippet?: string;
 }
 
@@ -108,7 +119,25 @@ function header(headers: Part["headers"], name: string): string {
   return headers?.find((one) => one.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
 }
 
-/** What the bound search matches. Nothing here widens it. */
+/**
+ * Lists recent emails that match a Gmail search.
+ *
+ * - `search`: the search, written as in Gmail's search box, such as `"in:inbox"` or `"from:alerts@example.com"`. Required.
+ * - `days`: how many days back to look. Default: 7.
+ * - `limit`: the most emails to return. Default: 10.
+ *
+ * Returns `{ query, count, messages }`: the search that ran (your `search`
+ * plus `newer_than:<days>d`), how many emails it found, and the emails. Each
+ * email's `subject`, `from` and `snippet` come wrapped in
+ * `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` markers, because someone else wrote them.
+ *
+ * `readOneEmailMessage` only reads emails that a search with the same `search`
+ * listed. So write `search` in your code, not from text a model or an email
+ * gave you.
+ *
+ * Throws `NeedsSignIn` when someone has to sign in to Google (nobody has yet,
+ * or the sign-in expired). Throws an `Error` for any other problem with Google.
+ */
 export async function readEmailMessages({
   search,
   days = 7,
@@ -167,10 +196,22 @@ function attachmentsOf(part: Part | undefined): string[] {
 }
 
 /**
- * One message in full. An id this binding has never listed is refused, which is
- * what makes the binding a boundary rather than a filter. Same check as the
- * tool, because a job is not more trusted than a model here: it is only more
- * predictable.
+ * Reads one whole email.
+ *
+ * - `search`: the same Gmail search you gave `readEmailMessages`. Required.
+ * - `what`: a short name for those emails, used in the error message, such as `"the backup alerts"`. Required.
+ * - `messageId`: the email's id, from the list `readEmailMessages` returned. Required.
+ * - `days`, `limit`: used only when this `search` has not listed the id since chloe started. Then the search runs again with them, and the email is read only if it is in the list. Default: 7 and 10.
+ *
+ * Returns `{ query, message }`. `message` has `id`, `threadId`, `date`,
+ * `from`, `to`, `subject`, `labels`, `attachments` (the file names) and `body`
+ * (the plain text; for an email with only HTML, the HTML without its tags).
+ * `from`, `to`, `subject` and `body` come wrapped in
+ * `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` markers, because someone else wrote them.
+ *
+ * Throws if the email is not one this `search` lists, so a wrong or made-up id
+ * cannot read other mail. Throws `NeedsSignIn` when someone has to sign in to
+ * Google, and an `Error` for any other problem with Google.
  */
 export async function readOneEmailMessage({
   search,
@@ -293,13 +334,22 @@ export function rawMail({
 }
 
 /**
- * Send one mail as the signed-in account.
+ * Sends one email from the Google account chloe is signed in to. It comes
+ * from that account's own address, and replies go to that account's inbox.
+ * `deliverEmail` calls this when `email.provider` is `"gmail"`.
  *
- * What `email.provider` of `"gmail"` reaches, so a copy that already has a
- * Google sign-in needs no second account anywhere to send from. It sends as
- * the person, from their own address, which is the difference from Resend: a
- * reply lands in their own mailbox and the mail reads as theirs. That is a
- * reason to choose it and a reason not to.
+ * - `to`: the addresses it goes to. Required.
+ * - `subject`: the subject line. Required.
+ * - `text`: the body as plain text. Required.
+ * - `html`: the body as HTML. If set, the email holds both, and the mail app picks one.
+ * - `replyTo`: where replies go. If not set, replies go to the sender.
+ * - `from`: the From line. If not set, the signed-in account.
+ *
+ * Returns `{ id }`, the id Gmail gave the sent email.
+ *
+ * Throws if `from`, `to`, `replyTo` or `subject` has a line break in it, and
+ * nothing is sent. Throws `NeedsSignIn` when someone has to sign in to Google,
+ * and an `Error` for any other problem with Google.
  */
 export async function sendGmail({
   to,
@@ -315,8 +365,9 @@ export async function sendGmail({
   html?: string;
   replyTo?: string[];
   /**
-   * The From line. Google only allows the signed-in account or an alias it has
-   * verified, and sends anything else as the account itself.
+   * The From line. Google only keeps an address that is the signed-in account
+   * or an alias set up in Gmail. It sends anything else from the signed-in
+   * account.
    */
   from?: string;
 }): Promise<{ id: string }> {

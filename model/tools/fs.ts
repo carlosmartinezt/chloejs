@@ -10,16 +10,31 @@ import { z } from "zod";
 
 import * as files from "#chloe/services/filesService";
 
-/** `what` names the folder in the tool's description, e.g. "the shared notes". */
+/** The folder a file tool works in. Every `fs` tool takes these two options. */
 interface Folder {
+  /**
+   * The full path of the folder the model can use, such as `"/srv/notes"`.
+   * The model cannot reach anything outside it, even through a link. Files
+   * and folders named `.git`, `.ssh`, `secrets` and `node_modules` are always
+   * refused. Required.
+   */
   root: string;
+  /** A few words for the folder, such as `"the shared notes"`. Used in the tool's description for the model. Required. */
   what: string;
 }
 
 /**
- * A tool that lists what is in one folder, and nothing outside it. Its
- * overview is the folder's folders, two levels down, so a model knows the
- * layout before its first call.
+ * Makes a tool that lets the model list the files and folders in one folder
+ * inside `root`. Hidden files (names starting with `.`) are left out.
+ *
+ * The model also gets a map of the folders in `root`, two levels deep, at the
+ * start of each reply, so it knows the layout before its first call.
+ *
+ * Needs no connection.
+ *
+ * ```ts
+ * tools: { fsListFiles: fs.listFiles({ root: "/srv/notes", what: "the shared notes" }) }
+ * ```
  */
 export function listFiles({ root, what }: Folder) {
   const list = tool({
@@ -43,9 +58,13 @@ export function listFiles({ root, what }: Folder) {
 }
 
 /**
- * A tool that reads one file inside that folder, or part of it. `limit` is
- * how many characters an unranged read returns before it is cut at a line
- * and says so: 40,000 (about 10,000 tokens) unless the binding says otherwise.
+ * Makes a tool that lets the model read one file inside `root`, or some of
+ * its lines.
+ *
+ * `limit` is the most characters the model gets when it reads a whole file.
+ * A longer file is cut at the end of a line, and the model is told how many
+ * lines the file has, so it can ask for the part it needs. Default: 40,000
+ * (about 10,000 tokens).
  */
 export function readFile({ root, what, limit = 40_000 }: Folder & { limit?: number }) {
   return tool({
@@ -63,9 +82,13 @@ export function readFile({ root, what, limit = 40_000 }: Folder & { limit?: numb
 }
 
 /**
- * A tool that searches the text of the files in that folder. `around` is how
- * many lines either side of each match come back with it: 2 unless the
- * binding says otherwise.
+ * Makes a tool that lets the model search the text of the files inside
+ * `root`. The search ignores upper and lower case, and looks for the exact
+ * words given (not a pattern). Each result has its file and line number.
+ *
+ * `around` is how many lines before and after each match the model gets with
+ * it. Default: 2. The model gets at most 5 matches per file, and 30 in all
+ * (80 when `around` is 0).
  */
 export function searchFiles({ root, what, around = 2 }: Folder & { around?: number }) {
   return tool({
@@ -82,9 +105,18 @@ export function searchFiles({ root, what, around = 2 }: Folder & { around?: numb
 }
 
 /**
- * `commit` makes every write a git commit, for a folder that is a repo, under
- * `author` when there is one. `memory` says this folder is the agent's memory,
- * so the run writing it lists the commit.
+ * Makes a tool that lets the model write one file inside `root`. It replaces
+ * the whole file, or adds to its end. Missing folders are made.
+ *
+ * Options, besides `root` and `what`:
+ * - `commit`: set to `true` to save each write as a git commit, with a commit
+ *   message the model must write. Off by default. `root` must be inside a git
+ *   repository, or the file is written but not committed.
+ * - `author`: the name the commits are made under, such as the agent's id.
+ *   Default: this machine's own git name.
+ * - `memory`: set to `true` when `root` is the agent's memory folder, so each
+ *   commit is listed on the run that made it. Off by default. Only matters
+ *   with `commit`.
  */
 export function writeFile({
   root,
@@ -110,7 +142,13 @@ export function writeFile({
   });
 }
 
-/** A tool that changes one part of a file in that folder. `commit`, `author` and `memory` are as for writeFile. */
+/**
+ * Makes a tool that lets the model change one part of a file inside `root`.
+ * The model gives the exact text to replace and the new text. The old text
+ * must appear in the file exactly once, or the change is refused.
+ *
+ * `commit`, `author` and `memory` work as for `fs.writeFile`.
+ */
 export function editFile({
   root,
   what,

@@ -126,14 +126,17 @@ function shortlist(): string[] {
 }
 
 /**
- * Ask the gateway what it carries, for the list somebody picks from, and what
- * each model costs, for a call on a provider's own key. Called at startup and on
- * each reload, never from a request: a slow gateway must not hold up a page, and
- * until it answers the offer is the shortlist and the agents' own models. The
- * address is the chat one with its last part swapped, which is the same for
- * every gateway that speaks this shape. Asked with no gateway key too when
- * anything goes by the direct route, because the list is public and its
- * prices are what such a call is charged at.
+ * Fetches the gateway's list of models and their prices.
+ *
+ * The list is what people can pick a model from (with `/models` in a chat, or
+ * on the dashboard) when `model.models` in settings is empty. The prices are
+ * used to work out what a call on a provider's own key cost. The address is
+ * `model.gatewayUrl` with `/chat/completions` at the end changed to `/models`.
+ *
+ * chloe's server calls this when it starts and each time it reloads the
+ * config. Call it yourself only in a script that asks models without the
+ * server. It never throws: if the gateway does not answer, the list stays
+ * short until the next try.
  */
 export async function learnModels(): Promise<void> {
   forgetOpencodeModels();
@@ -177,12 +180,13 @@ export function models(agent?: Agent): Offered[] {
   return out;
 }
 
-/** A file handed to the model with a message: a photo or a PDF. */
+/** A file sent to the model with a message, such as a photo or a PDF. */
 export interface Attachment {
-  /** Like "image/jpeg" or "application/pdf". */
+  /** The file's type, such as `"image/jpeg"` or `"application/pdf"`. Required. */
   mediaType: string;
-  /** The file, base64. */
+  /** The file's contents, as base64 text. Required. */
   data: string;
+  /** The file's name, if you know it. */
   filename?: string;
 }
 
@@ -222,8 +226,11 @@ export interface Answer {
 }
 
 /**
- * The plan behind a route has run out for now, so every call fails until it
- * resets. The message is written to be shown to whoever is waiting on a reply.
+ * Thrown when the subscription a model is reached through, such as a Claude
+ * plan, has hit its usage limit. Every call fails until the limit resets.
+ *
+ * The message is written for the person waiting for a reply, and a chat sends
+ * it to them as the reply.
  */
 export class UsageLimit extends Error {}
 

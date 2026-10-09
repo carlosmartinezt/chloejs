@@ -24,231 +24,425 @@
 import "./env.ts";
 
 /**
- * How a model is reached, and so which account pays for it. "claude" is the
- * Claude Code CLI on a Claude subscription, "codex" the Codex CLI on a ChatGPT
- * plan, "opencode" the opencode CLI on whatever it is signed in to, "direct"
- * the provider's own API on its own key in `model.keys`, and "gateway" a
- * gateway on its key. The last two are charged per call. The list is also what
- * a value handed over from .env is checked against, so the words and the type
- * cannot disagree.
+ * Every way chloe can reach a model: "claude", "codex", "opencode", "direct"
+ * and "gateway". Each one also decides which account pays. See
+ * `model.preferredRoute` in `Settings` for what each one means.
  */
 export const ROUTES = ["claude", "codex", "opencode", "direct", "gateway"] as const;
 
-/** The providers whose own API a model can be reached on by name, with a key in `model.keys`. */
+/** The providers you can give your own API key for, in `model.keys`. */
 export const PROVIDERS = ["anthropic", "openai"] as const;
+/** A provider you can give your own API key for: "anthropic" or "openai". */
 export type Provider = (typeof PROVIDERS)[number];
+/** One way to reach a model. See `model.preferredRoute` in `Settings`. */
 export type Route = (typeof ROUTES)[number];
 
-/** Who carries an agent's mail. */
+/** Every value `email.provider` can take. */
 export const EMAIL_PROVIDERS = ["resend", "gmail", "none"] as const;
+/** The service that sends mail: "resend", "gmail" or "none". See `email.provider` in `Settings`. */
 export type EmailProvider = (typeof EMAIL_PROVIDERS)[number];
 
-/** One agent's own settings: its channels' tokens, and nothing else. */
+/**
+ * One agent's channel tokens, set in `agents` in settings under the agent's
+ * `id`. A channel uses these when its own `credentials` option does not give
+ * a token. They are secrets: put them in `.env`.
+ */
 export interface AgentSettings {
-  /** Its Telegram bot's token, from @BotFather. */
-  telegram: string;
-  /** Its Slack app's two tokens: the bot token (xoxb-...) and the app token (xapp-...). */
-  slack: { bot_token: string; app_token: string };
   /**
-   * Its WhatsApp number: the number's id, a permanent token, and the app secret
-   * that signs what Meta posts in. All three are on the app's pages at
-   * developers.facebook.com.
+   * The token of the agent's Telegram bot. To get one, message @BotFather in
+   * Telegram and send `/newbot`. Default: "" (no Telegram bot).
    */
-  whatsapp: { phone_number_id: string; token: string; app_secret: string };
+  telegram: string;
+  /** The two tokens of the agent's Slack app. Default: both "". */
+  slack: {
+    /** The bot token. It starts with `xoxb-`. */
+    bot_token: string;
+    /** The app-level token. It starts with `xapp-`. chloe needs it to connect to Slack (Socket Mode). */
+    app_token: string;
+  };
+  /**
+   * The agent's WhatsApp number, on WhatsApp's own API. You find all three
+   * values on your app's pages at developers.facebook.com. Default: all "".
+   */
+  whatsapp: {
+    /** The id of the phone number. This is not the phone number itself. */
+    phone_number_id: string;
+    /** A permanent access token for the app. */
+    token: string;
+    /**
+     * The app secret. chloe uses it to check that each message really comes
+     * from Meta. Without it, every message is refused.
+     */
+    app_secret: string;
+  };
 }
 
-/** Every setting there is, with every one of them answered. */
+/**
+ * Every setting chloe has. In `chloe.config.ts`, write only the ones you want
+ * to change, in `settings: { ... }`. The rest keep their defaults.
+ *
+ * Put secrets (keys, tokens, passwords) in `.env`, and pass each one in with
+ * `process.env`, like
+ * `connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } }`.
+ * chloe never reads a setting from the environment by itself.
+ */
 export interface Settings {
-  /** Which model is asked, and how this box reaches it. */
+  /** Which models the agents use, and how chloe reaches them. */
   model: {
     /**
-     * The model an agent asks when its own `agent.ts` names none. Empty means
-     * every agent names its own, and one that does not is refused as it loads.
-     * Written by `npx chloe setup`, so a new project has the model it chose in
-     * one place rather than in every agent.
+     * The model an agent uses when its `agent.ts` does not set one, like
+     * "anthropic/claude-sonnet-5". Default: "" (none).
+     *
+     * With no default, every agent must set its own model, or it fails to
+     * load. `npx chloe setup` writes this for you.
      */
     defaultModel: string;
     /**
-     * Which way of reaching a model to try first, then next. The first one that
-     * can carry the model's provider and is set up here is the one it goes by,
-     * so a Claude subscription is used before a key that charges per call. A
-     * route this box has no credential for is skipped.
+     * The order in which chloe tries the ways to reach a model. For each call,
+     * it uses the first one that can run the model's provider and is set up on
+     * this machine (its program is installed, or its key is set). The others
+     * are skipped.
+     *
+     * Default: `["claude", "codex", "opencode", "direct", "gateway"]`, so a
+     * subscription is used before a key that charges per call.
+     *
+     * - "claude": the Claude Code CLI, on a Claude subscription. Anthropic models only.
+     * - "codex": the Codex CLI, on a ChatGPT plan. OpenAI models only.
+     * - "opencode": the opencode CLI, with any provider it is signed in to.
+     * - "direct": the provider's own API, with your key in `model.keys`. Charged per call.
+     * - "gateway": the gateway at `model.gatewayUrl`, with the key in `model.key`.
+     *   Any provider. Charged per call.
+     *
+     * A model given in `agent.ts` as an AI SDK model, like
+     * `anthropic("claude-opus-5-5")`, always goes "direct", whatever this says.
      */
     preferredRoute: Route[];
     /**
-     * The shortlist somebody may pick from for a chat, an agent or a job, on top
-     * of the ones the agents already name. Empty asks each route what it has
-     * instead, which is every model this box can reach and usually hundreds, so
-     * this is for cutting that down to the few worth offering. Only models this
-     * box can actually run are offered either way.
+     * The models you can pick from when you change the model of a chat, an
+     * agent or a job (with `/models` in a chat, or on the dashboard). The
+     * models the agents and jobs already use are always on the list too.
+     *
+     * Default: `[]`. Empty lists every model this machine can reach, which is
+     * often hundreds. Either way, only models this machine can run are listed.
      */
     models: string[];
-    /** Any gateway that speaks the OpenAI chat-completions shape. */
+    /**
+     * The address of the gateway for the "gateway" route. Any gateway that
+     * takes OpenAI-style chat completions requests works. The address ends in
+     * `/chat/completions`.
+     * Default: "https://ai-gateway.vercel.sh/v1/chat/completions".
+     *
+     * chloe also asks this gateway for its list of models and their prices
+     * (at `/models` in place of `/chat/completions`). It uses the prices to
+     * work out what a call with `model.keys` cost.
+     */
     gatewayUrl: string;
-    /** The gateway's key. Empty means no gateway, so via "" picks the CLI. */
+    /**
+     * The key for the gateway at `model.gatewayUrl`. It is a secret: put it in
+     * `.env`. Default: "" (none). With no key, the "gateway" route is skipped.
+     */
     key: string;
     /**
-     * Each provider's own key, from its console, for its models on its own
-     * API: the "direct" route. Empty means that provider is reached some other
-     * way. The claude command is never handed the Anthropic one, so a
-     * subscription stays a subscription.
+     * Your own API key for each provider, `anthropic` and `openai`, from the
+     * provider's console. With a key, chloe can send that provider's models
+     * straight to its API (the "direct" route). Each call is charged.
+     * Default: "" for both (none).
+     *
+     * They are secrets: put them in `.env`. The "claude" route never gets the
+     * Anthropic key, so the Claude Code CLI stays on your subscription.
      */
     keys: Record<Provider, string>;
-    /** Who marks an eval. Cheaper than the agent being marked, on purpose. */
+    /**
+     * The model that grades the agent's answers when you run
+     * `npx chloe evals`. Default: "anthropic/claude-sonnet-5".
+     */
     judgeModel: string;
     /**
-     * Who names a conversation started on the page, from the first thing said
-     * in it, while the agent answers. Small and quick on purpose. Empty leaves
-     * them unnamed, and the list calls each by when it last moved.
+     * The model that gives each new conversation in the dashboard chat a
+     * short name, from its first message. A small, fast model is enough.
+     * Default: "anthropic/claude-haiku-4.5".
+     *
+     * Set it to "" to turn naming off. The conversations are then listed by
+     * the time of their last message.
      */
     namingModel: string;
     /**
-     * The program each CLI route runs, for one installed under another name or
-     * somewhere off the path. A route whose program is not there is skipped.
+     * The command each CLI route runs. Change one if the program has another
+     * name, or is not on the PATH (then give its full path). If chloe cannot
+     * find a program, it skips that route.
+     * Default: `{ claude: "claude", codex: "codex", opencode: "opencode" }`.
      */
-    program: { claude: string; codex: string; opencode: string };
+    program: {
+      /** The command for the "claude" route. Default: "claude". */
+      claude: string;
+      /** The command for the "codex" route. Default: "codex". */
+      codex: string;
+      /** The command for the "opencode" route. Default: "opencode". */
+      opencode: string;
+    };
   };
-  /** How an agent's mail goes out. */
+  /** How mail is sent. */
   email: {
     /**
-     * Who carries an agent's mail. Its key is in that provider's own
-     * section. "none" writes the message to the log and sends nothing, which
-     * is what a test run and a box with no mail account use.
+     * The service that sends mail when a job calls `deliverEmail()` without
+     * naming a service. Default: "resend".
+     *
+     * - "resend": sends through Resend, with `connections.resend.api_key`.
+     * - "gmail": sends from the Google account in `connections.google`.
+     * - "none": sends nothing. It only writes the subject and the receivers
+     *   to the log. Use it for tests, or on a machine with no mail account.
+     *
+     * The `gmail.sendEmail` and `resend.sendEmail` tools always use their own
+     * service. But with "none", nothing is sent at all, not even by them.
      */
     provider: EmailProvider;
   };
   /**
-   * The outside accounts a tool works through, one section each. A tool names
-   * the one it needs, and the setup page lists what each is missing.
+   * The outside services that tools and channels work through, one section
+   * each. The Connections page on the dashboard shows what each one still
+   * needs.
    */
   connections: {
-    /** Sending mail through Resend. */
+    /** Resend, a service that sends email. */
     resend: {
-      /** The key an agent's mail is sent with. Without one, nothing is sent. */
+      /**
+       * Your Resend API key. Everything sent through Resend needs it: the
+       * `resend.sendEmail` tool, `deliverEmail()` when `email.provider` is
+       * "resend", and the alerts. It is a secret: put it in `.env`.
+       * Default: "" (none). Without it, sending through Resend fails with an
+       * error that says where to put the key.
+       */
       api_key: string;
       /**
-       * Mail when somebody signs in from an address this copy has not seen,
-       * when one is locked out for guessing, and when a job starts failing or
-       * works again (once each, never on every failure). Always sent through Resend,
-       * whatever email.provider says, so it needs api_key. Off, the sign-in is
-       * still recorded.
+       * Turns on alert emails. chloe sends one when:
+       * - someone signs in to the dashboard from an IP address it has not seen before,
+       * - an IP address is locked out after too many wrong passwords,
+       * - a job starts failing, and again when it works (one email each time,
+       *   not one per failure).
+       *
+       * On by default. An alert is sent only when `api_key`, `email_to` and
+       * `email_from` are all set. Alerts always go through Resend, even when
+       * `email.provider` is "gmail". With alerts off, each sign-in is still
+       * recorded.
        */
       alerts: boolean;
-      /** Where an alert goes, one address or several split by commas. */
+      /**
+       * Where alerts go: one email address, or several separated by commas.
+       * Default: "" (none, so no alerts are sent).
+       */
       email_to: string;
-      /** An alert's From line, e.g. "Chloe <info@example.com>", on a domain Resend sends for. */
+      /**
+       * The From line of an alert, like "Chloe <info@example.com>". It must be
+       * on a domain your Resend account can send from. Default: "" (none, so
+       * no alerts are sent).
+       */
       email_from: string;
     };
-    /** Signing in to Google, for the tools that reach mail, a calendar or files. */
+    /**
+     * Your Google sign-in. The Gmail, Calendar and Drive tools use it, and so
+     * do `email.provider: "gmail"` and the email channel with
+     * `mailbox: "gmail"`.
+     */
     google: {
-      /** The account that gets signed in, and the one a mail tool reads from. */
+      /**
+       * The Google account to sign in to, like "you@gmail.com". Everything
+       * that uses Google works as this account. Default: "" (none, so nothing
+       * can sign in to Google).
+       *
+       * If you change it, someone has to sign in again.
+       */
       account: string;
       /**
-       * What this copy signs in with, in whichever of the three forms is in
-       * front of you: the client Google's console downloads, pasted in here as
-       * it is, the path to that file, or its contents as one string.
+       * The Google app that chloe signs in with: an OAuth client, which you
+       * make once in the Google Cloud console. Give it in one of three forms:
+       * - the JSON file the console downloads, pasted here as an object,
+       * - the path to that file,
+       * - the file's contents as one string.
        *
-       * It keeps the console's own shape, a `web` or an `installed` section,
-       * because which of the two it is decides where Google will agree to send
-       * its answer and nothing else says which it is.
+       * Default: "" (none, so nobody can sign in to Google). It is a secret:
+       * put it in `.env`.
        *
-       * There is no passphrase setting beside it: the runtime makes that
-       * itself, in the state folder. Two copies of one passphrase is how a
-       * sign-in that works comes to look like one that has expired.
+       * Keep the file as the console wrote it, with its `web` or `installed`
+       * section. That section decides where Google may send the person after
+       * they sign in (see `callback`). A client made as a "Web application" is
+       * the easiest to use.
+       *
+       * After a sign-in, chloe saves the key Google gives it in the state
+       * folder. You do not set that key anywhere.
        */
       client: string | Record<string, unknown>;
       /**
-       * Where Google sends its answer. Empty and connected to a dashboard, the
-       * dashboard catches it and the sign-in finishes on its own. Empty and not
-       * connected, the answer goes to a port on this machine that the person's
-       * browser cannot reach, so they paste the address back instead.
+       * The address Google sends the person to after they approve the sign-in.
+       * Default: "" (chloe picks the address from the kind of `client`):
+       * - a "web" client: https://chloejs.org/connected, a page that shows a
+       *   short code. The person sends that code back to the agent in the chat.
+       * - an "installed" (desktop) client: a port on this machine,
+       *   http://127.0.0.1:33067/oauth2/callback. The browser shows an error
+       *   page there, and the person copies the whole address from the
+       *   browser and sends it back to the agent.
+       *
+       * With a remote dashboard, you can set it to
+       * `<dashboard.remote.url>/oauth/google/callback/<workspace>` and turn on
+       * `dashboard.remote.allow.google`. The sign-in then finishes by itself.
+       *
+       * For a "web" client, you must also add the address to the client in
+       * the Google Cloud console.
        */
       callback: string;
-      /** The Analytics service account's key, handed to scripts as GA_KEY_FILE. */
+      /**
+       * The path to a Google Analytics service account key file. chloe does
+       * not read it. It passes it to every script an agent runs (with
+       * `scriptRun` or `runScripts()`), as the environment variable
+       * `GA_KEY_FILE`. Default: "" (scripts do not get it).
+       */
       GA_KEY_FILE: string;
     };
   };
   /**
-   * Each agent's own settings, under the name in its `agent.ts`. Read by that
-   * name when the channel starts, so renaming an agent means renaming its entry
-   * here, and the server says so when an entry names no agent.
+   * Each agent's channel tokens, under the agent's `id` from its `agent.ts`.
+   * Default: `{}` (none).
+   *
+   * They are secrets: put them in `.env`, like
+   * `agents: { shop: { telegram: process.env.CHLOE_AGENTS_SHOP_TELEGRAM } }`.
+   *
+   * If you rename an agent, rename its entry here too. chloe writes a warning
+   * to its log when an entry matches no agent.
    */
   agents: Record<string, AgentSettings>;
   /**
-   * A dashboard somewhere else that this runtime connects out to, beside the
-   * page on its own port. Nothing about how a job runs depends on it.
+   * A remote dashboard. chloe always serves its own dashboard on its own
+   * port. These settings are only for a second dashboard on another server.
    */
   dashboard: {
     /**
-     * A dashboard somewhere else that this runtime connects out to. Without an
-     * api_key there is none, and everything below does nothing.
+     * A dashboard on another server that chloe connects to, so you can see
+     * and use your agents from anywhere. chloe opens the connection itself,
+     * so you do not have to open a port on this machine.
+     *
+     * Off until you set `api_key`. How jobs run does not depend on it.
      */
     remote: {
       /**
-       * This workspace's key, from the remote dashboard. Without one there is
-       * no connection, and taking it out leaves everything running as it was.
-       * It is a key, so it goes in .env, and the config names it:
+       * Your workspace key, from the remote dashboard. Setting it turns the
+       * connection on. Removing it turns the connection off, and everything
+       * else keeps running. Default: "" (no connection).
+       *
+       * It is a secret: put it in `.env`, like
        * `dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } }`.
        */
       api_key: string;
-      /** Where the remote dashboard is. Point it at your own by setting this. */
+      /**
+       * The address of the remote dashboard. Change it to use a dashboard you
+       * run yourself. Default: "https://dashboard.chloejs.org".
+       *
+       * When `api_key` is set, the WhatsApp channel, and the email channel
+       * without `mailbox: "gmail"`, also use this address to collect their
+       * messages.
+       */
       url: string;
-      /** What is sent up as it happens, so the remote dashboard can show it when this runtime is offline. */
+      /**
+       * What chloe sends to the remote dashboard as it happens, so the
+       * dashboard can show it while this machine is offline.
+       */
       upload: {
         /**
-         * Each run's facts when it starts and when it ends: when, which agent
-         * and job, the model, the steps, the cost, the error. Never what was
-         * said: that is `replies`.
+         * Sends the facts of each run when it starts and when it ends: when,
+         * which agent and job, the model, the steps, the cost and the error.
+         * It does not send what was said (see `replies`). On by default.
          */
         runs: boolean;
-        /** With `runs`, each run's reply and its one-line summary too, so the remote dashboard keeps what the agents said. */
+        /**
+         * Also sends each run's reply and its one-line summary, so the remote
+         * dashboard keeps what the agents said. Works only when `runs` is on.
+         * Off by default.
+         */
         replies: boolean;
-        /** Every agent's configuration, as GET /api/agents shows it, on connect and on each reload. */
+        /**
+         * Sends the setup of every agent (what `GET /api/agents` shows) when
+         * chloe connects, and each time the agents reload. On by default.
+         */
         agents: boolean;
       };
-      /** What the remote dashboard may ask over the connection. Each is a switch, and a request that needs one that is off is refused. */
+      /**
+       * What the remote dashboard may do. Each switch allows one group of
+       * requests. A request that needs a switch that is off is refused.
+       */
       allow: {
-        /** Read: the agents, the runs, the files, the conversations. */
+        /** Lets it read the agents, the runs, the files and the conversations. On by default. */
         read: boolean;
-        /** Talk to an agent. */
+        /** Lets it send messages to an agent. On by default. */
         chat: boolean;
-        /** Run a job now. */
+        /** Lets it start a job now. On by default. */
         run: boolean;
-        /** Read a memory. Every file is still written to the audit log first, saying it came through the remote dashboard. */
+        /**
+         * Lets it read an agent's memory. Each file it reads is still written to
+         * the memory log first, with a note that it came through the remote
+         * dashboard. Writing to a memory also needs `write`. Off by default.
+         */
         memory: boolean;
-        /** Write: a file, a memory file, an answer to a parked job, a model pick. */
+        /**
+         * Lets it change things, such as: write a file in an agent's folder,
+         * write a memory file (with `memory` on too), answer a job that is
+         * waiting for an answer, and pick a model. Off by default.
+         */
         write: boolean;
         /**
-         * Let the remote dashboard start and finish a connection's sign-in, and
-         * hand back the answer to a Google sign-in this runtime started, so
-         * nobody has to paste a code. Nothing else about Google comes through
-         * it, and a code that does not match the sign-in this runtime is
-         * waiting for is refused.
-         * Requires a callback set to: https://dashboard.chloejs.org/oauth/google/callback/<workspace>
+         * Lets it start and finish the sign-in to a connection, and pass back
+         * Google's answer to a Google sign-in that chloe started, so nobody has
+         * to send a code back. Nothing else about Google goes through it. An
+         * answer that does not match the sign-in chloe is waiting for is
+         * refused. Off by default.
+         *
+         * For Google, also set `connections.google.callback` to
+         * `<url>/oauth/google/callback/<workspace>`. With the default `url`,
+         * that is `https://dashboard.chloejs.org/oauth/google/callback/<workspace>`.
          */
         google: boolean;
       };
     };
   };
   /**
-   * Where the one port listens: the page, the API and every channel route.
-   * Read as it starts, so a change takes a restart.
+   * Where chloe's web server listens. It serves the dashboard, the API, and
+   * the addresses some channels need. A change needs a restart.
    */
   serve: {
     /**
-     * 127.0.0.1 is this machine only, and nothing else can reach the port.
-     * "0.0.0.0" is every address the machine has, which a container needs so
-     * the machine around it can reach in. Do that only with a proxy in front
-     * and the port closed to everything else: the login lockout trusts the
-     * address the proxy writes, and is worth nothing if a stranger can skip it.
+     * The network address the server listens on. Default: "127.0.0.1", so
+     * only this machine can reach it.
+     *
+     * "0.0.0.0" listens on every address the machine has. A container needs
+     * this, so the machine around it can reach the server.
+     *
+     * Warning: use "0.0.0.0" only with a proxy in front and the port closed
+     * to everything else. The login lockout trusts the visitor's address that
+     * the proxy writes. It does not protect you if a stranger can reach the
+     * port without going through the proxy.
      */
     host: string;
-    /** The port. A host that hands out the port gives it as a variable: `port: Number(process.env.PORT)`. */
+    /**
+     * The port the server listens on. Default: 3067.
+     *
+     * If your host gives you the port in an environment variable, write
+     * `port: Number(process.env.PORT)`.
+     */
     port: number;
   };
-  /** Who a run belongs to when no channel has said, as `channel:who`. */
+  /**
+   * The owner of every agent's runs, written as `channel:id`, like
+   * "telegram:123456789". When a job stops to ask a question or to get a tool
+   * call approved, it asks this person. A message from this person counts as
+   * a message from the owner.
+   *
+   * Default: "" (none). Then each agent's owner is the first person in the
+   * `allowFrom` list of its channel.
+   */
   owner: string;
-  /** Which node the unit runs. Empty means whichever is on the path at install. */
+  /**
+   * The folder that holds the `node` program the background service runs,
+   * like "/usr/local/bin". Only `npx chloe install` reads it.
+   * Default: "" (the folder of the `node` found on the PATH when you run
+   * `npx chloe install`).
+   */
   node: string;
 }
 
@@ -319,32 +513,47 @@ const ONE_OF: Record<string, readonly string[]> = {
 type Deep<T> = T extends string | number | boolean | unknown[] ? T | undefined : { [K in keyof T]?: Deep<T[K]> };
 
 /**
- * What `chloe.config.ts` may declare: any part of the shape above, as deep as
- * it goes. What it leaves out is the default.
+ * The type of `settings` in `chloe.config.ts`. It has the same shape as
+ * `Settings`, but every part is optional, at every level. Anything you leave
+ * out keeps its default.
  */
 export type DeclaredSettings = { [K in keyof Settings]?: Deep<Settings[K]> };
 
 /**
- * The name to give a secret in .env: `CHLOE_` and its path in capitals,
- * `CHLOE_CONNECTIONS_RESEND_API_KEY` for `connections.resend.api_key`, with a dash as an underscore and
- * a capital inside a word split off. Only a name to suggest: the runtime never
- * reads it, the config does.
+ * Returns the name to give a secret in `.env`: `CHLOE_`, then each part of
+ * the setting's path in capitals, joined with `_`. For example,
+ * `["connections", "resend", "api_key"]` gives
+ * `CHLOE_CONNECTIONS_RESEND_API_KEY`.
+ *
+ * A capital letter inside a word starts a new part (`defaultModel` gives
+ * `DEFAULT_MODEL`), and any character that is not a letter or a digit becomes
+ * `_`.
+ *
+ * This is only a suggested name. chloe never reads it by itself: your config
+ * reads it, with `process.env`.
  */
 export function nameInEnv(path: string[]): string {
   return ["CHLOE", ...path.map((part) => part.replace(/([a-z0-9])([A-Z])/g, "$1_$2"))].join("_").toUpperCase().replace(/[^A-Z0-9_]/g, "_");
 }
 
 /**
- * The settings that are secrets: a config hands each one over as
- * `process.env.SOME_NAME`, from .env. `agents` is every agent's channel tokens.
+ * The settings that hold secrets, as paths with dots, like
+ * "connections.resend.api_key". Put each of these in `.env`, and pass it in
+ * from your config with `process.env`. "agents" means the channel tokens of
+ * every agent.
  */
 export const KEYS = ["model.key", "model.keys", "connections.resend.api_key", "connections.google.client", "dashboard.remote.api_key", "agents"];
 
 
 /**
- * Where a key goes, in words for whoever has to put it there: `in .env as
- * CHLOE_CONNECTIONS_RESEND_API_KEY, and in chloe.config.ts's settings as
- * \`connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } }\``.
+ * Returns a sentence that tells a person where to put a secret: its name in
+ * `.env`, and the line to write in `chloe.config.ts`. Use it in an error
+ * message about a missing key.
+ *
+ * @example
+ * whereKeyGoes(["connections", "resend", "api_key"]);
+ * // in .env as CHLOE_CONNECTIONS_RESEND_API_KEY, and in chloe.config.ts's settings as
+ * // `connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } }`
  */
 export function whereKeyGoes(path: string[]): string {
   const name = nameInEnv(path);
@@ -441,8 +650,13 @@ function wrong(defaults: unknown, said: unknown, path: string[] = []): string {
 }
 
 /**
- * What was declared, filled in from the defaults and checked. Takes the
- * declaration rather than reading it, so it can be tested without a disk.
+ * Returns the full settings: the defaults, with the values in `declared`
+ * written over them, one value at a time. It does not change `settings`.
+ *
+ * It checks `declared` first, and throws an error that says what is wrong:
+ * a name that is not a setting, a value of the wrong type, or a word that is
+ * not one of the allowed values. It also refuses `cloud`, `page` and
+ * `dashboard.local`, and says which settings to use.
  */
 export function readSettings(declared: unknown): Settings {
   const merged = (declared ?? {}) as Record<string, unknown>;
@@ -460,10 +674,12 @@ export function readSettings(declared: unknown): Settings {
 }
 
 /**
- * The settings in force: the schema's defaults, then what `chloe.config.ts`
- * declares. Read a value when it is needed rather than keeping a copy, because
- * `declareSettings` writes into this same object. Until the first
- * `declareSettings`, which is the first `loadAll()`, this is the defaults.
+ * The settings in use right now. They start as the defaults. When chloe reads
+ * `chloe.config.ts` (in `loadAll()` or `loadSettings()`), it writes the
+ * config's `settings` into this same object.
+ *
+ * So read a value at the moment you need it. Do not keep a copy: a copy does
+ * not change when the config changes.
  */
 export const settings: Settings = readSettings({});
 
@@ -482,9 +698,9 @@ function over(under: unknown, top: unknown): unknown {
 }
 
 /**
- * The settings `chloe.config.ts` declares, into the same `settings` everything
- * already holds. Called by `loadAll()` before any agent is resolved. Throws, and
- * changes nothing, when what it is given is not valid.
+ * Puts the `settings` from `chloe.config.ts` into `settings`, over the
+ * defaults. `loadAll()` and `loadSettings()` call it for you, before any agent
+ * loads. If a value is not valid, it throws and changes nothing.
  */
 export function declareSettings(said: DeclaredSettings | undefined): void {
   Object.assign(settings, readSettings(over(said ?? {}, held)));
@@ -501,7 +717,11 @@ export function holdSettings(these: DeclaredSettings): void {
   declareSettings(declared);
 }
 
-/** The entries in `agents` that name none of these agents: usually one that was renamed. */
+/**
+ * Returns the names in the `agents` setting that match none of `names` (the
+ * ids of the agents that loaded). Such an entry usually belongs to an agent
+ * that was renamed.
+ */
 export function unclaimed(names: string[]): string[] {
   return Object.keys(settings.agents).filter((name) => !names.includes(name));
 }

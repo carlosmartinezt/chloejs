@@ -21,26 +21,39 @@ import { google } from "./connection.ts";
 
 export type { SendOptions };
 
+/** The options for `gmail.readEmail`. */
 interface Options {
   /**
-   * Gmail query this agent may see, and nothing else. Set in its config.
-   * Unsaid it is `in:inbox`, which is the whole inbox: a binding of its own
-   * is what keeps the agent to one slice of the mailbox.
+   * The Gmail search that sets which mail the model can see, such as
+   * `"in:inbox label:orders"`. The model cannot change it. Default: `"in:inbox"`
+   * (the whole inbox).
+   *
+   * Set your own search to keep the agent to the part of the mailbox it needs.
    */
   search?: string;
-  /** How to describe that mail in the tool's description, in plain words. */
+  /**
+   * A few words for that mail, such as `"order emails"`. Used in the tool's
+   * description and messages to the model. Default: `"mail in the inbox"`.
+   */
   what?: string;
-  /** Days back when the agent does not say. */
+  /** How many days back to look when the model does not say. Default: 7. */
   days?: number;
 }
 
 /**
- * A tool that reads the mail the agent is bound to. The search is the
- * binding's, and the model chooses only how far back and how many.
+ * Makes a tool that lets the model read the agent's Gmail. The model lists
+ * recent messages, then can read one of them in full.
  *
- * It needs the google connection, so when nobody has signed in the runtime
- * sends the sign-in itself: mail that cannot be read because nobody has signed
- * in is not a different problem from mail, and there is nothing to add.
+ * `search` sets which mail the model can see, and the model cannot change it.
+ * The model chooses only how many days back (up to 365) and how many messages
+ * (up to 50, default 10). It can open only a message that this search lists.
+ *
+ * Needs the Google connection. If no one has signed in to Google, chloe sends
+ * the sign-in link in the chat.
+ *
+ * ```ts
+ * tools: { gmailReadEmail: gmail.readEmail({ search: "in:inbox label:orders" }) }
+ * ```
  */
 export function readEmail({
   search = "in:inbox",
@@ -70,37 +83,43 @@ export function readEmail({
   return Object.assign(read, { needs: google });
 }
 
+/** The options for `gmail.replyEmail`: the same as `gmail.readEmail`, plus these. */
 interface ReplyOptions extends Options {
-  /** When to use it, and anything about how to sound. In the agent's own words, shown to the model. */
+  /**
+   * When the model should use the tool, and how the replies should sound, in
+   * your own words. Added to the tool's description for the model. Not set by
+   * default.
+   */
   when?: string;
   /**
-   * The body is Markdown: sent as HTML with a plain text copy beside it. Off,
-   * it goes as written. A reply to a person usually reads better as plain text,
-   * so this is off unless the agent asks for it.
+   * Set to `true` to have the model write replies in Markdown. They are then
+   * sent as HTML, with a plain text copy. Off by default: the reply is sent as
+   * plain text, exactly as written, which usually reads better to a person.
    */
   markdown?: boolean;
   /**
-   * A folder in the agent's memory, like "outbox". Every reply sent is copied
-   * there as `<date>-<time>-<subject>.md`, so the agent can see what it already
-   * said before saying it again. Unsaid, nothing is kept.
+   * A folder in the agent's memory, such as `"outbox"`. Each reply sent is
+   * saved there as `<date>-<time>-<subject>.md`, so the agent can check what
+   * it already said. Not set by default: no copies are kept.
    */
   keep?: string;
 }
 
 /**
- * A tool that answers one of the messages the agent can already read.
+ * Makes a tool that lets the model reply to one of the messages it can read.
+ * The reply is sent from the signed-in Google account, in the same thread.
  *
- * It sends as the signed-in account, inside the original thread. **The address
- * is read off the message being answered and is never the model's to choose**,
- * so this grants the ability to answer somebody who wrote in, not the ability
- * to mail a stranger. That matters more here than anywhere else: the text the
- * model is reacting to was written by whoever sent the mail, so an instruction
- * buried in an email that talked the model into mailing an address of its own
- * choosing is the whole risk, and the only reliable answer is for the address
- * not to be an input.
+ * The model chooses the message and the words, never the address. **The reply
+ * always goes to the sender of that message** (or to its Reply-To address).
+ * So the model can answer people who wrote in, but cannot email anyone else.
+ * This matters because the email the model reads was written by somebody
+ * outside, and could hold instructions that try to make it write to another
+ * address.
  *
- * Give it the same `search` as the agent's `readEmail`, so the mail it can
- * answer is exactly the mail that search lists.
+ * Give it the same `search` as the agent's `gmail.readEmail`, so it can reply
+ * to exactly the mail that tool lists.
+ *
+ * Needs the Google connection.
  */
 export function replyEmail({
   search = "in:inbox",
@@ -165,8 +184,19 @@ export function replyEmail({
 }
 
 /**
- * Sends mail as the person signed in to Google, from the address the agent was
- * given, which has to be that account or an alias Google verified for it.
+ * Makes a tool that lets the model send an email from the signed-in Google
+ * account. You set the From line (`from`) and who it goes to (`to`). The model
+ * writes only the subject and the body.
+ *
+ * `from` must be the Google account's own address, or an alias Google has
+ * verified for it. If `email.provider` in settings is `"none"`, nothing is
+ * sent: the subject is only written to the log.
+ *
+ * Needs the Google connection.
+ *
+ * ```ts
+ * tools: { gmailSendEmail: gmail.sendEmail({ from: "Shop <you@gmail.com>", to: ["you@gmail.com"], when: "When an order fails." }) }
+ * ```
  */
 export function sendEmail(options: SendOptions) {
   return Object.assign(sendingTool("gmail", options), { needs: google });

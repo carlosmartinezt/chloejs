@@ -24,24 +24,54 @@ interface GoogleEvent {
   htmlLink?: string;
 }
 
-/** One event, as a list hands it back. */
+/** One event in the list `listCalendarEvents` returns. */
 export interface CalendarEvent {
+  /** The event's id in Google Calendar. */
   id: string;
+  /** The id of the calendar it is on, such as `"primary"`. */
   calendar: string;
+  /**
+   * The event's title, or `(no title)`. Wrapped in
+   * `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` markers, because someone else may have
+   * written it.
+   */
   title: string;
-  /** A time with its offset, or a date for an event that lasts all day. */
+  /**
+   * When it starts: a time with its offset, such as
+   * `2026-10-06T15:00:00-04:00`, or a day, such as `2026-10-06`, for an event
+   * that lasts all day.
+   */
   start: string;
+  /**
+   * When it ends, in the same form as `start`. For an event that lasts all
+   * day, this is the day after its last day.
+   */
   end: string;
+  /** Where it is, if set. Wrapped in `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` markers. */
   location?: string;
+  /** The event's description, if set. Wrapped in `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` markers. */
   details?: string;
-  /** How many people are on it, the account included. */
+  /** How many people are invited, the account itself included. Not set when nobody is invited. */
   people?: number;
+  /** A link that opens the event in Google Calendar. */
   link?: string;
 }
 
 /**
- * The events on these calendars from `from` for `days`, soonest first. What
- * somebody else wrote in an event is marked as theirs, because a model reads it.
+ * Lists the events on one or more Google calendars, soonest first.
+ *
+ * - `calendars`: the ids of the calendars to read. `"primary"` is the account's own calendar. Default: `["primary"]`.
+ * - `from`: when to start looking. Default: now.
+ * - `days`: how many days to look ahead from `from`. Default: 7.
+ * - `limit`: the most events to return, across all the calendars. Default: 50.
+ *
+ * Returns `{ from, to, events }`: the start and end of the time it looked at,
+ * as text such as `2026-10-06T19:00:00.000Z`, and the events. An event that
+ * repeats is listed once for each time it happens.
+ *
+ * Throws `NeedsSignIn` when someone has to sign in to Google. Throws an
+ * `Error` for any other problem with Google, such as a calendar id that does
+ * not exist.
  */
 export async function listCalendarEvents({
   calendars = ["primary"],
@@ -87,8 +117,22 @@ function when(value: string, what: string): When {
 }
 
 /**
- * Add one event to a calendar, with nobody invited, so nothing is sent to
- * anybody. Returns where it can be opened.
+ * Adds one event to a Google calendar. Nobody is invited, so no email is sent
+ * to anyone.
+ *
+ * - `calendar`: the calendar's id. Default: `"primary"`, the account's own calendar.
+ * - `title`: the event's title. Required.
+ * - `start`: when it starts. Required. Either a time with its offset, such as `"2026-10-06T15:00:00-04:00"`, or a day, such as `"2026-10-06"`, for an event that lasts all day.
+ * - `end`: when it ends, in the same form. Required. For an event that lasts all day, give the day after its last day.
+ * - `location`: where it is.
+ * - `details`: the event's description.
+ *
+ * Returns `{ added: true, id, link }`: the new event's id, and a link that
+ * opens it in Google Calendar.
+ *
+ * Throws if `start` or `end` is not in one of those two forms, and nothing is
+ * added. Throws `NeedsSignIn` when someone has to sign in to Google, and an
+ * `Error` for any other problem with Google.
  */
 export async function addCalendarEvent({
   calendar = "primary",

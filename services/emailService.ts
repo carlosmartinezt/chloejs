@@ -14,22 +14,36 @@ import { gmailProvider } from "#chloe/connections/google/gmailService";
 import { resendProvider } from "#chloe/connections/resend/resendService";
 
 /**
- * Who an agent's mail comes from, who it goes to, and the tag in front of
- * every subject.
+ * Who an email is from, who it goes to, and how it looks. You pass it to
+ * `deliverEmail`.
  */
 export interface EmailSender {
-  /** The From line, e.g. "Backups <info@example.com>". */
+  /**
+   * The From line, such as `"Backups <info@example.com>"`. Required.
+   *
+   * With the `"gmail"` provider, Google only keeps an address that is the
+   * signed-in account or an alias set up in Gmail. It sends anything else
+   * from the signed-in account.
+   */
   from: string;
-  /** Who it goes to. */
+  /** The addresses the email goes to. Required, with at least one address. */
   to: string[];
-  /** Prefix put in front of every subject, so an inbox can be filtered. */
+  /**
+   * A word put in square brackets at the start of every subject, so you can
+   * filter your inbox. With `"backups"`, the subject `Done` becomes
+   * `[backups] Done`. Off by default.
+   */
   tag?: string;
-  /** Where a reply goes, when not to `from`: a sending address that cannot receive mail needs this. */
+  /**
+   * Where replies go. If not set, replies go to `from`. Set it when the `from`
+   * address cannot receive mail.
+   */
   replyTo?: string[];
   /**
-   * The body is Markdown: it is sent as HTML with headings, lists, tables and
-   * links, plus a plain text copy without the symbols. Off, it is sent as
-   * written, as plain text only.
+   * Treats the body as Markdown. The email is sent as HTML (headings, lists,
+   * tables, links), plus a plain text copy without the Markdown symbols.
+   *
+   * Off by default: the body is sent as plain text, exactly as written.
    */
   markdown?: boolean;
 }
@@ -69,9 +83,22 @@ const providers: Record<typeof settings.email.provider, EmailProvider> = { resen
 export type SendingProvider = Exclude<typeof settings.email.provider, "none">;
 
 /**
- * Sends one email and returns its id. The tag is put in front of the subject.
- * It goes by `provider`, else by email.provider in settings, and by nothing
- * when settings say "none".
+ * Sends one email.
+ *
+ * - The first argument is an `EmailSender`: who it is from, who it goes to, and how it looks.
+ * - `subject`: the subject line. If the sender has a `tag`, `[tag] ` is put in front of it.
+ * - `body`: the text of the email. Plain text, or Markdown when the sender has `markdown: true`.
+ * - `provider`: the service that sends it, `"resend"` or `"gmail"`. If not set, it uses `email.provider` from the settings.
+ *
+ * Returns `{ sent: true, id, subject }`: the id the provider gave the email
+ * (if it gave one), and the subject as it was sent, with its tag.
+ *
+ * When `email.provider` in the settings is `"none"`, nothing is sent, even if
+ * you pass `provider`. The subject is only written to the log, and the result
+ * still says `sent: true`.
+ *
+ * Throws if `to` is empty, or if the provider fails (for example: there is no
+ * Resend key, or nobody has signed in to Google).
  */
 export async function deliverEmail(
   { from, to, tag, replyTo, markdown }: EmailSender,
@@ -115,10 +142,19 @@ const isRule = (row: string[]) => row.every((c) => /^[-: ]*$/.test(c));
 const BULLET = /^\s*[-*] /;
 
 /**
- * Markdown as email HTML: `##` headings, `-` lists, `|` tables, `>` quotes,
- * fenced code, **bold**, `code` and links. Lines next to each other are one
- * paragraph, so a body wrapped at any width reads as prose rather than as a
- * ragged line per paragraph. Only a blank line starts a new one.
+ * Turns Markdown into HTML for an email, with simple styles that mail apps show.
+ *
+ * - `markdown`: the Markdown text.
+ *
+ * It understands `#` headings, `-` and `*` lists, `|` tables, `>` quotes,
+ * code blocks between ```` ``` ```` lines, `**bold**`, `` `code` ``,
+ * `[words](address)` links and plain web addresses. A link works only for
+ * `http:`, `https:` and `mailto:` addresses. Any other link becomes plain words.
+ *
+ * Lines next to each other join into one paragraph. Only a blank line starts a
+ * new paragraph, so text wrapped at any width still reads as normal sentences.
+ *
+ * Returns the HTML as one string. It does not throw.
  */
 export function markdownToHtml(markdown: string): string {
   const out: string[] = [];
@@ -189,7 +225,14 @@ export function markdownToHtml(markdown: string): string {
   return `<div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;max-width:640px">${out.join("\n")}</div>`;
 }
 
-/** The same Markdown as plain text: no `#`, `**` or backticks, a table row as `a: b`, a link as `words (address)`. */
+/**
+ * Turns Markdown into plain text for an email.
+ *
+ * - `markdown`: the Markdown text.
+ *
+ * It removes `#`, `**` and backticks. A table row becomes `a: b`, and a link
+ * becomes `words (address)`. Returns the text. It does not throw.
+ */
 export function markdownToText(markdown: string): string {
   return markdown
     .split("\n")

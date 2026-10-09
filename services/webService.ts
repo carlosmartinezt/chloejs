@@ -11,14 +11,17 @@ import { request as http } from "node:http";
 import { request as https } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 
-/** One fetched web page as plain text, in slices when it is longer than one. */
+/** A web page that `readPage` read as text. A long page comes in parts, one part per call. */
 export interface Page {
+  /** The page's address, after any redirects. */
   url: string;
+  /** The HTTP status code the site answered with, such as `200`. A `404` page that is text is still returned. */
   status: number;
+  /** The page's title, if it has one. */
   title?: string;
-  /** The page as plain text, links written as `[text](url)`. */
+  /** This part of the page as plain text, up to 20,000 characters. Links on an HTML page are written as `[text](url)`. */
   text: string;
-  /** Where the next slice starts, when the page was longer than one. */
+  /** Where the next part starts, if there is more. Pass it as `from` to `readPage` to read on. Not set on the last part. */
   next?: number;
 }
 
@@ -49,8 +52,18 @@ function groups(address: string): number[] | null {
 }
 
 /**
- * Loopback, private ranges, link local, multicast, and the same in IPv6,
- * including an IPv4 address carried inside an IPv6 one in any spelling.
+ * Tells you whether an IP address is private, which means `readPage` will not
+ * read it.
+ *
+ * - `address`: an IP address, such as `"10.0.0.1"` or `"::1"`. Not a name like `"example.com"`.
+ *
+ * Private means any address that is not on the public internet: this machine
+ * (such as `127.0.0.1`), home and office networks (such as `192.168.1.5`),
+ * and other reserved addresses, in IPv4 and IPv6. An IPv4 address written
+ * inside an IPv6 one is checked too.
+ *
+ * Returns `true` if the address is private. Also returns `true` for anything
+ * that is not a valid IP address, names included.
  */
 export function isPrivate(address: string): boolean {
   if (isIP(address) === 4) return privateV4(address.split(".").map(Number));
@@ -152,7 +165,19 @@ function decode(text: string): string {
   });
 }
 
-/** HTML to readable text: blocks become lines, cells are split by " | ", links keep their address. */
+/**
+ * Turns HTML into readable plain text.
+ *
+ * - `html`: the HTML.
+ * - `base`: the page's own address, used to turn relative links into full ones.
+ *
+ * It removes scripts, styles and the `<head>`. Paragraphs, rows and other
+ * blocks become lines, table cells are separated by ` | `, and links become
+ * `[text](url)`.
+ *
+ * Returns `{ title, text }`. `title` is the page's `<title>`, if it has one.
+ * It does not throw.
+ */
 export function htmlToText(html: string, base: string): { title?: string; text: string } {
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1];
   const text = html
@@ -190,9 +215,16 @@ function element(xml: string, name: string): { inner: string; cdata: boolean } |
 }
 
 /**
- * An Atom or RSS feed as text: each entry is its title as a link, who wrote it
- * and when, then its words. Raw, a feed's words are HTML escaped inside XML,
- * and a slice of it holds a few entries where this holds a page of them.
+ * Turns an RSS or Atom feed (a site's list of new posts) into readable text.
+ *
+ * - `xml`: the feed.
+ * - `base`: the feed's own address, used to turn relative links into full ones.
+ *
+ * Each entry becomes its title as a link, then who wrote it and when, then its
+ * text. A blank line separates the entries.
+ *
+ * Returns `{ title, text }`: the feed's title, if it has one, and the entries.
+ * It does not throw.
  */
 export function feedToText(xml: string, base: string): { title?: string; text: string } {
   const words = (name: string, from: string) => {
@@ -216,7 +248,31 @@ export function feedToText(xml: string, base: string): { title?: string; text: s
   return { title: words("title", head) || undefined, text: text.join("\n\n") };
 }
 
-/** Fetches `address` and returns it as text, a slice at a time starting at `from`. */
+/**
+ * Reads a web page and returns it as plain text, 20,000 characters at a time.
+ *
+ * - `address`: the full web address, starting with `http://` or `https://`.
+ * - `from`: where to start in the page's text, in characters. Default: 0. To read on, pass the `next` of the last `Page`.
+ *
+ * An HTML page becomes readable text, with links kept as `[text](url)`. An RSS
+ * or Atom feed becomes a list of its entries. Plain text, JSON and other XML
+ * come back as they are. Each call reads the whole page again.
+ *
+ * It only reads public addresses. It refuses this machine, home and office
+ * networks and other private addresses (see `isPrivate`), and checks each
+ * redirect the same way. If the site answers "too many requests" (429), it
+ * waits 30 to 60 seconds and tries once more.
+ *
+ * Returns a `Page`.
+ *
+ * Throws if the address is not valid or not `http` or `https`, if it is
+ * private, or if the page:
+ * - takes more than 30 seconds to answer,
+ * - is larger than 5 MB,
+ * - is not text (such as an image or a PDF),
+ * - redirects more than 5 times,
+ * - answers 429 twice.
+ */
 export async function readPage(address: string, from = 0): Promise<Page> {
   let url = new URL(address);
   let waited = false;

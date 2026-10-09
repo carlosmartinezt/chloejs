@@ -11,78 +11,108 @@ import type { Data, Work } from "#chloe/core/steps";
 import type { SdkModel } from "#chloe/model/key";
 
 /**
- * What defineJob is given, and what a job file is checked against as it is
- * written: an id and a description always, a zod schema wherever there is a
- * shape, and one of `run` or `markdown` (the loader refuses both or neither,
- * the editor cannot).
+ * The options you give `defineJob`. Every job needs an `id`, a
+ * `description`, and exactly one of `run` (the job is code) or `markdown`
+ * (the job is a prompt). Your editor cannot catch a job with both or with
+ * neither, but the agent will not load with one.
  */
 export interface JobConfig<
   State = Data,
   Result = unknown,
   Args = Data,
-  /** What `args` takes before it parses, so `agent.run` can check `input` as it is written. */
+  /** The type `args` accepts before it is parsed. `agent.run` uses it so your editor can check `input`. */
   ArgsIn = Args,
 > {
   /**
-   * What the run history files it under, and what `npm run agent` and the
-   * evals call it. A file named jobs/<id>.ts is listed as the job's file on the
-   * page; any other name works, and a file may hold several jobs.
+   * The job's id, like `"morning-report"`. The run history files its runs
+   * under it, and `npx chloe agent <agent> <job>` and the evals use it.
+   * People can start the job from a chat by sending `/<id>`. Required.
+   *
+   * Do not change it after the job has run. A job in a file named
+   * `jobs/<id>.ts` is shown on the dashboard with that file. Any other file
+   * name works too, and one file can hold several jobs.
    */
   id: string;
-  /** One line on what it does, shown beside the id. */
+  /** One line on what the job does. The dashboard shows it next to the id. Required. */
   description: string;
   /**
-   * When it runs by itself. Five fields: minute, hour, day of month, month,
-   * day of week. Without one it runs only when somebody starts it.
+   * When the job runs by itself, as a cron line with five fields: minute,
+   * hour, day of month, month, day of week. For example, `"0 7 * * *"` is
+   * every day at 07:00. You can also write `every.day.at("07:00")`, with
+   * `every` from `@chloejs/core/timer`.
+   *
+   * Default: none, so the job runs only when somebody starts it. A cron line
+   * that cannot be read stops the agent from loading.
    */
   cron?: string;
+  /** The timezone for `cron`, like `"America/New_York"`. Daylight saving time is handled for you. Default: `"UTC"`. */
   timezone?: string;
-  /** When this job should not run on the agent's own model: a name, or an AI SDK model like anthropic("claude-opus-5-5"). */
+  /**
+   * The model for this job, when it should not use the agent's model. A name
+   * like `"anthropic/claude-haiku-4.5"`, or an AI SDK model like
+   * `anthropic("claude-opus-5-5")`. Default: the agent's model. A model
+   * picked for this job on the dashboard, or with `/models` in a chat, comes
+   * first.
+   */
   model?: string | SdkModel;
-  /** The prompt: a string for a one-liner, or `prompt("./name.md")`. */
+  /**
+   * The job's prompt, for a job that is a prompt: a string, or
+   * `prompt("jobs/morning.md")` for a file inside the agent's folder. The
+   * agent answers it with its instructions and its tools. Give either
+   * `markdown` or `run`, not both.
+   */
   markdown?: string | Prompt;
   /**
-   * The job, when it is code. Branch with `if`, loop with `for`, and put every
-   * piece of work inside a `step`: a finished step is replayed, not run again,
-   * when a run that was waiting carries on, and a line outside one runs again
-   * every time the job resumes.
+   * The job's code, for a job that is code. Use `if` and `for` as normal, and
+   * put each piece of real work (sending, writing, spending, calling a
+   * service) inside `work.step()`. Give either `run` or `markdown`, not both.
+   *
+   * This matters because a job that pauses to wait for an answer runs again
+   * from the top when it continues. A finished step gives back its saved
+   * result and does not run again. Code outside a step runs again each time,
+   * so if it sends or writes something, that happens twice.
    */
   run?: (work: Work<State, Args>) => Promise<Result>;
   /**
-   * A zod schema for the extra things this job is started with by hand, beyond
-   * the message: the API's JSON, or `npm run agent`. The shape is the
-   * contract, and a caller that does not fit it is refused before the run
-   * begins rather than halfway through it. `work.args` is what it parsed.
+   * A zod schema for the values the job takes when somebody starts it by
+   * hand, from the API or `npx chloe agent`. Read them as `work.args`. If the
+   * values do not fit the schema, the job is refused before the run starts.
    *
-   * Most jobs declare nothing: the message arrives as `work.input` either
-   * way, and a job with no `args` still reads it. A channel sends a fixed
-   * envelope, so a job meant to be reachable from one finds `text` and
-   * whichever of `from`, `chat`, `user`, `thread` and `replyTo` it cares about
-   * there. See https://chloejs.org/docs/jobs.
+   * Default: none, and then the job refuses any values it is sent. Most jobs
+   * need none: the message that started the job is always in `work.input`
+   * (`text`, `from`, `chat`, `user`, `thread`, `replyTo` and the rest). See
+   * https://chloejs.org/docs/jobs.
    *
-   * A job with a cron line and a required field cannot run on that line, so
-   * give those fields a default.
+   * In a chat, `/<id> some words` fills the fields of `args` in order, and the
+   * last field takes the rest of the line. A job with a `cron` line cannot run
+   * on it if `args` has a required field, so give those fields a default.
    */
   args?: z.ZodType<Args, ArgsIn>;
   /**
-   * A zod schema for the shared store every step can read and write. `work.state`
-   * starts as what it parses `{}` into, so a field with a default starts filled.
-   * It survives a pause.
+   * A zod schema for data that every step of a run can read and change. Read
+   * it as `work.state` and change it with `work.setState()`. It is kept while
+   * the job pauses to wait for an answer.
+   *
+   * It starts as the schema's parse of `{}`, so give a field a default to
+   * start it filled.
    */
   state?: z.ZodType<State>;
   /**
-   * What to say about what `run` returned, in full: a chat is sent it whole,
-   * and the overview shows its first line. A job without one says what it
-   * returned when that is a string, and shows no line otherwise.
+   * Turns what `run` returned into the words people see. A chat gets the
+   * whole text, and the overview on the dashboard shows its first line.
+   *
+   * Default: if `run` returns a string, that string is used. Otherwise there
+   * are no words.
    */
   response?: (result: Result) => string;
 }
 
 /**
- * Only here so a job file is type checked as it is written.
+ * Defines a job. It returns what you give it, unchanged, so that your editor
+ * checks the job as you write it.
  *
- * What to send is an `id` and a `description`, and then one of `run` or
- * `markdown`, never both:
+ * Give an `id` and a `description`, and then either `run` or `markdown`,
+ * not both:
  *
  * ```ts
  * export default defineJob({
@@ -92,8 +122,8 @@ export interface JobConfig<
  * });
  * ```
  *
- * A job that returns facts instead of words says what they mean in `response`,
- * once for the chat and the overview both:
+ * If `run` returns data and not words, use `response` to turn the data into
+ * words for the chat and the overview:
  *
  * ```ts
  * export default defineJob({
@@ -104,8 +134,8 @@ export interface JobConfig<
  * });
  * ```
  *
- * Every key is on `JobConfig`, a line each saying what it does, and the editor
- * lists them and checks them as the object is written.
+ * Every option is on `JobConfig`, with a note on what it does. Your editor
+ * lists them and checks them as you write.
  */
 export function defineJob<
   State = Data,

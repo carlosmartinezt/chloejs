@@ -19,10 +19,17 @@ export function unreachable(name: string): boolean {
 }
 
 /**
- * Resolve `input` inside `root`, or throw. Accepts a path relative to the
- * folder or the absolute form of the same file. Symlinks are resolved first, so
- * a link inside the folder cannot point out of it. A path that does not exist
- * yet is fine: a write needs one.
+ * Returns the full path of `input`, after checking that it is inside the
+ * folder `root`. Throws if it is not. Use it before you read or write a file
+ * whose path came from a model or a person.
+ *
+ * `input` can be relative to `root`, or a full path inside it. If the path
+ * exists, links in it are followed first, so a link inside the folder cannot
+ * lead out of it. The path does not have to exist yet, so you can check a new
+ * file before you write it.
+ *
+ * It also refuses any path that goes through `.git`, `.ssh`, `secrets` or
+ * `node_modules`.
  */
 export function confine(root: string, input: string): string {
   const base = realpathSync(root);
