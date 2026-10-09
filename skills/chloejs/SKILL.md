@@ -13,11 +13,11 @@ In a folder without Chloe:
 ```sh
 npm init -y
 npm install @chloejs/core
-npx chloe setup
+./node_modules/.bin/chloe setup
 ```
 
-Setup asks nothing when there is no keyboard: it takes every default, writes
-the config with no agents, picks a free port and checks the model answers. The
+That runs the copy just installed and downloads nothing. Setup asks nothing
+when there is no keyboard: it takes every default, writes the config with no agents, picks a free port and checks the model answers. The
 first agent is yours to write, for what the person asked, from the guides
 below. Give it an id that says what it does (`postie` for mail, `scout` for
 research): it becomes its folder and the name its runs are kept under. Run
