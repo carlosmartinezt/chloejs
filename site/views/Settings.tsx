@@ -1,6 +1,6 @@
 import { type CSSProperties, useEffect, useState } from "react";
 
-import { cloud } from "../lib/api.ts";
+import { api, cloud } from "../lib/api.ts";
 import { labelOf } from "../lib/format.ts";
 import { chatsIn, homeOf } from "../lib/home.ts";
 import * as prefs from "../lib/prefs.ts";
@@ -57,11 +57,71 @@ export function Settings({
             )}
           </>
         ) : (
-          <p className="empty">
-            This runtime has one password and no accounts, so there is nothing here to tell apart.
-          </p>
+          <Password />
         )}
       </section>
+    </>
+  );
+}
+
+/**
+ * The runtime's one password. A copy with none opens only with a link it
+ * printed, and the first password is set here, by the browser already in.
+ * Changing one takes a shell on the box.
+ */
+function Password() {
+  const [exists, setExists] = useState<boolean | null>(null);
+  const [password, setPassword] = useState("");
+  const [trouble, setTrouble] = useState("");
+
+  useEffect(() => {
+    api.account().then(
+      (said) => setExists(said.exists),
+      () => setExists(null),
+    );
+  }, []);
+
+  async function set(event: React.FormEvent) {
+    event.preventDefault();
+    setTrouble("");
+    try {
+      await api.setup(password);
+      setExists(true);
+    } catch (error) {
+      setTrouble((error as Error).message);
+    }
+  }
+
+  if (exists === null) return null;
+  if (exists) {
+    return (
+      <p className="empty">
+        This runtime signs in with one password, or with a link from <code>npx chloe link</code> in its folder. A new
+        password is <code>npx chloe account</code> there, which signs every browser out.
+      </p>
+    );
+  }
+  return (
+    <>
+      <p className="empty">
+        No password: this runtime opens with a link from <code>npx chloe link</code> in its folder, which signs one
+        browser in for a week. Set a password to sign in without one, from any browser that reaches this page.
+      </p>
+      <form className="row" onSubmit={set}>
+        <input
+          type="password"
+          autoComplete="new-password"
+          minLength={8}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="At least 8 characters"
+          aria-label="Password"
+        />
+        <button className="small" type="submit" disabled={password.length < 8}>
+          Set password
+        </button>
+      </form>
+      {trouble && <p className="bad">{trouble}</p>}
     </>
   );
 }

@@ -100,7 +100,7 @@ export const missing = (error: Error, what: string): string =>
 const memoryOf = (agent: string) => `/agents/${agent}/memory`;
 
 /** The calls the login itself makes: a 401 from one of these is a wrong password. */
-const GETTING_IN = ["/account", "/login", "/setup"];
+const GETTING_IN = ["/account", "/login", "/link"];
 
 async function call<T>(path: string, body?: unknown, base = ""): Promise<T> {
   const response = await fetch(`${base || at}${path}`, {
@@ -130,7 +130,10 @@ export const api = {
   account: () => call<Account>("/account"),
   /** A runtime has one password and no username: with one account there is nobody to tell apart. */
   signIn: (password: string) => call<Session>("/login", { password }),
-  setup: (password: string) => call<Session>("/setup", { password }),
+  /** The code from a link the runtime printed, swapped for a session. Each works once. */
+  link: (code: string) => call<Session>("/link", { code }),
+  /** The first password, from a browser already signed in. */
+  setup: (password: string) => call<{ ok: true }>("/setup", { password }),
   signOut: () => call<{ ok: true }>("/logout", {}),
   agents: () => call<AgentSummary[]>("/agents"),
   agent: (id: string) => call<AgentSummary>(`/agents/${id}`),

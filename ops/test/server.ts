@@ -8,35 +8,46 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
 {
   about("the login in front of the page");
 
-  const { createAccount, hasAccount, resetPassword, setCookie, signIn, signedIn, suggestPassword } = await import("#chloe/serve/login");
+  const { cookieName, firstPassword, hasPassword, makeLink, resetPassword, seal, setCookie, signIn, signInWithLink, signedIn, suggestPassword } =
+    await import("#chloe/serve/login");
+  const { settings } = await import("#chloe/core/settings");
   const carrying = (cookie: string) => ({ headers: { cookie } }) as import("node:http").IncomingMessage;
-
-  is("a fresh copy has no password", hasAccount(), false);
-  const short = (() => {
+  const cookie = cookieName();
+  const refusal = (doing: () => unknown) => {
     try {
-      createAccount("short");
-      return "took it";
+      doing();
+      return "let through";
     } catch (error) {
       return (error as Error).message;
     }
-  })();
-  is("one that is too short is refused", short, "The password must be at least 8 characters.");
-  createAccount("a long enough one");
-  is("the first visit sets it", hasAccount(), true);
+  };
 
-  const refused = (() => {
-    try {
-      createAccount("another long one");
-      return "set a second";
-    } catch (error) {
-      return (error as Error).message;
-    }
-  })();
-  is("and every visit after it is refused", refused, "A password is already set.");
+  is("a fresh copy has no password", hasPassword(), false);
+  is("and no password signs in to it", refusal(() => signIn("anything at all", "1.2.3.4")), "This copy has no password, so it opens with a link. Run npx chloe link in its folder.");
+
+  const link = makeLink("http://127.0.0.1:3067");
+  is("it opens with a link: the address, and a code after #in=", link.startsWith("http://127.0.0.1:3067/#in="), true);
+  const code = link.slice(link.indexOf("#in=") + 4);
+  const byLink = signInWithLink(code, "1.2.3.4");
+  is("the code signs a browser in", signedIn(carrying(`${cookie}=${byLink}`)), true);
+  const usedUp = "That link was used already, or is more than an hour old. Run npx chloe link in its folder for another.";
+  is("once", refusal(() => signInWithLink(code, "1.2.3.4")), usedUp);
+  is("and not after an hour", refusal(() => signInWithLink(seal("link", { id: "old", until: 1 }), "1.2.3.4")), usedUp);
+  const notOurs = "That link was not made by this copy. Run npx chloe link in its folder for one.";
+  is("a code somebody edited does not", refusal(() => signInWithLink(`${code.slice(0, -1)}x`, "1.2.3.4")), notOurs);
+  is("nor does a session passed off as one", refusal(() => signInWithLink(byLink, "1.2.3.4")), notOurs);
+  is("the cookie has the port in its name, so two copies on one machine keep apart", cookie, `chloe_session_${settings.serve.port}`);
+
+  is("one that is too short is refused", refusal(() => firstPassword("short")), "The password must be at least 8 characters.");
+  firstPassword("a long enough one");
+  is("the first password is set", hasPassword(), true);
+  is("and the browser that came in with a link stays in", signedIn(carrying(`${cookie}=${byLink}`)), true);
+  is("a second is refused: that takes a shell", refusal(() => firstPassword("another long one")), "A password is already set.");
 
   const session = signIn("a long enough one", "1.2.3.4");
-  is("the right password signs in", signedIn(carrying(`chloe_session=${session}`)), true);
-  is("a cookie somebody edited does not", signedIn(carrying(`chloe_session=${session.slice(0, -1)}x`)), false);
+  is("the right password signs in", signedIn(carrying(`${cookie}=${session}`)), true);
+  is("a cookie somebody edited does not", signedIn(carrying(`${cookie}=${session.slice(0, -1)}x`)), false);
+  is("nor does one under another copy's name", signedIn(carrying(`chloe_session_1=${session}`)), false);
   is("no cookie does not", signedIn(carrying("")), false);
   is("signing out clears it", setCookie("", true)[0].includes("Max-Age=0"), true);
   is("the cookie is this site's alone, never a family of names", setCookie(session, true)[0].includes("Domain="), false);
@@ -79,6 +90,7 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   is("and only that one", Boolean(signIn("a long enough one", "1.2.3.4")), true);
 
   // The way back in from a forgotten password, which only a shell can do.
+  const before = makeLink("http://127.0.0.1:3067").split("#in=")[1];
   resetPassword("a different long one");
   is("a new password from the terminal works", Boolean(signIn("a different long one", "1.2.3.4")), true);
   is("the old one stops working", (() => {
@@ -89,7 +101,8 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
       return (error as Error).message;
     }
   })(), "Wrong password.");
-  is("and every session signed on it is over", signedIn(carrying(`chloe_session=${session}`)), false);
+  is("and every session signed on it is over", signedIn(carrying(`${cookie}=${session}`)), false);
+  is("and every link made before it", refusal(() => signInWithLink(before, "1.2.3.4")), notOurs);
 
   const made = suggestPassword();
   is("a password made up here is long enough to be one", made.length >= 8, true);
@@ -114,10 +127,20 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   const at = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 
   const asked = await fetch(`${at}/api/account`);
-  is("whether an account exists is answered with no session", [asked.status, await asked.json()], [200, { exists: true }]);
+  is("whether there is a password is answered with no session", [asked.status, await asked.json()], [200, { exists: true }]);
 
   const shut = await fetch(`${at}/api/agents`);
   is("and everything else is still shut", [shut.status, await shut.json()], [401, { error: "Sign in first." }]);
+  const setting = await fetch(`${at}/api/setup`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: "a third long one" }) });
+  is("setting the first password among them", setting.status, 401);
+
+  const { cookieName, makeLink } = await import("#chloe/serve/login");
+  const linked = await fetch(`${at}/api/link`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: makeLink(at).split("#in=")[1] }),
+  });
+  is("a link's code signs in over the API", [linked.status, (linked.headers.get("set-cookie") ?? "").startsWith(`${cookieName()}=`)], [200, true]);
 
   const got = await fetch(`${at}/api/login`, {
     method: "POST",
@@ -126,7 +149,7 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   });
   const { token } = (await got.json()) as { token?: string };
   is("signing in hands back a token", typeof token === "string" && token.length > 0, true);
-  is("and sets the cookie as well", (got.headers.get("set-cookie") ?? "").startsWith("chloe_session="), true);
+  is("and sets the cookie as well", (got.headers.get("set-cookie") ?? "").startsWith(`${cookieName()}=`), true);
 
   const held = await fetch(`${at}/api/agents`, { headers: { authorization: `Bearer ${token ?? ""}` } });
   is("the token opens the door the cookie opens", held.status, 200);

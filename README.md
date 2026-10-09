@@ -14,8 +14,8 @@ your machine, with any LLM.
 
 ```sh
 npm install @chloejs/core
-npx chloe setup       # the files, a model, the one password: it asks, and checks
-npx chloe             # the agents, the cron lines and one port on 127.0.0.1:3067
+npx chloe setup       # the files, a model, a free port: it asks, and checks
+npx chloe             # the agents, the cron lines, one port, and a link that opens the page
 ```
 
 `setup` writes `chloe.config.ts` and one agent with two jobs, asks which model to
@@ -23,9 +23,12 @@ use and makes one call to be sure it answers, then runs the job that asks no
 model, so the first thing you see is a finished run. Run it again later and it
 leaves what is already there alone.
 
+There is no password to set: `npx chloe` prints a link that opens the page
+signed in, once, within the hour, and `npx chloe link` prints another. A
+password is for later, if you want one.
+
 For a coding agent: `npx chloe setup --agent <id>` asks nothing when there is
-no keyboard, taking every default and leaving the password for `npx chloe
-account`. It writes an `AGENTS.md` that sends the agent to the guides in
+no keyboard, taking every default. It writes an `AGENTS.md` that sends the agent to the guides in
 `node_modules/@chloejs/core/dist/docs/`, for the version installed, and `npx
 skills add carlosmartinezt/chloejs` gets it that far before anything is.
 
@@ -298,8 +301,9 @@ exception, `CHLOE_STATE`, `CHLOE_MEMORY` and `CHLOE_DB`, read before the config
 is.
 
 ```sh
-npx chloe account                # set the one password
 npx chloe                        # the one process, on 127.0.0.1:3067 unless serve in settings says
+npx chloe link                   # a link that opens the page signed in
+npx chloe account                # set the one password, or a new one
 npx chloe agent <id>             # talk to one agent
 npx chloe agent <id> <job>       # run one job now, without waiting for its cron line
 npx chloe install                # run it as a service (systemd or launchd), so it survives a reboot
@@ -343,7 +347,7 @@ channels/    the ways in, for an agent to bind
 chat/        the chat box a web page loads, and the client it is built on:
              plain JavaScript, served at /api/web/
 ops/         cli.ts, which is `npx chloe`, and what it runs: the tests, the
-             evals, talking to an agent, setting the password, tokens, and
+             evals, talking to an agent, links, the password, tokens, and
              install.sh. docs.ts writes the guides into the package
 docs/        the guides, published filled in as dist/docs/
 example/     the shop agent the guides quote, a project of its own. Not published

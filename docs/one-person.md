@@ -6,8 +6,8 @@ summary: What belongs to the machine, what belongs to a person, and what someone
 
 chloe is built for one person running their own agents. What that means today:
 
-- **One password** guards the dashboard on the machine, and whoever has it can
-  do everything.
+- **One way in** guards the dashboard on the machine: a link made from a shell
+  there, or one password. Whoever has either can do everything.
 - **Each channel's `allowFrom`** is who may reach an agent there. Nobody else
   is answered.
 - **Every key belongs to the machine**, not to a person. A Gmail tool reads the

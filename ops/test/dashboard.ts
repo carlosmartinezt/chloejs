@@ -130,6 +130,7 @@ import { agentFor, answer, answers, asked, codeJob, db, lastAsked, sent, work } 
   is("a memory is refused while its switch is off", [shut.status, JSON.parse(shut.text).error.includes("memory")], [403, true]);
   is("and so is a write", (await answer("6", "POST", "/api/agents/test/memory/file", { "content-type": "application/json" }, JSON.stringify({ path: "x.md", content: "" }))).status, 403);
   is("a session cannot be minted through it either", (await answer("7", "POST", "/api/login", { "content-type": "application/json" }, JSON.stringify({ password: "a long enough one" }))).status, 403);
+  is("not with a link", (await answer("7a", "POST", "/api/link", { "content-type": "application/json" }, JSON.stringify({ code: "anything" }))).status, 403);
 
   live.dashboard.remote.allow.memory = true;
   const tree = await answer("8", "GET", "/api/agents/test/memory");

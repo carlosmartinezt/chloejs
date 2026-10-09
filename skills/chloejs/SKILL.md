@@ -19,8 +19,13 @@ npx chloe setup --agent <id>
 Pick an `<id>` that says what the agent does (`postie` for mail, `scout` for
 research): it becomes its folder and the name its runs are kept under. Setup
 asks nothing when there is no keyboard: it takes every default, writes the
-files, checks the model answers and runs a first job. Run `npx chloe` only
-after the install, because without the package it fetches an unrelated one.
+files, picks a free port, checks the model answers and runs a first job. Run
+`npx chloe` only after the install, because without the package it fetches an
+unrelated one.
+
+To show the person their agents, start `npx chloe` in the background, leave it
+running, and give them the link it prints. It opens the page signed in, with no
+password to set. `npx chloe link` prints another.
 
 Then, and in any project that already has a `chloe.config.ts`, read this before
 writing code:

@@ -58,7 +58,7 @@ import { agentFor, answer, codeJob, work } from "./shared.ts";
       body: JSON.stringify({ password: "a long enough one" }),
     })
   ).json()) as { token: string };
-  const as = { cookie: `chloe_session=${token}` };
+  const as = { cookie: `${(await import("#chloe/serve/login")).cookieName()}=${token}` };
   const file = (path: string, who = "test") =>
     fetch(`${at}/api/agents/${who}/memory/file?path=${encodeURIComponent(path)}`, { headers: as });
 

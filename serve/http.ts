@@ -44,7 +44,7 @@ import { recentWork } from "./recentWork.ts";
 import { finish as finishSignIn, signInState } from "#chloe/connections/google/googleService";
 import { channelsOf, connectionsOf, signInOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
-import { type Caller, type Guest, caller, createAccount, from, hasAccount, overHttps, relayUnder, relayedBy, setCookie, signIn } from "./login.ts";
+import { type Caller, type Guest, caller, firstPassword, from, hasPassword, overHttps, relayUnder, relayedBy, setCookie, signIn, signInWithLink } from "./login.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "#chloe/core/alerts";
 import { servePage } from "./page.ts";
@@ -269,14 +269,15 @@ export const routes: Route[] = [
     },
   },
 
-  // The ways in. These five are the whole of what is answered without a
-  // session, and each says as little as it can.
+  // The ways in. Asking whether there is a password, signing in and signing
+  // out are the whole of what is answered without a session, and each says as
+  // little as it can.
   {
     method: "GET",
     path: "/api/account",
-    does: "Whether this copy has a password yet, so a page knows which form to show.",
+    does: "Whether this copy has a password yet, so a page knows whether to ask for one or for a link.",
     open: true,
-    handle: ({ response }) => json(response, { exists: hasAccount() }),
+    handle: ({ response }) => json(response, { exists: hasPassword() }),
   },
   {
     method: "POST",
@@ -284,15 +285,36 @@ export const routes: Route[] = [
     does: "Sign in. Sets the cookie, and hands back the same value for anything that is not a browser.",
     takes: '{"password": "..."}',
     open: true,
-    handle: (at) => wayIn(at, false),
+    handle: async (at) => {
+      const { password } = await body(at.request, z.object({ password: z.string() }));
+      wayIn(at, () => signIn(password, from(at.request)));
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/link",
+    does: "Sign in with the code from a link that npx chloe link or the server's start printed. Each works once, within the hour.",
+    takes: '{"code": "..."}',
+    open: true,
+    handle: async (at) => {
+      const { code } = await body(at.request, z.object({ code: z.string() }));
+      wayIn(at, () => signInWithLink(code, from(at.request)));
+    },
   },
   {
     method: "POST",
     path: "/api/setup",
-    does: "Set the one password, when there is none. Refused once one is set.",
+    does: "Set the first password, from a browser already signed in. Refused once one is set: a new one is npx chloe account.",
     takes: '{"password": "..."}',
-    open: true,
-    handle: (at) => wayIn(at, true),
+    handle: async ({ request, response }) => {
+      const { password } = await body(request, z.object({ password: z.string() }));
+      try {
+        firstPassword(password);
+        json(response, { ok: true });
+      } catch (error) {
+        json(response, { error: (error as Error).message }, 400);
+      }
+    },
   },
   {
     method: "POST",
@@ -1118,16 +1140,13 @@ export const routes: Route[] = [
   },
 ];
 
-/** Signing in, and setting the password the first time. One body, two doors. */
-async function wayIn({ request, response }: At, making: boolean): Promise<void> {
-  const { password } = await body(request, z.object({ password: z.string() }));
+/** Signing in with a password or a link: `signing` hands back the session, or throws why not. */
+function wayIn({ request, response }: At, signing: () => string): void {
   try {
-    if (making) createAccount(password);
     // The same value twice: the cookie for a browser, and the body for
     // anything that is not one.
-    const at = from(request);
-    const token = signIn(password, at);
-    signedInFrom(at);
+    const token = signing();
+    signedInFrom(from(request));
     response.setHeader("set-cookie", setCookie(token, overHttps(request)));
     json(response, { ok: true, token });
   } catch (error) {

@@ -2,15 +2,17 @@ import { useEffect, useState } from "react";
 
 import * as Icons from "./components/Icons.tsx";
 import { api, cloud } from "../lib/api.ts";
+import { linkTrouble } from "../lib/link.ts";
 import type { Invitation, Signup } from "../lib/types.ts";
 import { Link } from "./components/Link.tsx";
 
 /**
  * The way in, for all three kinds of server this page sits in front of.
  *
- * One runtime: one password and no username, because with one account a name
- * identifies nobody. The same form sets it when that copy has none yet, and
- * once one is set that form is not offered again.
+ * One runtime: a link it printed, or one password and no username, because
+ * with one account a name identifies nobody. A copy with no password opens
+ * only with a link, so this says how to get one; the first password is set
+ * in Account settings, once in.
  *
  * A cloud: an email and a password, because a cloud has many people on it, and
  * making an account is its own form, which needs an invite code while the
@@ -26,7 +28,7 @@ export function Doorway({ making, onCloud, signup }: { making: boolean; onCloud:
   const [password, setPassword] = useState("");
   const [invite, setInvite] = useState("");
   const [sending, setSending] = useState(false);
-  const [trouble, setTrouble] = useState("");
+  const [trouble, setTrouble] = useState(linkTrouble);
   const [shown, setShown] = useState(false);
   // An invitation an owner mailed: it says who it is for, and is the invite code.
   const [invited, setInvited] = useState<Invitation | null>(null);
@@ -64,7 +66,7 @@ export function Doorway({ making, onCloud, signup }: { making: boolean; onCloud:
       if (onCloud) {
         await (makingNow ? cloud.signUp(who, password, invite) : cloud.signIn(who, password));
         if (invited && !makingNow) await cloud.accept(invite);
-      } else await (making ? api.setup(password) : api.signIn(password));
+      } else await api.signIn(password);
       // A whole load rather than a view change: the page is fetching everything
       // it shows anyway, and it has none of it yet.
       window.location.assign("/");
@@ -76,15 +78,7 @@ export function Doorway({ making, onCloud, signup }: { making: boolean; onCloud:
 
   const form = (
     <>
-      <h1>{makingNow ? (onCloud ? "Create an account" : "Choose a password") : "Sign in"}</h1>
-      {making && !onCloud && (
-        <p className="empty">
-          This copy has no password yet. Anything else running on this machine can reach this port, so chloe asks for
-          one before it shows the agents, their runs and the folders they keep. It stays on this machine, and signing in
-          lasts a week. Forgotten it later is <code>npx chloe account</code> in a terminal, which sets a new one and
-          loses nothing.
-        </p>
-      )}
+      <h1>{makingNow ? "Create an account" : "Sign in"}</h1>
       {invited && (
         <p className="empty">
           {invited.by} invited you to use {invited.agent} in {invited.workspace}.{" "}
@@ -141,9 +135,15 @@ export function Doorway({ making, onCloud, signup }: { making: boolean; onCloud:
           type="submit"
           disabled={sending || !password || (onCloud && !who.trim()) || (needsInvite && !invite.trim())}
         >
-          {makingNow ? (onCloud ? "Create account" : "Set password") : "Sign in"}
+          {makingNow ? "Create account" : "Sign in"}
         </button>
       </form>
+      {!onCloud && (
+        <p className="empty">
+          Or open it with a link: run <code>npx chloe link</code> in its folder and open what it prints. Forgotten the
+          password is <code>npx chloe account</code> there, which sets a new one and loses nothing.
+        </p>
+      )}
       {invited && (
         <p className="swap">
           {makingNow ? "Already have an account with this address? " : "No account yet? "}
@@ -170,6 +170,20 @@ export function Doorway({ making, onCloud, signup }: { making: boolean; onCloud:
     </>
   );
 
+  if (!onCloud && making) {
+    return (
+      <main className="doorway">
+        {mark}
+        <h1>Open it with a link</h1>
+        {trouble && <p className="bad">{trouble}</p>}
+        <p className="empty">
+          This copy has no password, so it opens with a link that signs this browser in. In its folder, run{" "}
+          <code>npx chloe link</code> and open what it prints. Starting it with <code>npx chloe</code> prints one too.
+          Once in, Account settings is where to set a password, if you want one.
+        </p>
+      </main>
+    );
+  }
   if (!onCloud) return <main className="doorway">{mark}{form}</main>;
 
   const taking = invited && account && (
@@ -273,7 +287,7 @@ function Waitlist() {
   const [email, setEmail] = useState("");
   const [sending, setSending] = useState(false);
   const [asked, setAsked] = useState(false);
-  const [trouble, setTrouble] = useState("");
+  const [trouble, setTrouble] = useState(linkTrouble);
 
   async function send(event: React.FormEvent) {
     event.preventDefault();

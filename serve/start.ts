@@ -22,7 +22,7 @@ import { learnModels, runnable } from "#chloe/model/model";
 import { claimPort, ownAddress, serve as listen } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
 import { startDashboard } from "#chloe/dashboard/connect";
-import { hasAccount } from "#chloe/serve/login";
+import { hasPassword, makeLink } from "#chloe/serve/login";
 import { alertsSay } from "#chloe/core/alerts";
 
 /**
@@ -202,8 +202,15 @@ export async function startChloe(given?: Config): Promise<void> {
 
     lines.push(row("Agents", [...agents.keys()].join(", ") || dim("none yet. Write one in agents/, and list it in chloe.config.ts")));
 
-    lines.push(row("Page", ownAddress()));
-    lines.push(under(hasAccount() ? "Forgot the password? Set a new one: npx chloe account" : "No password yet. Set one: npx chloe account"));
+    // With no password, the link is the way in, so it is printed where whoever
+    // started this will look for it.
+    if (hasPassword()) {
+      lines.push(row("Page", ownAddress()));
+      lines.push(under("Sign in with the password, or a link from npx chloe link. Forgot it? npx chloe account"));
+    } else {
+      lines.push(row("Page", makeLink(ownAddress())));
+      lines.push(under("Opens the page signed in, in one browser, within the hour. Another: npx chloe link"));
+    }
     lines.push(row("Alerts", alertsSay()));
 
     lines.push(row("Dashboard", dashboardSays || `connecting to ${settings.dashboard.remote.url}`));

@@ -60,8 +60,11 @@ always the two together: in a folder without the package, `npx chloe` fetches
 an unrelated npm package that has the name. Setup asks, writes the files,
 checks that the model it was given actually answers, and runs a job. With no
 keyboard, which is how a coding agent runs it, or with `--yes`, every question
-takes its default, and with no keyboard the password is left for `npx chloe
-account`, because one made up there would be printed into somebody's agent.
+takes its default. A config it writes gets the next free port when 3067 is
+taken, because two copies on one machine is how somebody tries chloe beside
+one already running. It sets no password: the server prints a link as it
+starts, which works once and only within the hour, so the one a coding agent
+reads and passes on is dead once used, where a password would not be.
 `ops/setup.ts` is that, `ops/starter.ts` is the files it writes, and neither is
 imported by the service.
 
@@ -264,8 +267,9 @@ own, including its `evals/`, which say what a good run of its jobs looks like.
 `ops/` is what a person runs rather than the service: `cli.ts`, which is what
 `npx chloe` reaches and which runs each of the others, then the tests, the
 evals, `agent.ts`, which is talking to one agent and trying one of its jobs
-without waiting for the cron line, `account.ts`, which makes the one
-account, because there is no setup page to make it on, and `setup.ts`, which is
+without waiting for the cron line, `account.ts`, which sets or changes the one
+password, `link.ts`, which prints a link that opens the page signed in, and
+`setup.ts`, which is
 the one command a new project runs and the only one that works before there is a
 `chloe.config.ts`: it reads no setting as it loads, because reading one needs
 that file, so it imports the runtime inside the steps that need it. `starter.ts`
@@ -850,6 +854,17 @@ appending. Behind a CDN with neither, the lockout goes coarse, and coarse and
 honest beats precise and forgeable. None of this is worth anything if something
 other than the proxy can reach the port, which is why it binds loopback, and
 why the setting that moves it says so.
+
+**The way in is a link or the password, never the first visit.** A copy with
+no password opens only with a link (`makeLink` in `serve/login.ts`): the code
+after `#in=` is sealed with the account's secret, works once and within the
+hour, and only the page's own script swaps it for the cookie, so a program that
+fetches the address uses nothing up. The first password is set by a browser
+already signed in. Do not bring back a form that sets it without a session:
+anything else on the machine, or a web page that points its own name at
+127.0.0.1, would get there first. The cookie's name carries the port, because
+a browser keeps cookies per machine name and not per port, and two copies on
+one machine would sign each other out.
 
 **A stop waits for the runs that are going**, up to `STOP_WAIT` in
 `serve/start.ts`, and stops the channels last: a run is marked finished just

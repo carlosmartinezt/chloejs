@@ -12,12 +12,14 @@ npm install @chloejs/core
 npx chloe setup
 ```
 
-Setup asks five things, each with a default, so holding Enter works. Running it
+Setup asks four things, each with a default, so holding Enter works. Running it
 again leaves what is already there alone. `--yes` takes every default, and
 `--agent <id>` names the agent. With no keyboard, which is how a coding agent
-runs it, it takes the defaults and leaves the password for `npx chloe account`.
+runs it, it takes the defaults.
 
-1. **What the agent is called.** It writes the files below.
+1. **What the agent is called.** It writes the files below. If port 3067 is
+   taken, most likely by another chloe, it puts this one on the next free port,
+   as `serve: { port }` in `chloe.config.ts`.
 2. **Which model.** It finds the `claude` and `codex` commands and any Anthropic,
    OpenAI or gateway key in your environment, takes one you paste, or offers a
    free one. Then it makes one real call to check the model answers and can call
@@ -26,7 +28,9 @@ runs it, it takes the defaults and leaves the password for `npx chloe account`.
    finished run that cost nothing.
 4. **Where to watch it from**: the dashboard on this machine, and, only if you
    want, a [remote dashboard](/docs/the-page#a-remote-dashboard) too.
-5. **The password** for the dashboard.
+
+There is no password to set. The dashboard opens with a link, and a password is
+for later, if you want one.
 
 ## What it wrote
 
@@ -52,9 +56,10 @@ name in `.env`. chloe reads nothing else from the environment.
 
 ```sh
 npx chloe                           # run everything: the dashboard, the cron lines, the channels
+npx chloe link                      # a link that opens the dashboard signed in
 npx chloe agent shop                # talk to an agent
 npx chloe agent shop stuck-orders   # run one job now
-npx chloe account                   # set a new password
+npx chloe account                   # set a password, or a new one
 npx chloe install                   # keep it running after you log out and after a reboot
 ```
 
@@ -63,9 +68,15 @@ to an agent's files or to the config is live within a second, including a new
 agent. An update to chloe itself needs a restart. `npx chloe install` makes it
 a service: a systemd user unit on Linux, a launchd agent on a Mac.
 
-Open `127.0.0.1:3067` in a browser on the same machine. From another one, use
-`ssh -L 3067:127.0.0.1:3067 you@box`, or a
+`npx chloe` prints a link as it starts, `http://127.0.0.1:3067/#in=...`. Open it
+in a browser on the same machine and you are in, with nothing to set: it signs
+that browser in for a week, works once, and only within the hour.
+`npx chloe link` prints another. From another machine, use
+`ssh -L 3067:127.0.0.1:3067 you@box` and open the link there, or a
 [remote dashboard](/docs/the-page#a-remote-dashboard), which needs no open port.
+
+`npx chloe install` writes one service per machine, so on a machine already
+running chloe it would move that service to this folder.
 
 A small agent fits in one file: [One file](/examples/one-file) is a whole
 project run with `node`.

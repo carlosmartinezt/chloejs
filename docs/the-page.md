@@ -17,7 +17,9 @@ which call never finished.
 
 ## The dashboard
 
-chloe serves its own dashboard at `127.0.0.1:3067`, with nothing to install.
+chloe serves its own dashboard at `127.0.0.1:3067` (`serve.port` in settings),
+with nothing to install. Starting it prints a link that opens the page signed
+in.
 
 | Address | What it shows |
 |---|---|
@@ -34,13 +36,20 @@ chloe serves its own dashboard at `127.0.0.1:3067`, with nothing to install.
 
 | Who | How | What they may do |
 |---|---|---|
-| You | the one password, set with `npx chloe account` | everything |
+| You | a link from `npx chloe link`, or the password if you set one | everything |
 | Another system | a token, made at `/tokens` or with `npx chloe tokens make` | read the API, and chat to and run the jobs of agents with an [HTTP channel](/docs/channels#http). Never write a file, read a memory or touch the tokens. |
-| Anybody | | four routes: `GET /api`, whether an account exists, and signing in |
+| Anybody | | five routes: `GET /api`, whether there is a password, signing in with it or a link, and signing out |
 
-There is one password and no username. Run `npx chloe account` again for a new
-one, which is also how you get back in. A token is shown once and kept only as
-a hash. A token made with `--agent <id>` reaches that agent and nothing else.
+A fresh copy has no password and opens with a link: `npx chloe` prints one as
+it starts while there is no password, and `npx chloe link` prints one whenever
+asked. A link signs one browser in for a week, works once, and only within the
+hour. Making one reads `data/login.json`, so it takes a shell on the machine.
+
+A password is for signing in without a link. Set the first one on the page,
+under Account settings, or with `npx chloe account`, which is also how you
+change it or get back in. There is no username. A token is shown once and kept
+only as a hash. A token made with `--agent <id>` reaches that agent and nothing
+else.
 
 `GET /api` lists every route with a line on what it does and who may call it:
 a page in a browser, JSON for anything else.
@@ -122,7 +131,7 @@ and cloning your repo is the whole of moving to a new machine.
 
 ```
 data/agents.db            conversations and the run history
-data/login.json           the password, mode 600
+data/login.json           the password and what signs the sessions and links, mode 600
 data/tokens.json          the tokens, as hashes, mode 600
 data/seen-addresses.json  where sign-ins came from, for the new-address alert
 data/memory-audit/        every memory file served, one log per agent

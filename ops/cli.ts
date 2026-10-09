@@ -11,9 +11,10 @@ const WHAT = `${bold("Chloe is a TypeScript agent runtime: plain code where it c
 See https://chloejs.org.
 
 ${bold("Starting out")}
-  npx chloe setup                write the files, pick a model, set the password
+  npx chloe setup                write the files, pick a model, pick a free port
   npx chloe setup --yes          the same, taking every default (--agent <id> names it)
-  npx chloe                      run it: every agent, every cron line, one page
+  npx chloe                      run it: every agent, every cron line, one page,
+                                 and a link that opens the page signed in
 
 ${bold("Every day")}${dim("  (these talk to a running chloe, so leave npx chloe going)")}
   npx chloe agent                pick an agent and talk to it
@@ -23,7 +24,8 @@ ${bold("Every day")}${dim("  (these talk to a running chloe, so leave npx chloe 
   npx chloe evals <id>           score that agent's prompts
 
 ${bold("Looking after it")}
-  npx chloe account              set the password for the page, or a new one later
+  npx chloe link                 a link that opens the page signed in, once, within the hour
+  npx chloe account              set a password for the page, or a new one later
   npx chloe tokens               list the tokens other systems use to reach the API
   npx chloe tokens make <name> --agent <id>   make one, for a site's chat box say
   npx chloe tokens revoke <id>   stop one working
@@ -32,7 +34,7 @@ ${bold("Looking after it")}
 Run it from the folder with chloe.config.ts in it, which setup writes.
 `;
 
-const WORDS = ["setup", "account", "agent", "evals", "install", "tokens"];
+const WORDS = ["setup", "account", "link", "agent", "evals", "install", "tokens"];
 
 const word = process.argv[2];
 

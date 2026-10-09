@@ -133,6 +133,7 @@
     "start": "node --conditions=chloe-source server.ts",
     "setup": "node --conditions=chloe-source ops/setup.ts",
     "account": "node --conditions=chloe-source ops/account.ts",
+    "link": "node --conditions=chloe-source ops/link.ts",
     "agent": "node --conditions=chloe-source ops/agent.ts",
     "evals": "node --conditions=chloe-source ops/evals.ts",
     "test": "npm run build:site && node --conditions=chloe-source ops/test.ts && node --test-reporter=spec site/test.ts",

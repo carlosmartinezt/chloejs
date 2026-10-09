@@ -4,13 +4,14 @@
 //   npx chloe setup --agent postie   names the first agent rather than asking
 //   npx chloe setup --yes            takes every default and asks nothing
 //
-// It writes the files a project needs, asks which model to use and checks that
-// model actually answers, runs the starter agent's first job, and sets the one
-// password. Every answer has a default, so holding Enter through it works.
+// It writes the files a project needs, puts the server on a free port, asks
+// which model to use and checks that model actually answers, and runs the
+// starter agent's first job. Every answer has a default, so holding Enter
+// through it works. It sets no password: the server prints a link that opens
+// the page signed in, and a password is for later, if ever.
 //
 // With nothing on stdin, which is how a script or a coding agent runs it, it
-// behaves as --yes and leaves the password for `npx chloe account`, because a
-// password made up here would be printed to whatever ran it.
+// behaves as --yes.
 //
 // Run it again later and it says what is already there and leaves it alone.
 //
@@ -19,13 +20,14 @@
 // and every file that reads one needs that. So the runtime is imported inside
 // the steps that need it, once the files exist.
 import { spawnSync } from "node:child_process";
+import { createServer } from "node:net";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { GUIDES, identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } from "./starter.ts";
-import { ask, askHidden, pick, setPassword, takeDefaults, yes } from "./terminal.ts";
+import { ask, askHidden, pick, takeDefaults, yes } from "./terminal.ts";
 import type { Provider } from "#chloe/core/settings";
 
 /** The folder being set up: where the person ran the command. */
@@ -45,6 +47,9 @@ const OWN_DEFAULT: Record<Provider, string> = { anthropic: "anthropic/claude-son
 
 /** What was written, said once at the end rather than line by line as it happens. */
 const wrote: [string, string][] = [];
+
+/** Whether this run wrote chloe.config.ts, and so may choose what it says. */
+let configWritten = false;
 
 /** Every file this wrote or changed, in the order it happened. */
 function written(path: string, what: string): void {
@@ -88,12 +93,12 @@ if (nobodyHere) console.log("Nobody is at a keyboard here, so every question tak
 try {
   await theProject();
   const agent = await theAgent();
+  const port = await thePort();
   const model = await theModel();
   await firstRun(agent);
   await onWhatsApp(agent);
-  await somewhereToWatch();
-  await thePassword();
-  await sayWhatNext(agent, model);
+  await somewhereToWatch(port);
+  await sayWhatNext(agent, model, port);
 } catch (error) {
   console.error(`\n${error instanceof Error ? error.message : String(error)}`);
   if (wrote.length) console.error(`\nWhat was written before that:\n${columns(wrote)}`);
@@ -177,6 +182,7 @@ async function theAgent(): Promise<string> {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, file.body);
     written(file.path, "written");
+    if (file.path === "chloe.config.ts") configWritten = true;
   }
 
   if (config && !listed(id)) {
@@ -186,6 +192,37 @@ async function theAgent(): Promise<string> {
   }
   console.log(`\n${id} has two jobs: daily-note is code and asks no model, summary is a prompt and asks one.\n`);
   return id;
+}
+
+/** Whether something on this machine already listens on that port. */
+function taken(host: string, port: number): Promise<boolean> {
+  return new Promise((done) => {
+    const trying = createServer();
+    trying.once("error", () => done(true));
+    trying.listen(port, host, () => trying.close(() => done(false)));
+  });
+}
+
+/**
+ * The port the server listens on: the default, or the first free one after it
+ * when something already has it, most often another chloe. Only for a config
+ * this run wrote: one that was here already says what it wants, and a copy of
+ * this project that is running holds its own port.
+ *
+ * Returns the port, and whether it is the default.
+ */
+async function thePort(): Promise<{ port: number; moved: boolean }> {
+  const { settings } = await import("#chloe/core/settings");
+  const { host, port } = settings.serve;
+  if (!configWritten || !(await taken(host, port))) return { port, moved: false };
+  for (let next = port + 1; next < port + 100; next++) {
+    if (await taken(host, next)) continue;
+    inSettings(`serve: { port: ${next} },`);
+    console.log(`Port ${port} is taken here, most likely by another chloe, so this one listens on ${next}.\n`);
+    return { port: next, moved: true };
+  }
+  console.log(`Ports ${port} to ${port + 99} are all taken here. Set serve.port in chloe.config.ts to a free one before npx chloe.\n`);
+  return { port, moved: true };
 }
 
 /**
@@ -486,9 +523,9 @@ function channelIn(agent: string, importLine: string, entry: string): void {
 }
 
 /** Where the runs are watched from: this box always, and dashboard.chloejs.org as well if they want. */
-async function somewhereToWatch(): Promise<void> {
+async function somewhereToWatch({ port }: { port: number }): Promise<void> {
   const where = await pick("\nSomewhere to watch it from:", [
-    { key: "here", what: "this box only, at 127.0.0.1:3067" },
+    { key: "here", what: `this box only, at 127.0.0.1:${port}` },
     { key: "remote", what: "a workspace on dashboard.chloejs.org as well, which needs nothing open on this box" },
   ]);
 
@@ -504,37 +541,27 @@ async function somewhereToWatch(): Promise<void> {
   }
 }
 
-/**
- * The one password. Asked whichever way they watch it, because `npx chloe agent`
- * signs itself in with the account as well, and a dashboard somewhere else has
- * its own sign-in and not this one.
- */
-async function thePassword(): Promise<void> {
-  const { hasAccount } = await import("#chloe/serve/login");
-  if (hasAccount()) return void console.log("\nThis copy already has a password. npx chloe account sets a new one.");
-  if (nobodyHere) return void console.log("\nNo password yet. Run npx chloe account at a keyboard to set one.");
-
-  console.log("\nThe one password. It is what the page on this box asks for, and what npx chloe agent signs in with.");
-  await setPassword();
-  written("data/", "the account, and the run history");
-}
-
-async function sayWhatNext(id: string, model: string): Promise<void> {
-  const { hasAccount } = await import("#chloe/serve/login");
+async function sayWhatNext(id: string, model: string, { moved }: { moved: boolean }): Promise<void> {
   if (wrote.length) console.log(`\nWritten:\n${columns(wrote)}`);
   console.log(
     `\nTry these:\n${columns([
-      ...(hasAccount() ? [] : ([["npx chloe account", "set the password first: the page and npx chloe agent ask for it"]] as [string, string][])),
-      ["npx chloe", "the server: every cron line, the page, the API"],
-      [`npx chloe agent ${id}`, "talk to it in this terminal"],
+      ["npx chloe", "the server: every cron line, the page, the API, and a link that opens the page signed in"],
+      [`npx chloe agent ${id}`, "talk to it in this terminal, once the server is going"],
       ...(model ? ([[`npx chloe agent ${id} summary`, "run the prompt job now"]] as [string, string][]) : []),
-      ["npx chloe install", "keep it running after you close this terminal"],
+      // A machine runs one chloe service, and install points it at the folder
+      // it is run from, so here it would move the other copy's.
+      ...(moved ? [] : ([["npx chloe install", "keep it running after you close this terminal"]] as [string, string][])),
     ])}`,
   );
+  if (moved) console.log("\nnpx chloe install is left out: a machine runs one chloe service, most likely the one already running, and install would point it here instead.");
   console.log(`\nWhat to write next, and every setting there is: ${GUIDES}`);
   // Whoever ran this without a keyboard is most likely a coding agent, about to
   // build what somebody asked for, and the guides it needs are already here.
-  if (nobodyHere) console.log(`Read that before writing any code: it is the guides for this version. AGENTS.md here says so for later sessions.`);
+  if (nobodyHere) {
+    console.log("To show the person the page: start npx chloe in the background, leave it running, and give them the link it prints.");
+    console.log("It opens the page signed in, with no password to set. npx chloe link prints another.");
+    console.log(`Read the guides above before writing any code: they are for this version. AGENTS.md here says so for later sessions.`);
+  }
 }
 
 /**

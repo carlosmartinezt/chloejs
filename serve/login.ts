@@ -1,24 +1,37 @@
-// The login in front of the page: one password, set on the first visit.
+// The login in front of the page: a link to open it with, and one password
+// if the owner wants one.
 //
-// There is no username, because with one account a name identifies nobody. A
-// fresh copy of chloe has no password, so the first person to open the page
-// chooses one, and once one exists that door is shut. Changing it afterwards
-// takes a shell on the box: `npx chloe account` again.
+// A fresh copy has no password. It is opened with a link, which the server
+// prints as it starts and `npx chloe link` prints whenever asked: it signs one
+// browser in, once, within the hour, and making one reads the account file, so
+// only somebody with a shell here can. A password is for signing in without a
+// link. The first one is set on the page by a browser already signed in, or
+// with `npx chloe account`, which is also how a password is changed.
+//
+// There is no username, because with one account a name identifies nobody.
 //
 // Hand rolled on node:crypto, scrypt for the password and HMAC-SHA256 for the
 // cookie, because the alternative is a dependency for forty lines.
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import crypto from "node:crypto";
 import type { IncomingMessage } from "node:http";
 
 import { STATE } from "#chloe/core/paths";
+import { settings } from "#chloe/core/settings";
 import { checkToken, type Token } from "./tokens.ts";
 import { lockedOut } from "#chloe/core/alerts";
 
 /** The one account, beside the run history, mode 600. Not in source control. */
 const FILE = `${STATE}/login.json`;
 
-export const COOKIE = "chloe_session";
+/**
+ * The session cookie's name. A browser keeps cookies per machine name and not
+ * per port, so two copies on one machine would sign each other out under one
+ * name: the port is part of it.
+ */
+export function cookieName(): string {
+  return `chloe_session_${settings.serve.port}`;
+}
 
 /** A week. Long enough not to be a chore, short enough that a stolen cookie dies. */
 const LASTS = 7 * 24 * 60 * 60;
@@ -29,37 +42,62 @@ const WINDOW = 15 * 60 * 1000;
 const LOCKED = 15 * 60 * 1000;
 
 interface Account {
-  password: string;
-  /** Signs the session cookie. Made with the account, so a restart keeps people signed in. */
+  /** Unset until somebody chooses one: a copy with none is opened with a link. */
+  password?: string;
+  /** Signs the session cookie and the links. Made with the account, so a restart keeps people signed in. */
   secret: string;
   /** Older copies had one. Read so their file still loads, never checked. */
   username?: string;
 }
 
-let account: Account | null | undefined;
+let account: Account | null = null;
+/** When the file was last changed, as it was read: `npx chloe account` and `npx chloe link` write it from another process. */
+let readAt = -1;
 
 function read(): Account | null {
-  if (account !== undefined) return account;
+  let changed: number;
   try {
-    account = JSON.parse(readFileSync(FILE, "utf8")) as Account;
+    changed = statSync(FILE).mtimeMs;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     account = null;
+    return null;
   }
+  if (account && changed === readAt) return account;
+  account = JSON.parse(readFileSync(FILE, "utf8")) as Account;
+  readAt = changed;
   return account;
 }
 
-export function hasAccount(): boolean {
-  return Boolean(read());
+/**
+ * The account, made with a secret and no password when there is none, so a
+ * link or a cookie can be signed. Two processes making it at once end up with
+ * the one that was written first.
+ */
+function held(): Account {
+  const found = read();
+  if (found) return found;
+  mkdirSync(STATE, { recursive: true });
+  try {
+    writeFileSync(FILE, JSON.stringify({ secret: crypto.randomBytes(32).toString("base64url") }, null, 2), { mode: 0o600, flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  return read()!;
+}
+
+export function hasPassword(): boolean {
+  return Boolean(read()?.password);
 }
 
 /**
- * The password this copy will have, from the setup page. Throws if one already
- * exists: the first visit wins, and every visit after it is refused.
+ * The first password, from a browser already signed in or from a shell. Throws
+ * if there is one: changing it takes a shell, `npx chloe account`. Keeps the
+ * secret, so the browser that set it stays signed in.
  */
-export function createAccount(password: string): void {
-  if (hasAccount()) throw new Error("A password is already set.");
-  write(password);
+export function firstPassword(password: string): void {
+  if (hasPassword()) throw new Error("A password is already set.");
+  write(password, held().secret);
 }
 
 /**
@@ -72,19 +110,17 @@ export function createAccount(password: string): void {
  * signed out, because the secret that signs their cookies is made fresh here.
  */
 export function resetPassword(password: string): void {
-  write(password);
+  write(password, crypto.randomBytes(32).toString("base64url"));
 }
 
-function write(password: string): void {
+function write(password: string, secret: string): void {
   if (password.length < 8) throw new Error("The password must be at least 8 characters.");
-  const made: Account = {
-    password: hash(password),
-    secret: crypto.randomBytes(32).toString("base64url"),
-  };
+  const made: Account = { password: hash(password), secret };
   mkdirSync(STATE, { recursive: true });
   writeFileSync(FILE, JSON.stringify(made, null, 2), { mode: 0o600 });
   chmodSync(FILE, 0o600);
   account = made;
+  readAt = statSync(FILE).mtimeMs;
 }
 
 /**
@@ -105,16 +141,54 @@ export function suggestPassword(): string {
  * everybody out.
  */
 export function signIn(password: string, from: string): string {
-  const held = read();
-  if (!held) throw new Error("There is no password yet.");
+  const found = read();
+  if (!found?.password) throw new Error("This copy has no password, so it opens with a link. Run npx chloe link in its folder.");
   const wait = lockedFor(from);
   if (wait) throw new Error(`Too many tries. Try again in ${Math.ceil(wait / 60)} minutes.`);
-  if (!check(password, held.password)) {
+  if (!check(password, found.password)) {
     countFailure(from);
     throw new Error("Wrong password.");
   }
   failures.delete(from);
-  return sign(held);
+  return sign(found);
+}
+
+/** How long a link works, in seconds. */
+const LINK_LASTS = 60 * 60;
+
+/**
+ * Each link used, until it would have run out anyway. In this process, so a
+ * link used before a restart opens once more within its hour.
+ */
+const used = new Map<string, number>();
+
+/**
+ * A link that signs one browser in, once, within the hour: `address` with a
+ * code after `#in=`. After the #, so it never reaches a server or a log on the
+ * way, and only the page's own script, swapping it for a cookie, uses it up: a
+ * program that fetches the address does not.
+ */
+export function makeLink(address: string): string {
+  const code = seal("link", { id: crypto.randomBytes(9).toString("base64url"), until: Math.floor(Date.now() / 1000) + LINK_LASTS });
+  return `${address}/#in=${code}`;
+}
+
+/** The cookie value for a link's code, or the reason it was refused. Wrong codes count towards the lockout, as wrong passwords do. */
+export function signInWithLink(code: string, from: string): string {
+  const wait = lockedFor(from);
+  if (wait) throw new Error(`Too many tries. Try again in ${Math.ceil(wait / 60)} minutes.`);
+  const said = unseal<{ id?: unknown; until?: unknown }>("link", code);
+  if (typeof said?.id !== "string" || typeof said.until !== "number") {
+    countFailure(from);
+    throw new Error("That link was not made by this copy. Run npx chloe link in its folder for one.");
+  }
+  const now = Math.floor(Date.now() / 1000);
+  for (const [id, until] of used) if (until <= now) used.delete(id);
+  if (said.until <= now || used.has(said.id)) {
+    throw new Error("That link was used already, or is more than an hour old. Run npx chloe link in its folder for another.");
+  }
+  used.set(said.id, said.until);
+  return sign(held());
 }
 
 /**
@@ -149,9 +223,9 @@ export function caller(request: IncomingMessage): Caller {
     const name = nameOf(request);
     return { kind: "dashboard", user: relayed, ...(name ? { name } : {}), ...(guest ? { guest } : {}) };
   }
-  const held = read();
+  const found = read();
   const values = carried(request);
-  if (held && values.some((value) => holds(value, held))) return { kind: "account" };
+  if (found && values.some((value) => holds(value, found))) return { kind: "account" };
   for (const value of values) {
     const token = checkToken(value);
     if (token) return { kind: "token", token };
@@ -252,7 +326,7 @@ export function signedIn(request: IncomingMessage): boolean {
 /** The session values on a request: the cookie, then the bearer header. */
 function carried(request: IncomingMessage): string[] {
   const found: string[] = [];
-  const cookie = cookies(request.headers.cookie)[COOKIE];
+  const cookie = cookies(request.headers.cookie)[cookieName()];
   if (cookie) found.push(cookie);
   const header = request.headers.authorization ?? "";
   if (header.toLowerCase().startsWith("bearer ")) found.push(header.slice(7).trim());
@@ -260,11 +334,11 @@ function carried(request: IncomingMessage): string[] {
 }
 
 /** Whether one value is a session this copy signed, for this account, still in date. */
-function holds(value: string, held: Account): boolean {
+function holds(value: string, account: Account): boolean {
   const dot = value.lastIndexOf(".");
   if (dot <= 0) return false;
   const body = value.slice(0, dot);
-  const expected = crypto.createHmac("sha256", held.secret).update(body).digest("base64url");
+  const expected = crypto.createHmac("sha256", account.secret).update(body).digest("base64url");
   if (!same(value.slice(dot + 1), expected)) return false;
   try {
     const inside = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as { until: number };
@@ -282,8 +356,8 @@ function holds(value: string, held: Account): boolean {
  */
 export function setCookie(value: string, secure: boolean): string[] {
   const rest = `Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
-  if (value) return [`${COOKIE}=${value}; Max-Age=${LASTS}; ${rest}`];
-  return [`${COOKIE}=; Max-Age=0; ${rest}`];
+  if (value) return [`${cookieName()}=${value}; Max-Age=${LASTS}; ${rest}`];
+  return [`${cookieName()}=; Max-Age=0; ${rest}`];
 }
 
 /**
@@ -292,9 +366,7 @@ export function setCookie(value: string, secure: boolean): string[] {
  * not a way past the login: it is the same permission, said over HTTP.
  */
 export function ownCookie(): string {
-  const held = read();
-  if (!held) throw new Error("There is no password yet. Open the page and set one.");
-  return `${COOKIE}=${sign(held)}`;
+  return `${cookieName()}=${sign(held())}`;
 }
 
 /**
@@ -304,20 +376,18 @@ export function ownCookie(): string {
  * session. Dies with the account, like everything signed here.
  */
 export function seal(purpose: string, payload: object): string {
-  const held = read();
-  if (!held) throw new Error("There is no password yet, so nothing can be signed.");
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  return `${body}.${crypto.createHmac("sha256", held.secret).update(`${purpose}:${body}`).digest("base64url")}`;
+  return `${body}.${crypto.createHmac("sha256", held().secret).update(`${purpose}:${body}`).digest("base64url")}`;
 }
 
 /** The payload a `seal` made for this purpose, or null when it is not one. */
 export function unseal<T>(purpose: string, value: string): T | null {
-  const held = read();
-  if (!held) return null;
+  const found = read();
+  if (!found) return null;
   const dot = value.lastIndexOf(".");
   if (dot <= 0) return null;
   const body = value.slice(0, dot);
-  const expected = crypto.createHmac("sha256", held.secret).update(`${purpose}:${body}`).digest("base64url");
+  const expected = crypto.createHmac("sha256", found.secret).update(`${purpose}:${body}`).digest("base64url");
   if (!same(value.slice(dot + 1), expected)) return null;
   try {
     return JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as T;
@@ -326,9 +396,9 @@ export function unseal<T>(purpose: string, value: string): T | null {
   }
 }
 
-function sign(held: Account): string {
+function sign(account: Account): string {
   const body = Buffer.from(JSON.stringify({ until: Math.floor(Date.now() / 1000) + LASTS })).toString("base64url");
-  return `${body}.${crypto.createHmac("sha256", held.secret).update(body).digest("base64url")}`;
+  return `${body}.${crypto.createHmac("sha256", account.secret).update(body).digest("base64url")}`;
 }
 
 /**
