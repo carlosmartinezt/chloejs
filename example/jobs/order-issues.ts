@@ -41,7 +41,7 @@ const refund = tool({
 export default defineJob({
   id: "order-issues",
   cron: every(15).minutes,
-  description: "Reads what customers wrote in and looks into the ones that need looking into.",
+  description: "Every customer message that needs looking into has been looked into.",
   run: async (work) => {
     const messages = await work.step("load messages", () => unread());
 

@@ -81,7 +81,8 @@ function writeTool(agent: Home, rules: OwnFileRules): ChloeTool {
         "skill, with name and description at the top: keep it short and about how to do the job, and write down only " +
         "what cost you something, because every run that opens it reads all of it. One directly in jobs/ is a job, " +
         "with cron, description, " +
-        "timezone and model at the top, and a job you write runs at most once an hour. " +
+        "timezone and model at the top, and a job you write runs at most once an hour. Its description says what is " +
+        "true when a run is done, not what the job does. " +
         (rules.code
           ? "Your code is yours too: agent.ts, jobs, tools, services, channels, scripts. With code among them you are " +
             "loaded once with all of them, and they are all put back with the reason when you would not load. A new " +

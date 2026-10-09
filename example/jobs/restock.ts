@@ -30,7 +30,7 @@ export default defineJob({
   id: "restock",
   cron: every.monday.at("08:00"),
   timezone: "America/New_York",
-  description: "Works out what is about to run out, buys it, and writes the buyer one line about why.",
+  description: "Nothing is about to run out, and the buyer has one line on why each order was placed.",
   run: async (work) => {
     const items = await work.step("read the shelves", () => stock());
     const sold = await work.step("read what sold in 30 days", async () =>

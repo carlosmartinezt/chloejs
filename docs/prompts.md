@@ -29,7 +29,7 @@ keys, all optional, and no others:
 
 | Key | Default | What it controls |
 |---|---|---|
-| `description` | none | One line, shown beside the id. |
+| `description` | none | One line on what is true when a run is done, not what the job does. Shown beside the id. |
 | `cron` | none | When it runs by itself. A line that does not read stops the agent loading. |
 | `timezone` | `"UTC"` | The timezone the cron line is read in. |
 | `model` | the agent's | The model it asks. |

@@ -15,7 +15,7 @@ A job is an async function made of steps, or a prompt. It is written with
 | Option | Default | What it controls |
 |---|---|---|
 | `id` | required | What its runs are filed under, and its name in commands. Do not change it once it has run. |
-| `description` | required | One line, shown beside the id. |
+| `description` | required | One line on what is true when a run is done, not what the job does: "The warehouse knows about every late order", not "Finds late orders". Shown beside the id. |
 | `run` | | The job as code. A job has `run` or `markdown`, never both. |
 | `markdown` | | The job as a prompt: `prompt("jobs/<id>.md")` for a file in the agent's folder, or the words themselves. See [A prompt with tools](/docs/prompts). |
 | `cron` | none | When it runs by itself. Without one, it runs only when somebody starts it. |
@@ -110,7 +110,7 @@ A run the clock started has an empty `input`.
 ```ts
 export default defineJob({
   id: "refunds-for",
-  description: "Pays one customer's refunds.",
+  description: "One customer's refunds are paid.",
   args: z.object({ customer: z.string().min(1) }),
   run: async (work) => {
     const customer = work.args.customer;

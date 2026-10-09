@@ -4,7 +4,7 @@ import { deliverEmail } from "@chloejs/core/services";
 
 const digest = defineJob({
   id: "digest",
-  description: "Writes a short morning note and emails it.",
+  description: "A short morning note is in your inbox.",
   run: async (work) => {
     const { note } = await work.model("write the note", {
       prompt: "Write three upbeat lines to start the day.",

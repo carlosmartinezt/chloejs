@@ -33,7 +33,11 @@ export interface JobConfig<
    * name works too, and one file can hold several jobs.
    */
   id: string;
-  /** One line on what the job does. The dashboard shows it next to the id. Required. */
+  /**
+   * One line on what is true when a run is done, not what the job does:
+   * "The warehouse knows about every late order", not "Finds late orders".
+   * The dashboard shows it next to the id. Required.
+   */
   description: string;
   /**
    * When the job runs by itself, as a cron line with five fields: minute,
@@ -117,7 +121,7 @@ export interface JobConfig<
  * ```ts
  * export default defineJob({
  *   id: "hello",
- *   description: "Says hello.",
+ *   description: "Hello has been said.",
  *   run: async (work) => work.step("say hello", () => "hello"),
  * });
  * ```
@@ -128,7 +132,7 @@ export interface JobConfig<
  * ```ts
  * export default defineJob({
  *   id: "site-check",
- *   description: "Asks every site and says which are down.",
+ *   description: "Every site that is down has been reported.",
  *   run: async (work) => ({ checked: 12, down: ["a.co"] }),
  *   response: (r) => (r.down.length === 0 ? `All ${r.checked} sites up.` : `${r.down.join(", ")} down.`),
  * });

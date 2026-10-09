@@ -10,6 +10,6 @@ export default defineJob({
   id: "how-it-went",
   cron: every.sunday.at("18:00"),
   timezone: "America/New_York",
-  description: "Reads its own notes and says whether anything about the shop has been quietly getting worse.",
+  description: "You know whether anything about the shop has been quietly getting worse.",
   markdown: prompt("jobs/how-it-went.md"),
 });

@@ -40,7 +40,7 @@ export default defineJob({
   id: "sort-messages",
   cron: every(15).minutes,
   timezone: "America/New_York",
-  description: "Reads what customers wrote in and puts each one on the right desk.",
+  description: "Every message a customer wrote in is on the right desk.",
   model: "anthropic/claude-haiku-4.5",
   run: async (work) => {
     const waiting = await work.step("read what came in", () => unread());

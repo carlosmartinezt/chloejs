@@ -21,7 +21,7 @@ export default defineJob({
   id: "stuck-orders",
   cron: every(2).hours,
   timezone: "America/New_York",
-  description: "Finds orders that are paid for and late, and tells the warehouse.",
+  description: "The warehouse knows about every order that is paid for and late.",
   run: async (work) => {
     const all = await work.step("read the orders", () => orders());
 

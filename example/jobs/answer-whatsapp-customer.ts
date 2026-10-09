@@ -15,7 +15,7 @@ import { ordersBy } from "../services/ordersService.ts";
 
 export default defineJob({
   id: "answer-whatsapp-customer",
-  description: "Answers a customer's WhatsApp message, with their orders at hand.",
+  description: "A customer who wrote on WhatsApp has an answer that knows their orders.",
   run: async (work) => {
     // Their id on the channel it came in on, which on WhatsApp is their number.
     const who = await work.step("look them up", () => customerByPhone(work.input.userId));

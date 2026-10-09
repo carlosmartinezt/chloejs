@@ -10,7 +10,7 @@ const Picks = z.object({
 
 const digest = defineJob({
   id: "reading",
-  description: "Finds the few things worth reading and emails them.",
+  description: "The few things worth reading are in your inbox.",
   run: async (work) => {
     const { picks } = await work.agent("find what's worth reading", {
       prompt:

@@ -38,7 +38,7 @@ export default defineJob({
   id: "why-they-left",
   cron: every.monday.at("09:00"),
   timezone: "America/New_York",
-  description: "Works out why good customers stopped ordering, and says what to do about each one.",
+  description: "Every good customer who stopped ordering has a reason and a next step.",
   run: async (work) => {
     const quiet = await work.step("find who went quiet", () => goneQuiet(QUIET_DAYS));
     if (quiet.length === 0) return { looked: 0, found: [] };

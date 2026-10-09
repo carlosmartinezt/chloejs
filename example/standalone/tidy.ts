@@ -10,7 +10,7 @@ const MONTH = 30 * 24 * 60 * 60 * 1000;
 
 const tidy = defineJob({
   id: "tidy",
-  description: "Clears out downloads older than a month, once you say yes.",
+  description: "Downloads holds nothing older than a month that you said could go.",
   cron: every.sunday.at("10:00"),
   run: async (work) => {
     const old = await work.step("find old files", async () => {

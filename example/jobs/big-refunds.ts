@@ -15,7 +15,7 @@ export default defineJob({
   id: "big-refunds",
   cron: every.weekday.at("09:30"),
   timezone: "America/New_York",
-  description: "Pays small refunds, and asks a person about the ones worth asking about.",
+  description: "Small refunds are paid, and a person has decided the ones worth asking about.",
   run: async (work) => {
     const waiting = await work.step("read the refunds asked for", () => refundsAsked());
     if (waiting.length === 0) return { paid: [], asked: 0, held: [] };
