@@ -88,6 +88,7 @@ import { work } from "./shared.ts";
   is("and asks no model", Boolean(agent.jobs[0].run), true);
   is("the prompt one is words", Boolean(agent.jobs[1].prompt), true);
   is("and runs only when somebody starts it", agent.jobs[1].cron, undefined);
+  is("it may change its own words, when its owner asks", Boolean(agent.tools?.selfWriteFile), true);
 
   // The job for real, against the same runner the clock uses.
   const [dailyNote] = await jobsOf("watcher", folder, [(await import(pathToFileURL(join(folder, "jobs/daily-note.ts")).href)).default]);
@@ -110,4 +111,39 @@ import { work } from "./shared.ts";
 
   settings.model.defaultModel = was;
   await rm(folder, { recursive: true, force: true });
+}
+
+{
+  about("the repository npx chloe setup makes");
+  const { firstCommit, hasGit, hasGitName, repositoryOf, uncommittedIn } = await import("#chloe/ops/git");
+  const { tmpdir } = await import("node:os");
+  const { realpathSync } = await import("node:fs");
+  const { spawnSync } = await import("node:child_process");
+
+  is("git is here, which the rest of these need", hasGit(), true);
+  const project = realpathSync(await mkdtemp(join(tmpdir(), "setup-git-")));
+  await mkdir(join(project, "agents/watcher"), { recursive: true });
+  await writeFile(join(project, "agents/watcher/instructions.md"), "You are watcher.\n");
+  await writeFile(join(project, ".gitignore"), "data\n");
+  await mkdir(join(project, "data"), { recursive: true });
+  await writeFile(join(project, "data/runs.db"), "x");
+  is("a folder outside any repository is in none", repositoryOf(project), "");
+
+  // Whatever git says its name is on this machine, with none it still commits.
+  const nameless = { ...process.env, HOME: project, GIT_CONFIG_NOSYSTEM: "1", XDG_CONFIG_HOME: project };
+  const was = { ...process.env };
+  Object.assign(process.env, nameless);
+  is("with no name set, git has none", hasGitName(project), false);
+  firstCommit(project);
+  is("it becomes one", repositoryOf(project), project);
+  is("with what was there committed", uncommittedIn(project, ["agents/watcher"]), []);
+  const author = spawnSync("git", ["log", "-1", "--format=%an"], { cwd: project, encoding: "utf8" }).stdout.trim();
+  is("under setup's name when git has none", author, "npx chloe setup");
+  const tracked = spawnSync("git", ["ls-files"], { cwd: project, encoding: "utf8" }).stdout.trim().split("\n");
+  is("and nothing .gitignore leaves out", tracked, [".gitignore", "agents/watcher/instructions.md"]);
+  await writeFile(join(project, "agents/watcher/skill.md"), "new");
+  is("a new file is one nobody has committed", uncommittedIn(project, ["agents/watcher"]), ["agents/watcher/skill.md"]);
+  for (const key of Object.keys(process.env)) if (!(key in was)) delete process.env[key];
+  Object.assign(process.env, was);
+  await rm(project, { recursive: true, force: true });
 }

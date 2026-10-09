@@ -43,8 +43,16 @@ Switched on in the definition, with nothing to import:
 |---|---|---|
 | `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles`, `memoryWriteFile` and `memoryEditFile`, inside its memory folder and nowhere else. |
 | `memoryPerUser` | off | `memoryWriteUserNotes`: a note per person it talks to, `users/<channel>-<id>.md` in its memory, shown at the top of that person's turns. Whose note it is comes from who sent the message, never from the model. |
-| `selfImprovement` | off | `selfListFiles`, `selfReadFile` and `selfWriteFile`, to change the plain text in its own folder: instructions, skills, markdown jobs. `{ files: ["md"] }` narrows it, `{ except: ["PERMISSIONS.md"] }` keeps a file read only. Never code, evals, memory or a new job, and a job it changes must still load and run at most once an hour. Every write is a commit you can undo from the dashboard. |
+| `selfImprovement` | off | `selfWriteFile`, to change the plain text in its own folder: instructions, skills, markdown jobs. `{ files: ["md"] }` narrows it, `{ except: ["PERMISSIONS.md"] }` keeps a file read only, `{ code: true }` adds its code (below). Never evals or memory, and a job it changes must still load and run at most once an hour. Every write is a commit you can undo from the dashboard. It writes only when its owner asks, and not after a tool in the same turn read from outside ([what an agent may change](/docs/prompts#what-an-agent-may-change-about-itself)). |
 | `runScripts` | off | `scriptRun`, to run a file in its own `scripts/` folder. The agent is refused as it loads if that folder is empty. |
+
+Every agent also has four tools that need no feature, in turns its owner wrote
+and no others: `selfListFiles` and `selfReadFile` read its own folder (never
+its memory), and `selfListRuns` and `selfReadRun` read its own runs, so you can
+ask "how do you send the morning facts?" or "what did you send me yesterday?".
+A job, a guest, a token and a visitor never get them, because a run holds what
+other people said. Who the owner is: `owner` in settings, the first entry in a
+channel's `allowFrom`, or the account on the dashboard.
 
 ## memory
 

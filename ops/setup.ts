@@ -26,6 +26,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
+import { firstCommit, hasGit, hasGitName, repositoryOf, uncommittedIn } from "./git.ts";
 import { GUIDES, identifier, modelLine, idProblem, STARTER_MODEL_LINE, starterFiles, withChannel, withSetting } from "./starter.ts";
 import { ask, askHidden, pick, takeDefaults, yes } from "./terminal.ts";
 import type { Provider } from "#chloe/core/settings";
@@ -98,6 +99,7 @@ try {
   await firstRun(agent);
   await onWhatsApp(agent);
   await somewhereToWatch(port);
+  await theRepository(agent);
   await sayWhatNext(agent, model, port);
 } catch (error) {
   console.error(`\n${error instanceof Error ? error.message : String(error)}`);
@@ -541,7 +543,41 @@ async function somewhereToWatch({ port }: { port: number }): Promise<void> {
   }
 }
 
-async function sayWhatNext(id: string, model: string, { moved }: { moved: boolean }): Promise<void> {
+/**
+ * A git repository for the project, with what setup wrote committed, because
+ * every change an agent makes to itself is a commit and a file nobody has
+ * committed is one it may not change. A folder that is not one yet is made one,
+ * if they say so; one that is somebody's own is never committed to, only said.
+ * git is never installed from here.
+ */
+async function theRepository(id: string): Promise<void> {
+  if (!hasGit()) {
+    console.log(`\ngit is not installed. Every change ${id} makes to itself is a git commit you can read and undo, so`);
+    console.log(`without git it cannot change itself. Install it (https://git-scm.com/downloads), then run npx chloe setup again.`);
+    return;
+  }
+  if (!repositoryOf(HERE)) {
+    if (!(await yes(`\nMake this folder a git repository, so every change ${id} makes to itself can be read and undone? (Y/n)`, true))) {
+      console.log(`  Left as it is. ${id} cannot change itself until it is one: git init, then commit what is here.`);
+      return;
+    }
+    firstCommit(HERE);
+    written(".git", "a repository, with what is here as its first commit");
+  } else {
+    const waiting = uncommittedIn(HERE, [join("agents", id)]);
+    if (waiting.length) {
+      console.log(`\n${id}'s files are not committed, and it may not change a file nobody has committed. Commit them:`);
+      console.log(`  git add agents/${id} && git commit -m "${id}, from npx chloe setup"`);
+    }
+  }
+  if (!hasGitName(HERE)) {
+    console.log("\ngit has no name to commit under here, which what you change in an agent's memory by hand is committed under:");
+    console.log('  git config --global user.name "Your Name"');
+    console.log("  git config --global user.email you@example.com");
+  }
+}
+
+async function sayWhatNext(id: string, model: string, { port, moved }: { port: number; moved: boolean }): Promise<void> {
   if (wrote.length) console.log(`\nWritten:\n${columns(wrote)}`);
   console.log(
     `\nTry these:\n${columns([
@@ -554,6 +590,8 @@ async function sayWhatNext(id: string, model: string, { moved }: { moved: boolea
     ])}`,
   );
   if (moved) console.log("\nnpx chloe install is left out: a machine runs one chloe service, most likely the one already running, and install would point it here instead.");
+  console.log(`\nTalk to ${id} on the page once npx chloe is going: http://127.0.0.1:${port}/agents/${id}/chat`);
+  console.log(`Ask it for what you want done, like "every morning at 7, tell me what is most urgent in my mail".`);
   console.log(`\nWhat to write next, and every setting there is: ${GUIDES}`);
   // Whoever ran this without a keyboard is most likely a coding agent, about to
   // build what somebody asked for, and the guides it needs are already here.

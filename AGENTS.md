@@ -164,14 +164,31 @@ into three folders, stop: that is the signal you are about to industrialise
 boilerplate rather than build a system.
 
 **Self-improving, within a boundary.** An agent keeps its own notes, so a run
-can leave the next one better informed. `selfImprovement: true` also lets it
+can leave the next one better informed. Every agent can read its own folder
+and runs in its owner's turns (`selfReadTools` in `model/tools/self.ts`,
+added by `toolsFor()` in `core/turn.ts` like `skillRead`, so they are not in
+the agent's `tools`). `selfImprovement: true` also lets it
 change the plain text in its own folder, `PLAIN_TEXT` in `load/load.ts`: its
 instructions, its skills, the words of its jobs. `files` narrows that and
-`except` keeps a path back. It cannot write code (its tools, services, channels
-and scripts, or anything ending in .ts, .js, .py or .sh), because code an agent
-writes is code it then runs as itself, and it cannot write its own evals or add
-a job. Every change is a commit under its name, so a person can read each one
-and undo it from the site.
+`except` keeps a path back. Code (its tools, services, channels and scripts,
+`agent.ts`, anything ending in .ts, .js, .py or .sh) only with `code: true`,
+because code an agent writes is code it then runs as itself, and without it
+it cannot add a job. `selfWriteFile` takes every file one
+change needs and commits them as one. With code among them,
+`loadsOrPutBack()` in `services/ownFilesService.ts` writes them all, loads the
+agent once with `loadAgain()` as the next reload would, type checks when the
+project has TypeScript, and puts every file back with the reason when any of
+that fails or a job would run more than once an hour. `checkFirst()` in `load/load.ts` holds
+reloads (`checksDone()` in `serve/start.ts`) until the check is over, so what
+goes live is what passed. It never writes its own evals. Every change is a
+commit under its name, so a person can read each one
+and undo it from the site. It changes itself only when its owner asks:
+`changesAgent` on a tool keeps it out of every turn without `mayChangeAgent`,
+and `forOwner` out of every turn without `fromOwner` (both decided in
+`receive()`, or by the page's chat route), and the loop in
+`core/turn.ts` refuses it once a tool not marked `own` has answered in that
+turn. A new tool that only touches the agent's own folder or memory is marked
+`own`; anything else counts as reading from outside.
 
 **Simple.** Fewer files, fewer references between them, fewer words. The most
 common cause of something being too complicated is a thing written down in two
@@ -273,8 +290,8 @@ password, `link.ts`, which prints a link that opens the page signed in, and
 the one command a new project runs and the only one that works before there is a
 `chloe.config.ts`: it reads no setting as it loads, because reading one needs
 that file, so it imports the runtime inside the steps that need it. `starter.ts`
-beside it is the files it writes, as text, and `terminal.ts` is how those two ask
-a person something. A job lives in `jobs/` whether
+beside it is the files it writes, as text, `git.ts` is the repository it makes
+for the project, and `terminal.ts` is how those two ask a person something. A job lives in `jobs/` whether
 it is code or a prompt, and whether or not it has a cron line: one folder.
 
 `skills/chloejs/SKILL.md` is what a coding agent installs with `npx skills add

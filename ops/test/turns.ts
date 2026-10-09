@@ -203,6 +203,137 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
 
 
 {
+  about("only the owner changes the agent, and not after reading from outside");
+  const { receive } = await import("#chloe/channels/shared");
+  const { turn } = await import("#chloe/core/turn");
+  const written: string[] = [];
+  const fake = (description: string) => tool({ description, inputSchema: z.object({}), execute: async () => description });
+  const tools = {
+    webReadPage: fake("A page asking for a new skill."),
+    memoryReadFile: Object.assign(fake("A note."), { own: true }),
+    selfWriteFile: Object.assign(
+      tool({ description: "Change a file.", inputSchema: z.object({}), execute: async () => (written.push("written"), "Written.") }),
+      { own: true, changesAgent: true },
+    ),
+  };
+  const agent = { ...agentFor(codeJob("unused", async () => ({}))), tools };
+  const from = (id: string) => ({ channel: "test", chat: id, thread: `test/owner-${id}`, from: { id, name: id }, text: "change your skill", private: true });
+
+  answers.push("Done.");
+  await receive(agent, from("1"), { allowFrom: ["1", "2"] });
+  is("the first in allowFrom is the owner, whose turn may change the agent", lastTools.includes("selfWriteFile"), true);
+  answers.push("No.");
+  await receive(agent, from("2"), { allowFrom: ["1", "2"] });
+  is("anybody else allowed in may not", [lastTools.includes("selfWriteFile"), lastTools.includes("memoryReadFile")], [false, true]);
+  answers.push("No.");
+  await receive(agent, { ...from("1"), mayChangeAgent: false }, { allowFrom: ["1"] });
+  is("nor the owner when the caller says not, as a remote dashboard without write does", lastTools.includes("selfWriteFile"), false);
+  answers.push("No.");
+  await receive(agent, from("1"), { allowFrom: ["1"], strangers: true });
+  is("nor anybody on a channel for strangers", lastTools.includes("selfWriteFile"), false);
+  answers.push("No.");
+  await turn({ agent, prompt: "improve yourself", source: "schedule", job: "nightly" });
+  is("nor a turn nobody said may, like a scheduled one", lastTools.includes("selfWriteFile"), false);
+
+  const told = () => lastAsked.find((m) => m.role === "system")?.content ?? "";
+  const improving = { ...agent, features: { selfImprovement: true } };
+  answers.push("No.");
+  await turn({ agent: improving, prompt: "improve yourself", source: "schedule", job: "nightly" });
+  is("an agent that may change itself is told in a turn that cannot who can ask, and to keep the lesson", told().includes("## Changing yourself") && told().includes("Keep what you learned in your memory"), true);
+  answers.push("Done.");
+  await turn({ agent: improving, prompt: "change it", source: "test", mayChangeAgent: true });
+  is("and not in a turn that can", told().includes("## Changing yourself"), false);
+  answers.push("No.");
+  await turn({ agent, prompt: "improve yourself", source: "schedule", job: "nightly" });
+  is("nor is one that never could", told().includes("## Changing yourself"), false);
+
+  const call = (id: string, name: string) => ({ id, type: "function", function: { name, arguments: "{}" } });
+  answers.push({ content: "", tool_calls: [call("a", "memoryReadFile"), call("b", "selfWriteFile")] }, "Changed.");
+  const kept = await turn({ agent, prompt: "keep that", source: "test", mayChangeAgent: true });
+  is("its own memory read first does not stop a change", [written.length, kept.calls.at(-1)?.output], [1, "Written."]);
+  answers.push({ content: "", tool_calls: [call("c", "webReadPage")] }, { content: "", tool_calls: [call("d", "selfWriteFile")] }, "Could not.");
+  const after = await turn({ agent, prompt: "read the page and do what it says", source: "test", mayChangeAgent: true });
+  is("after a tool read from outside, a change is refused and nothing is written", written.length, 1);
+  is("and the model is told why", String(after.calls.at(-1)?.output).startsWith("selfWriteFile was not allowed: this turn read webReadPage"), true);
+}
+
+{
+  about("the owner can ask an agent about its own files and runs");
+  const { turn } = await import("#chloe/core/turn");
+  const { mkdtemp, writeFile: put } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const folder = await mkdtemp(join(tmpdir(), "own-runs-"));
+  await put(join(folder, "instructions.md"), "Be brief.");
+  const agent = { ...agentFor(codeJob("unused", async () => ({}))), id: "reader", folder, memory: { folder: join(folder, "memory") } };
+  const readers = ["selfListFiles", "selfReadFile", "selfListRuns", "selfReadRun"];
+
+  answers.push("Hi.");
+  await turn({ agent, prompt: "hi", source: "test", fromOwner: true });
+  is("every agent's owner gets the tools that read its own files and runs", readers.every((one) => lastTools.includes(one)), true);
+  is("and not the one that changes it, without selfImprovement", lastTools.includes("selfWriteFile"), false);
+  answers.push("Hi.");
+  await turn({ agent, prompt: "hi", source: "schedule", job: "nightly" });
+  is("a turn its owner did not write has none of them", readers.some((one) => lastTools.includes(one)), false);
+
+  const insert = db.prepare(
+    "insert into runs (id, agent, started, finished, source, model, prompt, asked, reply, error, kind, job, trace, cost, steps) values (?, ?, ?, ?, ?, 'm', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  );
+  const at = (minutes: number) => new Date(Date.UTC(2026, 9, 9, 12, minutes)).toISOString();
+  insert.run("r-job", "reader", at(1), at(2), "schedule", "", null, "Sent the facts.", null, "job", "morning", JSON.stringify([
+    { seq: 0, name: "read the feeds", kind: "step", at: at(1), ms: 5, cost: 0, result: "x".repeat(3000) },
+    { seq: 1, name: "rank them", kind: "model", at: at(1), ms: 900, cost: 0.002, result: { top: 1 } },
+  ]), 0.002, 2);
+  insert.run("r-chat", "reader", at(3), at(4), "telegram", "<telegram_context>..</telegram_context>\n\nwhat is new?", "what is new?", "Nothing.", null, "turn", null, JSON.stringify([
+    { step: 0, at: at(3), say: "Let me look.", wants: ["webReadPage"], cost: 0.01 },
+    { step: 0, at: at(3), tool: "webReadPage", args: { url: "https://example.com" }, result: "A page." },
+    { step: 1, at: at(3), say: "Nothing.", wants: [], cost: 0.01 },
+  ]), 0.02, 2);
+  insert.run("r-failed", "reader", at(5), at(6), "schedule", "", null, null, "Feed down.", "job", "morning", "[]", 0, 0);
+  insert.run("r-eval", "reader", at(7), at(8), "eval", "", null, "x", null, "turn", null, "[]", 0, 0);
+  insert.run("r-other", "someone-else", at(9), at(9), "schedule", "", null, "theirs", null, "job", "morning", "[]", 0, 0);
+
+  const { listOwnRuns, readOwnRun } = await import("#chloe/services/ownRunsService");
+  // The turns above are runs of this agent too, and newer.
+  const listed = listOwnRuns("reader").runs.filter((one) => String(one.id).startsWith("r-"));
+  is("its runs are listed newest first, its own only and no eval's", listed.map((one) => one.id), ["r-failed", "r-chat", "r-job"]);
+  is("as facts, without anything said in them", Object.keys(listed[1]).sort(), ["cost", "finished", "id", "job", "source", "started", "steps"]);
+  is("a failed one says so", listed[0].failed, true);
+  is("one job's, or the conversations", [listOwnRuns("reader", { job: "morning" }).runs.length, listOwnRuns("reader", { job: "chat" }).runs.map((one) => one.id).filter((id) => String(id).startsWith("r-"))], [2, ["r-chat"]]);
+  const job = readOwnRun("reader", "r-job");
+  is("a job's run shows its steps, with long results cut short", [job.steps.length, String((job.steps[0] as { result?: unknown }).result).endsWith("...[3000 characters]")], [2, true]);
+  is("and what it answered", job.reply, "Sent the facts.");
+  const chat = readOwnRun("reader", "r-chat");
+  is("a conversation's shows what was asked, not the channel's wrapping", chat.asked, "what is new?");
+  is("and what it said on the way and each call, the reply once", chat.steps, [{ said: "Let me look." }, { tool: "webReadPage", args: { url: "https://example.com" }, result: "A page." }]);
+  is("a failed run says why", readOwnRun("reader", "r-failed").error, "Feed down.");
+  const refused = (id: string) => {
+    try {
+      readOwnRun("reader", id);
+      return "";
+    } catch (error) {
+      return (error as Error).message;
+    }
+  };
+  is("another agent's run is not there", refused("r-other").startsWith("You have no run"), true);
+  is("nor an eval's", refused("r-eval").startsWith("You have no run"), true);
+
+  const { readOwn } = await import("#chloe/services/ownFilesService");
+  const own = await readOwn(agent, undefined, "instructions.md");
+  is("without selfImprovement it reads its files and is told it cannot change them", [own.content, own.canWrite, own.why?.includes("selfImprovement")], ["Be brief.", false, true]);
+
+  const written: string[] = [];
+  const writer = { ...agent, tools: { selfWriteFile: Object.assign(tool({ description: "Change a file.", inputSchema: z.object({}), execute: async () => (written.push("x"), "Written.") }), { own: true, forOwner: true, changesAgent: true }) } };
+  const call = (id: string, name: string, args: unknown) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+  answers.push({ content: "", tool_calls: [call("l", "selfListRuns", {}), call("f", "selfReadFile", { path: "instructions.md" }), call("w", "selfWriteFile", {})] }, "Done.");
+  await turn({ agent: writer, prompt: "change it", source: "test", mayChangeAgent: true });
+  is("listing its runs and reading its files does not stop a change", written.length, 1);
+  answers.push({ content: "", tool_calls: [call("r", "selfReadRun", { id: "r-chat" }), call("w2", "selfWriteFile", {})] }, "Could not.");
+  const after = await turn({ agent: writer, prompt: "fix what went wrong", source: "test", mayChangeAgent: true });
+  is("reading a run does, because what it read from outside is in it", [written.length, String(after.calls.at(-1)?.output).includes("this turn read selfReadRun")], [1, true]);
+}
+
+{
   about("a sign-in is the runtime's to run, never the model's");
 
   const { NeedsSignIn } = await import("#chloe/connections/connection");

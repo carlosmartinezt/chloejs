@@ -25,7 +25,7 @@ import type { Connection } from "#chloe/connections/connection";
 import type { McpConnection } from "#chloe/connections/mcp";
 import { memoryTools, userNotesTools } from "#chloe/model/tools/memory";
 import { scriptTools } from "#chloe/model/tools/script";
-import { selfTools } from "#chloe/model/tools/self";
+import { selfWriteTools } from "#chloe/model/tools/self";
 import { makeRepo } from "#chloe/services/historyService";
 import { work, type Data, type Envelope, type Result as RunResult, type Work } from "#chloe/core/steps";
 import { turn, type Result as TurnResult } from "#chloe/core/turn";
@@ -56,79 +56,152 @@ export interface Home {
   memory: Memory & { folder: string };
 }
 
-/** What defineAgent is given. */
+/**
+ * The options you give `defineAgent`. Only `id`, `description` and
+ * `instructions` are required.
+ */
 export interface AgentConfig {
-  /** What the run history, its memory and its pages are filed under. Do not change it once it has run. */
+  /**
+   * The agent's id, like `"inbox"`. Its run history and its default memory
+   * folder are filed under it, and its channel tokens go under `agents.<id>`
+   * in settings. Required.
+   *
+   * Do not change it after the agent has run: its old runs and memory stay
+   * under the old id. To change the name people see, use `label`.
+   */
   id: string;
-  /** What the page calls it, when that is not its name: "C.C.". Free to change. */
+  /**
+   * The name the dashboard shows for the agent, like `"C.C."`. The email
+   * channel also sends mail under this name. You can change it at any time.
+   * Default: the `id`.
+   */
   label?: string;
   /**
-   * Where its skills, scripts, evals and prompts are. Defaults to the folder
-   * of the file that calls defineAgent.
+   * The agent's folder, which holds its instructions, skills, jobs, scripts
+   * and evals. Paths you give `prompt()` and `markdownJob()` start here.
+   * Default: the folder of the file that calls `defineAgent`.
+   *
+   * If chloe cannot tell which file that is, it throws an error. Then set
+   * `folder: import.meta.dirname`.
    */
   folder?: string;
   /**
-   * A model's name, like "anthropic/claude-sonnet-5", which goes by whichever
-   * route settings pick for it. Or an AI SDK model, like
-   * `anthropic("claude-opus-5-5")`, which goes straight to that provider as
-   * its package was set up. Unsaid, it is `model.defaultModel` in settings, and an
-   * agent with neither is refused as it loads.
+   * The model the agent uses. You can give it in two ways:
+   *
+   * - A name, like `"anthropic/claude-sonnet-5"`. chloe reaches it the first
+   *   way that works on this machine, in the order of `model.preferredRoute`
+   *   in settings (a subscription through the `claude`, `codex` or `opencode`
+   *   program, the provider's own API key, or an AI gateway).
+   * - An AI SDK model, like `anthropic("claude-opus-5-5")`. It goes straight
+   *   to that provider, set up the way you set up its package.
+   *
+   * Default: `model.defaultModel` in settings. If neither is set, the agent
+   * does not load. A job can use another model with its own `model`.
    */
   model?: string | SdkModel;
-  /** One line, shown wherever agents are listed. */
+  /** One line on what the agent does. The dashboard shows it wherever agents are listed. Required. */
   description: string;
   /**
-   * Where this agent remembers things: the folder it reads and writes between
-   * runs, browsable and editable from the site.
+   * The agent's memory: a folder it reads and writes between runs. You can
+   * browse and edit it on the dashboard. See `Memory`.
    *
-   * Every agent has one, and always has memoryListFiles, memoryReadFile, memorySearchFiles,
-   * memoryWriteFile and memoryEditFile on it. Left unsaid it is its own folder inside `memory/`
-   * beside the agents, which is a git repository, so this is only worth writing
-   * down when the agent shares a folder with a person. Every file served out of it
-   * is written to that agent's own audit log first. See serve/memory.ts for
-   * why that log is not optional.
+   * Default: a folder named after the agent's `id`, inside `data/memory/` in
+   * your project. chloe makes that a git repository and saves what each run
+   * changed as a commit. Set this only to use another folder, for example one
+   * you share with a person.
+   *
+   * The memory tools read and write it (see `features.memory`). Each time the
+   * dashboard reads a file from it, chloe first writes that down in the
+   * agent's audit log.
    */
   memory?: Memory;
-  /** The tools the runtime can give any agent, each switched on or off here. */
+  /**
+   * Turns on tools that chloe has built in: the memory tools,
+   * `selfWriteFile`, `scriptRun` and `memoryWriteUserNotes`. See `Features`.
+   */
   features?: Features;
-  /** `prompt("instructions.md")`, a path inside the agent's folder, or the words themselves. */
+  /**
+   * The agent's instructions: what it is and how it works. The model reads
+   * them before it answers a message or runs a markdown job. Required.
+   *
+   * Give `prompt("instructions.md")` to keep them in a file inside the
+   * agent's folder, or a string with the words themselves. A plain string is
+   * always used as the words, never as a file path.
+   */
   instructions: string | Prompt;
   /**
-   * Tools made with the AI SDK's `tool()`, keyed by the name a model calls
-   * them by: `{ weather, gmailReadEmail: gmail.readEmail({ ... }) }`. Every tool is handed
-   * `{ agent }` as its `context`. What `features` turns on is added to these
-   * and not listed here, and so is the sign-in of each connection a tool
-   * `needs`, like Google's beside gmail.readEmail.
+   * The tools the model can call, keyed by the name the model sees:
+   * `{ weather, gmailReadEmail: gmail.readEmail({ ... }) }`. Make your own
+   * with the AI SDK's `tool()`. Default: none.
+   *
+   * Every tool gets the agent in its `context`. Read it with
+   * `agentOf(context)`.
+   *
+   * Do not list the tools that `features` and `connections` add: chloe adds
+   * them for you. A tool here with the same name replaces the added one. You
+   * also add nothing for signing in: when a tool needs an outside account
+   * (like Google for `gmail.readEmail`), chloe handles the sign-in.
    */
   tools?: Tools;
-  /** Each job: one imported, or markdownJob("jobs/<id>.md") for one that is only a prompt. */
+  /**
+   * The agent's jobs. Each one is a job made with `defineJob` and imported
+   * from its file, or `markdownJob("jobs/<id>.md")` for a job that is only a
+   * prompt. A job that is not in this list never runs. Default: none.
+   */
   jobs?: (JobConfig<any, any, any> | MarkdownJob)[];
-  /** Each way in: `[telegramChannel({ ... }), apiChannel()]`. Each one carries its own name. */
+  /**
+   * The ways people and other systems reach the agent, like
+   * `[telegramChannel({ ... }), apiChannel()]`. Two channels of one agent
+   * cannot have the same `name`. Default: none. The owner can always talk to
+   * the agent in the dashboard's chat.
+   */
   channels?: Channel[];
   /**
-   * Each outside service's MCP server this agent reaches, and only this agent:
+   * The MCP servers this agent uses. (An MCP server is a service's list of
+   * tools for models.) For example:
    * `[mcpConnection({ name: "github", url, token: process.env.GITHUB_TOKEN })]`.
-   * Its tools are asked for as the agent loads and added to `tools`.
+   *
+   * chloe asks each server for its tools when the agent loads, and adds them
+   * to the agent's tools. Only this agent gets them. If a server does not
+   * answer, the agent loads without its tools and the dashboard says why.
+   * Default: none.
    */
   connections?: McpConnection[];
   /**
-   * What stops a turn, as the AI SDK's `stopWhen`: `isStepCount(20)`, or a list
-   * of conditions. Forty steps that ran tools when it says nothing.
+   * When the model must stop, as the AI SDK's `stopWhen`: `isStepCount(20)`,
+   * or a list of conditions. It applies to each reply to a message and each
+   * run of a markdown job. A step is one call to the model, and the tools it
+   * asked for. Default: `isStepCount(40)`.
+   *
+   * When this stops the model, the reply is "Stopped after N steps without
+   * finishing." Agent steps in code jobs have their own `stopWhen`.
    */
   stopWhen?: StopCondition<any> | StopCondition<any>[];
   /**
-   * The AI SDK's `toolApproval`, asked before each tool a turn runs, after
-   * which each tool's own `needsApproval` is. A call that needs a person is
-   * refused, because nobody is asked in the middle of a turn.
+   * Decides, before each tool call, whether the call may run, as the AI SDK's
+   * `toolApproval`. It applies to replies to messages and to markdown jobs.
+   * When it gives no decision for a call, the tool's own `needsApproval`
+   * decides. Default: every call runs, unless its tool's `needsApproval` says
+   * otherwise.
+   *
+   * A refused call does not run, and the model is told why. A call that needs
+   * a person to say yes (`"user-approval"`) is refused too, because a reply
+   * cannot pause to ask. Agent steps in code jobs have their own
+   * `toolApproval`, and they can pause to ask.
    */
   toolApproval?: ToolApprovalConfiguration<any, any>;
 }
 
-/** An agent config with its folder worked out: what defineAgent returns and the loader reads. */
+/**
+ * What `defineAgent` returns: your `AgentConfig` with `folder` filled in, plus
+ * `run` and `ask` to use the agent from a script. Add it to `agents` in
+ * `chloe.config.ts`.
+ */
 export interface DefinedAgent extends AgentConfig {
+  /** The agent's folder: the one you set, or the folder of the file that called `defineAgent`. */
   folder: string;
   /**
-   * Runs one of this agent's code jobs in this process and waits for it to
+   * Runs one of this agent's code jobs in this process, and waits for it to
    * finish:
    *
    * ```ts
@@ -137,57 +210,93 @@ export interface DefinedAgent extends AgentConfig {
    * const { text } = await chloe.run({ job: checkWeather, input: { location: "London" } });
    * ```
    *
-   * `input` is what the job is started with, as the API would send it: the
-   * message keys (`text`, `from` and the rest) go to `work.input` and the rest
-   * is checked against the job's `args`, by the editor as it is written and
-   * again before the run begins. `source` is "terminal" unless it says. The
-   * run is written to the run history like any other. Loads every agent first,
-   * so it is for a script, not for a loop.
+   * The run is saved in the run history like any other run. If the job pauses
+   * to wait for an answer from a person, `run` returns at once with
+   * `parked: true`.
    *
-   * A script with no chloe.config.ts at or above where it is started is a
-   * project of its own, this agent and nothing else, and `settings` are its
-   * settings: `node morning.ts` runs it. With a chloe.config.ts, that file holds
-   * the settings and the agent must be listed in it.
+   * It loads every agent first, so use it in a script, not in a loop.
+   *
+   * Where the settings come from:
+   *
+   * - If there is a `chloe.config.ts` in the folder you run the script from,
+   *   or in a folder above it, that file holds the settings, and it must list
+   *   this agent.
+   * - If there is none, the script is a project of its own with only this
+   *   agent, and `settings` are its settings. `node morning.ts` runs it.
    */
   run<ArgsIn>(options: RunOptions<ArgsIn>): Promise<RunResult>;
   /**
-   * Asks this agent one thing and waits for its answer, as a channel would:
-   * its instructions, its tools and its memory, until it stops asking for
-   * tools.
+   * Asks this agent one thing and waits for its answer, the same way as a
+   * message on a channel: with its instructions, its tools and its memory.
+   * The model keeps calling tools until it has an answer.
    *
    * ```ts
    * const { text } = await chloe.ask({ prompt: "What is on my plate this week?" });
    * ```
    *
-   * Without `thread` it starts fresh. With one, it reads that conversation
-   * first and the question and answer are added to it. `source` is "terminal"
-   * unless it says. The turn is written to the run history like any other.
-   * Loads every agent first, so it is for a script, not for a loop. `settings`
-   * is as for `run`.
+   * The reply is saved in the run history like any other. The question does
+   * not count as a message from the owner, so tools kept for the owner (like
+   * `selfReadFile`) are not given.
+   *
+   * It loads every agent first, so use it in a script, not in a loop. The
+   * settings come from the same place as for `run`.
    */
   ask(options: AskOptions): Promise<TurnResult>;
 }
 
-/** What `agent.ask` takes. */
+/** The options for `agent.ask`. */
 export interface AskOptions {
+  /** The question or message for the agent. Required. */
   prompt: string;
+  /**
+   * The id of a conversation to continue. Pick any string, and use the same
+   * one each time. The model first sees the latest 10 messages of that
+   * conversation, and the question and answer are added to it. Default:
+   * none, so each `ask` starts fresh.
+   */
   thread?: string;
+  /** Where the question came from, as the run history shows it. Default: `"terminal"`. */
   source?: string;
+  /** Cancels the model calls when it is aborted. */
   signal?: AbortSignal;
-  /** The settings, for a script with no chloe.config.ts. */
+  /**
+   * Settings for a script that has no `chloe.config.ts`, in the same shape as
+   * `settings` in that file. If the project has a `chloe.config.ts`, leave
+   * this out: giving it there throws an error.
+   */
   settings?: DeclaredSettings;
 }
 
-/** What `agent.run` takes. `input` may be left out only when the job's `args` need nothing. */
+/**
+ * The options for `agent.run`.
+ *
+ * `input` is what the job starts with, as the API would send it. The message
+ * keys (`text`, `from`, `chat`, `user`, `thread`, `replyTo` and the rest) go
+ * to `work.input`. Everything else must fit the job's `args`, and becomes
+ * `work.args`. Your editor checks it, and chloe checks it again before the
+ * run starts. You can leave `input` out only when the job's `args` has no
+ * required field.
+ */
 export type RunOptions<ArgsIn> = {
+  /** The job to run: a code job (one with `run`) of this agent, imported from its file. Required. */
   job: JobConfig<any, any, any, ArgsIn>;
+  /** Where the run came from, as the run history shows it. Default: `"terminal"`. */
   source?: string;
+  /** Cancels the model calls when it is aborted. */
   signal?: AbortSignal;
-  /** The settings, for a script with no chloe.config.ts. */
+  /**
+   * Settings for a script that has no `chloe.config.ts`, in the same shape as
+   * `settings` in that file. If the project has a `chloe.config.ts`, leave
+   * this out: giving it there throws an error.
+   */
   settings?: DeclaredSettings;
 } & ({} extends ArgsIn ? { input?: ArgsIn & Partial<Envelope> } : { input: ArgsIn & Partial<Envelope> });
 
-/** Declares an agent. List it in chloe.config.ts for it to run. */
+/**
+ * Defines an agent. It is usually the default export of `agent.ts` in the
+ * agent's folder. Add what it returns to `agents` in `chloe.config.ts`, or the
+ * agent does not run.
+ */
 export function defineAgent(definition: AgentConfig): DefinedAgent {
   const defined: DefinedAgent = {
     ...definition,
@@ -229,27 +338,30 @@ async function loadFor(defined: DefinedAgent, settings?: DeclaredSettings): Prom
   return load(defined.id);
 }
 
-/** What chloe.config.ts exports: every agent this box runs, and how it behaves. */
+/** What `chloe.config.ts` exports: the agents to run, and the settings. */
 export interface Config {
-  /** Every agent to run. One that is not on this list does not exist. */
+  /** Every agent to run. An agent that is not in this list does not run. Required. */
   agents: DefinedAgent[];
   /**
-   * Any setting, as deep as it goes: the model to ask, who carries the mail,
-   * what a dashboard may do. Everything it leaves out is the default.
+   * Your settings: which model to use, how mail is sent, what a remote
+   * dashboard may do, and more. See `Settings` for every one. A setting you
+   * leave out keeps its default.
    *
-   * This file is in source control, so a key is named here as
-   * `process.env.SOME_NAME` and its value goes in .env. The runtime reads no
-   * setting from the environment by itself.
+   * This file is in source control, so never write a secret here. Write
+   * `process.env.SOME_NAME` instead, and put the value in `.env`. chloe reads
+   * no setting from the environment by itself.
    */
   settings?: DeclaredSettings;
 }
 
 /**
- * The default export of chloe.config.ts: every agent to run, and the settings.
+ * Returns the config you give it, unchanged. Use it as the default export of
+ * `chloe.config.ts`, so your editor checks the config as you write it.
  *
- * The agents and their jobs may be written in that file too, so a small one is
- * a whole project in one file. `node chloe.config.ts` runs it, and a line in it
- * guarded by `import.meta.main` runs only then, not when the server reads it:
+ * You can write the agents and their jobs in this file too, so a small
+ * project fits in one file. Code inside `if (import.meta.main)` runs only
+ * when you run the file yourself with `node chloe.config.ts`, not when chloe
+ * reads it:
  *
  * ```ts
  * if (import.meta.main) console.log(await agent.run({ job: hello }));
@@ -259,18 +371,21 @@ export function defineConfig(config: Config): Config {
   return config;
 }
 
-/**
- * A job that is only a prompt, kept whole in one markdown file with its
- * settings (`cron`, `description`, `timezone`, `model`) at the top. The path is
- * inside the agent's folder, and the file's name is the job's id.
- */
+/** A job that is only a prompt, kept in one markdown file. Made with `markdownJob()`. */
 export interface MarkdownJob {
+  /** The path of the markdown file, inside the agent's folder. */
   markdownJob: string;
 }
 
 /**
- * A job that is words and nothing else: `markdownJob("jobs/<id>.md")` in
- * `agent.ts`. The file name is the job's id.
+ * Adds a job that is only a prompt, kept in one markdown file. Put it in
+ * `jobs` in `agent.ts`: `markdownJob("jobs/<id>.md")`. The path is inside the
+ * agent's folder, and the file name without `.md` is the job's id.
+ *
+ * The file may start with a block of settings between two `---` lines. chloe
+ * reads only `cron`, `description`, `timezone` (default `"UTC"`) and `model`
+ * there, all optional, and ignores any other key. The prompt is the text
+ * under the block. Without `cron`, the job runs only when somebody starts it.
  */
 export function markdownJob(file: string): MarkdownJob {
   return { markdownJob: file };
@@ -306,74 +421,120 @@ export function markdownJobProblem(text: string): string | undefined {
   return undefined;
 }
 
-/** One markdown file out of an agent's `skills/` folder. */
+/**
+ * One skill: a markdown file in the agent's `skills/` folder. The model sees
+ * each skill's name and description, and reads the body only when it needs
+ * it.
+ */
 export interface Skill {
+  /** The skill's name: `name` in the file's top block, or the file name without `.md`. */
   name: string;
+  /** One sentence on when to use the skill: `description` in the file's top block. Empty if not set. */
   description: string;
+  /** The text of the skill, under the top block. */
   body: string;
-  /** The file it was read from, inside the agent's folder, so a page can write it back. */
+  /** The file's path inside the agent's folder, like `skills/deploys.md`. */
   file: string;
 }
 
 /**
- * One job of an agent's, as the loader resolved it: where its words are, when
- * it runs, and whether it is code.
+ * One job of an agent, after chloe has loaded it: when it runs, and its code
+ * or its prompt. You find these in `agent.jobs`. To write a job, use
+ * `defineJob` or `markdownJob`.
  */
 export interface Job {
+  /** The id of the agent the job belongs to. */
   agent: string;
-  /** What the run history, the API and `npm run evals` call it. */
+  /** The job's id. The run history, the API and the evals use it. */
   id: string;
-  /** One line on what it does. */
+  /** One line on what the job does. */
   description?: string;
-  /** When it runs by itself. Without one it runs only when somebody starts it. */
+  /** When the job runs by itself, as a cron line. Not set when it runs only when somebody starts it. */
   cron?: string;
+  /** The timezone of `cron`, like `"America/New_York"`. `"UTC"` when the job did not set one. */
   timezone: string;
-  /** When this job should not run on the agent's own model. */
+  /** The model the job uses in place of the agent's. Not set when it uses the agent's model. */
   model?: string;
-  /** A job is one of these two and never both. */
+  /** The job's prompt, for a job that is a prompt. An empty string (`""`) for a code job. */
   prompt: string;
-  /** The job, when it is code rather than a prompt. */
+  /** The job's code, for a job that is code. Not set for a prompt job. */
   run?: (work: Work<Data>) => Promise<unknown>;
-  /** What to say about what `run` returned. See defineJob. */
+  /** Turns what `run` returned into words. See `response` in `JobConfig`. */
   response?: (result: unknown) => string;
   /**
-   * The files it is written in, inside the agent's folder, words first. A
-   * job imported from code is found by its id, jobs/<id>.ts and jobs/<id>.md,
-   * and has none listed when its file is named anything else.
+   * The job's files, as paths inside the agent's folder, the markdown first.
+   * The dashboard shows them. A markdown job lists its file. A code job lists
+   * the file its `markdown` prompt is in, and `jobs/<id>.ts` and
+   * `jobs/<id>.md` if they exist. A code file with any other name is not
+   * listed.
    */
   files: string[];
-  /** The shape of that job's state, when it keeps any. */
+  /** The zod schema of the job's `state`, if it keeps one. */
   state?: z.ZodType;
-  /** The shape of what starting it by hand may send. See job.ts. */
+  /** The zod schema of the values the job takes when somebody starts it by hand. See `args` in `JobConfig`. */
   args?: z.ZodType;
   /**
-   * The channels that hand it every message, for a job named on a channel
-   * rather than in `jobs`. Only a message there starts it: it has no schedule,
-   * no /command, and nothing on the page or the API runs it.
+   * The channels whose messages this job handles. Set only for a job named in
+   * a channel's `job` option. Only a message on those channels starts it: it
+   * has no schedule, no `/command`, and the dashboard and the API cannot
+   * start it.
    */
   channels?: string[];
 }
 
-/** Tools the runtime brings, switched on per agent: `features: { selfImprovement: true }`. */
+/**
+ * Tools that chloe can add to an agent. Turn each one on or off here, for
+ * example `features: { selfImprovement: true }`.
+ */
 export interface Features {
-  /** memoryListFiles, memoryReadFile, memorySearchFiles, memoryWriteFile and memoryEditFile on its memory. On unless this says false. */
+  /**
+   * Adds the memory tools: `memoryListFiles`, `memoryReadFile`,
+   * `memorySearchFiles`, `memoryWriteFile` and `memoryEditFile`. They work on
+   * the agent's memory folder (see `memory` on the agent). On by default.
+   * Set it to `false` to leave them out.
+   */
   memory?: boolean;
   /**
-   * selfListFiles, selfReadFile and selfWriteFile, to change the plain text
-   * in its own folder: its instructions, its skills, its markdown jobs. Off
-   * unless this says. `true` is every ending in PLAIN_TEXT; an object narrows
-   * that or keeps a path back. Every write is a git commit under its name.
+   * Adds the tool `selfWriteFile`, which lets the agent change its own plain
+   * text files, such as its instructions, skills and markdown jobs. Off by
+   * default.
+   *
+   * `true` allows every plain text file (.md, .txt, .html, .json, .yml,
+   * .yaml, .csv). Give an object instead to allow fewer files, protect some
+   * files, or allow code too. See `SelfImprovement`.
+   *
+   * Each change is saved as a git commit, so you can see it and undo it on
+   * the dashboard. The agent can only use this tool in a reply to a message
+   * from its owner. It cannot use it after another tool in the same reply has
+   * read something from outside the agent (an email, a web page, a script's
+   * output, one of its past runs).
+   *
+   * Every agent can already read its own files and past runs
+   * (`selfListFiles`, `selfReadFile`, `selfListRuns`, `selfReadRun`) in
+   * replies to its owner. It does not need this setting for that.
    */
   selfImprovement?: boolean | SelfImprovement;
   /**
-   * scriptRun, to run a file in its own scripts/ folder. Off unless this says
-   * true, and refused as it loads when that folder has no scripts.
+   * Adds the tool `scriptRun`, which lets the agent run any file in its own
+   * `scripts/` folder. Off by default.
+   *
+   * Each script runs as a program, so it must be executable (`chmod +x`, with
+   * a `#!` first line). It runs inside the `scripts/` folder, and gets the
+   * agent's memory folder in the `MEMORY_FOLDER` environment variable. If this
+   * is on and `scripts/` is empty, the agent does not load.
+   *
+   * Write a skill that tells the agent when to use each script.
    */
   runScripts?: boolean;
   /**
-   * memoryWriteUserNotes, a note per person it talks to, on any channel, in its
-   * memory under users/, shown at the top of that person's turns. The runtime
-   * picks whose from who sent the message. Off unless this says true.
+   * Adds the tool `memoryWriteUserNotes`, which keeps one note about each
+   * person the agent talks to, on any channel. Off by default.
+   *
+   * The notes are files in the agent's memory, like
+   * `users/telegram-12345.md`. chloe picks whose note it is from who sent the
+   * message, and the model cannot choose. The model sees that person's note
+   * at the start of each reply to them. One person on two channels has two
+   * notes.
    */
   memoryPerUser?: boolean;
 }
@@ -386,123 +547,207 @@ export interface OwnFileRules extends SelfImprovement {
 /** The plain text an agent may change when `selfImprovement` is `true`, without the dots. */
 export const PLAIN_TEXT = ["md", "txt", "html", "json", "yml", "yaml", "csv"];
 
+/** The code it may also change with `code: true`, without the dots. */
+export const CODE_FILES = ["ts", "js", "mjs", "py", "sh"];
+
 /**
- * Which of its own files an agent may change: `{ except: ["PERMISSIONS.md"] }`,
- * or `{ files: ["md"] }` for less than the plain text it would get from `true`.
+ * Which of its own files an agent may change with `selfWriteFile`. Give it as
+ * `features.selfImprovement`, for example `{ except: ["PERMISSIONS.md"] }`, or
+ * `{ files: ["md"] }` to allow fewer files than `true` does.
  *
- * Code never, whatever `files` says: nothing in tools/, services/, channels/ or
- * scripts/, and nothing ending in .ts or .js. Nor its evals/, which say what a
- * good run of it looks like, nor its memory, which is memoryWriteFile.
+ * The agent never writes its `evals/` folder or its memory (it changes its
+ * memory with `memoryWriteFile`). It writes code only with `code: true`.
  */
 export interface SelfImprovement {
-  /** File endings it may write, without the dot. PLAIN_TEXT when it says none. */
+  /**
+   * The file endings the agent may write, without the dot, like `["md"]`.
+   * Default: `md`, `txt`, `html`, `json`, `yml`, `yaml` and `csv`. With
+   * `code: true`, the default also has `ts`, `js`, `mjs`, `py` and `sh`.
+   *
+   * A code ending here does nothing without `code: true`. An empty list stops
+   * the agent from loading.
+   */
   files?: string[];
-  /** Paths inside its folder it may read and never write, like a file of permissions it obeys. */
+  /**
+   * Paths inside the agent's folder that it may read but never write, like a
+   * file of rules it must follow: `["PERMISSIONS.md"]`. Default: none.
+   */
   except?: string[];
+  /**
+   * Lets the agent change its code too: `agent.ts`, and the code of its jobs,
+   * tools, services, channels and scripts. Off by default. Without it, the
+   * agent cannot add a new job, because a new job must be named in
+   * `agent.ts`.
+   *
+   * Before a code change is kept, chloe loads the agent with it, and type
+   * checks it if your project uses TypeScript. If that fails, or a job would
+   * run more than once an hour, every file is put back and the agent is told
+   * why.
+   *
+   * Warning: code the agent writes then runs on your machine with the same
+   * rights as chloe.
+   */
+  code?: boolean;
 }
 
-/** Where an agent remembers things, shown on the site beside its own pages. */
+/**
+ * Where and how an agent keeps its memory. Give it as `memory` on the agent.
+ * The dashboard shows the memory next to the agent's own files.
+ */
 export interface Memory {
   /**
-   * An absolute path. Unset, it is the agent's own folder inside `memory/`
-   * beside the agents, which the runtime makes one git repository.
+   * The memory folder, as a full path like `"/home/you/notes"`. Default: a
+   * folder named after the agent's `id`, inside `data/memory/` in your
+   * project. chloe makes `data/memory/` one git repository for all the
+   * agents.
    */
   folder?: string;
-  /** What the site calls it. "Memory" when nothing is said. */
+  /** The name the dashboard shows for the memory. Default: `"Memory"`. */
   label?: string;
   /**
-   * When a change becomes a git commit. `"each run"`: whatever a run changed
-   * is committed when it ends, under the agent's id, and the folder is made
-   * a repository of its own if it is not one. `true`: every write from the
-   * site and from memoryWriteFile is its own commit, with a message, for a folder
-   * shared with a person. `false`: never. Unsaid, it is "each run" for the
-   * folder the runtime keeps and false for one named here.
+   * When a change to the memory is saved as a git commit:
+   *
+   * - `"each run"`: when a run ends, or pauses to wait for an answer,
+   *   everything it changed is saved in one commit under the agent's id. If
+   *   the folder is not a git repository, chloe makes it one.
+   * - `true`: every write, by the agent (`memoryWriteFile`, `memoryEditFile`)
+   *   or from the dashboard, is its own commit with a message. The folder
+   *   should already be a git repository. Use this for a folder you share
+   *   with a person.
+   * - `false`: never.
+   *
+   * Default: `"each run"` for the default folder, and `false` for a folder you
+   * set in `folder`.
    */
   commit?: boolean | "each run";
 }
 
 /**
- * How much of a conversation a turn is shown: the last `messages` (10 when
- * unsaid, a question and its answer being two), and none older than `days`
- * (no limit when unsaid). A conversation is one chat, or one topic in a forum,
- * so this belongs to the channel it happens on: a job is never shown one.
- * Nothing is deleted; what is left out is only not shown to the model.
+ * How much of a conversation the model sees with each new message on a
+ * channel. A conversation is one chat, or one topic in a forum. Jobs never
+ * see one. Older messages are not deleted: they are only not shown to the
+ * model.
  */
 export interface ChatHistory {
+  /** How many of the latest messages to show. A message and its reply count as two. Default: 10. */
   messages?: number;
+  /** Leaves out messages older than this many days. Default: no limit. */
   days?: number;
 }
 
-/** A way in to an agent, listed in its definition: `channels: [telegramChannel({ ... })]`. */
+/**
+ * A channel: a way for people or other systems to reach an agent, like
+ * Telegram or the API. List channels in the agent's `channels`:
+ * `channels: [telegramChannel({ ... })]`. You only write one yourself for a
+ * platform that chloe does not ship.
+ */
 export interface Channel {
   /**
-   * What the log, the pages and the permissions call it, like "telegram" or
-   * "api". Two channels of one agent cannot share a name. "api" is the one
-   * that lets a token reach the agent.
+   * The channel's name, like `"telegram"` or `"api"`. The run history and the
+   * dashboard show it. Two channels of one agent cannot have the same name.
+   * The channel named `"api"` is the one that lets a token reach the agent.
+   * Required.
    */
   name: string;
-  /** How much of a conversation on this channel a turn is shown. */
+  /** How much of the conversation on this channel the model sees with each new message. See `ChatHistory`. Default: the last 10 messages. */
   chatHistory?: ChatHistory;
   /**
-   * The options it was made with, written out. A reload restarts a running
-   * channel when this changes, since what `start` was given is fixed for as
-   * long as it runs.
+   * The options the channel was made with, as JSON text. The dashboard shows
+   * them, with secrets hidden. When this text changes on a reload, chloe
+   * restarts the channel, because a running channel keeps the options it
+   * started with.
    */
   madeWith?: string;
   /**
-   * The job it hands every message to, when it has one. The agent loads it as
-   * one of its jobs, started only from this channel.
+   * A code job that handles every message on this channel, in place of the
+   * agent's normal reply. The agent loads it as one of its jobs, but only a
+   * message on this channel can start it. Do not also put it in the agent's
+   * `jobs`, and do not give it a `cron`: either one stops the agent from
+   * loading.
    */
   job?: JobConfig<any, any, any, any>;
   /**
-   * The connection it works through, the way a tool names one: an email
-   * channel on Gmail needs Google. Listed on the agent's Connections page with
-   * what it is missing, and signed in to from there.
+   * The connection this channel works through, the same way a tool names one.
+   * For example, an email channel on Gmail needs Google. The agent's
+   * Connections page on the dashboard lists it with what is missing, and you
+   * sign in there.
    */
   needs?: Connection;
-  /** Asked as the agent loads whether it can be bound to that agent. Throws, saying why, when it cannot, and the agent does not load. */
+  /**
+   * Called when the agent loads, to check that this channel can work with
+   * the agent. If it cannot, throw an error that says why: the agent then
+   * does not load.
+   */
   check?(agent: Agent): void;
-  /** Starts listening. `agent` is read again for every message, so an edit is live. */
+  /**
+   * Starts the channel, so it begins to listen for messages. Call `agent()`
+   * for each message to get the agent as it is now, so edits take effect at
+   * once. It returns `undefined` if the agent is gone.
+   */
   start(agent: () => Agent | undefined): Running;
 }
 
-/** A channel that has been started, and how to stop it again. */
+/** A channel that has started. `Channel.start` returns it. */
 export interface Running {
+  /** Stops the channel. */
   stop(): void;
-  /** For a channel that is sent its messages: the paths it answers on the one port, outside the login. */
+  /**
+   * The web addresses this channel answers on chloe's web server, for a
+   * platform that sends messages in (a webhook). Default: none.
+   *
+   * They are answered before the login, so check every request yourself, for
+   * example with a secret the platform signs it with.
+   */
   routes?: ChannelRoute[];
 }
 
-/** A path a running channel answers on the one port, outside the login. */
+/** One web address that a running channel answers on chloe's web server. It is answered before the login. */
 export interface ChannelRoute {
+  /** The path, like `/chloe/v1/<agent id>/<channel name>`. It must match the request's path exactly. */
   path: string;
   /**
-   * Which methods it answers. A POST unless it says otherwise: a webhook that
-   * is checked with a GET before it is used says both, and answers that GET
-   * only when the caller knows its secret.
+   * The HTTP methods it answers. Default: `["POST"]`. A platform that checks
+   * the address with a GET before it uses it needs both. Answer that GET only
+   * when the caller knows the channel's secret.
    */
   methods?: ("GET" | "POST")[];
+  /** Answers one request. */
   handle(request: IncomingMessage, response: ServerResponse): Promise<void>;
 }
 
 /**
- * One agent as the runtime holds it: the definition with its instructions
- * read, its tools bound, its skills loaded and its jobs resolved.
+ * One agent after chloe has loaded it: its instructions read, its tools
+ * ready, and its skills and jobs loaded. `load` and `loadAll` return these,
+ * and a channel's `check` and `start` get one.
  */
 export interface Agent extends Omit<DefinedAgent, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model" | "connections" | "run" | "ask"> {
-  /** Its own, or `model.defaultModel` in settings. Always there once loaded. */
+  /**
+   * The model the agent uses: its own `model`, or `model.defaultModel` from
+   * settings. Always set. An AI SDK model shows here by its name, like
+   * `"anthropic/claude-opus-5-5"`.
+   */
   model: string;
-  /** Always there once loaded, with its folder worked out. See memoryFolder. */
+  /** The agent's memory, with `folder` and `commit` always filled in. See `Memory`. */
   memory: Memory & { folder: string };
+  /** The agent's instructions as text, read from their file when they are in one. */
   instructions: string;
-  /** The file inside its folder those words are in, when they are in one and not written into the definition. */
+  /** The file the instructions were read from, as a path inside the agent's folder. Not set when they were written as a string. */
   instructionsFile?: string;
-  /** Files its instructions and jobs' prompts include, as full paths: watched like its own folder. */
+  /**
+   * The full paths of the files that the instructions and the jobs' prompts
+   * add with `prompt(file, { include })`. chloe watches them like the agent's
+   * own folder.
+   */
   included?: string[];
+  /** Every tool the agent has: its own `tools`, plus the ones `features` and `connections` add. */
   tools?: Tools;
+  /** The agent's skills, read from the markdown files in its `skills/` folder. */
   skills: Skill[];
+  /** The agent's jobs, loaded, including the jobs named on its channels. */
   jobs: Job[];
+  /** The agent's channels. */
   channels: Channel[];
+  /** The agent's MCP connections. */
   connections: McpConnection[];
 }
 
@@ -537,8 +782,11 @@ function shown(folder: string): string {
 }
 
 /**
- * Every agent chloe.config.ts lists, by id. Given a config, that one is read
- * instead of the file, for a script that is a project of its own.
+ * Loads every agent that `chloe.config.ts` lists, and returns them by id. It
+ * also reads the settings from that file.
+ *
+ * Give it a config to use that one and not read `chloe.config.ts`, for a
+ * script that is a project of its own.
  */
 export async function loadAll(given?: Config): Promise<Map<string, Agent>> {
   const { config, listed } = given ? { config: given, listed: given.agents } : await readConfig();
@@ -578,21 +826,67 @@ async function readConfig(): Promise<{ config: Config; listed: DefinedAgent[] }>
 }
 
 /**
- * Only the settings `chloe.config.ts` declares, into the `settings` everything
- * reads. For a script that needs one before the service is running and has no
- * reason to load an agent. `loadAll` does this itself.
+ * Reads the settings from `chloe.config.ts` into `settings`, and does not
+ * load the agents. Use it in a script that needs a setting before chloe is
+ * running. `loadAll` already does this.
  */
 export async function loadSettings(): Promise<void> {
   const { config, listed } = await readConfig();
   declareSettings(config.settings);
 }
 
-/** Every agent's id, in the order `chloe.config.ts` lists them. */
+/**
+ * Returns the id of every agent, in the order `chloe.config.ts` lists them.
+ * It loads every agent to find them.
+ */
 export async function agentIds(): Promise<string[]> {
   return [...(await loadAll()).keys()];
 }
 
-/** One agent by id, or a throw that names the agents there are. */
+/** What a reload waits for: a check of an agent's new code, which may put a file back. */
+let checking: Promise<unknown> = Promise.resolve();
+
+/**
+ * Runs `work` once every check before it has finished, and holds reloads
+ * (`checksDone()`) until it has, so what a reload reads is what passed.
+ */
+export function checkFirst<T>(work: () => Promise<T>): Promise<T> {
+  const turn = checking.then(work, work);
+  checking = turn.catch(() => undefined);
+  return turn;
+}
+
+/** Waits for the checks of agents' new code that are going. */
+export function checksDone(): Promise<unknown> {
+  return checking;
+}
+
+/**
+ * One agent as the next reload would load it: chloe.config.ts and every file
+ * outside the runtime imported afresh, and only this agent resolved; the
+ * agent.ts in its folder when no config lists it. Throws what that reload
+ * would. The settings are left as they are.
+ */
+export async function loadAgain(agent: { id: string; folder: string }): Promise<Agent> {
+  const listed = existsSync(CONFIG) ? (await readConfig()).listed : (generation++, []);
+  const one = listed.find((each) => each?.id === agent.id) ?? (await ownFile(agent));
+  return resolveAgent(one);
+}
+
+/** An agent no chloe.config.ts lists, read from the agent.ts in its folder. */
+async function ownFile({ id, folder }: { id: string; folder: string }): Promise<DefinedAgent> {
+  const file = join(folder, "agent.ts");
+  if (!existsSync(file)) throw new Error(`${id} is not in chloe.config.ts, and its folder has no agent.ts.`);
+  const one = ((await import(pathToFileURL(file).href)) as { default?: DefinedAgent }).default;
+  if (!one?.id) throw new Error(`${shown(file)} does not export defineAgent({ ... }) as its default.`);
+  return one;
+}
+
+/**
+ * Loads one agent from `chloe.config.ts`, by its id. It loads every agent to
+ * do so. If no agent has that id, it throws an error that lists the ids there
+ * are.
+ */
 export async function load(id: string): Promise<Agent> {
   const all = await loadAll();
   const one = all.get(id);
@@ -704,7 +998,7 @@ export function hasChannel(agent: Pick<Agent, "channels">, name: string): boolea
 /** What `selfImprovement` comes to: `true` is the plain text, an object is itself. */
 export function ownFileRules(self: true | SelfImprovement): OwnFileRules {
   const said = self === true ? {} : self;
-  return { ...said, files: said.files ?? PLAIN_TEXT };
+  return { ...said, files: said.files ?? (said.code ? [...PLAIN_TEXT, ...CODE_FILES] : PLAIN_TEXT) };
 }
 
 function featureTools(features: Features = {}, home: Home, where: string): Tools {
@@ -714,7 +1008,7 @@ function featureTools(features: Features = {}, home: Home, where: string): Tools
   }
   return {
     ...(features.memory === false ? {} : memoryTools()(home)),
-    ...(self ? selfTools(ownFileRules(self))(home) : {}),
+    ...(self ? selfWriteTools(ownFileRules(self))(home) : {}),
     ...(features.runScripts ? scriptTools()(home) : {}),
     ...(features.memoryPerUser ? userNotesTools()() : {}),
   };

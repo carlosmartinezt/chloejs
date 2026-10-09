@@ -44,134 +44,256 @@ import { choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choi
 import { forget, remember } from "#chloe/model/memory";
 import { models, UsageLimit } from "#chloe/model/model";
 import { clock, type Fired, ran } from "#chloe/core/clock";
+import { settings } from "#chloe/core/settings";
 import { answer, waitingOn, WrongArgs } from "#chloe/core/steps";
 import { turn } from "#chloe/core/turn";
 import type { Connection } from "#chloe/connections/connection";
 import { neededBy, type ChloeTool } from "#chloe/model/tool";
 
-/** One message, in the words every channel shares. */
+/**
+ * One message, in the form `receive()` takes from every channel. Your channel
+ * turns each message from its platform into one of these.
+ */
 export interface Incoming {
-  /** The channel's name, like "telegram". What the log shows, and the first half of an address. */
+  /**
+   * The channel's name, like "telegram". It shows in the log, and it is the
+   * first part of every address on the channel, like `telegram:123456789`.
+   */
   channel: string;
-  /** Where it was said, as the channel names it. `${channel}:${chat}` is how a job asks back here. */
+  /**
+   * The id of the chat the message was sent in, as the platform writes it. A
+   * job asks somebody here with the address `<channel>:<chat>`.
+   */
   chat: string;
-  /** The conversation it belongs to: one per chat, or per topic in a forum. Empty for none, so nothing is remembered. */
+  /**
+   * The id of the conversation the message belongs to, usually one per chat,
+   * or one per topic in a forum. The agent remembers the conversation under
+   * this id. Make it unique, like `<agent id>/<channel>-<chat>`. An empty
+   * string means nothing is remembered.
+   */
   thread: string;
+  /** Who sent the message: their id on the platform, and a name to show. `allowFrom` is checked against `id`. */
   from: { id: string; name: string };
+  /** The words of the message. */
   text: string;
-  /** A one-to-one chat, rather than a group. */
+  /** `true` for a one-to-one chat, `false` for a group. */
   private: boolean;
-  /** In a group: it mentions the agent or replies to it. */
+  /**
+   * In a group: `true` when the message mentions the agent or replies to it.
+   * A group message that is not addressed (and is not a `/command`) gets no
+   * answer, unless the channel's `inGroups` is "always".
+   */
   addressed?: boolean;
+  /** The group's title, if it has one. A job reads it as `work.input.chatTitle`. */
   chatTitle?: string;
-  /** The message this one replies to, when it is one. */
+  /** The text of the message this one replies to, if it is a reply. A job reads it as `work.input.replyTo`. */
   replyTo?: string;
   /**
-   * Facts about where it was said, handed to the model ahead of the message
-   * with who sent it: "chat_type", "chat_title". Without them the model is
-   * handed the message alone, which is right for a caller that is a program.
+   * Facts about where the message was sent, like `chat_type` and
+   * `chat_title`. The model gets them before the message, with the sender's
+   * name. Leave this out when the sender is a program: the model then gets
+   * the message alone.
    */
   context?: Record<string, string>;
-  /** The files on it, fetched only when a turn is going to read them. */
+  /**
+   * Fetches the files on the message. It is only called when the model is
+   * going to read them.
+   *
+   * - `attachments`: files the model receives, like pictures and PDFs.
+   * - `text`: the text of text files, added after the message.
+   * - `notes`: short lines added after the message, like "(Attached: plan.pdf)".
+   */
   files?: () => Promise<{ attachments?: Attachment[]; text?: string; notes?: string[] }>;
-  /** A model for this one turn, when the channel lets its caller pick. */
+  /** The model to use for this one reply, when the channel lets the sender pick one. */
   model?: string;
-  /** Tools the turn is not given, by name, though the agent has them. */
+  /** The names of tools the agent may not use in this one reply, even though it has them. */
   withoutTools?: string[];
-  /** Stops the turn: whoever asked has gone. */
+  /**
+   * Whether the agent's owner sent the message. Set it only when your channel
+   * knows, like the dashboard's own chat.
+   *
+   * If not set, `receive()` finds it: the sender is the owner when they match
+   * `owner` in settings, or when they are the first entry in the channel's
+   * `allowFrom`. Always `false` on a channel for strangers.
+   *
+   * Only the owner's messages can use the tools that read the agent's own
+   * files and past runs, and other tools only the owner may use.
+   */
+  fromOwner?: boolean;
+  /**
+   * Whether the sender may change the agent, for example with
+   * `selfWriteFile`. If not set, the owner may and nobody else may. Set it to
+   * `false` to stop the owner too. Setting it to `true` does nothing for a
+   * sender who is not the owner.
+   */
+  mayChangeAgent?: boolean;
+  /** Abort it to stop the reply, for example when the person has left. */
   signal?: AbortSignal;
 }
 
-/** Who a channel answers. Each channel takes these as options and hands them over. */
+/**
+ * The rules `receive()` follows on one channel: who gets an answer, and what
+ * their messages get. Make them with `rulesOf()` from the channel's options.
+ */
 export interface Rules {
-  /** Ids that may reach the agent. Unset, anybody who got this far may, which is right only behind a login. */
+  /**
+   * The ids of the people allowed to reach the agent, as the platform writes
+   * them.
+   *
+   * If not set, anybody who reaches the channel may, which is safe only
+   * behind a login. An empty list lets nobody in: a private message is
+   * answered with the sender's id, so you can add it.
+   */
   allowFrom?: (string | number)[];
-  /** In a group, "when-addressed" (the default) answers a command, a mention or a reply. "always" answers everything. */
+  /**
+   * Which messages in a group get an answer. Default: "when-addressed".
+   *
+   * - "when-addressed": a `/command`, a mention of the agent, or a reply to it.
+   * - "always": every message.
+   */
   inGroups?: "when-addressed" | "always";
-  /** How much of a conversation on this channel a turn is shown. */
+  /** How much of the conversation the agent sees with each new message. Default: the last 10 messages. */
   chatHistory?: ChatHistory;
   /**
-   * Send what the model writes on its way to an answer (a "let me check" line,
-   * or a draft it goes on to improve) as it writes it, rather than only the
-   * answer it ends on. Off unless true. Needs a channel that can send more
-   * than one reply, so it does nothing on the API.
+   * Sends what the model writes before its final answer (like a "let me
+   * check" line) as soon as it is written. Off by default.
+   *
+   * It needs a channel that can send more than one message for each message
+   * it gets (`send` in `While`), so it does nothing on the API.
    */
   sendWhileWorking?: boolean;
   /**
-   * Whoever writes is a stranger, like a visitor on a web page. Their message
-   * is a turn, /clear or the answer to a job that asked them, and nothing
-   * else: never a /command, a model pick or the answer to a sign-in, and a
-   * sign-in a tool needs is never started for them.
+   * Treats everyone who writes as a stranger, like a visitor on a web page.
+   * Off by default.
+   *
+   * A stranger's message gets a reply, clears the conversation with `/clear`,
+   * or answers a job that asked them. It is never a `/command`, a model pick
+   * or a sign-in code, and no sign-in is ever started for a stranger.
    */
   strangers?: boolean;
-  /** The names of the only tools a turn has, from the channel's `tools` read by `bind`. Every tool when unset. */
+  /**
+   * The names of the only tools the agent may use in a reply on this
+   * channel. `rulesOf()` fills it from the channel's `tools` option. If not
+   * set, the agent has every tool.
+   */
   tools?: string[];
-  /** The id of the job every message starts, from the channel's `job`, filled in by `bind`. */
+  /** The id of the job every message on this channel starts. `rulesOf()` fills it from the channel's `job` option. */
   job?: string;
 }
 
 /**
- * The two options every channel takes, both optional, for what its messages
- * get when it is not a turn with every tool the agent has.
+ * Two options every channel takes, `tools` and `job`. Both are optional. Use
+ * them when messages on a channel should not get a normal reply that can use
+ * every tool the agent has.
  */
 export interface Answering {
   /**
-   * The only tools a turn on this channel has, each the tool itself or its
-   * name in the agent's `tools`: `tools: [tools.readPage]`. The agent's memory
-   * and skills come too, and its self tools only when named. Every tool when
-   * unsaid.
+   * The only tools the agent may use when it replies on this channel. Give
+   * each one as the tool itself or as its name in the agent's `tools`, like
+   * `tools: [tools.readPage]` or `tools: ["webReadPage"]`. If not set, the
+   * agent has every tool.
+   *
+   * The agent also keeps its memory tools and its skills. When the owner
+   * writes, it also keeps the tools that read its own files and past runs.
+   * `selfWriteFile` is only included when you name it.
+   *
+   * A tool given as an object that is not in the agent's `tools` stops the
+   * agent from loading. A name the agent does not have is skipped, with a
+   * line in the log.
    */
   tools?: (ChloeTool | string)[];
   /**
-   * A job every message starts, in place of a turn: code that can look up who
-   * wrote before anybody answers. It reads the message from `work.input`, and
-   * what it returns is the reply. Named here and not in the agent's `jobs`:
-   * the agent loads it from here, and only a message on this channel starts
-   * it. Code with `run`, and no cron line. One conversation runs it once at a
-   * time; two conversations run it side by side.
+   * A job that every message on this channel starts, in place of a normal
+   * reply. Use it when code should handle the message first, for example to
+   * look up who wrote.
+   *
+   * The job reads the message from `work.input`, and what it returns is sent
+   * back as the reply. It must be a code job, with `run` and no `cron`.
+   *
+   * Name the job here only, not in the agent's `jobs`. The agent loads it from
+   * here, and only a message on this channel starts it: no command, cron line
+   * or API call can.
+   *
+   * Each conversation runs it for one message at a time. A message sent while
+   * the job is still busy with the last one is not queued: the sender is
+   * asked to send it again. Different conversations run it at the same time.
+   *
+   * With a job, the channel has no model picking, no sign-in and no
+   * `/commands`. `/clear` still works.
    */
   job?: JobConfig<any, any, any, any>;
 }
 
-/** A channel's `tools` and `job` once read against its agent: the part of its rules they come to. */
+/**
+ * A channel's `tools` and `job` options after they are checked against the
+ * agent: tool names and a job id. Your channel gets it as `Starting.bound`.
+ * Pass it on to `rulesOf()`.
+ */
 export type Bound = Pick<Rules, "tools" | "job">;
 
 /**
- * What every channel takes, whatever its platform. A channel's own options
- * extend this, and `defineChannel` and `rulesOf` read it, so an option every
- * channel should have is added here and in those two, and no channel changes.
+ * The options every channel takes, whatever its platform. A channel's own
+ * options type extends this. `defineChannel()` and `rulesOf()` read them.
  */
 export interface Shared extends Answering {
-  /** The kind of channel unless the agent has two of one kind. What the log shows a run came in on, and the start of every address on it. */
+  /**
+   * The channel's name. Default: the kind of channel, like "telegram".
+   *
+   * Set it only when the agent has two channels of one kind, because two
+   * channels of one agent cannot share a name. The name shows in the log,
+   * and it is the first part of every address on the channel.
+   */
   name?: string;
-  /** Who may reach the agent, as the platform names them. */
+  /** The people allowed to reach the agent, by their id on the platform. */
   allowFrom?: (string | number)[];
-  /** How much of a conversation a turn is shown: `{ messages, days }`. */
+  /**
+   * How much of the conversation the agent sees with each new message:
+   * `{ messages, days }`. `messages` is the most it sees, and `days` leaves
+   * out anything older. Default: the last 10 messages.
+   */
   chatHistory?: ChatHistory;
-  /** Off unless true. Sends what the model writes on its way to an answer as it writes it. */
+  /**
+   * Sends what the model writes before its final answer (like a "let me
+   * check" line) as soon as it is written. Off by default. It does nothing on
+   * a channel that sends only one reply per message, like email.
+   */
   sendWhileWorking?: boolean;
 }
 
-/** What a channel's own code is handed as it starts. */
+/** What `defineChannel()` gives your channel's `start` function. */
 export interface Starting {
-  /** The agent, read again for every message, so an edit is live. */
+  /**
+   * Returns the agent. Call it for each message rather than once: after an
+   * edit to the agent, it returns the new version. `undefined` once the agent
+   * is gone.
+   */
   agent: () => Agent | undefined;
+  /** The agent's id. */
   agentId: string;
-  /** The channel's name: its `name` option, or its kind. */
+  /** The channel's name: its `name` option, or its kind, like "telegram". */
   name: string;
-  /** Its `tools` and `job`, read against the agent as it loaded. Hand them to `rulesOf`. */
+  /** The channel's `tools` and `job`, checked against the agent. Pass them to `rulesOf()`. */
   bound: Bound;
 }
 
 /**
- * Makes a channel. `kind` is the platform it is for, like "telegram", and is
- * also its name unless `options.name` gives another (an agent with two bots
- * names one of them). `start` is what it does to start. This does everything
- * but the platform. It checks `tools` and `job`
- * against the agent as it loads, loads the job, and writes the options out for
- * the page, leaving out any named in `hidden`. `start` only reads the platform
- * and sends to it, handing each message to `receive()` with `rulesOf` its
- * options.
+ * Makes a channel. It does the work every channel shares, so your code only
+ * has to talk to the platform.
+ *
+ * - `kind`: the platform, like "telegram". It is also the channel's name,
+ *   unless `options.name` sets another.
+ * - `options`: the channel's options, which include the shared ones (see
+ *   `Shared`).
+ * - `start`: connects to the platform. It reads each message, hands it to
+ *   `receive()` with `rulesOf()` of the options, and sends back the reply. It
+ *   returns how to stop.
+ * - `more.hidden`: options to leave out of what the dashboard shows, like
+ *   options only tests use. A change to one of them does not restart the
+ *   channel.
+ *
+ * When the agent loads, it checks `tools` and `job` against the agent and
+ * loads the job. When the agent reloads and any other option has changed,
+ * the channel is restarted.
  */
 export function defineChannel<O extends Shared>(
   kind: string,
@@ -199,9 +321,13 @@ export function defineChannel<O extends Shared>(
 }
 
 /**
- * The rules a channel hands `receive()`, from its options and what was bound.
- * `allowFrom` is the channel's own, written the way its platform writes ids,
- * when it reads them differently.
+ * Makes the `Rules` that `receive()` takes, from a channel's options. Put
+ * `bound` (from `Starting`) in the options too.
+ *
+ * Give `allowFrom` as the second argument to use another list, for example
+ * the ids written the way your platform sends them. If neither gives a list,
+ * anybody who reaches the channel may talk to the agent, so on a public
+ * platform pass `[]`.
  */
 export function rulesOf(options: Shared & { inGroups?: Rules["inGroups"]; bound?: Bound }, allowFrom = options.allowFrom): Rules {
   return { allowFrom, inGroups: options.inGroups, chatHistory: options.chatHistory, sendWhileWorking: options.sendWhileWorking, ...options.bound };
@@ -249,44 +375,81 @@ export function madeWith(options: object, bound: Bound): string {
   });
 }
 
-/** What a channel can do while a message is being dealt with. */
+/**
+ * What your channel can give `receive()` to use while it works on a message.
+ * Every field is optional.
+ */
 export interface While {
-  /** Called once there is work to do, for "typing..."; what it returns is called when the work is over. */
+  /**
+   * Called when there is work to do, to show something like "typing...". It
+   * returns a function, which is called when the work is over.
+   */
   working?: () => () => void;
-  /** Sends one message to the chat. What sendWhileWorking uses. */
+  /** Sends one message to the chat. `sendWhileWorking` uses it. */
   send?: (text: string) => Promise<void>;
-  /** Called as each tool starts, with its name and its title when it has one. */
+  /** Called as each tool starts, with the tool's name, and its title if it has one. */
   calling?: (tool: { name: string; title?: string }) => void;
   /**
-   * Handed the answer's words as they are written, on a model route that
-   * streams them. Words written before a tool call come this way too, and are
-   * then handed to `send` whole.
+   * Called with each new piece of the reply as the model writes it, for a
+   * model that sends its words as it goes. Words written before a tool call
+   * come here too, and with `sendWhileWorking` on they are then also passed
+   * to `send` in one piece.
    */
   writing?: (delta: string) => void;
 }
 
-/** What came of a message. Nothing at all means it was not for the agent. */
+/**
+ * What `receive()` returns for a message. `undefined` in its place means the
+ * message was not for the agent, and nothing should be sent.
+ */
 export interface Handled {
-  /** What to send back. Empty when there is nothing to send, because a question already went out. */
+  /**
+   * What to send back. Empty when there is nothing to send, for example when
+   * a job already sent a question and is waiting for the answer.
+   */
   text: string;
+  /** The id of the run that handled the message, if one ran. */
   runId?: string;
+  /** How many steps the run took. 0 when nothing ran. */
   steps: number;
+  /** What the run cost, in US dollars. 0 when nothing ran. */
   cost: number;
-  /** The job that took it, when one did. */
+  /** The id of the job that handled the message, if a job did. */
   job?: string;
-  /** Choices to show under the text, on a channel that can. Pressing one sends `sends` as if the person had written it. */
+  /**
+   * Choices to show under the text, on a channel that can show buttons.
+   * Pressing one sends its `sends` text as if the person had typed it.
+   */
   buttons?: Button[];
 }
 
 /** One button under a reply. */
 export interface Button {
+  /** The words on the button. */
   label: string;
+  /** The text sent when somebody presses the button, as if they had typed it. */
   sends: string;
 }
 
 /**
- * Decides what a message is, does it, and says what to send back. See While
- * for what a channel can hand over to be used on the way.
+ * Handles one message from any channel and returns what to send back. Call it
+ * from your channel for each message, with the agent, the message, the rules
+ * from `rulesOf()`, and optionally `While` for showing progress.
+ *
+ * The first of these that fits decides what happens:
+ *
+ * 1. A sender not in `allowFrom` gets nothing.
+ * 2. `/clear` starts the conversation fresh.
+ * 3. `/models` lists the models, and `/model <name>` picks one.
+ * 4. A sign-in code goes to the connection that asked for it. The model never
+ *    sees it.
+ * 5. An answer to a job that is waiting on this chat goes to that job.
+ * 6. A group message that is not for the agent is left alone.
+ * 7. On a channel with a `job`, that job handles the message.
+ * 8. `/<job id> ...` runs that job. The words after it fill the job's `args`.
+ * 9. Anything else gets a reply from the model.
+ *
+ * Returns `undefined` when the message was not for the agent.
  */
 export async function receive(agent: Agent, message: Incoming, rules: Rules = {}, whileWorking: While = {}): Promise<Handled | undefined> {
   const working = whileWorking.working ?? (() => () => {});
@@ -355,7 +518,16 @@ function clearCommand(text: string): boolean {
   return /^\/clear(?:@\w+)?\s*$/i.test(text);
 }
 
-/** The commands a channel can offer in its own menu: each job a person may start, with "_" for "-", then /models and /clear. */
+/**
+ * Returns the commands a channel can show in its own menu, like the menu
+ * Telegram shows when you type "/". There is one for each job a person may
+ * start, then `/models` and `/clear`.
+ *
+ * A job's id is written with "_" for "-", because some platforms do not
+ * allow "-" in a command. A job whose id does not fit a command (up to 32
+ * lowercase letters, digits and "_") is left out, and so is a job that
+ * belongs to a channel.
+ */
 export function commands(agent: Agent): { command: string; description: string }[] {
   return [
     ...agent.jobs
@@ -443,8 +615,12 @@ function bound(agent: Agent, message: Incoming, asked: { pick?: string; target?:
 }
 
 /**
- * A long reply cut into pieces a channel will take, at a line break where
- * there is one, so a tag or a line is never cut in half.
+ * Cuts a long reply into pieces of at most `max` characters, for a platform
+ * that limits how long a message can be.
+ *
+ * It cuts at the last line break that fits, so lines stay whole. When there
+ * is no line break in the second half of a piece, it cuts at exactly `max`
+ * characters, which can split a line.
  */
 export function inPieces(text: string, max: number): string[] {
   const pieces: string[] = [];
@@ -669,6 +845,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
       owner: `${message.channel}:${message.from.id}`,
       without: [...(message.withoutTools ?? []), ...leftOut(agent, rules)],
       stranger: rules.strangers,
+      ...ownerOf(message, rules),
       user: `${message.channel}:${message.from.id}`,
       signal: message.signal,
     });
@@ -679,6 +856,20 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
     if (error instanceof UsageLimit) return { text: error.message, steps: 0, cost: 0 };
     return { text: "Something went wrong on my end. It is in the logs on the box.", steps: 0, cost: 0 };
   }
+}
+
+/**
+ * Whether this message is the agent's owner's, and whether it may change the
+ * agent: never on a channel for strangers, else what the caller said, else
+ * whether it came from the agent's owner on this channel.
+ */
+function ownerOf(message: Incoming, rules: Rules): { fromOwner: boolean; mayChangeAgent: boolean } {
+  const fromOwner =
+    !rules.strangers &&
+    (message.fromOwner ??
+      (settings.owner === `${message.channel}:${message.from.id}` ||
+        (rules.allowFrom?.length ? String(rules.allowFrom[0]) === message.from.id : false)));
+  return { fromOwner, mayChangeAgent: fromOwner && (message.mayChangeAgent ?? true) };
 }
 
 /**

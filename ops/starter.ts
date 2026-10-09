@@ -143,6 +143,10 @@ export default defineAgent({
   // Which model it asks is model.defaultModel in chloe.config.ts, so it is written
   // once for every agent. Name one here to give this agent its own.
   jobs: [dailyNote, markdownJob("jobs/summary.md")],
+  // It may change its own words when you ask it to in a chat, and never on its
+  // own. Each change is a commit you can read and undo on the page. Delete
+  // this line to stop it.
+  features: { selfImprovement: true },
 });
 `;
 

@@ -30,28 +30,47 @@ import { modelFor } from "#chloe/model/choices";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { ask as askModel, type Message, type ToolCall } from "#chloe/model/model";
 import { loop, money, type Decided } from "#chloe/core/turn";
-import { cannotRun, overviewsOf, type Call, type Tools } from "#chloe/model/tool";
+import { cannotRun, overviewsOf, type Call, type ChloeTool, type Tools } from "#chloe/model/tool";
 
-/** One finished step, and the record that lets it not run twice. */
+/**
+ * One finished step of a job's run, as saved in the run history.
+ *
+ * When a paused run continues, each finished step returns its saved result
+ * and does not run again.
+ */
 export interface Line {
-  /** Its place in the order the job called things. This is the replay key. */
+  /**
+   * The step's place in the run, counting from 0, in the order the job called
+   * its steps. When a paused run continues, steps are matched by this number
+   * and by `name`.
+   */
   seq: number;
+  /** The name the job gave the step, like "fetch orders" in `work.step("fetch orders", ...)`. */
   name: string;
+  /** The kind of step: `work.step()`, `work.model()`, `work.ask()` or `work.agent()`. */
   kind: "step" | "model" | "ask" | "agent";
+  /** When the step finished, as an ISO date string. */
   at: string;
+  /** How long the step took, in milliseconds. Always 0 for an ask. */
   ms: number;
+  /** What the step spent on models, in dollars. 0 for a step that asked no model. */
   cost: number;
+  /** What the step returned. Not set when the step failed. */
   result?: unknown;
-  /** For an ask: who was asked, and what they were asked. */
+  /**
+   * For a model or agent step: the name of the model it used.
+   * For an ask: who was asked, and whether they answered in time, like "telegram:12345 answered".
+   */
   note?: string;
-  /** For a model step: what it was asked. */
+  /** For a model or agent step: the prompt it was given. */
   prompt?: string;
-  /** For an ask: the question, and what the person typed before it was understood. */
+  /** For an ask: the question that was sent. */
   question?: string;
+  /** For an ask: what the person typed, before it was checked. Not set when nobody answered. */
   reply?: string;
-  /** For an agent step: every tool it ran, in the order it ran them, and the ones it was not allowed to. */
+  /** For an agent step: every tool call, in order, including the calls that were not allowed to run. */
   calls?: Call[];
-  /** Why this step did not finish. The run usually stops here, unless the job caught it. */
+  /** Why the step failed (the error message). The run usually stops here, unless the job catches the error. */
   failed?: string;
 }
 
@@ -90,163 +109,341 @@ interface AgentWait {
 }
 
 /**
- * The shape an answer has to be in: a zod schema, or an AI SDK output for the
- * other shapes, `Output.choice({ options })` or `Output.array({ element })`.
- * A schema is `Output.object({ schema })`, written shorter.
+ * The shape a model's answer must have. It is one of these:
+ * - a zod schema, like `z.object({ name: z.string() })`. This is the same as `Output.object({ schema })`.
+ * - `Output.choice({ options })` from the AI SDK, to pick one item from a list.
+ * - `Output.array({ element })` from the AI SDK, for a list of items.
  */
 export type Shape = z.ZodType | Output;
 
-/** What an answer in that shape is, once it has been read. */
+/** The type of an answer in a given `Shape`, after it has been checked. For a zod schema, this is `z.infer` of it. */
 export type Answer<O extends Shape> = O extends z.ZodType ? z.infer<O> : O extends Output ? InferGenerateOutput<O> : never;
 
 /**
- * One question for a model, inside a workflow that stays code: you know what to
- * ask, and the answer has to come back in the shape you asked for.
+ * The options for `work.model()`: one question for a model. The answer must
+ * come back in the shape you set, so your code can use it.
  */
 export interface ModelStep<O extends Shape> {
+  /** The question for the model. Required. */
   prompt: string;
-  /** The shape the answer has to be in. Free text cannot steer the next step, so `Output.text()` is refused. */
+  /**
+   * The shape the answer must have: a zod schema, or an AI SDK output like
+   * `Output.choice({ options })`. See `Shape`. Required.
+   *
+   * If the answer does not fit, the model is told what was wrong and asked
+   * once more. If it still does not fit, the step fails.
+   *
+   * `Output.text()` is not allowed: the answer must be data your code can check.
+   */
   output: O;
-  /** When this one step wants a model the rest of the job does not: a name, or an AI SDK model. */
+  /**
+   * The model for this step only, when it should be different from the rest
+   * of the job: a name like "anthropic/claude-haiku-4.5", or an AI SDK model.
+   * Default: the model the job runs on.
+   */
   model?: string | SdkModel;
+  /** Extra instructions for the model, sent before the question. Default: none. */
   instructions?: string;
 }
 
 /**
- * Bounded autonomy. You give the goal and the tools, the model works out the
- * order. Reach for this only when the order cannot be known in advance: when
- * you know the steps, they are `step` calls, and when you know the question, it
- * is one `model` call.
+ * The options for `work.agent()`. You give a goal and some tools. The model
+ * decides which tools to call, and in what order.
+ *
+ * Use this only when you cannot know the order of the work in advance. If you
+ * know the steps, use `work.step()`. If you know the question, use one
+ * `work.model()`.
  */
 export interface AgentStep<O extends Shape = Shape, T extends Tools = Tools> {
-  /** What you want done, not how to do it. */
+  /** What you want done (the goal), not how to do it. Required. */
   prompt: string;
-  /** Everything it may do, made with the AI SDK's `tool()` and keyed by name. Nothing outside these is reachable from inside. */
+  /**
+   * The tools the model may call, keyed by name, each made with the AI SDK's
+   * `tool()`. The model can call nothing else. Required, and it must not be
+   * empty (with no tools, use `work.model()`).
+   *
+   * Each tool needs an `execute` function. A tool that changes the agent
+   * itself, like `selfWriteFile`, is not allowed: only the owner can ask for
+   * that, in a chat.
+   */
   tools: T;
-  /** The shape the final answer has to be in, as for a model step. Without one, you get its words. */
+  /**
+   * The shape the final answer must have, as for `work.model()`. If the
+   * answer does not fit, the model is told what was wrong and asked once more.
+   * Default: none, and the step returns the model's final answer as text.
+   */
   output?: O;
   /**
-   * When it has to stop, as the AI SDK's `stopWhen`: `isStepCount(8)`,
-   * `hasToolCall("done")`, or a list of them. Ten steps that ran tools when it
-   * says nothing. Stopping before it finished is an error, not a half answer.
+   * When the model must stop, as the AI SDK's `stopWhen`: `isStepCount(8)`,
+   * `hasToolCall("done")`, or a list of them. It is checked after each round
+   * of tool calls. Default: `isStepCount(10)`, which is 10 rounds of tool calls.
+   *
+   * If this stops the model before it gives its final answer, the step fails
+   * with an error. You never get half an answer.
    */
   stopWhen?: StopCondition<NoInfer<T>> | StopCondition<NoInfer<T>>[];
   /**
-   * What it may spend, in dollars, before it has to stop. Checked between
-   * turns, so the turn that crosses the line is paid for and nothing after it
-   * is: size it as the point where you want the step to give up, not as a
-   * ceiling it cannot pass. Without one, `stopWhen` is the only limit, and ten
-   * turns of a large model is not a small number. Going over is an error, like
-   * running out of steps.
+   * The most this step may spend, in dollars, like `0.5`. It must be more
+   * than 0. Off by default.
+   *
+   * It is checked each time the model answers. The answer that goes over the
+   * limit is already paid for, so the step can spend a little more than this:
+   * set it at the point where you want the step to give up. If the model has
+   * spent this much and still asks for tools, the step fails with an error.
+   *
+   * Without a budget, `stopWhen` is the only limit, and 10 rounds with a large
+   * model can cost a lot.
    */
   budget?: number;
   /**
-   * The AI SDK's `toolApproval`, asked before each tool runs with the input
-   * the model chose: "approved", "denied" with a reason the model is told, or
-   * a function per tool. The tools say what it may do at all; this says which
-   * particular calls are allowed. A call that needs a person, by
-   * "user-approval" or the tool's own `needsApproval`, parks the run and asks
-   * its owner yes or no about that call, then carries on from it. A no, or
-   * nobody answering in two hours, refuses it.
+   * Decides, before each tool call runs, whether it may run. It sees the input
+   * the model chose. This is the AI SDK's `toolApproval`: one function for all
+   * calls, or an object with a value or a function per tool name. The values:
+   * - "approved": the call runs.
+   * - "denied", with a reason: the call does not run, and the model is told the reason.
+   * - "user-approval": a person must say yes first.
+   *
+   * When this gives no answer for a call, the tool's own `needsApproval`
+   * decides. Default: none, so every call runs unless the tool's
+   * `needsApproval` says a person must say yes.
+   *
+   * When a person must say yes, the run pauses and asks the run's owner yes or
+   * no. On yes, the call runs and the step goes on from there. On no, or if
+   * nobody answers in 2 hours, the call does not run and the model is told.
+   * A run with no owner never runs such a call.
    */
   toolApproval?: ToolApprovalConfiguration<NoInfer<T>, any>;
-  /** When this step wants a model the rest of the job does not: a name, or an AI SDK model. */
+  /**
+   * The model for this step only, when it should be different from the rest
+   * of the job: a name like "anthropic/claude-haiku-4.5", or an AI SDK model.
+   * Default: the model the job runs on.
+   */
   model?: string | SdkModel;
-  /** What it should know before it starts. */
+  /** Extra instructions for the model: what it should know before it starts. Default: none. */
   instructions?: string;
 }
 
 /**
- * A question for a person. The run parks, the question goes out to an address,
- * and what they type is matched against the shape rather than read by a model.
+ * The options for `work.ask()`: a question for a person. The run pauses until
+ * they answer. Code checks their answer against `answer`: no model reads it.
  */
 export interface AskStep<S extends z.ZodType> {
+  /** The question to send. Required. */
   question: string;
-  /** The shape the person's answer has to be in. */
+  /**
+   * The shape the person's answer must have, as a zod schema, like
+   * `z.boolean()` or `z.enum(["small", "large"])`. Required.
+   *
+   * Plain words count: "yes", "ok" or "no" fit `z.boolean()`, and "12" fits
+   * `z.number()`. The question is sent with a short hint, like "(yes or no)".
+   * On channels that have buttons, a yes or no question, or a list of 8
+   * choices or fewer, is sent with a button for each answer.
+   *
+   * If an answer does not fit, the person is asked again, up to 3 times. After
+   * that, the run stops with an error.
+   */
   answer: S;
-  /** An address, "channel:who". Defaults to the run's owner. */
+  /**
+   * Who to ask, as an address "channel:who", like "telegram:12345".
+   * Default: the run's owner (`work.owner`). If there is no owner and no
+   * `who`, the step fails.
+   */
   who?: string;
-  /** How long to wait: "30m", "4h", "2d". Two hours by default. */
+  /** How long to wait for an answer: a number and then `m`, `h` or `d`, like "30m", "4h" or "2d". Default: "2h". */
   within?: string;
-  /** What to carry on with when nobody answers. Without one, the job stops. */
+  /**
+   * The answer to use if nobody answers in time. Default: none, and the run
+   * stops with an error that says nobody answered.
+   */
   otherwise?: z.infer<S>;
 }
 
 /**
- * What a job's `state` and `args` are when a job names no schema: an object of
- * named things. Named so a signature can say it.
+ * An object with string keys and values of any type. It is the type of
+ * `work.state` and `work.args` when the job has no zod schema for them.
  */
 export type Data = Record<string, unknown>;
 
 /**
- * Where a run was started from, in the words every channel shares. The clock
- * leaves it empty. Always there, so reading what started the job needs no schema.
+ * Where a run came from and what was said. It has the same fields for every
+ * channel. A job reads it as `work.input`.
+ *
+ * Every field is a string, and is "" when it is not known. A run the clock
+ * started has every field empty.
  */
 export interface Envelope {
-  /** What was said or sent. */
+  /** The text of the message that started the run. */
   text: string;
   /** The channel it came in on, like "telegram". */
   from: string;
-  /** Where it was said, as the channel names it. */
+  /**
+   * The chat it was sent in, as the channel names it. To ask a question back
+   * in the same chat, use `${from}:${chat}` as `who` in `work.ask()`.
+   */
   chat: string;
+  /** The title of the chat, when it has one (a group, for example). */
   chatTitle: string;
-  /** Who said it, by name. */
+  /** The name of the person who sent it. */
   user: string;
-  /** Who said it, by their id on that channel: an email address, a Telegram id, a web visitor's id. */
+  /** The sender's id on that channel: an email address, a Telegram user id, or a web visitor's id. */
   userId: string;
+  /** The conversation the message belongs to: one per chat, or one per topic in a forum. */
   thread: string;
+  /** The text of the message this one replies to, when it is a reply. */
   replyTo: string;
 }
 
-/** What a job's `run` is handed. */
+/**
+ * What a job's `run` function gets: the steps it can take, and facts about
+ * the run.
+ *
+ * Put every piece of work inside a step. When a run pauses (for `work.ask()`,
+ * or for a tool call that needs a yes), it later continues by running `run`
+ * again from the top. Each finished step then returns its saved result and
+ * does not run again. Code outside a step runs again every time, so if it
+ * sends, writes or spends something, that happens twice.
+ */
 export interface Work<State = Data, Args = Data> {
-  /** Do something, once, and write down what it returned. */
+  /**
+   * Runs `fn` once and saves what it returns. Use it for any work you can
+   * write as code: a request, a query, a file, an email.
+   *
+   * When a paused run continues, this returns the saved result and does not
+   * call `fn` again. If `fn` throws, the step throws too and the error message
+   * is saved. When the run continues, the step throws a plain `Error` with
+   * that same message, again without calling `fn`.
+   *
+   * The result is saved as JSON, so return plain data: a `Date`, for example,
+   * comes back as a string when the run continues. It must be under 64,000
+   * characters as JSON: return what the next step needs, not everything you
+   * read.
+   *
+   * `name` is shown in the run history. If you edit the job while a run is
+   * paused, and the steps no longer match by order and name, that run stops
+   * with an error instead of continuing.
+   */
   step<T>(name: string, fn: () => Promise<T> | T): Promise<T>;
-  /** Ask a model one question and get an answer in the shape you asked for. */
+  /**
+   * Asks a model one question and returns the answer in the shape you set in
+   * `output`. If the answer does not fit, the model is told what was wrong and
+   * asked once more, and then the step fails. What it cost is saved with the
+   * run. See `ModelStep` for the options.
+   */
   model<O extends Shape>(name: string, options: ModelStep<O>): Promise<Answer<O>>;
-  /** Hand a goal and some tools to a model and let it pick the order. The most autonomy, so the last resort. */
+  /**
+   * Gives a model a goal and some tools, and lets it decide which tools to
+   * call and in what order. Returns its final answer in the shape of `output`.
+   *
+   * This gives the model the most freedom, so use it last: only when you
+   * cannot know the order of the work in advance. Set limits with `stopWhen`
+   * and `budget`. Every tool call is saved with the run. See `AgentStep` for
+   * the options.
+   */
   agent<O extends Shape, T extends Tools>(name: string, options: AgentStep<O, T> & { output: O }): Promise<Answer<O>>;
+  /**
+   * Gives a model a goal and some tools, and lets it decide which tools to
+   * call and in what order. With no `output`, returns its final answer as
+   * text.
+   *
+   * This gives the model the most freedom, so use it last: only when you
+   * cannot know the order of the work in advance. Set limits with `stopWhen`
+   * and `budget`. Every tool call is saved with the run. See `AgentStep` for
+   * the options.
+   */
   agent<T extends Tools>(name: string, options: Omit<AgentStep<Shape, T>, "output">): Promise<string>;
-  /** Stop and wait for a person. The process may restart while it waits. */
+  /**
+   * Sends a person a question, and pauses the run until they answer. Returns
+   * their answer, checked against the `answer` schema.
+   *
+   * The run is saved while it waits, so chloe can restart in the meantime.
+   * When the answer comes, `run` starts again from the top, and every
+   * finished step returns its saved result. While the run waits, the job does
+   * not start again on its schedule.
+   *
+   * Call it between steps, never inside the function you give `work.step()`:
+   * that throws an error. See `AskStep` for the options.
+   */
   ask<S extends z.ZodType>(name: string, options: AskStep<S>): Promise<z.infer<S>>;
-  /** The shared store. Survives a pause. */
+  /**
+   * Data this run keeps between its steps. It starts as what the job's
+   * `state` schema makes of `{}` (so fields with a default start filled), or
+   * `{}` when the job has no schema. It is saved, so it is still there after
+   * the run pauses. Each run starts fresh.
+   */
   readonly state: State;
+  /** Changes `state`: the fields you give replace the old ones, and the other fields stay. Saved at once. */
   setState(next: Partial<State>): Promise<void>;
   /**
-   * What this run was started with, already checked against the job's `args`
-   * shape. Empty for a run the clock started. It does not change, so there is
-   * nothing to set: the store above is the part that moves.
+   * What this run was started with, checked against the job's `args` schema.
+   * For a run the clock started, it is what the schema makes of `{}`, or `{}`
+   * when the job has no schema. It never changes: use `state` for data that
+   * changes.
    */
   readonly args: Args;
   /**
-   * Where this run was started from and what was said. The clock leaves it
-   * empty, a channel fills it, and the API fills what it was sent. It rides
-   * along outside `args`, so a job that only reads the text declares nothing.
+   * Where this run came from and what was said: the channel, the chat, the
+   * sender and the text of the message. A channel fills it. For a run the API
+   * started, it holds what the caller sent. For a run the clock started, every
+   * field is "". You do not need an `args` schema to read it.
    */
   readonly input: Envelope;
+  /**
+   * The address of the run's owner, like "telegram:12345". This is who
+   * `work.ask()` asks by default. It is `owner` in the settings, or else the
+   * first id in `allowFrom` of the agent's Telegram, Slack or WhatsApp
+   * channel. "" when there is none.
+   */
   readonly owner: string;
-  /** Whose job this is. Notes, scripts and folders are filed under it. */
+  /** The id of the agent this job belongs to. */
   readonly agentId: string;
   /**
-   * Where that agent remembers things: its memory folder. A job that files
-   * something there reads the path from here rather than writing it down again,
-   * so the agent's definition is the one place that says where.
+   * The full path of the agent's memory folder. When a job saves files there,
+   * read the path from here instead of writing it again in the job.
    */
   readonly memory: string;
+  /** The id of this run in the run history. */
   readonly runId: string;
+  /**
+   * Tells you when the run is being stopped. Pass it to `fetch` and other
+   * calls that take an `AbortSignal`. Model and agent steps use it already.
+   *
+   * It is set only when whoever started the run gave one, as
+   * `agent.run({ signal })` can. Runs started by the clock or a channel have
+   * none.
+   */
   readonly signal?: AbortSignal;
 }
 
-/** What a run of a job came back with, whether it finished or parked. */
+/** What a job's run returns, when it finishes or when it pauses to wait for a person. */
 export interface Result {
+  /** The id of the run in the run history. */
   runId: string;
+  /**
+   * What the job's `run` returned, as text: a string as it is, anything else
+   * as JSON (`{ "ok": true }` when it returned nothing).
+   *
+   * When the run is waiting for a person: "waiting on" and their address.
+   * When the run ended because nobody answered, or because the job was
+   * changed while the run was paused: the reason.
+   */
   text: string;
-  /** The job's one line about what it did, for the overview. */
+  /**
+   * The start of `reply` as one plain line, up to 200 characters, for the run
+   * list on the dashboard. `null` when the job gave no words. Not set when the
+   * run did not finish.
+   */
   summary?: string | null;
-  /** What a chat is sent: the job's `reply`, or its summary. */
+  /**
+   * What a chat is sent: the text the job's `response` made from the result,
+   * or else the string `run` returned. If `response` throws, a line that says
+   * it failed. Not set when there are no words, or when the run did not finish.
+   */
   reply?: string;
+  /** How many steps the run has taken so far, counting any that failed. */
   steps: number;
+  /** What the run has spent so far, in dollars. */
   cost: number;
+  /** `true` when the run is paused, waiting for a person's answer. */
   parked: boolean;
 }
 
@@ -282,14 +479,30 @@ interface Ctx {
   signal?: AbortSignal;
 }
 
-/** Start a job from the beginning. */
+/**
+ * Starts a new run of a job written as code (a job with `run`), and waits
+ * until the run finishes or pauses to wait for a person. The clock, the
+ * channels and `agent.run()` call this for you.
+ *
+ * Throws `WrongArgs` before the run starts when `input` does not fit the
+ * job's `args` schema. Throws when the job is a prompt, or when a step throws
+ * an error that the job does not catch.
+ */
 export async function work(options: {
+  /** The loaded agent the job belongs to. Required. */
   agent: Agent;
+  /** The job to run. It must be written as code (have `run`). Required. */
   job: Job;
-  /** The channel it came in on, like "telegram" or "api". Left out, it is "unknown". */
+  /** Where the run came from, like "telegram" or "api". It is saved with the run. Default: "unknown". */
   source?: string;
-  /** What to start it with: the envelope keys, and the rest checked against the job's `args` shape. */
+  /**
+   * What to start the job with, as an object. The message keys (`text`,
+   * `from`, `chat` and the other `Envelope` fields) go to `work.input`.
+   * Everything else is checked against the job's `args` schema and goes to
+   * `work.args`. Default: nothing.
+   */
   input?: unknown;
+  /** Stops the run's model calls when it is aborted. The job sees it as `work.signal`. Default: none. */
   signal?: AbortSignal;
 }): Promise<Result> {
   const { agent, job } = options;
@@ -356,23 +569,21 @@ function withoutEnvelope(sent: unknown): Data {
   return Object.fromEntries(Object.entries(given).filter(([key]) => !(ENVELOPE_KEYS as readonly string[]).includes(key)));
 }
 
-/** What was sent to start a job does not fit the shape that job declares. */
+/** The error thrown when what a job is started with does not fit its `args` schema. The message says what is wrong. */
 export class WrongArgs extends Error {}
 
 /**
- * Checks what a job is being started with against its `args` shape, and hands
- * back the parsed values. Throws `WrongArgs` when they do not fit.
+ * Checks what a job is started with against the job's `args` schema, and
+ * returns the checked values. Throws `WrongArgs` when they do not fit.
  *
- * The message keys (`text`, `from`, `chat` and the rest) are taken off first:
- * they go to `work.input`, never to `args`. A job that declares no shape
- * takes nothing else, so sending it more is a mistake worth saying out loud
- * rather than quietly dropping. A job that does
- * declare one and is started by the clock gets `{}` put through the same
- * check, which is what makes a required field and a cron line an error at the
- * first tick rather than a puzzle later.
+ * The message keys (`text`, `from`, `chat` and the other `Envelope` fields)
+ * are removed first: they go to `work.input`, never to `args`. Then:
+ * - A job with no `args` schema takes nothing else. Any other key is an error.
+ * - A job with a schema that the clock starts is checked with `{}`. So a job
+ *   with a required field and a cron line fails on its first scheduled run.
  *
- * Called before a run exists, so whoever started it is told rather than left
- * reading a failed run to find out.
+ * It runs before the run is created, so whoever started the job gets the
+ * error at once.
  */
 export function checkArgs(job: Job, sent: unknown): Data {
   const rest = withoutEnvelope(sent);
@@ -391,7 +602,17 @@ export function checkArgs(job: Job, sent: unknown): Data {
   return checked.data as Data;
 }
 
-/** Carry on a job that was waiting for a person. */
+/**
+ * Continues a run that paused to wait for a person. It runs the job again
+ * from the top, and each finished step returns its saved result. You usually
+ * call `answer()` or `sweep()`, which call this.
+ *
+ * `agents` is every loaded agent by id, as `loadAll()` returns them.
+ * `signal`, when given, becomes `work.signal`.
+ *
+ * Throws when the run does not exist or is not waiting, or when its agent or
+ * job is gone or is no longer code.
+ */
 export async function resume(runId: string, agents: Map<string, Agent>, signal?: AbortSignal): Promise<Result> {
   const row = db.prepare("select * from runs where id = ?").get(runId) as Row | undefined;
   if (!row) throw new Error(`There is no run ${JSON.stringify(runId)}.`);
@@ -633,6 +854,9 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
     for (const [id, one] of Object.entries(tools)) {
       const wrong = cannotRun(id, one);
       if (wrong) throw new Error(`agent(${JSON.stringify(name)}): ${wrong}`);
+      if ((one as ChloeTool).changesAgent) {
+        throw new Error(`agent(${JSON.stringify(name)}) was given ${id}, which changes the agent. Only its owner asking in a chat may do that, never a job.`);
+      }
     }
     if (Object.keys(tools).length === 0) {
       throw new Error(
@@ -985,21 +1209,25 @@ function starting(job: Job): Data {
   return empty.success ? (empty.data as Data) : {};
 }
 
-/**
- * A run waiting on a person: what it asked, who it asked, and when the wait
- * runs out. Read by the page and by the sweep.
- */
+/** A run that is waiting for a person's answer: what it asked, who it asked, and when the wait ends. */
 export interface ParkedRun {
+  /** The id of the run. */
   id: string;
+  /** The id of the agent. */
   agent: string;
+  /** The id of the job. */
   job: string;
+  /** The address the question went to, like "telegram:12345". */
   who: string;
+  /** The question that was sent. */
   question: string;
+  /** When the question was sent, as an ISO date string. */
   asked: string;
+  /** When the wait ends, as an ISO date string. After that, `sweep()` stops waiting and continues the run. */
   expires: string;
 }
 
-/** Every run waiting on a person right now. */
+/** Returns every run that is waiting for a person right now. */
 export function parkedRuns(): ParkedRun[] {
   const rows = db.prepare("select id, agent, job, parked from runs where parked is not null").all() as {
     id: string;
@@ -1021,14 +1249,22 @@ export function parkedRuns(): ParkedRun[] {
   });
 }
 
-/** The oldest question this person has not answered, if there is one. Only that agent's, when it says which. */
+/**
+ * Returns the oldest question sent to this address that has no answer yet, or
+ * `undefined` when there is none. `who` is an address like "telegram:12345".
+ * Give `agent` (an agent id) to look only at that agent's questions.
+ */
 export function waitingOn(who: string, agent = ""): ParkedRun | undefined {
   return parkedRuns()
     .filter((one) => one.who === who && (!agent || one.agent === agent))
     .sort((a, b) => a.asked.localeCompare(b.asked))[0];
 }
 
-/** Is this job already waiting on somebody? Then it does not start again. */
+/**
+ * Returns `true` when this agent's job has a run waiting for a person. The
+ * clock does not start such a job on its schedule until the wait ends.
+ * `agent` and `job` are ids.
+ */
 export function waitingFor(agent: string, job: string): boolean {
   const row = db
     .prepare("select 1 from runs where agent = ? and job = ? and parked is not null limit 1")
@@ -1036,7 +1272,14 @@ export function waitingFor(agent: string, job: string): boolean {
   return row !== undefined;
 }
 
-/** Hand a person's answer to the run that was waiting for it. */
+/**
+ * Gives a person's reply to the run that is waiting for it, and continues the
+ * run. Returns the run's result: finished, or paused again (for example
+ * when the reply did not fit and the question was sent again).
+ *
+ * `agents` is every loaded agent by id, as `loadAll()` returns them. Throws
+ * when the run is not waiting for an answer.
+ */
 export async function answer(runId: string, reply: string, agents: Map<string, Agent>): Promise<Result> {
   const row = db.prepare("select parked from runs where id = ?").get(runId) as { parked?: string } | undefined;
   if (!row?.parked) throw new Error(`Run ${JSON.stringify(runId)} is not waiting for an answer.`);
@@ -1046,10 +1289,14 @@ export async function answer(runId: string, reply: string, agents: Map<string, A
 }
 
 /**
- * Give up on questions nobody answered. Called on the clock's tick.
+ * Stops waiting for every question whose time to answer has passed, and
+ * continues each of those runs:
+ * - an `ask` with `otherwise` goes on with that value;
+ * - an `ask` without it ends the run with an error;
+ * - a tool call waiting for a yes does not run, and the model is told.
  *
- * A parked run holds its job, so a question left alone is a job that
- * never runs again. This is what stops that.
+ * The clock calls this every minute. A waiting run keeps its job from
+ * starting again, so this is what lets the job run again.
  */
 export async function sweep(agents: Map<string, Agent>): Promise<void> {
   const now = new Date().toISOString();

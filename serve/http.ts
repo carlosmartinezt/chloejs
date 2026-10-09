@@ -675,6 +675,11 @@ export const routes: Route[] = [
         text: prompt,
         private: true,
         model: guest ? undefined : model,
+        // The account is the owner; through a remote dashboard it reads the
+        // agent's runs only with read on and changes the agent only with write
+        // on. A guest or a token is never the owner.
+        fromOwner: !token && !guest && (!relayed || settings.dashboard.remote.allow.read),
+        mayChangeAgent: !token && !guest && (!relayed || settings.dashboard.remote.allow.write),
         // Handed to the model for this turn and dropped: what is kept is the
         // line saying they were attached.
         files: images.length

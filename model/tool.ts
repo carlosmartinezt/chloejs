@@ -6,21 +6,68 @@ import type { Connection } from "#chloe/connections/connection";
 import type { ToolSpec } from "./model.ts";
 
 /**
- * A tool made with the AI SDK's `tool()`, with two fields of chloe's own, added
- * after making it, `Object.assign(tool({ ... }), { overview })`, because
- * `tool()` does not take a field it does not know.
+ * A tool for the model: a tool made with the AI SDK's `tool()`, plus a few
+ * optional fields that chloe reads.
  *
- * `overview` is what the tool reaches right now, in a few lines (the folders of
- * a memory, the tables of a database), put at the top of every turn and agent
- * step it is handed to, so the model starts out knowing where things are. Asked
- * again each time, never kept. `needs` is the connection it works through: the
- * setup page asks that connection what is missing, and when the tool throws
- * `NeedsSignIn` the runtime runs that connection's sign-in, so an agent that can
- * read mail can get somebody signed in to read it.
+ * `tool()` drops fields it does not know, so add these after you make the tool:
+ * `Object.assign(tool({ ... }), { needs: google })`.
  */
-export type ChloeTool = Tool & { overview?: () => Promise<string> | string; needs?: Connection };
+export type ChloeTool = Tool & {
+  /**
+   * Returns a few lines about what the tool can reach right now, such as the
+   * folders in a memory or the tables in a database.
+   *
+   * chloe puts this text at the top of the prompt each time the model gets the
+   * tool, so the model knows where things are before it starts. It is called
+   * again each time. If it throws, its text is left out.
+   */
+  overview?: () => Promise<string> | string;
+  /**
+   * The connection this tool works through, such as Google.
+   *
+   * The Connections page on the dashboard, and the lines chloe prints as it
+   * starts, show what that connection still needs. When the tool throws
+   * `NeedsSignIn` in a chat, chloe stops the reply and sends the person that
+   * connection's sign-in link.
+   */
+  needs?: Connection;
+  /**
+   * Set to `true` when the tool only reads or changes the agent's own folder,
+   * memory or skills, so nothing it returns came from outside. Off by default.
+   *
+   * A tool without it counts as reading from outside (mail, a web page, a
+   * script, an MCP server). Once such a tool has answered, every
+   * `changesAgent` tool is refused for the rest of that reply, because the
+   * outside text may be what asked for the change.
+   */
+  own?: boolean;
+  /**
+   * Set to `true` to give this tool to the model only when the agent's owner
+   * sent the message. Off by default.
+   *
+   * Replies to anybody else, and markdown jobs, do not get it. Use it for a
+   * tool that shows what other people said, such as the agent's past runs.
+   */
+  forOwner?: boolean;
+  /**
+   * Set to `true` when the tool changes the agent itself: its instructions,
+   * skills or jobs. Off by default.
+   *
+   * The model gets it only when the agent's owner sent the message and is
+   * allowed to change the agent. A job never gets it: an agent step given one
+   * fails. It is also refused once a tool that is not `own` has answered in
+   * the same reply.
+   */
+  changesAgent?: boolean;
+};
 
-/** Tools keyed by the name the model calls them by. */
+/** Marks each of these tools `own`, and returns them. */
+export function ownTools(tools: Tools): Tools {
+  for (const one of Object.values(tools)) one.own = true;
+  return tools;
+}
+
+/** A set of tools. Each key is the name the model calls the tool by, such as `gmailReadEmail`. */
 export type Tools = Record<string, ChloeTool>;
 
 /** The connections these tools work through, each once, in the order first met. */
@@ -56,28 +103,41 @@ export async function overviewsOf(tools: Tools): Promise<string> {
 }
 
 /**
- * What every tool chloe runs is handed as its `context`, the second argument
- * to `execute`: the agent it runs for. Read it with `agentOf(context)`.
+ * What chloe passes to every tool it runs, as `context` in the second argument
+ * of `execute`. Read the agent with `agentOf(context)`.
  */
 export interface ToolContext {
+  /** The agent the tool runs for: its `id`, its `folder`, and its `memory` folder and how it is committed. */
   agent: { id: string; folder: string; memory: { folder: string; commit?: boolean | "each run" } };
-  /** Who a conversation's turn is for, as `channel:id`. Set by the runtime from who sent the message, never by a model. */
+  /**
+   * Who sent the message, as `channel:id`, such as `telegram:12345`. chloe sets
+   * it from the sender, never from the model. Not set in a job.
+   */
   user?: string;
 }
 
-/** The agent a tool is running for, out of the `context` its `execute` was handed. */
+/**
+ * Returns the agent a tool is running for. Pass it the `context` your
+ * `execute` got. Throws if the context has no agent.
+ */
 export function agentOf(context: unknown): ToolContext["agent"] {
   const agent = (context as Partial<ToolContext> | undefined)?.agent;
   if (!agent?.id) throw new Error("This tool was run without the agent it runs for, which chloe hands every tool as its context.");
   return agent;
 }
 
-/** One tool a model asked for: what it was called with, what came back, and whether it was allowed to run at all. */
+/** One tool call the model made: the tool, what it was called with, and what came back. */
 export interface Call {
+  /** The name the model called the tool by. */
   toolName: string;
+  /** The arguments the model passed. */
   input: unknown;
+  /** What the tool returned, or what the model was told when it failed or was refused. */
   output: unknown;
-  /** Set when `toolApproval` or `needsApproval` would not let it run, in which case nothing ran and `output` is what the model was told. */
+  /**
+   * `true` when `toolApproval` or the tool's `needsApproval` did not allow the
+   * call. The tool did not run, and `output` is what the model was told.
+   */
   refused?: boolean;
 }
 

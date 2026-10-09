@@ -362,8 +362,8 @@ has.
 **`tools`** keeps a turn to the tools named, for when the person writing should
 not reach the rest. Name each by the tool itself, so a typo is an error in your
 editor, or by its name in the agent's `tools`. The agent's memory and skills
-come with them; its self tools only when named. On a web page, only what is
-named.
+come with them, and for its owner the tools that read its own files and runs;
+`selfWriteFile` only when named. On a web page, only what is named.
 
 **`job`** sends every message to one job instead of a turn, so code goes first:
 look up who wrote, read their orders, and decide whether a model is needed at

@@ -245,7 +245,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   is("nor anything outside its folder", await Promise.resolve().then(() => may("../other/x.md")).catch(failed), `Path is outside ${folder}: ../other/x.md`);
 
   const wrote = (path: string, content: string, message = "a change worth making") =>
-    writeOwn(home, rules, path, content, message).then((done) => done.commit ?? "not committed", failed);
+    writeOwn(home, rules, [{ path, content }], message).then((done) => done.commit ?? "not committed", failed);
   is(
     "a job that would not load is refused",
     await wrote("jobs/weekly.md", "---\ncron: every monday\n---\nLook back."),
@@ -295,7 +295,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   // A change made during a run belongs to that run.
   const improve = codeJob("improve", async ({ step }) =>
     step("rewrite the skill", () =>
-      writeOwn(home, rules, "skills/deploys.md", "---\nname: deploys\ndescription: how\n---\nShip it small.", "the skill says how to ship"),
+      writeOwn(home, rules, [{ path: "skills/deploys.md", content: "---\nname: deploys\ndescription: how\n---\nShip it small." }], "the skill says how to ship"),
     ).then(() => "ok"),
   );
   const improved = await work({ agent: keeper, job: improve });
@@ -373,4 +373,91 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
     if (before[i] === undefined) delete process.env[key];
     else process.env[key] = before[i];
   });
+}
+
+{
+  about("an agent with code: true changes its own code, and nothing that does not load is kept");
+  const { execFileSync } = await import("node:child_process");
+  const { existsSync, realpathSync } = await import("node:fs");
+  const { rm, symlink } = await import("node:fs/promises");
+  const { fileURLToPath } = await import("node:url");
+  const { loadAgain, ownFileRules, checksDone } = await import("#chloe/load/load");
+  const { whyNot, writeOwn } = await import("#chloe/services/ownFilesService");
+
+  // Outside the runtime's folder, whose files are never imported afresh, with
+  // the package linked in the way a project installs it. A repository of its own.
+  const folder = realpathSync(await mkdtemp(join(tmpdir(), "coder-")));
+  await mkdir(join(folder, "node_modules/@chloejs"), { recursive: true });
+  await symlink(fileURLToPath(new URL("../..", import.meta.url)), join(folder, "node_modules/@chloejs/core"));
+  await writeFile(join(folder, ".gitignore"), "node_modules\n");
+  const memory = await mkdtemp(join(tmpdir(), "coder-memory-"));
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: folder, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "a person", GIT_AUTHOR_EMAIL: "p@example.com", GIT_COMMITTER_NAME: "a person", GIT_COMMITTER_EMAIL: "p@example.com" } }).trim();
+  const definition = (jobs: string, imports = "") =>
+    `import { defineAgent } from "@chloejs/core";\n${imports}\nexport default defineAgent({ id: "coder", description: "", ` +
+    `instructions: "Be brief.", model: "anthropic/claude-haiku-4.5", memory: { folder: ${JSON.stringify(memory)} }, jobs: [${jobs}] });\n`;
+  await writeFile(join(folder, "agent.ts"), definition(""));
+  git("init", "-q", "-b", "main");
+  git("add", "-A");
+  git("commit", "-q", "-m", "the agent as a person wrote it");
+
+  const home = { id: "coder", folder, memory: { folder: memory } };
+  const words = ownFileRules(true);
+  const code = ownFileRules({ code: true });
+  is("without code, a job's code is not its to write", whyNot(home, words, "jobs/hello.ts"), "it is code");
+  is("nor its tools", whyNot(home, words, "tools/look.md"), "tools/ is code");
+  is("with code it is", [whyNot(home, code, "jobs/hello.ts"), whyNot(home, code, "tools/look.ts"), whyNot(home, code, "agent.ts")], [undefined, undefined, undefined]);
+  is("and a job's code may sit in a folder of its own", whyNot(home, code, "jobs/lib/feeds.ts"), undefined);
+  is("but never its evals", whyNot(home, code, "evals/hello.json"), "evals/ is how your runs are marked");
+
+  const wrote = (path: string, content: string) =>
+    writeOwn(home, code, [{ path, content }], "a change worth making").then((done) => done.commit ?? "not committed", (error: Error) => error.message);
+  const job = (cron: string) =>
+    `import { defineJob } from "@chloejs/core";\nexport default defineJob({ id: "hello", description: "Says hello.", cron: "${cron}", run: async () => "Hello." });\n`;
+
+  const kept = (said: string) => (/^[0-9a-f]{12}$/.test(said) ? "a commit" : said);
+  is("a new job's file is kept", kept(await wrote("jobs/hello.ts", job("0 7 * * *"))), "a commit");
+  is("and naming it in agent.ts is kept too", kept(await wrote("agent.ts", definition("hello", 'import hello from "./jobs/hello.ts";'))), "a commit");
+  is("so the agent has that job", (await loadAgain(home)).jobs.map((one) => one.id), ["hello"]);
+  is("each a commit under its name", git("log", "--format=%an", "-2"), "coder\ncoder");
+
+  const broken = definition("hello, missing", 'import hello from "./jobs/hello.ts";\nimport missing from "./jobs/missing.ts";');
+  const refused = await wrote("agent.ts", broken);
+  is("an agent.ts that would not load is refused, saying why", refused.startsWith("agent.ts is put back as it was, because you would not load:"), true);
+  is("and put back as it was", (await readFile(join(folder, "agent.ts"), "utf8")).includes("missing"), false);
+  is("with nothing committed and nothing left changed", [git("log", "--format=%an", "-1"), git("status", "--porcelain")], ["coder", ""]);
+
+  is(
+    "a job made to run more than once an hour is put back",
+    await wrote("jobs/hello.ts", job("*/5 * * * *")),
+    'jobs/hello.ts is put back as it was, because hello would run more than once an hour, and a job you write runs at most once an hour: give its cron line one minute, like "0 7 * * *"',
+  );
+  is("as it was", (await readFile(join(folder, "jobs/hello.ts"), "utf8")).includes("0 7 * * *"), true);
+  const thrown = await wrote("jobs/throws.ts", 'throw new Error("not like this");\n');
+  is("a new file nothing imports yet is kept, since it does not change how the agent loads", kept(thrown), "a commit");
+  is(
+    "but naming it is refused when importing it throws",
+    (await wrote("agent.ts", definition("hello", 'import hello from "./jobs/hello.ts";\nimport "./jobs/throws.ts";'))).includes("not like this"),
+    true,
+  );
+
+  // A change that only loads with two files changed together.
+  const together = (files: { path: string; content: string }[]) =>
+    writeOwn(home, code, files, "hello reads its words from a file of its own").then((done) => done.commit, (error: Error) => error.message);
+  const greetingFile = { path: "jobs/lib/words.ts", content: 'export const greeting = "Hello again.";\n' };
+  const using = {
+    path: "jobs/hello.ts",
+    content: 'import { defineJob } from "@chloejs/core";\nimport { greeting } from "./lib/words.ts";\nexport default defineJob({ id: "hello", description: "Says hello.", cron: "0 7 * * *", run: async () => greeting });\n',
+  };
+  is("a job that imports a file not there yet is put back on its own", (await together([using])).startsWith("jobs/hello.ts is put back as it was, because you would not load"), true);
+  is("given with that file, both are kept", kept(await together([greetingFile, using])), "a commit");
+  is("as one commit", git("show", "--name-only", "--format=", "HEAD").split("\n").sort(), ["jobs/hello.ts", "jobs/lib/words.ts"]);
+  const failing = await together([{ path: "jobs/lib/more.ts", content: "export const more = 1;\n" }, { ...using, content: "this is not code" }]);
+  is("when they would not load, every one is put back", [failing.startsWith("jobs/lib/more.ts, jobs/hello.ts are put back as they were"), existsSync(join(folder, "jobs/lib/more.ts")), (await readFile(join(folder, "jobs/hello.ts"), "utf8")).includes("greeting")], [true, false, true]);
+  is("and the same file twice is refused before anything is written", await together([greetingFile, greetingFile]), "jobs/lib/words.ts is in the list twice. Write each file once.");
+
+  await checksDone();
+  is("and a reload waits for none once they are done", existsSync(join(folder, "jobs/hello.ts")), true);
+
+  await rm(folder, { recursive: true, force: true });
+  await rm(memory, { recursive: true, force: true });
 }

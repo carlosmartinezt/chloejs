@@ -12,7 +12,7 @@ npm install @chloejs/core
 npx chloe setup
 ```
 
-Setup asks four things, each with a default, so holding Enter works. Running it
+Setup asks five things, each with a default, so holding Enter works. Running it
 again leaves what is already there alone. `--yes` takes every default, and
 `--agent <id>` names the agent. With no keyboard, which is how a coding agent
 runs it, it takes the defaults.
@@ -28,6 +28,15 @@ runs it, it takes the defaults.
    finished run that cost nothing.
 4. **Where to watch it from**: the dashboard on this machine, and, only if you
    want, a [remote dashboard](/docs/the-page#a-remote-dashboard) too.
+5. **A git repository.** In a folder that is not one, it makes one and commits
+   what is there, under your git name, or "npx chloe setup" when git has none.
+   Every change an agent makes to itself is a commit you can read and undo, and
+   it may not change a file nobody has committed, so without one it cannot
+   change itself. In a repository of your own it commits nothing and says what
+   to commit. It never installs git.
+
+It ends with the address of the agent's chat on the dashboard. Ask it there
+for what you want done.
 
 There is no password to set. The dashboard opens with a link, and a password is
 for later, if you want one.
@@ -37,7 +46,7 @@ for later, if you want one.
 | File | What it is |
 |---|---|
 | `chloe.config.ts` | The list of agents, and every [setting](/docs/settings). An agent not on it does not run. |
-| `agents/<id>/agent.ts` | The agent: its instructions, jobs, tools and channels. See [An agent](/docs/agents). |
+| `agents/<id>/agent.ts` | The agent: its instructions, jobs, tools and channels. `selfImprovement` is on, so it may change its own words when you ask it to. See [An agent](/docs/agents). |
 | `agents/<id>/instructions.md` | What it is told on every turn. |
 | `agents/<id>/jobs/` | Two jobs: `daily-note.ts`, code, and `summary.md`, a prompt. |
 | `.env` | Every password, key and token, mode 600, never committed. |

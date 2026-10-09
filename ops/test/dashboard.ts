@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { about, is } from "#chloe/ops/check";
 import type { Agent, Job } from "./shared.ts";
-import { agentFor, answer, answers, asked, codeJob, db, lastAsked, sent, work } from "./shared.ts";
+import { agentFor, answer, answers, asked, codeJob, db, lastAsked, lastTools, sent, work } from "./shared.ts";
 
 {
   about("the connection to a dashboard");
@@ -249,6 +249,27 @@ import { agentFor, answer, answers, asked, codeJob, db, lastAsked, sent, work } 
   answers.push("Again.");
   await answer("g21f", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "and now?", thread: "test/web-g" }));
   is("one that already had something said in it is not named", (await conversations("g21g", chatOnly)).find((one) => one.thread === "test/web-g")?.label, null);
+
+  // The owner changes the agent through the dashboard only with write on, and a guest never does.
+  const { tool } = await import("ai");
+  const { z } = await import("zod");
+  const { remember: said_ } = await import("#chloe/model/memory");
+  keeper.tools = { ...keeper.tools, selfWriteFile: Object.assign(tool({ description: "Change a file.", inputSchema: z.object({}), execute: async () => "Written." }), { own: true, changesAgent: true }) };
+  said_("test/web-change", "user", "hello");
+  const change = async (id: string, headers: Record<string, string> = {}) => {
+    answers.push("Noted.");
+    await answer(id, "POST", "/api/agents/test/chat", { ...headers, "content-type": "application/json" }, JSON.stringify({ prompt: "change yourself", thread: "test/web-change" }));
+    return lastTools.includes("selfWriteFile");
+  };
+  is("the owner through the dashboard cannot change the agent with write off", await change("change-1"), false);
+  live.dashboard.remote.allow.write = true;
+  is("and can with it on", await change("change-2"), true);
+  said_("test/web-g", "user", "hello");
+  answers.push("Noted.");
+  await answer("change-3", "POST", "/api/agents/test/chat", { ...chatOnly, "content-type": "application/json" }, JSON.stringify({ prompt: "change yourself", thread: "test/web-g" }));
+  is("a guest never can", lastTools.includes("selfWriteFile"), false);
+  live.dashboard.remote.allow.write = false;
+  delete keeper.tools.selfWriteFile;
 
   // A picture goes to the model with the turn it came with, and only the line
   // saying it was attached is kept.

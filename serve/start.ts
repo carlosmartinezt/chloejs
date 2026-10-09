@@ -14,7 +14,7 @@ import { ROOT } from "#chloe/core/paths";
 import { bold, dim } from "#chloe/core/style";
 import { PROVIDERS, settings, unclaimed } from "#chloe/core/settings";
 import { closeCutOff, going, trim } from "#chloe/core/db";
-import { CONFIG, loadAll, type Agent, type Config, type Running } from "#chloe/load/load";
+import { checksDone, CONFIG, loadAll, type Agent, type Config, type Running } from "#chloe/load/load";
 import { sdkModel } from "#chloe/model/key";
 import { neededBy } from "#chloe/model/tool";
 import { run } from "#chloe/services/runService";
@@ -300,6 +300,8 @@ export async function startChloe(given?: Config): Promise<void> {
             loadEnv();
             for (const name of agents.keys()) changedChannels.add(name);
           }
+          // A self write being checked may put a file back: read what it leaves.
+          await checksDone();
           agents = await loadAll(given);
           // A stop that came while the files were read must not start the channels again.
           if (stopping) return;

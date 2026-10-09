@@ -10,7 +10,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import * as fs from "./fs.ts";
-import { agentOf, type ToolContext, type Tools } from "../tool.ts";
+import { agentOf, ownTools, type ToolContext, type Tools } from "../tool.ts";
 
 /**
  * The five memory tools for one agent's memory. A write is its own commit only
@@ -23,13 +23,13 @@ export function memoryTools(): (agent: { id: string; memory: { folder: string; c
     // A new agent has no folder yet, and the first thing it does should not be
     // to fail on one missing.
     mkdirSync(folder, { recursive: true });
-    return {
+    return ownTools({
       memoryListFiles: fs.listFiles({ root: folder, what }),
       memoryReadFile: fs.readFile({ root: folder, what }),
       memorySearchFiles: fs.searchFiles({ root: folder, what }),
       memoryWriteFile: fs.writeFile({ root: folder, what, commit: commit === true, author: id, memory: true }),
       memoryEditFile: fs.editFile({ root: folder, what, commit: commit === true, author: id, memory: true }),
-    };
+    });
   };
 }
 
@@ -57,7 +57,7 @@ export async function userNotes(memory: string, user: string): Promise<string> {
  * user's turns, so there is nothing to read it with.
  */
 export function userNotesTools(): () => Tools {
-  return () => ({
+  return () => ownTools({
     memoryWriteUserNotes: tool({
       description:
         "Replace your note on the person you are talking to. This is the whole note, so keep what still matters from " +

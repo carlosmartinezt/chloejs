@@ -10,74 +10,145 @@ import { duringRun } from "#chloe/core/current";
 import { CUT_OFF, db } from "#chloe/core/db";
 import { runChanged } from "#chloe/core/events";
 import { oneLineSummary } from "#chloe/core/markdown";
-import type { Agent, ChatHistory, Skill } from "#chloe/load/load";
+import { ownFileRules, type Agent, type ChatHistory, type Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
 import { userNotes } from "#chloe/model/tools/memory";
-import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ToolContext, type Tools } from "#chloe/model/tool";
+import { selfReadTools } from "#chloe/model/tools/self";
+import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { NeedsSignIn } from "#chloe/connections/connection";
 
+/** The options for `turn()`: one message for an agent, and how to handle its reply. */
 export interface Ask {
+  /** The loaded agent to ask. Required. */
   agent: Agent;
+  /** The message for the model. Required. */
   prompt: string;
-  /** What the person wrote, when `prompt` carries more than that. The log shows it as the run's line. */
+  /**
+   * The person's own words, when `prompt` holds more than that (for example,
+   * facts about the chat added before the message). The run list on the
+   * dashboard shows this. Default: none.
+   */
   asked?: string;
-  /** Photos and PDFs that came with the prompt. Seen this turn only: the thread keeps the words. */
+  /**
+   * Photos and PDFs sent with the message. The model sees them in this reply
+   * only: the conversation history keeps just the words. Default: none.
+   */
   attachments?: Attachment[];
-  /** When this job wants one the agent does not normally use. Unsaid, what was chosen for the agent, else what it names. */
+  /**
+   * The model to ask, by name, like "anthropic/claude-haiku-4.5". Default: a
+   * model picked for the whole agent while it runs (with `/models` in a chat,
+   * or the API), else the agent's own `model`.
+   */
   model?: string;
-  /** Without one, the turn starts fresh. */
+  /**
+   * The id of the conversation this message belongs to. With it, the model
+   * sees the recent messages of that conversation, and this message and the
+   * reply are saved to it. Default: none, so the model sees no earlier
+   * messages and nothing is saved to a conversation.
+   */
   thread?: string;
   /**
-   * The channel it came in on: "telegram", "chat", "api", "terminal",
-   * "schedule", "eval", or the name of a channel an agent brings.
+   * Where the message came from, saved with the run: "telegram", "chat",
+   * "api", "terminal", "schedule", "eval", or the name of a channel an agent
+   * adds. Required.
    */
   source: string;
-  /** The job this turn is, when it is one. */
+  /** The id of the job this run is, when it is one. It is saved with the run. Default: none. */
   job?: string;
-  /** How much of `thread` to show: the channel's `chatHistory`. The last 10 messages when unsaid. */
+  /** How much of `thread` the model sees, as the channel's `chatHistory`. Default: the last 10 messages. */
   history?: ChatHistory;
   /**
-   * Handed what the model writes before it asks for a tool, as soon as it is
-   * written. Never the final answer, which is what turn() returns.
+   * Called with what the model writes before it calls a tool, as soon as that
+   * text is complete. It is never called with the final answer: `turn()`
+   * returns that. Default: none.
    */
   said?: (text: string) => void;
-  /** Handed each tool's name, and its title when it has one, as it starts: for a channel that shows what the agent is doing. */
+  /**
+   * Called as each tool call starts, with the tool's name and its `title` if
+   * it has one. A channel can use it to show what the agent is doing.
+   * Default: none.
+   */
   calling?: (tool: { name: string; title?: string }) => void;
   /**
-   * Handed the model's words as they are written, on a route on a key. Words
-   * written before a tool call come this way too, and then to `said`.
+   * Called with each new piece of the model's words, as they are written.
+   * This works only when the model is reached with an API key ("direct" or
+   * "gateway" in `model.preferredRoute`). Words written before a tool call
+   * come here too, and then to `said`. Default: none.
    */
   writing?: (delta: string) => void;
   /**
-   * The person on the other end of a channel, by name. The model is told it is
-   * talking to them, so it writes to them as "you" rather than about them.
+   * The name of the person on the other end of a channel. The model is told
+   * it is talking to them, so it writes to them as "you". Default: none.
    */
   talkingTo?: string;
-  /** Who this run is for, as an address. One column, and the team version reads it. */
+  /** Who this run belongs to, as an address like "telegram:12345". It is saved with the run. Default: none. */
   owner?: string;
-  /** Tools this turn is not given, by name, though the agent has them: a channel that should not reach them. */
+  /**
+   * Names of tools to leave out of this reply, even though the agent has
+   * them. A channel uses it to keep some tools away from the people on it.
+   * Default: none.
+   */
   without?: string[];
-  /** Somebody nobody vouched for, like a visitor on a web page: a sign-in a tool needs is never started for them. */
+  /**
+   * Set for someone nobody vouched for, like a visitor on a web page. When a
+   * tool needs someone to sign in, the sign-in is never started for them: the
+   * reply only says what failed. Off by default.
+   */
   stranger?: boolean;
   /**
-   * Who the turn is for, as `channel:id`: handed to every tool as `context.user`,
-   * and, for an agent with `memoryPerUser`, whose note it is shown.
+   * Set when the agent's owner wrote this message. Only then does the model
+   * get the tools only the owner may use (tools marked `forOwner`), and the
+   * tools that read the agent's own files and past runs (`selfListFiles`,
+   * `selfReadFile`, `selfListRuns`, `selfReadRun`). Off by default.
+   */
+  fromOwner?: boolean;
+  /**
+   * Set when the agent's owner wrote this message and may change the agent
+   * with it. Only then does the model get the tools that change the agent
+   * (tools marked `changesAgent`, like `selfWriteFile`). Setting it also
+   * counts as `fromOwner`. Off by default, so a job, a schedule, a guest or
+   * another program never changes the agent.
+   *
+   * Even then, once a tool not marked `own` (one that reads from outside the
+   * agent's own folder and memory) has answered in this reply, the tools that
+   * change the agent are refused: what it read could be what asked for the
+   * change.
+   */
+  mayChangeAgent?: boolean;
+  /**
+   * Who this message is from, as `channel:id`, like "telegram:12345". Every
+   * tool gets it as `context.user`. For an agent with `memoryPerUser`, it also
+   * picks whose note the model is shown. Default: none.
    */
   user?: string;
-  /** Answer tools from here instead of running them. For evals. */
+  /**
+   * Answers each tool call with this function instead of running the tool.
+   * Evals use it. With it, nothing in the agent's memory is committed to git.
+   * Default: none.
+   */
   instead?: (name: string, args: unknown) => Promise<unknown> | unknown;
+  /** Stops the reply when it is aborted, for example when the person who asked has gone. Default: none. */
   signal?: AbortSignal;
 }
 
-/** What one turn came back with, including every tool call it made on the way. */
+/** What `turn()` returns: the final answer, and every tool call made on the way. */
 export interface Result {
+  /** The id of the run in the run history. */
   runId: string;
+  /**
+   * The model's final answer. When the run stopped early, the reason
+   * instead, like "Stopped after 40 steps without finishing." When a tool
+   * needs someone to sign in: what failed, and how to sign in.
+   */
   text: string;
+  /** How many times the model answered during the run. */
   steps: number;
+  /** What the run spent, in dollars. */
   cost: number;
+  /** Every tool call made, in order, with the input it was given and the output it returned. */
   calls: Call[];
 }
 
@@ -100,10 +171,19 @@ function stopWhenOf(agent: Agent): StopCondition<any>[] {
 }
 
 /**
- * Runs a prompt: ask a model, run the tools it asked for, put the answers
- * back, ask again, until it stops asking.
+ * Sends one message to an agent and returns its reply. The model may call
+ * tools: each time it does, the tools run and their answers go back to the
+ * model, until it answers without calling a tool.
+ *
+ * The model gets the agent's instructions, its tools and its skills. Each
+ * step is saved to the run history as it happens.
+ *
+ * The run stops early when the agent's `stopWhen` is met (default: 40 rounds
+ * of tool calls), and `text` then says so. A tool that fails does not stop
+ * the run: the model is told what went wrong. Throws when asking the model
+ * fails.
  */
-export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, stranger, user, instead, signal }: Ask): Promise<Result> {
+export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, stranger, fromOwner, mayChangeAgent, user, instead, signal }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? modelFor(agent);
 
@@ -113,11 +193,12 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   ).run(runId, agent.id, started, source, job ?? null, using, prompt, asked ?? null, owner ?? null, thread ?? null);
   runChanged(runId);
 
-  const overviews = await overviewsOf(toolsFor(agent, without));
+  const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent });
+  const overviews = await overviewsOf(tools);
   // In the instructions rather than the message, so it is not kept in the conversation again each turn.
-  const note = user && toolsFor(agent, without).memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
+  const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools)) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -126,7 +207,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   db.prepare("update runs set context = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), runId);
   if (thread) remember(thread, "user", prompt);
 
-  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, stranger, user, instead, signal });
+  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, stranger, fromOwner, mayChangeAgent, user, instead, signal });
 }
 
 /**
@@ -282,6 +363,8 @@ async function go(options: {
   writing?: Ask["writing"];
   without?: string[];
   stranger?: boolean;
+  fromOwner?: boolean;
+  mayChangeAgent?: boolean;
   user?: string;
   instead?: Ask["instead"];
   /** Steps already taken, which the agent's `stopWhen` counts. */
@@ -290,7 +373,7 @@ async function go(options: {
   signal?: AbortSignal;
 }): Promise<Result> {
   const { agent, runId, trace, job, source, thread, said, calling, writing, instead } = options;
-  const tools = toolsFor(agent, options.without);
+  const tools = toolsFor(agent, options.without, options);
   const before = answers(trace);
   const calls: Result["calls"] = [];
   // An eval answers every tool itself, so nothing it does is written anywhere.
@@ -445,6 +528,9 @@ export async function loop(options: {
   // What the stop conditions read: each step's text, the calls it made and what came back.
   const taken: Taken[] = Array.from({ length: options.before ?? 0 }, () => ({ text: "", toolCalls: [], toolResults: [] }));
   let resume = options.resume;
+  // The first tool to answer that is not `own`. After it, a tool that changes
+  // the agent is refused: what it read could be asking for the change.
+  let readOutside = "";
 
   for (let steps = 0; ; steps++) {
     let toolCalls: ToolCall[];
@@ -476,12 +562,17 @@ export async function loop(options: {
     for (const [n, call] of toolCalls.entries()) {
       const at = new Date().toISOString();
       const decided = resume && n === 0 ? resume.decided : undefined;
-      if (options.tools[call.function.name]) options.onCall?.(call.function.name);
-      const ran = await runTool(options.tools, call, { context: options.context, instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided });
+      const one = options.tools[call.function.name];
+      if (one) options.onCall?.(call.function.name);
+      const ran =
+        one?.changesAgent && readOutside
+          ? refusedCall(call, `this turn read ${readOutside}, which may be what asked for it. Say what you would change, and your owner can ask again in a new message`)
+          : await runTool(options.tools, call, { context: options.context, instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided });
       if ("person" in ran) {
         return { text: "", steps, cost, calls, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
       }
       const { output, args, failed, refused, signIn } = ran;
+      if (one && !one.own && !refused && !readOutside) readOutside = call.function.name;
       step.toolCalls.push({ type: "tool-call", toolCallId: call.id, toolName: call.function.name, input: args });
       step.toolResults.push({ type: "tool-result", toolCallId: call.id, toolName: call.function.name, input: args, output });
       calls.push({ toolName: call.function.name, input: args, output, ...(refused && { refused }) });
@@ -521,6 +612,15 @@ interface Taken {
 /** What the trace says has been spent so far, for the record written as it goes. */
 function costOf(trace: unknown[]): number {
   return trace.reduce((sum: number, one) => sum + (((one as { cost?: number }).cost) ?? 0), 0);
+}
+
+/** A call that is not run, and what the model is told instead. */
+function refusedCall(call: ToolCall, why: string): { output: unknown; args: unknown; failed?: boolean; refused?: boolean; signIn?: string } {
+  let args: unknown = call.function.arguments;
+  try {
+    args = JSON.parse(call.function.arguments || "{}");
+  } catch {}
+  return { output: `${call.function.name} was not allowed: ${why}.`, args, refused: true };
 }
 
 // A missing tool, bad arguments and a tool that threw all go back to the model
@@ -581,9 +681,9 @@ async function runTool(
 // The model sees each skill's name and one sentence, and opens the body only
 // when it applies. In the system prompt instead, every skill would cost its
 // full text on every step of every turn.
-function skillTool(skills: Skill[]) {
+function skillTool(skills: Skill[]): ChloeTool {
   const byName = new Map(skills.map((s) => [s.name, s]));
-  return tool({
+  return Object.assign(tool({
     description:
       "Open one of your skills and read what it says. A skill tells you when to do something and " +
       "how. Open the skill before doing the thing it covers.",
@@ -593,7 +693,7 @@ function skillTool(skills: Skill[]) {
       if (!found) throw new Error(`No skill called ${JSON.stringify(name)}. You have: ${[...byName.keys()].join(", ")}`);
       return found.body;
     },
-  });
+  }), { own: true });
 }
 
 /**
@@ -609,16 +709,47 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
   );
 }
 
-/** The tools a turn of this agent has: its own and `skillRead`, less any its channel leaves out. */
-function toolsFor(agent: Agent, without: string[] = []): Tools {
-  const tools: Tools = { ...(agent.tools ?? {}), skillRead: skillTool(agent.skills) };
+/**
+ * The tools a turn of this agent has: its own and `skillRead`, less any its
+ * channel leaves out, less those for its owner unless the owner wrote, and
+ * less those that change it unless the owner may. A turn its owner wrote also
+ * has the tools that read its own folder and runs.
+ */
+function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean } = {}): Tools {
+  const owner = Boolean(who.fromOwner || who.mayChangeAgent);
+  const self = agent.features?.selfImprovement;
+  const tools: Tools = {
+    ...(owner ? selfReadTools(self ? ownFileRules(self) : undefined)(agent) : {}),
+    ...(agent.tools ?? {}),
+    skillRead: skillTool(agent.skills),
+  };
   for (const name of without) delete tools[name];
+  for (const [name, one] of Object.entries(tools)) {
+    if ((one.forOwner && !owner) || (one.changesAgent && !who.mayChangeAgent)) delete tools[name];
+  }
   return tools;
 }
 
-function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = ""): string {
+/**
+ * What an agent that may change itself is told in a turn that cannot: who can
+ * ask for a change, and what to do with a lesson meanwhile. Empty when it may,
+ * or never could.
+ */
+function cannotChange(agent: Agent, tools: Tools): string {
+  if (!agent.features?.selfImprovement || Object.values(tools).some((one) => one.changesAgent)) return "";
+  return (
+    "## Changing yourself\n\n" +
+    "You cannot change your own instructions, skills or jobs in this turn: only your owner can ask for that, in a " +
+    "message to you. " +
+    (agent.features.memory === false ? "When" : "Keep what you learned in your memory, and when") +
+    " it should change one of those files, say which and how in one line, so they can ask."
+  );
+}
+
+function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = "", cannot = ""): string {
   const parts = [agent.instructions];
   if (person) parts.push(talkingWith(person));
+  if (cannot) parts.push(cannot);
   if (note) parts.push(`## Your note on them\n\n${note}`);
   if (overviews) parts.push(overviews);
   if (agent.skills.length > 0) {
