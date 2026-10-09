@@ -304,5 +304,41 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
     is("without an app secret it says so, and refuses every message", [told.some((l) => l.includes("app_secret")), status], [true, 401]);
   }
 
+  {
+    // Nothing goes through a service the owner did not choose: with no remote
+    // dashboard connected, no post box is asked for, and the route is the way in.
+    const { settings } = await import("#chloe/core/settings");
+    const asks: string[] = [];
+    const stand = createServer((request, response) => {
+      asks.push(`${request.method} ${request.url}`);
+      response.end(JSON.stringify({ id: "box9", key: "k9" }));
+    });
+    await new Promise<void>((done) => stand.listen(0, "127.0.0.1", done));
+    const was = { ...settings.dashboard.remote };
+    settings.dashboard.remote.url = `http://127.0.0.1:${(stand.address() as { port: number }).port}`;
+    settings.dashboard.remote.api_key = "";
+    const said: string[] = [];
+    const log = console.log;
+    console.log = (...line: unknown[]) => void said.push(line.join(" "));
+    const alone = listen({ agentId: "alone", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", api, agent: () => agent });
+    console.log = log;
+    await new Promise((done) => setTimeout(done, 100));
+    alone.stop();
+    is(
+      "with no remote dashboard connected, no post box is asked for, and the route it answers is said instead",
+      [asks.length, said.some((one) => one.includes("/chloe/v1/alone/whatsapp"))],
+      [0, true],
+    );
+
+    settings.dashboard.remote.api_key = "chl_workspace_test";
+    const connected = listen({ agentId: "linked", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", api, agent: () => agent });
+    for (let i = 0; i < 50 && !asks.length; i++) await new Promise((done) => setTimeout(done, 20));
+    connected.stop();
+    is("with one connected, its post box is used", asks[0], "POST /hook");
+    Object.assign(settings.dashboard.remote, was);
+    stand.close();
+    stand.closeAllConnections();
+  }
+
   graph.close();
 }

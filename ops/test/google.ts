@@ -211,6 +211,17 @@ import type { Tools } from "./shared.ts";
   }
   is("and a connection the agent does not have is not found", unknown.includes("no connection called"), true);
 
+  const { emailChannel } = await import("#chloe/channels/email");
+  const onGmail = { id: "mailer", model: "m", tools: {}, channels: [emailChannel({ allowFrom: ["a@b.co"], mailbox: "gmail" })] } as any;
+  is(
+    "an agent whose only use of Google is an email channel on Gmail still has Google on its page, to sign in to",
+    (await connectionsOf(onGmail)).filter((one) => one.name === "google").map((one) => one.signIn),
+    [true],
+  );
+  is("and the page can start that sign-in", typeof signInOf(onGmail, "google").start, "function");
+  const onDashboard = { id: "mailer", model: "m", tools: {}, channels: [emailChannel({ allowFrom: ["a@b.co"] })] } as any;
+  is("one through a remote dashboard needs no Google", (await connectionsOf(onDashboard)).some((one) => one.name === "google"), false);
+
   about("what the person is told to do");
   const { whatToDo } = await import("#chloe/connections/google/googleService");
 
@@ -313,6 +324,12 @@ import type { Tools } from "./shared.ts";
       }
       if ((init?.headers as Record<string, string>)?.authorization !== "Bearer a2") return new Response("no", { status: 401 });
       if (url.pathname.endsWith("/messages") && init?.method !== "POST") return json({ messages: [{ id: "m1" }] });
+      if (url.pathname.endsWith("/profile")) return json({ historyId: "55" });
+      if (url.pathname.endsWith("/history")) {
+        if (url.searchParams.get("startHistoryId") === "1") return new Response('{"error":{"code":404,"message":"Requested entity was not found."}}', { status: 404 });
+        return json({ history: [{ messagesAdded: [{ message: { id: "m1", threadId: "t1", labelIds: ["INBOX"] } }, { message: { id: "d1", labelIds: ["DRAFT"] } }] }], historyId: "56" });
+      }
+      if (url.pathname.endsWith("/messages/m1") && url.searchParams.get("format") === "raw") return json({ raw: Buffer.from("From: her@example.com\r\n\r\nShall we?").toString("base64url") });
       if (url.pathname.endsWith("/messages/m1")) {
         return json({
           id: "m1",
@@ -321,6 +338,7 @@ import type { Tools } from "./shared.ts";
           payload: {
             headers: [
               { name: "From", value: "Her <her@example.com>" },
+              { name: "To", value: "Somebody <somebody+abc@example.com>" },
               { name: "Subject", value: "Lunch" },
               { name: "Message-ID", value: "<1@example.com>" },
             ],
@@ -382,6 +400,15 @@ import type { Tools } from "./shared.ts";
       const mail = Buffer.from(sent[0].raw, "base64url").toString("utf8");
       is("in the same thread", sent[0].threadId, "t1");
       is("and threaded by its headers", mail.includes("In-Reply-To: <1@example.com>"), true);
+
+      const { gmailMailbox } = await import("#chloe/connections/google/mailbox");
+      is("the email channel asks Gmail where the mailbox is up to", await gmailMailbox.now(), "55");
+      is("and what was added since, leaving drafts out", await gmailMailbox.since("55"), { added: [{ id: "m1", threadId: "t1" }], history: "56" });
+      is("a point Gmail no longer keeps is said as gone, not as a failure", await gmailMailbox.since("1"), "gone");
+      is("who a message is to is read from its headers alone", (await gmailMailbox.recipients("m1")).includes("somebody+abc@example.com"), true);
+      is("and a message it takes is fetched whole", (await gmailMailbox.raw("m1")).includes("Shall we?"), true);
+      await gmailMailbox.send("cmF3", "t1");
+      is("sending names the thread", sent.at(-1), { raw: "cmF3", threadId: "t1" });
     } finally {
       globalThis.fetch = real;
       await (await import("node:fs/promises")).rm(join(process.env.CHLOE_STATE!, "google"), { recursive: true, force: true });

@@ -4,18 +4,28 @@
 //   import { emailChannel } from "@chloejs/core/channels";
 //   channels: [emailChannel({ allowFrom: ["someone@example.com"] })],
 //
-// It needs a remote dashboard: `dashboard.remote.url` and `dashboard.remote.api_key` in settings. The dashboard
-// owns the mail domain, so it hands out the addresses and sends the mail, and
-// nothing here needs a mail account of its own.
+// Each conversation has its own address, made for one person. The agent starts
+// one with `openEmail()` (or the `email.startConversation` tool, or a job's
+// `ask("email:<address>")`), and the person's replies to that address come back
+// here as messages in that conversation. The mail goes through one of two
+// places, and neither is required:
 //
-// Each conversation has its own address, `reply-<id>@<the dashboard's domain>`,
-// made for one person. The agent starts one with `openEmail()` (or the
-// `email.startConversation` tool, or a job's `ask("email:<address>")`), and the person's
-// replies to that address come back here as messages in that conversation.
+//   Gmail: `emailChannel({ allowFrom, mailbox: "gmail" })`. The mailbox is the
+//   account Google is signed in to (`connections.google.account`), the same
+//   sign-in the mail tools use. Mail goes out from that account under the
+//   agent's name, and its reply address is the account with a tag,
+//   `you+<8 letters>@gmail.com`, which Gmail delivers to the same inbox. The
+//   runtime asks Gmail what is new every few seconds, the way Telegram is
+//   polled, so nothing reaches in from outside and nothing else is involved. It
+//   looks only at what is addressed to one of its own tagged addresses; the
+//   rest of the mailbox is never read.
 //
-// A reply reaches the dashboard through its mail worker, and waits in this
-// channel's post box, sealed, until this collects it, the way WhatsApp's do.
-// Nothing in between is trusted. A message is taken only when:
+//   A remote dashboard: with `dashboard.remote.api_key` in settings and no
+//   `mailbox`, the dashboard owns a mail domain, hands out the addresses and
+//   sends the mail, and a reply waits in this channel's post box, sealed, until
+//   this collects it, the way WhatsApp's do.
+//
+// Nothing in between is trusted either way. A message is taken only when:
 //
 //   1. it is to an address made here, for this agent and channel, still open,
 //      and used in the last 30 days;
@@ -40,13 +50,16 @@
 // box forgets a delivery only after it has been dealt with, so a restart in the
 // middle of a turn gets it again, and it is answered then rather than dropped as
 // already seen.
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 
+import { google } from "#chloe/connections/google/connection";
+import { rawMail } from "#chloe/connections/google/gmailService";
+import { gmailMailbox, type Mailbox } from "#chloe/connections/google/mailbox";
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
 import { reachBy, unreach } from "#chloe/model/ask";
 import { remember } from "#chloe/model/memory";
 import { db } from "#chloe/core/db";
-import { readEmail, signedBy, whenSent, type Email, type LookUp } from "#chloe/core/mail";
+import { addresses, readEmail, signedBy, whenSent, type Email, type LookUp } from "#chloe/core/mail";
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { markdownToHtml, markdownToText } from "#chloe/services/emailService";
 import { boxFor, collectFrom, type Box } from "./postbox.ts";
@@ -68,6 +81,20 @@ db.exec(`
   )
 `);
 
+// Where each channel on Gmail is up to in its mailbox, so a restart asks from
+// there and misses nothing that arrived while it was down.
+db.exec(`
+  create table if not exists email_mailbox (
+    agent   text not null,
+    channel text not null,
+    history text not null,
+    primary key (agent, channel)
+  )
+`);
+
+/** How often a channel on Gmail asks what is new. */
+const EVERY = 15_000;
+
 /** How long an address stays open with nothing sent or received on it. */
 const OPEN_FOR = 30 * 24 * 3600 * 1000;
 
@@ -79,6 +106,16 @@ export interface EmailOptions extends Shared {
   allowFrom: string[];
   /** How much of a conversation a turn is shown: `{ messages, days }`. */
   chatHistory?: ChatHistory;
+  /**
+   * "gmail" sends and receives through the Gmail account Google is signed in
+   * to. Left out, the mail goes through a remote dashboard, when one is
+   * connected.
+   */
+  mailbox?: "gmail";
+  /** What stands in for Gmail. Only the tests change it. */
+  gmail?: Mailbox;
+  /** How often Gmail is asked what is new, in milliseconds. Only the tests change it. */
+  every?: number;
   /** Where the dashboard is, instead of `dashboard.remote.url` in settings. Only the tests change it. */
   dashboard?: string;
   /** The workspace key, instead of `dashboard.remote.api_key`. Only the tests change it. */
@@ -151,29 +188,60 @@ export function quoted(mail: Email): { text: string; html: string } {
   };
 }
 
+/** The Gmail account the channel sends from, which is the one Google is signed in to. */
+function account(): string {
+  const said = settings.connections.google.account.trim().toLowerCase();
+  if (!said.includes("@")) {
+    throw new Error(`An email channel on Gmail sends from the account Google is signed in to, and there is none. Put it in settings as connections: { google: { account: "you@gmail.com" } }.`);
+  }
+  return said;
+}
+
+/** Letters a tag is made of: no l, o, 0 or 1, which read as each other. */
+const LETTERS = "abcdefghijkmnpqrstuvwxyz23456789";
+
+/**
+ * A new address for one conversation: the account with a tag, which Gmail
+ * delivers to the same inbox. 8 letters, 40 random bits, so nobody guesses one.
+ */
+function tagged(address: string): string {
+  const at = address.lastIndexOf("@");
+  let tag = "";
+  for (let i = 0; i < 8; i++) tag += LETTERS[randomInt(LETTERS.length)];
+  return `${address.slice(0, at).split("+")[0]}+${tag}${address.slice(at)}`;
+}
+
 /** An agent on email, as a channel its own `agent.ts` names. */
 export function emailChannel(options: EmailOptions): Channel {
   // Ignored, it would hand every tool to a turn that was meant to have fewer.
   if ("withoutTools" in options) throw new Error("emailChannel's withoutTools is gone: name the tools its turns may have instead, like tools: [tools.readPage].");
-  return defineChannel("email", options, ({ agent, agentId, name, bound }) => {
+  const channel = defineChannel("email", options, ({ agent, agentId, name, bound }) => {
+    if (options.mailbox === "gmail") return listen({ ...options, agentId, channel: name, agent, bound });
     const dashboard = (options.dashboard ?? settings.dashboard.remote.url).replace(/\/+$/, "");
     const key = options.key ?? settings.dashboard.remote.api_key;
     if (!dashboard || !key) {
       console.error(
-        `email: ${agentId} is on email and has no ${dashboard ? "workspace key" : "dashboard"}. Email goes through a remote dashboard: ` +
-          `put the workspace's key ${whereKeyGoes(["dashboard", "remote", "api_key"])}.`,
+        `email: ${agentId} is on email with no mailbox. Put it on Gmail, emailChannel({ mailbox: "gmail", ... }), which uses ` +
+          `the Google sign-in the mail tools use, or connect a remote dashboard by putting its key ${whereKeyGoes(["dashboard", "remote", "api_key"])}.`,
       );
       return { stop: () => {} };
     }
     return listen({ ...options, agentId, channel: name, dashboard, key, agent, bound });
-  }, { hidden: ["lookUp", "key"] });
+  }, { hidden: ["lookUp", "key", "gmail", "every"] });
+  // On Gmail it works through the Google sign-in, so the agent's Connections
+  // page lists it and can sign in, even with no Gmail tool beside it.
+  if (options.mailbox === "gmail") channel.needs = google;
+  return channel;
 }
 
 /** Answers on email until stopped. Separate from the channel so the tests can point it somewhere else. */
 export function listen(
-  options: EmailOptions & { agentId: string; channel: string; dashboard: string; key: string; agent: () => Agent | undefined; bound?: Bound },
+  options: EmailOptions & { agentId: string; channel: string; dashboard?: string; key?: string; agent: () => Agent | undefined; bound?: Bound },
 ): Running {
-  const { agentId, channel, dashboard, key } = options;
+  const { agentId, channel } = options;
+  const dashboard = options.dashboard ?? "";
+  const key = options.key ?? "";
+  const gmail = options.mailbox === "gmail" ? (options.gmail ?? gmailMailbox) : undefined;
   const allowed = options.allowFrom.map(lower);
   const rules = rulesOf(options, allowed);
   const stopping = new AbortController();
@@ -197,9 +265,25 @@ export function listen(
    * Sends Markdown from one of this channel's addresses. When it answers a
    * message it is threaded under it, with that message quoted below.
    */
-  async function send(row: Row, subject: string, text: string, answering?: Email): Promise<void> {
+  async function send(row: Row, subject: string, text: string, answering?: Email, threadId?: string): Promise<void> {
     const label = displayName(options.agent()?.label ?? agentId);
     const quote = answering?.text ? quoted(answering) : { text: "", html: "" };
+    if (gmail) {
+      const references = answering ? `${answering.references} ${answering.messageId}`.trim() : "";
+      const raw = rawMail({
+        from: `"${label}" <${account()}>`,
+        to: [row.person],
+        replyTo: [row.address],
+        subject,
+        text: markdownToText(text) + quote.text,
+        html: markdownToHtml(text) + quote.html,
+        inReplyTo: answering?.messageId || undefined,
+        references: references || undefined,
+      });
+      await gmail.send(raw, threadId);
+      db.prepare("update email_addresses set used = ? where address = ?").run(new Date().toISOString(), row.address);
+      return;
+    }
     await call(
       "/mail/send",
       {
@@ -219,8 +303,7 @@ export function listen(
   const start: Starter = async (to, subject, text) => {
     const person = lower(to);
     if (!allowed.includes(person)) throw new Error(`${to} is not somebody ${agentId} may email. It may email: ${allowed.join(", ")}.`);
-    const mine = await ourBox();
-    const { address } = await call<{ address: string }>("/mail/addresses", { box: mine.id, person }, "asking for an address");
+    const address = gmail ? tagged(account()) : (await call<{ address: string }>("/mail/addresses", { box: (await ourBox()).id, person }, "asking for an address")).address;
     const thread = `${agentId}/${channel}-${randomUUID()}`;
     const at = new Date().toISOString();
     const row: Row = { address: lower(address), agent: agentId, channel, person, thread, subject, made: at, used: at, closed: null, last_id: null, refs: null };
@@ -244,7 +327,11 @@ export function listen(
   async function opened(body: string): Promise<void> {
     const { to, raw: encoded } = JSON.parse(body) as { to?: string; raw?: string };
     if (!to || !encoded) return;
-    const raw = Buffer.from(encoded, "base64").toString("latin1");
+    await take(to, Buffer.from(encoded, "base64").toString("latin1"));
+  }
+
+  /** One email to one of this channel's addresses: checked, then handed to the agent, and its answer sent back. */
+  async function take(to: string, raw: string, threadId?: string): Promise<void> {
     const drop = (why: string) => console.warn(`email: ${agentId} dropped a message to ${to}: ${why}.`);
 
     const row = db.prepare("select * from email_addresses where address = ? and agent = ? and channel = ?").get(lower(to), agentId, channel) as Row | undefined;
@@ -270,7 +357,7 @@ export function listen(
     const agent = options.agent();
     if (!agent) return;
     try {
-      await answerMail(agent, row, mail, from);
+      await answerMail(agent, row, mail, from, threadId);
     } finally {
       db.prepare("update email_addresses set used = ?, last_id = ?, refs = ? where address = ?").run(
         new Date().toISOString(),
@@ -282,7 +369,7 @@ export function listen(
   }
 
   /** One checked email handed to the agent, and its answer sent back. */
-  async function answerMail(agent: Agent, row: Row, mail: Email, from: string): Promise<void> {
+  async function answerMail(agent: Agent, row: Row, mail: Email, from: string, threadId?: string): Promise<void> {
     const said = mail.reply || mail.text;
     const files = mail.files.map((one) => `(They attached ${one}, which this channel does not hand over.)`);
     if (!said && !files.length) return;
@@ -302,18 +389,73 @@ export function listen(
     );
     if (!handled?.text) return;
     const subject = /^re:/i.test(mail.subject) ? mail.subject : `Re: ${mail.subject || row.subject}`;
-    await send(row, subject, handled.text, mail);
+    await send(row, subject, handled.text, mail, threadId);
   }
 
-  void ourBox()
-    .then((mine) =>
-      collectFrom(mine, {
-        label: `email: ${agentId}`,
-        signal: stopping.signal,
-        open: (body) => opened(body).catch((error) => console.error(`email: ${agentId}:`, (error as Error).message)),
-      }),
-    )
-    .catch((error) => console.error(`email: ${agentId}:`, (error as Error).message));
+  /**
+   * Asks Gmail what arrived since last time, and takes what is addressed to one
+   * of this channel's open addresses. Where it is up to is written down only
+   * after everything new was dealt with, so a restart in the middle asks again
+   * and a reply cut off halfway is answered then.
+   */
+  async function check(box: Mailbox): Promise<void> {
+    const kept = db.prepare("select history from email_mailbox where agent = ? and channel = ?").get(agentId, channel) as { history: string } | undefined;
+    const keep = (history: string) =>
+      db.prepare("insert into email_mailbox (agent, channel, history) values (?, ?, ?) on conflict (agent, channel) do update set history = excluded.history").run(agentId, channel, history);
+    if (!kept) return void keep(await box.now());
+    const found = await box.since(kept.history);
+    if (found === "gone") {
+      console.warn(`email: ${agentId} was away from Gmail too long to ask what it missed, and starts from now.`);
+      return void keep(await box.now());
+    }
+    const open = new Set(
+      (db.prepare("select address from email_addresses where agent = ? and channel = ? and closed is null").all(agentId, channel) as { address: string }[]).map((one) => one.address),
+    );
+    const done = new Set<string>();
+    for (const { id, threadId } of found.added) {
+      if (done.has(id) || !open.size) continue;
+      done.add(id);
+      const to = addresses(await box.recipients(id)).list.find((one) => open.has(one));
+      if (!to) continue;
+      await take(to, await box.raw(id), threadId).catch((error) => console.error(`email: ${agentId}:`, (error as Error).message));
+    }
+    keep(found.history);
+  }
+
+  if (gmail) {
+    void (async () => {
+      const every = options.every ?? EVERY;
+      let wait = every;
+      let said = "";
+      while (!stopping.signal.aborted) {
+        try {
+          await check(gmail);
+          wait = every;
+          said = "";
+        } catch (error) {
+          const why = (error as Error).message;
+          // Said once, not every few seconds: a sign-in to do stays true until somebody does it.
+          if (why !== said) console.error(`email: ${agentId} could not read Gmail: ${why}`);
+          said = why;
+          wait = Math.min(5 * 60_000, wait * 2);
+        }
+        await new Promise((done) => {
+          const timer = setTimeout(done, wait);
+          stopping.signal.addEventListener("abort", () => (clearTimeout(timer), done(undefined)), { once: true });
+        });
+      }
+    })();
+  } else {
+    void ourBox()
+      .then((mine) =>
+        collectFrom(mine, {
+          label: `email: ${agentId}`,
+          signal: stopping.signal,
+          open: (body) => opened(body).catch((error) => console.error(`email: ${agentId}:`, (error as Error).message)),
+        }),
+      )
+      .catch((error) => console.error(`email: ${agentId}:`, (error as Error).message));
+  }
 
   return {
     stop() {

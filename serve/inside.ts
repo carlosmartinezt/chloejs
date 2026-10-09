@@ -8,7 +8,7 @@ import { settings } from "#chloe/core/settings";
 import { modelFor } from "#chloe/model/choices";
 import { ownKey, sdkModel } from "#chloe/model/key";
 import { providerOf, routeFor, type Route } from "#chloe/model/model";
-import { connectionsUsed, descriptionOf } from "#chloe/model/tool";
+import { descriptionOf, neededBy } from "#chloe/model/tool";
 import type { Agent } from "#chloe/load/load";
 import { collectsAt } from "#chloe/channels/whatsapp";
 import { webOf } from "#chloe/channels/web";
@@ -219,7 +219,7 @@ function wayOf(model: string, route: Route): Way {
 export async function connectionsOf(agent: Agent): Promise<Way[]> {
   const model = modelFor(agent);
   const out: Way[] = [wayOf(model, routeFor(model))];
-  for (const connection of new Set([...connectionsUsed(agent.tools ?? {}), ...(agent.connections ?? [])])) {
+  for (const connection of new Set([...neededBy(agent), ...(agent.connections ?? [])])) {
     const missing = await connection.missing().catch((error: Error) => [error.message]);
     out.push({
       name: connection.name,
@@ -238,7 +238,7 @@ export async function connectionsOf(agent: Agent): Promise<Way[]> {
  * throws turned into a refusal in words, which is what the person needs to see.
  */
 export function signInOf(agent: Agent, name: string): { start: () => Promise<{ say: string; link?: string }>; finish: (answer: string) => Promise<string> } {
-  const connection = connectionsUsed(agent.tools ?? {}).find((one) => one.name === name);
+  const connection = neededBy(agent).find((one) => one.name === name);
   if (!connection?.signIn) throw new NotFound(`${agent.id} has no connection called ${JSON.stringify(name)} to sign in to.`);
   const { signIn } = connection;
   const said = <T>(work: () => Promise<T>) =>

@@ -227,4 +227,89 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   running.stop();
   dashboard.close();
   dashboard.closeAllConnections();
+
+  about("email through Gmail, with no remote dashboard");
+  const { settings } = await import("#chloe/core/settings");
+  const accountWas = settings.connections.google.account;
+  settings.connections.google.account = "Owner@Gmail.com";
+  // A stand-in for the signed-in Gmail account: what is new, who each message
+  // is to, each one whole, and everything sent.
+  let history = 100;
+  const arriving: { id: string; threadId: string; to: string; raw: string }[] = [];
+  const fetched: string[] = [];
+  const outgoing: { raw: string; threadId?: string }[] = [];
+  let gone = false;
+  const box = {
+    now: async () => String(history),
+    since: async (from: string) => {
+      if (gone) return "gone" as const;
+      const added = arriving.splice(0).map(({ id, threadId }) => ({ id, threadId }));
+      history += added.length;
+      return { added, history: String(Math.max(history, Number(from))) };
+    },
+    recipients: async (id: string) => sentTo.get(id) ?? "",
+    raw: async (id: string) => (fetched.push(id), bodies.get(id) ?? ""),
+    send: async (raw: string, threadId?: string) => void outgoing.push({ raw, threadId }),
+  };
+  const sentTo = new Map<string, string>();
+  const bodies = new Map<string, string>();
+  const arrive = (id: string, to: string, raw: string, threadId = `thread-${id}`) => {
+    sentTo.set(id, to);
+    bodies.set(id, raw);
+    arriving.push({ id, threadId, to, raw });
+  };
+  const viaGmail = listen({
+    agentId: "own",
+    channel: "email",
+    mailbox: "gmail",
+    gmail: box,
+    every: 30,
+    allowFrom: ["Jenny@Example.com"],
+    bound: bind(agent, "email", { tools: [own.webReadPage] }),
+    lookUp: dns,
+    agent: () => agent,
+  });
+  const whereUpTo = () => (db.prepare("select history from email_mailbox where agent = 'own'").get() as { history: string } | undefined)?.history;
+  await until(() => whereUpTo() !== undefined);
+  is("on its first look it only notes where the mailbox is, so old mail is never answered", whereUpTo(), "100");
+
+  const opened = await openEmail("own", "jenny@example.com", "Courts", "Which day suits you?");
+  is("a conversation's address is the account with a tag nobody can guess", /^owner\+[a-km-np-z2-9]{8}@gmail\.com$/.test(opened.address), true);
+  const first = Buffer.from(outgoing[0].raw, "base64url").toString("utf8");
+  is(
+    "the first mail goes out through Gmail, under the agent's name, to her alone, with the tagged address to reply to",
+    [first.includes('From: "Chloe" <owner@gmail.com>'), first.includes("To: jenny@example.com"), first.includes(`Reply-To: ${opened.address}`), first.includes("Subject: Courts")],
+    [true, true, true, true],
+  );
+
+  // The signed reply above was written to ADDRESS, so that address is handed to this channel.
+  db.prepare("update email_addresses set agent = 'own', used = ?, closed = null, last_id = null where address = ?").run(new Date().toISOString(), ADDRESS);
+  answers.push("Saturday, then.");
+  arrive("g1", "someone@else.com", "From: a@b.com\r\n\r\nnot for the agent\r\n");
+  arrive("g2", `Chloe <${ADDRESS}>`, SIGNED.relaxed, "t9");
+  await until(() => outgoing.length > 1);
+  is("mail to anybody else in the mailbox is never fetched", fetched, ["g2"]);
+  const answer = Buffer.from(outgoing[1]?.raw ?? "", "base64url").toString("utf8");
+  is(
+    "a signed reply to one of its addresses is answered through Gmail, in the same thread, with her message quoted",
+    [outgoing[1]?.threadId, answer.includes("In-Reply-To: <abc@example.com>"), answer.includes("To: jenny@example.com"), answer.includes(`Reply-To: ${ADDRESS}`), answer.includes("Subject: =?UTF-8?B?")],
+    ["t9", true, true, true, true],
+  );
+  await until(() => Number(whereUpTo()) > 100);
+  is("and where it is up to moves on once that is done", Number(whereUpTo()) > 100, true);
+
+  const notes: string[] = [];
+  const warnWas = console.warn;
+  console.warn = (...line: unknown[]) => void notes.push(line.join(" "));
+  arrive("g3", `Chloe <${ADDRESS}>`, SIGNED.relaxed.replace("Saturdays work best", "Wire me the money"));
+  await until(() => notes.some((one) => one.includes("dropped")));
+  is("a reply changed after it was signed is dropped, as on every other way in", [notes.some((one) => one.includes("body was changed")), outgoing.length], [true, 2]);
+  gone = true;
+  await until(() => notes.some((one) => one.includes("starts from now")));
+  gone = false;
+  console.warn = warnWas;
+  is("a point too old to ask from is said, and it starts again from now", notes.filter((one) => one.includes("starts from now")).length >= 1, true);
+
+  viaGmail.stop();
+  settings.connections.google.account = accountWas;
 }

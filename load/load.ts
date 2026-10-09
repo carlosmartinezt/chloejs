@@ -21,6 +21,7 @@ import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { cannotRun, type Tools } from "#chloe/model/tool";
+import type { Connection } from "#chloe/connections/connection";
 import type { McpConnection } from "#chloe/connections/mcp";
 import { memoryTools, userNotesTools } from "#chloe/model/tools/memory";
 import { scriptTools } from "#chloe/model/tools/script";
@@ -453,6 +454,12 @@ export interface Channel {
    * one of its jobs, started only from this channel.
    */
   job?: JobConfig<any, any, any, any>;
+  /**
+   * The connection it works through, the way a tool names one: an email
+   * channel on Gmail needs Google. Listed on the agent's Connections page with
+   * what it is missing, and signed in to from there.
+   */
+  needs?: Connection;
   /** Asked as the agent loads whether it can be bound to that agent. Throws, saying why, when it cannot, and the agent does not load. */
   check?(agent: Agent): void;
   /** Starts listening. `agent` is read again for every message, so an edit is live. */

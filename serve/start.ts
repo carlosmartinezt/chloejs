@@ -16,7 +16,7 @@ import { PROVIDERS, settings, unclaimed } from "#chloe/core/settings";
 import { closeCutOff, going, trim } from "#chloe/core/db";
 import { CONFIG, loadAll, type Agent, type Config, type Running } from "#chloe/load/load";
 import { sdkModel } from "#chloe/model/key";
-import { connectionsUsed } from "#chloe/model/tool";
+import { neededBy } from "#chloe/model/tool";
 import { run } from "#chloe/services/runService";
 import { learnModels, runnable } from "#chloe/model/model";
 import { claimPort, ownAddress, serve as listen } from "#chloe/serve/http";
@@ -155,7 +155,7 @@ export async function startChloe(given?: Config): Promise<void> {
    */
   async function connected(): Promise<{ names: string[]; missing: string[] }> {
     const all = [...agents.values()];
-    const used = [...new Set(all.flatMap((agent) => [...connectionsUsed(agent.tools ?? {}), ...(agent.connections ?? [])]))];
+    const used = [...new Set(all.flatMap((agent) => [...neededBy(agent), ...(agent.connections ?? [])]))];
     const missing = (
       await Promise.all(
         used.map(async (one) =>

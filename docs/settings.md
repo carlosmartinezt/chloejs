@@ -1,75 +1,72 @@
 ---
-title: Settings and credentials
+title: Settings and secrets
 order: 8
-summary: Two different things, kept apart, and two places where each one belongs.
+summary: What goes in chloe.config.ts, what goes in .env, and a map of every setting.
 ---
 
-**A setting is a choice about how the runtime behaves**, so it goes in
-`chloe.config.ts` beside the agents, where TypeScript checks it and source
-control keeps it. Every default and its one line of explanation lives on the
-`Settings` interface the code reads, so a setting cannot drift from the code,
-your editor tells you what each one is as you write it, and a value that is not a
-valid choice is refused at startup rather than quietly ignored. The
-generated list of every one of them is [here](/reference/settings).
+Two places, and which one a value goes in is the only question:
+
+| What | Where |
+|---|---|
+| A choice about how chloe behaves, an address, a path, a name | `settings` in `chloe.config.ts`, in source control |
+| A password, key or token | `.env` beside it, mode 600, never committed |
 
 ```ts
 import { defineConfig } from "@chloejs/core";
 
-import tempo from "./agents/tempo/agent.ts";
+import shop from "./agents/shop/agent.ts";
 
 export default defineConfig({
-  agents: [tempo],
+  agents: [shop],
   settings: {
-    model: { defaultModel: "anthropic/claude-sonnet-5" },
-    email: { provider: "resend" },
-    dashboard: { remote: { allow: { memory: true } } },
+    model: { defaultModel: "anthropic/claude-sonnet-5", key: process.env.CHLOE_MODEL_KEY },
+    connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } },
+    agents: { shop: { telegram: process.env.CHLOE_AGENTS_SHOP_TELEGRAM } },
   },
 });
 ```
 
-What it leaves out is the default, so there is nothing to write down twice.
-
-**A secret goes in `.env`** beside that file, which is not in source control and
-is mode 600: every password, key and token, and nothing else.
-
 ```
 CHLOE_MODEL_KEY=...
 CHLOE_CONNECTIONS_RESEND_API_KEY=re_...
-CHLOE_AGENTS_TEMPO_TELEGRAM=123456:ABC...
+CHLOE_AGENTS_SHOP_TELEGRAM=123456:ABC...
 ```
 
-**The config names each key**, so reading it shows every key there is and where
-each comes from. chloe reads no setting from the environment by itself: it
-reads the ones the config hands it.
+**chloe reads nothing from the environment by itself.** A secret reaches it
+only where the config names it, as `process.env.` and its name, so reading the
+config shows every key there is. A setting the config leaves out is its
+default, and so is one handed a variable nothing set. Any other value can be
+kept out of the file the same way.
 
-```ts
-settings: {
-  model: { key: process.env.CHLOE_MODEL_KEY },
-  connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } },
-  agents: { tempo: { telegram: process.env.CHLOE_AGENTS_TEMPO_TELEGRAM } },
-}
-```
+The secrets are `model.key`, `model.keys`, `connections.resend.api_key`,
+`connections.google.client`, `dashboard.remote.api_key`, and everything under
+`agents`. Their names in `.env` are `CHLOE_` and the path in capitals, and a
+message saying a key is missing gives both the name and the config line.
 
-The keys are `model.key`, `connections.resend.api_key`, `connections.google.client`, `dashboard.remote.api_key`
-and everything under `agents`. `npx chloe setup` writes the model's key in
-`.env` and its `process.env` line in the config, and a message that says a key
-is missing says both halves. A key handed over as `process.env.SOMETHING` that
-nothing set counts as not said, so it is the default.
+## Every setting
 
-What belongs to one agent, like its bot's token, is under `agents` and that
-agent's id, the one in its `agent.ts`. Renaming an agent means renaming its
-entry, and until you do the server says which entry names no agent.
+| Section | What it controls | More |
+|---|---|---|
+| `model` | Which model an agent asks, how a call reaches it, the keys. | [Models](/docs/models) |
+| `email.provider` | What carries mail a job sends with `deliverEmail()`: `"resend"` (the default), `"gmail"`, or `"none"` to log it and send nothing. | [Connections](/docs/connections#which-address-mail-comes-from) |
+| `connections.google` | The Google account and the app it signs in with. | [Connections](/docs/connections#google) |
+| `connections.resend` | The Resend key, and chloe's alert mail. | [Connections](/docs/connections#resend) |
+| `agents.<id>` | Each agent's channel tokens, under the `id` in its `agent.ts`. | [Channels](/docs/channels) |
+| `dashboard.remote` | A remote dashboard: its key, what is sent up, and what it may do. | [The site](/docs/the-page#a-remote-dashboard) |
+| `serve` | Where the port listens: `127.0.0.1:3067`. Change takes a restart. | [The site](/docs/the-page) |
+| `owner` | Who a run the clock started belongs to, as `channel:who`. | [Asking a person](/docs/asking-a-person) |
+| `node` | Which node `npx chloe install` runs. Empty is whichever is on the path. | |
 
-**Nothing else comes from the environment.** A setting is what the config says,
-or its default. To keep any other value out of the file, hand it over the same
-way, as `process.env` and a name. Two places, and the second beats the first:
+Every setting with its default is in [the settings reference](/reference/settings),
+and your editor shows each one's explanation as you type it.
 
-```
-the types         the default, and the documentation
-chloe.config.ts   settings: { ... }, in source control
-```
+An edit to the config or `.env` is live without a restart, except `serve`.
+Renaming an agent means renaming its entry under `agents`; until then chloe says
+which entry names no agent.
 
-The server reads both again when either changes, so an edit is live without a
-restart. Where the agents keep things is not a setting: `CHLOE_STATE`,
-`CHLOE_MEMORY` and `CHLOE_DB` are read from the environment before the config
-is, and are fixed while it runs.
+## Where things are kept
+
+Not a setting, because it is read before the config: `CHLOE_STATE` (the state
+folder, `data/` beside the config), `CHLOE_MEMORY` (the agents' memories,
+`data/memory`) and `CHLOE_DB` (the run history), from the environment or
+`.env`. A change takes a restart. See [The site](/docs/the-page#state).

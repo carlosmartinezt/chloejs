@@ -299,7 +299,7 @@ function Waitlist() {
       ) : (
         <>
           <p className="empty">
-            Chloe Cloud is invite only while it is new. Leave your email and a code comes back when the next batch goes
+            This remote dashboard is invite only while it is new. Leave your email and a code comes back when the next batch goes
             out.
           </p>
           {trouble && <p className="bad">{trouble}</p>}

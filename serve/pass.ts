@@ -18,7 +18,7 @@
 // or opening a window, which no content policy stops (connect-src 'none' only
 // stops fetch and the like). On this box that reaches nobody, since the port
 // is on loopback. A dashboard that relays frames must make a copied pass
-// worthless elsewhere: Chloe Cloud answers one only from the address that
+// worthless elsewhere: the remote dashboard answers one only from the address that
 // asked for it.
 import { seal, unseal } from "./login.ts";
 

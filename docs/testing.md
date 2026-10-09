@@ -1,41 +1,40 @@
 ---
 title: Testing and evals
 order: 9
-summary: Code is tested, words are scored, and reaching for the wrong one wastes an afternoon.
+summary: Code is tested, prompts are scored, and which to reach for.
 ---
 
-```sh
-npm run test          # the runtime and the jobs: does it do the thing
-npm run evals <agent> # the prompts: did the model decide well
-```
+| | Checks | Costs |
+|---|---|---|
+| A test | that a job's code does the thing | nothing: no model is asked |
+| An eval | that a prompt led the model to decide well | a model call per case |
 
 ## Jobs are tested
 
-A job is code, so it is tested rather than scored. A test file sits beside the
-job it is about, named `<job>.test.ts`, and runs its cases as it loads. The runner
-finds every one under your agents, so a new test is a file and nothing else.
+A test sits beside its job, named `<job>.test.ts`, with cases from
+`@chloejs/core/test`. Test the rules, which is the part that is code:
 
 ```ts file=example/jobs/stuck-orders.test.ts
 ```
 
-The suite runs jobs for real against an in-memory database and a stand-in gateway
-on a loopback port, so it costs nothing and it either passes or it does not.
-Moving a job down the ladder should grow this file and shrink the eval file.
+`node agents/<id>/jobs/<job>.test.ts` runs one and prints each case. The more
+of a job that moves from a model step into code, the more of it a test covers.
 
 ## Prompts are scored
 
-Words are the first thing to reach for when a prompt is wrong, and they are also
-the easiest thing to make worse without noticing. An eval file is one job of one
-agent's, with a case per situation: what every tool answers, and what the agent
-should and should not have done about it. Run it before and after you rewrite
-instructions or a skill.
+```sh
+npx chloe evals <agent>
+```
 
-Nothing in a case runs for real. A tool the case does not answer is refused, not
-run, so an eval cannot ship an order or send an email. If you add a tool to an
-agent, its cases start failing until the file answers that tool, which is the
-point.
+An eval file in the agent's `evals/` folder is one job, with a case per
+situation: what each tool answers, and what the agent should and should not have
+done. Run it before and after you change instructions or a skill, because words
+are the easiest thing to make worse without noticing.
 
-A case is answered strictly: a mock matches on the exact arguments, so a case
-that answers a tool with `{}` fails the moment the agent asks for one item by id.
-Mark an answer `anyArgs` when the arguments do not change it, and `times` when
+Nothing in a case runs for real. A tool the case does not answer is refused, so
+an eval cannot send an email or ship an order. Add a tool to the agent and its
+cases fail until they answer it.
+
+A tool's answer matches only the exact arguments it lists. Mark one
+`"anyArgs": true` when the arguments do not change it, and give `"times"` when
 one answer covers several calls.

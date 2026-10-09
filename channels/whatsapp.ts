@@ -26,18 +26,24 @@
 // nothing to fetch one with, so that address has to be public, and this box is
 // not: the runtime is never the public half of a connection.
 //
-// So there is a **post box**. On start this asks `postBox` for one of its own,
+// Two ways, and neither needs anything you did not choose:
+//
+// With no remote dashboard, the route this channel answers on the one port,
+// `/chloe/v1/<id>/<channel name>`, is the address: reached through a web server
+// of your own that passes that one path on, the way a web chat is.
+//
+// With a remote dashboard connected (`dashboard.remote.api_key`), or a
+// `postBox` named, there is a **post box**. On start this asks `postBox` for one of its own,
 // writes the address it was given to the log, and then collects from it with one
 // request held open at a time, the way Telegram is polled. Paste that address
 // into the app's WhatsApp page and nothing here is ever reached from outside.
 // Each delivery is sealed to a key made here, so what holds it cannot read it,
 // and Meta's signature travels with it and is checked below against the app
 // secret, so what holds it cannot make one up either. `dashboard.remote.url` in settings is
-// where a box is asked for, and that needs no account.
+// where a box is asked for when `postBox` does not say.
 //
-// `postBox: ""` turns all of that off, which leaves the route this channel
-// answers on the one port, `/chloe/v1/<id>/<channel name>`, for somebody who
-// has deliberately opened an address of their own. It sits outside the login, so:
+// `postBox: ""` turns the post box off even with a remote dashboard. The route
+// sits outside the login, so:
 //
 //   Every POST is checked against app_secret before it is read, and one that
 //   does not match is refused without a word about why. Without an app_secret
@@ -101,9 +107,10 @@ export interface WhatsAppOptions extends Shared {
   /**
    * The post box to collect messages from: a service that takes Meta's
    * delivery, because Meta pushes and never lets anything fetch, and holds it
-   * sealed until this runtime asks. `dashboard.remote.url` in settings unless this says
-   * otherwise, and "" to collect from nowhere, which leaves only the route
-   * below for somebody who has opened an address of their own.
+   * sealed until this runtime asks. `dashboard.remote.url` in settings when a
+   * remote dashboard is connected, and nowhere otherwise, which leaves only the
+   * route below, reached through a web server of your own. "" collects from
+   * nowhere even with a remote dashboard.
    */
   postBox?: string;
   /** Where this server is reachable from outside, like "https://agents.example.com". Only used to say the address to register. */
@@ -211,7 +218,9 @@ export function listen(
   const api = options.api ?? "https://graph.facebook.com";
   const version = options.version ?? "v23.0";
   const path = `/chloe/v1/${agentId}/${channel}`;
-  const postBox = (options.postBox ?? settings.dashboard.remote.url).replace(/\/+$/, "");
+  // The dashboard's post box only when one is connected: nothing is sent through
+  // a service the owner did not choose.
+  const postBox = (options.postBox ?? (settings.dashboard.remote.api_key ? settings.dashboard.remote.url : "")).replace(/\/+$/, "");
   const verify = options.verifyToken || randomBytes(12).toString("hex");
   const allowedTypes = options.uploadPolicy?.allowedMediaTypes ?? ["image/*", "application/pdf", "text/*"];
   const maxBytes = options.uploadPolicy?.maxBytes ?? 10 * 1024 * 1024;

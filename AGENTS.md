@@ -627,20 +627,30 @@ no groups, because the API carries none, and a reply outside 24 hours of the
 last message that person sent is refused by WhatsApp itself, which is what a job
 that stops to ask somebody runs into.
 
-**Email is a conversation per address, through a remote dashboard.**
-`emailChannel({ allowFrom: [...] })` needs `dashboard.remote.url` and `dashboard.remote.api_key`,
-because the dashboard owns the mail domain: it hands out `reply-<uuid>@<domain>`
-for one conversation with one person, sends from it, and puts replies in the
-channel's post box, which is collected like WhatsApp's (`channels/postbox.ts`,
-shared by both). A conversation starts with `openEmail()`, the `emailStartConversation`
+**Email is a conversation per address, through Gmail or a remote dashboard.**
+With `mailbox: "gmail"`, `emailChannel` uses the account Google is signed in to
+(`connections.google.account`, the same sign-in as the mail tools): it makes
+each conversation's address by tagging that account (`you+<8 letters>@gmail.com`),
+sends from the account with that address as Reply-To, and asks Gmail what is
+new every few seconds (`connections/google/mailbox.ts`: where the mailbox is up
+to, what was added since, the recipients of each, and the whole message only for
+one addressed to an open tag). Where it is up to is kept in `email_mailbox` and
+moved only after everything new was dealt with. The channel names Google as its
+`needs`, the way a tool does, so `neededBy()` puts it on the Connections page
+and a pasted code finishes its sign-in, with no Gmail tool beside it. With no `mailbox` and a remote
+dashboard connected (`dashboard.remote.url` and `dashboard.remote.api_key`), the
+dashboard owns a mail domain, hands out `reply-<id>@<domain>`, sends from it,
+and puts replies in the channel's post box, collected like WhatsApp's
+(`channels/postbox.ts`). Neither is required, and the remote dashboard is never
+the only way. A conversation starts with `openEmail()`, the `startConversation`
 tool, or a job's `ask("email:<address>")`, and only ever with somebody in
 `allowFrom`. Nothing between the sender and here is trusted: a reply is taken
 only to an open address made here, from the one person it was made for, with a
 DKIM signature that checks out against the key their domain publishes
-(`core/mail.ts`, node's own crypto and DNS). Do not loosen that last check:
-a From line is whatever the sender typed. A reply is written down as answered
-only once its answer is sent, so one cut off by a restart is answered when the
-post box delivers it again.
+(`core/mail.ts`, node's own crypto and DNS). Do not loosen that last check: a
+From line is whatever the sender typed. A reply is written down as answered
+only once its answer is sent, so one cut off by a restart is answered when it
+comes again.
 
 **Every channel takes `tools` and `job`, read once in `channels/shared.ts`**
 (`Answering`, `bind`). `tools` keeps a turn to the tools named, plus memory
@@ -746,7 +756,7 @@ a reload in the browser is the new build, with no restart. A clone that has not
 built it answers every page address with how to. The page holds nothing of the
 agents': it is the same files for everybody and asks the API, which asks for
 the login. Write it as React, never as HTML in a TypeScript string. GET /api
-shows it to a browser, as the list of routes. Chloe Cloud serves the same
+shows it to a browser, as the list of routes. A remote dashboard serves the same
 build, and the page asks `GET /api` which of the two it is in front of.
 
 The page reaches the runtime only over HTTP and imports nothing of it. If it

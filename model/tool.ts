@@ -29,6 +29,15 @@ export function connectionsUsed(tools: Tools): Connection[] {
 }
 
 /**
+ * Every connection an agent works through, once each: its tools' and its
+ * channels'. What the Connections page lists and signs in to, and what a code
+ * pasted into a chat can finish.
+ */
+export function neededBy(agent: { tools?: Tools; channels?: { needs?: Connection }[] }): Connection[] {
+  return [...new Set([...connectionsUsed(agent.tools ?? {}), ...(agent.channels ?? []).flatMap((one) => (one.needs ? [one.needs] : []))])];
+}
+
+/**
  * The overviews of these tools, one after another, for the top of a prompt.
  * Empty when none has one. One that fails is left out: it is a help to the
  * model, not a reason to stop the turn.

@@ -1,166 +1,234 @@
 ---
 title: Channels
 order: 6
-summary: Putting an agent on Telegram, Slack or WhatsApp, in a chat box on your website, opening one to another system over HTTP, and writing a way in that chloe does not ship.
+summary: Putting an agent on Telegram, Slack, WhatsApp or email, in a chat box on your website, or opening it to another system over HTTP. What to set for each, and every option.
 ---
 
-A channel is how an agent is reached, and how a job's question gets to a person.
-An agent is on one because its own `agent.ts` says so.
+A channel is how people reach an agent, and how a job's question reaches a
+person. An agent is on one because its `agent.ts` lists it in `channels`. Each
+is imported from `@chloejs/core/channels`.
+
+| Channel | Who may write | What it needs | Opens a port? |
+|---|---|---|---|
+| [Telegram](#telegram) | Telegram user ids in `allowFrom` | a bot token | no |
+| [Slack](#slack) | Slack member ids in `allowFrom` | two app tokens | no |
+| [WhatsApp](#whatsapp) | numbers in `allowFrom`, or anybody when unset | a number registered with Meta | a route your web server passes on, or a remote dashboard |
+| [Email](#email) | addresses in `allowFrom`, and only once the agent wrote first | the Google sign-in, or a remote dashboard | no |
+| [A web page](#a-web-page) | visitors to the sites in `origins` | a token on your site's server | a few routes your web server passes on |
+| [HTTP](#http) | holders of a token | a token | no |
+
+A channel's tokens are secrets, so they go in `.env`, and `chloe.config.ts`
+hands them over under `agents` and the agent's id:
+
+```ts file=example/chloe.config.ts
+```
+
+Saving the config or `.env` starts the channel, with no restart.
+
+## Options they share
+
+Telegram, Slack, WhatsApp and email take these. A web page and HTTP have their
+own, in their sections.
+
+| Option | Default | What it controls |
+|---|---|---|
+| `allowFrom` | nobody (anybody on WhatsApp; required on email) | Who may reach the agent, as the platform names them. While the list is empty, a private message is answered with the sender's id, which is what goes in it. On Telegram, Slack and WhatsApp, the first entry is who the agent's jobs ask when they name nobody. |
+| `name` | the kind, like `"telegram"` | Only needed when an agent has two of one kind. It is the start of every address on the channel: `telegram:12345`. |
+| `chatHistory` | `{ messages: 10 }` | How much of a conversation each turn is shown: the last `messages`, none older than `days`. Nothing is deleted. |
+| `sendWhileWorking` | off | Sends what the model writes on its way to an answer, not only the answer. Not on email. |
+| `tools` | every tool the agent has | The only tools a turn on this channel gets. See [below](#what-a-message-gets-tools-or-a-job). |
+| `job` | none | A job every message goes to, instead of a turn. See [below](#what-a-message-gets-tools-or-a-job). |
 
 ## Telegram
 
-1. In Telegram, message @BotFather, send `/newbot`, and pick a name and a
-   username. It replies with a token. One bot per agent, unless each is given
-   its own `name`.
-2. Put it in `.env` as `CHLOE_AGENTS_<ID>_TELEGRAM`, and hand it over in
-   `chloe.config.ts`'s settings as
+1. In Telegram, message @BotFather, send `/newbot`, and pick a name. It replies
+   with a token.
+2. Put it in `.env` as `CHLOE_AGENTS_<ID>_TELEGRAM`, and in the config as
    `agents: { <id>: { telegram: process.env.CHLOE_AGENTS_<ID>_TELEGRAM } }`.
-   chloe reads no key the config does not name. Or pass
-   `credentials: { botToken }` in the file below.
-3. Write the agent's own `channels/telegram.ts` and list it in `agent.ts` as
-   `channels: [telegram]`:
+3. Add the channel to the agent:
 
 ```ts file=example/channels/telegram.ts
 ```
 
-4. Send the bot a private message. Saving the config or `.env` starts the
-   bot, no restart needed. With nobody allowed yet it
-   answers with your Telegram user id. Put that in `allowFrom`. An allowed person
-   is answered in any chat, groups included, and nobody else is.
+4. Message the bot. It answers with your Telegram user id. Put that in
+   `allowFrom` and save. An allowed person is answered in any chat, groups
+   included.
 
-| Option | What it does |
-|---|---|
-| `allowFrom` | Telegram user ids that may reach the agent. The first is who its jobs ask when they name nobody. |
-| `inGroups` | `"when-addressed"`, the default: in a group, only a command, a mention or a reply to the bot is answered. `"always"`: every message from someone in `allowFrom` is. |
-| `chatHistory` | How much of a chat's conversation a turn is shown: `{ messages, days }`. |
-| `sendWhileWorking` | Off unless `true`. Sends what the model writes on its way to an answer (a "let me check" line, or a draft it goes on to improve) as it writes it, not only the answer it ends on. |
-| `name` | `"telegram"` unless the agent has two bots. What the log shows a run came in on, and the start of every address on this bot. |
-| `mode` | `"polling"`, the default: chloe fetches messages and nothing of yours is exposed. `"webhook"`: Telegram posts them to `publicUrl` + `/chloe/v1/<agent>/<name>`, which then has to be exempt from whatever login is in front of the port, and checks its secret on every call. |
-| `credentials` | The bot token, instead of the one in the settings. |
+| Option | Default | What it controls |
+|---|---|---|
+| `allowFrom` | nobody | Telegram user ids, as numbers. |
+| `inGroups` | `"when-addressed"` | In a group, answer only a command, a mention or a reply to the bot. `"always"` answers every message from someone in `allowFrom`. |
+| `stackWithin` | `1` | Seconds to wait for a second message in the same chat, so two sent together are read as one. `0` reads each on its own. |
+| `uploadPolicy` | pictures, PDFs and text, up to 10 MB | Which files are handed to the agent: `{ allowedMediaTypes, maxBytes }`. Anything else is named to it, not handed over. |
+| `mode` | `"polling"` | `"polling"`: chloe asks Telegram for messages, and nothing is exposed. `"webhook"`: Telegram posts them to `publicUrl` + `/chloe/v1/<agent>/<name>`, which has to get past any login in front of the port. |
+| `publicUrl` | none | Where this server is reached from outside, for `"webhook"`. |
+| `credentials` | the token in settings | `{ botToken, webhookSecretToken }`, to give them here instead. Without a secret, `"webhook"` makes a new one each start. |
 
-Do not add another path past a login without a secret and an allowlist of its
-own.
+Telegram's command list allows no hyphens, so `/stuck_orders` runs
+`stuck-orders`, and can be registered with BotFather.
 
 ## Slack
 
-chloe opens a connection out to Slack (Slack calls this Socket Mode), so, like
-Telegram's polling, nothing of yours is exposed and nothing needs a public
-address.
+chloe connects out to Slack (Slack calls this Socket Mode), so nothing needs a
+public address.
 
-1. At api.slack.com/apps, create an app and turn on Socket Mode. It makes the
+1. At api.slack.com/apps, create an app and turn on Socket Mode. That makes the
    app token, `xapp-...`.
 2. Under OAuth & Permissions, add the bot scopes `chat:write`, `im:history`,
    `channels:history`, `groups:history`, `mpim:history`, `users:read`,
-   `files:read` and `reactions:write`. Under Event Subscriptions, subscribe the
-   bot to `message.im`, `message.channels`, `message.groups` and
-   `message.mpim`. Under App Home, allow messages from the Messages tab.
-   Install the app to the workspace, which makes the bot token, `xoxb-...`.
+   `files:read` and `reactions:write`. Under Event Subscriptions, subscribe to
+   `message.im`, `message.channels`, `message.groups` and `message.mpim`. Under
+   App Home, allow messages from the Messages tab. Install the app to the
+   workspace, which makes the bot token, `xoxb-...`.
 3. Put both in `.env` as `CHLOE_AGENTS_<ID>_SLACK_BOT_TOKEN` and
-   `CHLOE_AGENTS_<ID>_SLACK_APP_TOKEN`, and hand them over in the config as
+   `CHLOE_AGENTS_<ID>_SLACK_APP_TOKEN`, and in the config as
    `agents: { <id>: { slack: { bot_token: process.env.CHLOE_AGENTS_<ID>_SLACK_BOT_TOKEN, app_token: process.env.CHLOE_AGENTS_<ID>_SLACK_APP_TOKEN } } }`.
-   Or pass `credentials: { botToken, appToken }`.
-4. In `agent.ts`, import `slackChannel` from `@chloejs/core/channels/slack` and list
-   `slackChannel({ allowFrom: [] })` in `channels`, beside any other.
-5. Send the app a direct message. With nobody allowed yet it
-   answers with your member id, like `U0123ABCD`. Put that in `allowFrom`. In a
-   channel, invite the bot first (`/invite @name`).
+4. Add `slackChannel({ allowFrom: [] })` to the agent's `channels`.
+5. Send the app a direct message. It answers with your member id, like
+   `U0123ABCD`. Put that in `allowFrom`. In a Slack channel, invite the bot
+   first with `/invite @name`.
 
-It takes the same `allowFrom`, `inGroups`, `chatHistory`, `sendWhileWorking`
-and `name` as Telegram, with member ids in `allowFrom`. In a channel, "when
-addressed" means a mention, or a reply in a thread the bot started. A message in
-a thread is answered in that thread, and each thread is its own conversation.
-While it works, the message gets an eyes mark, because Slack shows no
-"typing..." for a bot.
+| Option | Default | What it controls |
+|---|---|---|
+| `allowFrom` | nobody | Slack member ids. |
+| `inGroups` | `"when-addressed"` | In a Slack channel, answer only a mention or a reply in a thread the bot started. `"always"` answers every message from someone in `allowFrom`. |
+| `uploadPolicy` | pictures, PDFs and text, up to 10 MB | As for Telegram. |
+| `credentials` | the tokens in settings | `{ botToken, appToken }`. |
 
-Slack answers `/something` itself unless the app declares it, so a job runs
-from a slash command only once it is added under Slash Commands in the app's
-settings, named like the job with `_` for `-`. A plain message a skill hands
-to a job needs nothing.
+A message in a thread is answered in that thread, and each thread is its own
+conversation. While the agent works, the message gets an eyes mark. Slack
+answers `/something` itself unless the app declares it, so a job runs from a
+slash command only once it is added under Slash Commands, named like the job
+with `_` for `-`.
 
 ## WhatsApp
 
-WhatsApp is the one channel chloe cannot call out to. Meta posts each message to
-an address once and has nothing to fetch one with, so a machine with nothing open
-can never be that address. chloe keeps a **post box** instead: a service that
-takes the delivery and holds it, sealed, until the runtime asks. The runtime
-collects over a connection it opens itself, the way Telegram is polled, so
-nothing of yours is exposed and no name points at your machine.
+Meta posts each message to a public address and has nothing chloe can fetch
+from, so something public has to take the delivery. You choose what:
 
-The number it answers as is one registered with Meta, and it cannot be a number
-that is already in the WhatsApp app.
+- **Your own web server**, which passes one path, `/chloe/v1/<agent>/<name>`,
+  on to chloe's port. This is what happens with no remote dashboard.
+- **A remote dashboard's post box.** With `dashboard.remote.api_key` set, the
+  dashboard takes the delivery and holds it, sealed, until chloe collects it
+  over a connection it opens itself. Nothing on your machine is open.
+
+The number has to be registered with Meta, and cannot be one already in the
+WhatsApp app.
 
 1. At developers.facebook.com, make an app and add WhatsApp to it. It gives you
-   a number to try with, its id, and a token. That token lasts a day: a
-   permanent one comes from a system user with the
-   `whatsapp_business_messaging` permission. The app secret is on the app's
-   settings page.
-2. Put all three in `.env` as `CHLOE_AGENTS_<ID>_WHATSAPP_PHONE_NUMBER_ID`,
-   `CHLOE_AGENTS_<ID>_WHATSAPP_TOKEN` and
-   `CHLOE_AGENTS_<ID>_WHATSAPP_APP_SECRET`, and hand them over in the config
-   under `agents: { <id>: { whatsapp: { phone_number_id, token, app_secret } } }`,
-   each as `process.env.` and its name, the way
-   [this site's own config](/docs/start) does.
-3. Write the agent's own `channels/whatsapp.ts` and list it in `agent.ts` as
-   `channels: [whatsapp]`:
+   a number to try with, its id, and a token that lasts a day. A permanent token
+   comes from a system user with the `whatsapp_business_messaging` permission.
+   The app secret is on the app's settings page.
+2. Put the three in `.env` as `CHLOE_AGENTS_<ID>_WHATSAPP_PHONE_NUMBER_ID`,
+   `CHLOE_AGENTS_<ID>_WHATSAPP_TOKEN` and `CHLOE_AGENTS_<ID>_WHATSAPP_APP_SECRET`,
+   and in the config under `agents: { <id>: { whatsapp: { phone_number_id, token, app_secret } } }`,
+   as the config at the top of this page does.
+3. Add the channel to the agent. The shop's hands every message to a job:
 
 ```ts file=example/channels/whatsapp.ts
 ```
 
-4. Start chloe. It asks for a post box once and writes that address to the log.
-   Paste it into the app's WhatsApp page as the webhook, subscribed to
-   `messages`. The page shows the same address on the agent's channel row.
-5. Write to the number from your phone. This one hands every message to a job
-   (see [`job`](#what-a-message-gets-tools-or-a-job)), which answers a number it
-   cannot find by saying so. A channel for some people only lists them in
-   `allowFrom`; with that list empty, it answers with your own number, which is
-   what goes in it.
+4. Start chloe. It writes the address to register to the log, and the dashboard
+   shows it on the agent's channel. Paste it into the app's WhatsApp page as
+   the webhook, subscribed to `messages`.
+5. Write to the number from your phone. With `allowFrom` set to `[]`, it
+   answers with your number, which is what goes in it.
 
-| Option | What it does |
-|---|---|
-| `allowFrom` | Numbers that may reach the agent, in full international form. The first is who its jobs ask when they name nobody. |
-| `postBox` | Where a box is asked for. `dashboard.remote.url` in settings unless this says otherwise, and asking needs no account. `""` collects from nowhere, which leaves only the route below. |
-| `chatHistory` | How much of a conversation a turn is shown: `{ messages, days }`. |
-| `sendWhileWorking` | Off unless `true`. Sends what the model writes on its way to an answer as it writes it. |
-| `uploadPolicy` | Which files are taken, and how big. Anything else is named to the agent but not handed over. |
-| `name` | `"whatsapp"` unless the agent is on two numbers. What the log shows a run came in on, and the start of every address on this number. |
-| `credentials` | The three, instead of the ones in the settings. |
-| `publicUrl` | Only for an address of your own, below. |
+| Option | Default | What it controls |
+|---|---|---|
+| `allowFrom` | anybody | Numbers in full international form, like `"+447700900123"`. Unset, anybody may write, so pair that with a `job` or a short `tools` list. |
+| `postBox` | the remote dashboard, when one is connected | Where messages are collected from. `""` collects from nowhere, which leaves only your own route. |
+| `publicUrl` | none | Where your web server reaches the route, so the log prints the whole address. |
+| `uploadPolicy` | pictures, PDFs and text, up to 10 MB | As for Telegram. |
+| `credentials` | the three in settings | `{ phoneNumberId, token, appSecret, verifyToken }`. `verifyToken` is the word Meta checks the address with, made on start when unsaid. |
 
-**Nothing has to be trusted with your messages.** Meta's signature travels with
-each delivery and is checked here against your app secret, which never leaves
-your machine, so a post box cannot make up a message chloe will believe. Each
-body is sealed to a key the runtime made, so a post box cannot read one either.
-It keeps nothing: a message is deleted the moment the runtime has it, and swept
-after ten minutes whatever happens.
+Every delivery carries Meta's signature, and chloe checks it against your app
+secret, which never leaves your machine. So neither your web server nor a post
+box can make up a message, and a channel with no app secret refuses everything.
+A post box cannot read a message either: each is sealed to a key chloe made,
+and deleted the moment chloe has it.
 
-**Two of WhatsApp's own rules worth knowing.** A reply has to be within 24 hours
-of the last message that person sent, so a job that stops to ask somebody who has
-not written today is refused by WhatsApp and told why. And there are no groups:
-the API carries one-to-one messages and nothing else, so there is no `inGroups`
-here. A question with three answers or fewer arrives as buttons, which is the one
-thing this channel does better than the others.
+Two of WhatsApp's own rules: a message to somebody has to be within 24 hours of
+the last one they sent, so a job asking somebody who has not written today is
+refused; and there are no groups. A question with three answers or fewer
+arrives as buttons.
 
-**An address of your own, if you would rather.** With `postBox: ""` the channel
-answers `publicUrl` + `/chloe/v1/<agent>/<name>` on the one port, and you point
-Meta straight at it. It checks the app secret on every message and answers Meta's
-one verification call, and a channel with no app secret refuses everything rather
-than trusting the address. It is yours to choose and it is never the only way:
-nothing in chloe needs a port open.
+## Email
+
+The agent writes to a person from an address made for that conversation, and
+their replies come back to it as messages. It is for conversations. To send one
+email with no reply, use a [sending tool](/docs/tools#sending-an-email).
+
+The agent always writes first, and only to somebody in `allowFrom`. A
+conversation starts in one of three ways:
+
+- a job asks with `work.ask("...", { who: "email:someone@example.com", ... })`;
+- the agent calls the `email.startConversation` tool, from a chat;
+- code calls `openEmail(agentId, to, subject, text)`.
+
+### Which address it sends from
+
+There are two mailboxes. Pick one with `mailbox`:
+
+| | `mailbox: "gmail"` | no `mailbox` |
+|---|---|---|
+| The mail goes through | your Gmail or Google Workspace account | a remote dashboard |
+| From | the agent's `label`, then the account in `connections.google.account`: `Shop <you@gmail.com>` | the agent's `label`, then `reply-<id>@` the dashboard's mail domain |
+| Replies go to | the account with a tag, `you+k7mp2xqa@gmail.com`, set as Reply-To. Gmail delivers it to the same inbox. | the same address it was sent from |
+| How chloe receives | asks Gmail what is new every 15 seconds | collects from the dashboard's post box |
+| What chloe reads | only mail to one of its tagged addresses | only mail to its addresses |
+| What you set | the Google connection, below | `dashboard.remote.api_key` |
+
+With Google Workspace, the From address is on your own domain.
+
+### Setting it up on Gmail
+
+1. Make the Google app once, with the Gmail API on, as in
+   [Connections](/docs/connections#google).
+2. In `chloe.config.ts`, say which account sends, and hand over the app's client
+   file:
+   `connections: { google: { account: "you@gmail.com", client: process.env.CHLOE_CONNECTIONS_GOOGLE_CLIENT } }`.
+3. Add the channel: `emailChannel({ mailbox: "gmail", allowFrom: ["someone@example.com"] })`.
+4. Sign in. The agent's Connections page in the dashboard lists Google with a
+   sign-in button. Approve reading and sending mail: chloe asks for
+   `gmail.readonly` and `gmail.send`, and never deletes anything.
+5. So the agent can start a conversation from a chat, give it the tool:
+   `emailStartConversation: email.startConversation({ when: "..." })`, from
+   `@chloejs/core/tools/email`.
+
+| Option | Default | What it controls |
+|---|---|---|
+| `allowFrom` | required | The addresses it may write to and hear from. Nobody else is ever sent anything. |
+| `mailbox` | none | `"gmail"`, or unset to go through a remote dashboard. |
+| `name` | `"email"` | Only when an agent has two. The first half of `email:<address>`. |
+
+### Which replies it takes
+
+A reply is answered only when every one of these holds. Anything else is
+dropped, with a line in the log saying why.
+
+- It is to an address this channel made, still open. An address closes after
+  30 days with nothing sent or received on it.
+- It has one From address, the person the address was made for, and they are
+  in `allowFrom`.
+- It carries a DKIM signature from that person's own mail domain. The From line
+  alone can be written by anybody, so this is the check that counts.
+
+Only what the person wrote this time is read, not the quoted history below it.
+Attachments are named to the agent, not handed over.
 
 ## HTTP
 
-For a system rather than a person: one POST, one turn, one reply.
+For another system rather than a person: one POST, one turn, one reply.
 
-1. Write the agent's own `channels/api.ts` and list it in `agent.ts` as
-   `channels: [api]`:
+1. Add the channel to the agent:
 
 ```ts file=example/channels/api.ts
 ```
 
-2. Restart, then make a token with `npx chloe tokens make <name>`, or at
-   `/tokens` on the runtime site. The secret is shown once and is not stored.
-
-3. The agent answers two routes for anything holding that token:
+2. Make a token, with `npx chloe tokens make <name>` or on the dashboard's
+   tokens page. The secret is shown once and not stored.
+3. Call the agent:
 
 ```sh
 curl -X POST http://127.0.0.1:3067/api/agents/shop/chat \
@@ -178,85 +246,65 @@ curl -X POST http://127.0.0.1:3067/api/agents/shop/job/restock \
 {"started":"shop/restock"}
 ```
 
-`thread` is optional and is the caller's own name for a conversation: send the
-same one again and the agent remembers what was said. Leave it out and the turn
-starts fresh. A token's threads are kept apart from the ones a person started,
-so two callers naming the same one do not land in each other's.
-
-**This channel listens to nothing.** The server answers those two routes either
-way; what binding it does is give a token permission to reach that agent. An
-agent without it is not on the API, and a token asking for it gets a 403 saying
-so. Somebody signed in on the box can still talk to it from the site, because
-that is the account and the account can do everything.
-
-**Why a channel and not a flag.** A channel is the list an agent's definition
-already keeps to say how it can be reached, and being reachable by another
-system belongs in that list beside telegram. Reading the definition tells you
-every way in, in one place.
-
-It does not carry a job's question out to anybody, because HTTP cannot push. A
-job that stops to ask waits in `GET /api/parked` as it always did.
+Send `thread`, a name of your own, to carry on a conversation; leave it out to
+start fresh. Without this channel a token gets a 403 for that agent, and only
+somebody signed in on the dashboard can reach it. It takes `chatHistory` and
+nothing else. A job that stops to ask somebody waits in `GET /api/parked`,
+because HTTP cannot push a question out.
 
 ## A web page
 
-For the people who visit your site: a chat box on its pages, talking to the
-same agent that runs your jobs, with the same instructions, the same model and
-the same run record. Nothing reaches it unless your site's own server lets it
-in.
+A chat box on your own site, talking to the same agent, with the same model and
+run record. A visitor is a stranger, so they get only what you name.
 
-1. Write the agent's own `channels/web.ts` and list it in `agent.ts`. It names
-   the sites that may show the box and the tools a visitor's turn gets:
+1. Add the channel to the agent. It names the sites that may show the box and
+   the tools a visitor's turn gets:
 
 ```ts file=example/channels/web.ts
 ```
 
-2. Make a token for that agent alone. It reaches that agent and nothing else,
-   and it lives on your site's server, never in a page. It is printed once:
+2. Make a token for that agent alone. It lives on your site's server, never in
+   a page, and is printed once:
 
 ```sh
 npx chloe tokens make "shop site" --agent shop
 ```
 
-   The tokens page on the dashboard makes the same kind ("Only shop"). A token
-   made either way works at once, with chloe running or not.
-
 3. Give your site one route that hands its page a pass, and put the box on the
-   page, pointed at that route. This is the whole of a site that does both, in
-   plain Node: a signed-in customer is their customer id, from the shop's own
-   sign-in and nowhere else, anybody else gets a random id in a cookie, and it
-   asks the agent for a pass with the token and hands the answer on. Who the
-   visitor is decides what the agent's tools show them, so it never comes from
-   anything the visitor could write.
+   page. This is a whole site that does both, in plain Node. Who the visitor is
+   (here, a signed-in customer's id) comes from your site's own sign-in, never
+   from anything the visitor can write, because it decides what the agent's
+   tools show them:
 
 ```ts file=example/site/server.ts
 ```
 
-   `facts` are whatever the agent should know about them: their name when your
-   site signs people in, their plan, anything. In any other framework it is the
-   same one route: `POST /api/agents/<id>/web/pass` with the token, and
-   `{ "visitor": "...", "facts": {...} }`, answered with the pass, when it runs
-   out and the agent's greeting.
+   In any framework it is the same route: `POST /api/agents/<id>/web/pass`
+   with the token and `{ "visitor": "...", "facts": {...} }`. `facts` is
+   whatever the agent should know about them: their name, their plan.
 
    To try it on one machine, set both addresses in it to
-   `http://127.0.0.1:3067`, add `http://localhost:8080` to the channel's
-   `origins`, start chloe with `npx chloe`, and open http://localhost:8080.
+   `http://127.0.0.1:3067`, add `http://localhost:8080` to `origins`, run
+   `npx chloe`, and open http://localhost:8080.
 
-A button appears in the corner. A visitor types, sees "Looking up the order"
-while the agent works (a tool's `title`), then the answer arriving word by
-word. They come back tomorrow and the conversation is still there. The box draws
-itself in a shadow root, so the site's styles cannot break it, and follows
-`--chloe-accent`, `--chloe-font` and `--chloe-radius` if the page sets them.
-`data-title`, `data-note`, `data-position="left"` and `data-open` change the
-rest.
+| Option | Default | What it controls |
+|---|---|---|
+| `origins` | required | The sites that may show the box, like `"https://myshop.com"`. |
+| `tools` | none | The only tools a visitor's turn has. No memory, skills or self tools unless named, and naming the memory or self tools is refused. |
+| `job` | none | A job every visitor's message goes to, instead of a turn. |
+| `greeting` | none | What the box shows before anybody has written. |
+| `limits` | 30 messages and $0.50 per visitor, $5 for everybody, per 24 hours | `{ perVisitor: { messages, dollars }, perDay: { dollars } }`. A turn past one is refused politely. |
+| `model` | the agent's | The model visitors' turns use. |
+| `pictures` | off | Whether a visitor may send pictures. |
+| `chatHistory` | `{ messages: 10 }` | As on every channel. |
 
-**Reaching the runtime.** It listens on loopback, and stays there. Visitors
-reach it through your own web server, never through the dashboard, which is
-for you and the people you invite:
+Besides `limits`, a visitor may send six messages a minute, of up to 4,000
+characters each. A visitor never gets a `/command` but `/clear`, a model pick
+or a sign-in.
 
-- **Your own proxy**, whatever already serves the site, gives the agent an
-  address of its own, here agent.myshop.com, and passes the web routes and
-  nothing else. Any name will do, and so will a path on the site's own address,
-  like myshop.com/chat-agent/, with the proxy taking it off. With Caddy:
+**Reaching chloe.** It stays on loopback. Your own web server gives it an
+address, here agent.myshop.com, and passes the box's routes and nothing else.
+With Caddy:
 
 ```
 agent.myshop.com {
@@ -268,45 +316,13 @@ agent.myshop.com {
 }
 ```
 
-  `flush_interval -1` passes the answer through as it is written. The pass
-  route is not in it: your site's server reaches the runtime directly. The
-  page, the API and the memories stay out of reach. The page on myshop.com may
-  call agent.myshop.com because myshop.com is in the channel's `origins`.
+The pass route is not in it: your site's server reaches chloe directly.
 
-**Who they are.** Each message reaches the model with what is known about the
-visitor, in `<web_context>`: their id, the site, when they first came, how many
-messages before this one, their country and browser, and your site's facts.
-The runtime keeps their address too, for you, and never shows it to the model.
-`GET /api/agents/<id>/web/visitors` lists them all.
-
-With `features: { memoryPerUser: true }`, the agent keeps a note on each
-visitor, `users/web-<id>.md` in its memory, written with `memoryWriteUserNotes`
-and shown at the top of that visitor's next turns. Which file is the runtime's
-choice, from the pass, never the model's. The same feature keeps a note per
-person on every other channel too.
-
-**A visitor is a stranger**, so a web turn gets almost nothing:
-
-- Only the tools the channel names (see [`tools`](#what-a-message-gets-tools-or-a-job)),
-  and its note on them. Naming the agent's memory or self tools stops the agent
-  loading, saying why.
-- No `/command` but `/clear`, no `/model`, and never a sign-in: a slash is only
-  text, and a tool that needs somebody to sign in fails rather than sending a
-  visitor a link.
-- What visitors may spend, over the last 24 hours, read off the run record: 30
-  messages and $0.50 per visitor, and $5 for everybody, unless `limits` says
-  otherwise. A turn past one is refused politely. Six messages a minute per
-  visitor, and 4,000 characters each.
-
-Whatever a visitor writes is untrusted, like a web page a tool read. The short
-list of tools is what keeps that survivable, not the instructions.
-
-**A pass is only what it says**: one agent, one site, one visitor, for an hour,
-and the box asks your route again when it runs out. Passes are signed with
-`web-pass.key` in the state folder; delete it and restart, and every pass there
-is stops working.
-
-**Your own look.** The box is built on a client with no look of its own, served
+**The box.** It sits in a corner, shows a tool's `title` while the agent works,
+and writes the answer as it arrives. It keeps the conversation for the next
+visit. Set `--chloe-accent`, `--chloe-font` and `--chloe-radius` on the page to
+match your site, and `data-title`, `data-note`, `data-position="left"` and
+`data-open` on the tag. For a look of your own, build on the client served
 beside it:
 
 ```js
@@ -324,158 +340,85 @@ const { text } = await chat.send("Where is my order?", {
 });
 ```
 
-A turn answers as Server-Sent Events, one response that sends lines as they
-happen: `text` as words are written, `step` as a tool starts, `said` for words
-written on the way, then `done` with the answer whole. On a model reached with
-a key the words come as they are written; on a subscription the answer comes
-whole at the end.
+**What the agent knows about a visitor.** Each message reaches the model with
+their id, the site, when they first came, how many messages before, their
+country and browser, and your `facts`, never their IP address. With
+`features: { memoryPerUser: true }` it keeps a note on each visitor.
+`GET /api/agents/<id>/web/visitors` lists them.
 
 **What you see.** Each visitor's conversation is in the agent's chat list,
-named for who and which site and marked web, and each turn is a run with its
-steps and its cost. The channel's line on the agent's page says how many
-visitors, messages and dollars the last day came to. A job asks a visitor with
-`web:<visitor>`, and the question waits in their conversation for the next time
-the box loads it.
+marked web, and each turn is a run with its cost. A job asks a visitor with
+`who: "web:<visitor>"`, and the question waits for the next time the box loads.
 
-## What a message gets: `tools` or a `job`
+A pass is one agent, one site, one visitor, for an hour. Passes are signed with
+`web-pass.key` in the state folder: delete it and restart, and every pass stops
+working.
 
-Every channel takes the same two options, and both are optional. Without
-either, a message is a turn with the agent and every tool it has.
+## What a message gets: tools or a job
 
-**`tools`** keeps a turn on that channel to the tools named, for when the
-person writing should not reach the rest. Name each by the tool itself, so a
-typo or a rename is an error in your editor. The shop's web page names the one
-tool a visitor may use:
+Without either option, a message is a turn with the agent and every tool it
+has.
 
-```ts file=example/channels/web.ts
-```
+**`tools`** keeps a turn to the tools named, for when the person writing should
+not reach the rest. Name each by the tool itself, so a typo is an error in your
+editor, or by its name in the agent's `tools`. The agent's memory and skills
+come with them; its self tools only when named. On a web page, only what is
+named.
 
-A name works too (`"orderStatus"`). The agent's memory and skills come with
-the named tools; its self tools only when named. A tool that is not in the
-agent's `tools` stops it loading. On a web page a visitor is a stranger, so
-there it is only what is named, never memory or skills.
-
-**`job`** hands every message to one of the agent's jobs, in place of a turn.
-Code goes first: look up who wrote, read their orders, and decide whether a
-model is needed at all. The job reads the message from `work.input`, and
-`work.input.userId` is the sender's id on that channel (an email address, a
-Telegram id, a WhatsApp number, a visitor's id). What it returns is the reply:
+**`job`** sends every message to one job instead of a turn, so code goes first:
+look up who wrote, read their orders, and decide whether a model is needed at
+all. The job reads the message from `work.input`, where `userId` is the
+sender's id on that channel, and what it returns is the reply:
 
 ```ts file=example/jobs/answer-whatsapp-customer.ts
 ```
 
-Name it on the channel, and only there, as the shop's WhatsApp number does:
-
-```ts file=example/channels/whatsapp.ts
-```
-
-The agent loads it from the channel. It shows on the page with its runs,
-marked with the channel it answers, and only a message there starts it: no
-`/command`, no Run now, and no route a program can call. It must be code with
-`run` and no cron line, and not also in the agent's `jobs`. A channel hands
-its messages to one job. Two channels may name the same one.
-
-- One conversation runs the job once at a time, and two conversations run it
-  side by side. A message in a conversation whose last one is still being
-  answered is told to send it again.
+- Name the job on the channel only, not in the agent's `jobs`. It must be code
+  with `run` and no cron line. Only a message there starts it.
+- One conversation runs it once at a time, and two conversations run it side by
+  side.
 - A job that asks with `work.ask` asks in that conversation, and the next
-  message there is the answer.
-- On a channel with a job, a slash is only text: no `/model`, no `/<job>`.
-  `/clear` still starts the conversation fresh.
+  message is the answer.
+- A slash is only text there, except `/clear`.
 - A run that fails tells the person only that something went wrong. The error
-  is in the run, and in the mail the owner gets when a job starts failing.
-- `work.state` is one store for every conversation. Keep anything per person
-  under `work.input.userId`.
+  is in the run.
+- `work.state` is shared by every conversation: keep anything per person under
+  `work.input.userId`.
 
-Anything past a tool list belongs in a job, and a channel takes no other
-options for instructions, skills or memory. An agent that should be a
-different agent altogether for some people is a second agent, with its own
-channel.
+An agent that should be a different agent for some people is a second agent,
+with its own channel.
 
-## Running a job from a chat
+## Commands in a chat
 
-A message beginning with `/<job id>` runs that job of that agent, and nothing
-asks a model what was meant:
-
-```
-/reading-companion "The fox jumped over the lazy dog." -- The Fox
-```
-
-The job is handed the message with the command taken off, plus where it came
-from. What that envelope holds and how a job declares what it takes is in
-[jobs](/docs/jobs). Telegram's own command list allows no hyphens, so
-`/reading_companion` reaches `reading-companion` too and can be registered with
-BotFather.
-
-Three commands are the agent's own on every channel: `/clear` starts the
-conversation fresh, and `/models` and `/model` pick which model answers, see
-[models](/docs/models). Any other slash message that is not one of that
-agent's jobs is an ordinary message and goes to the model as usual, so `/start`
-and `/help` still behave.
+A message starting with `/<job id>` runs that job, and the words after it fill
+the job's `args`: see [A job is a workflow](/docs/jobs#starting-one-with-something).
+Three commands work on every channel: `/clear` starts the conversation fresh,
+and `/models` and `/model` pick the model, see [Models](/docs/models). Any other
+slash message is an ordinary message.
 
 ## Writing one
 
-A channel is a file in the agent's own `channels/` folder, exporting a `Channel`
-as its default: a `name` and a `start`. One chloe ships is bound there, and one
-it does not is written right there, without editing anything in the runtime.
-`channels` in `agent.ts` is a list, and two channels of one agent cannot share
-a name.
-
-Write it with `defineChannel(kind, options, start)` from
-`@chloejs/core/channels`. Its options extend `Shared`, so it takes `name`,
-`allowFrom`, `chatHistory`, `sendWhileWorking`, `tools` and `job` the way every
-channel does, and `defineChannel` does everything about them: it checks
-`tools` and `job` as the agent loads, loads the job, and writes the options
-out for the page (`{ hidden: ["key"] }` leaves a secret out). `start` is handed
-the agent, its id, the channel's name and what was bound, and does only the
+A channel chloe does not ship is a file in the agent's `channels/` folder,
+written with `defineChannel(kind, options, start)` from
+`@chloejs/core/channels`. Its options extend `Shared`, so it takes the shared
+options above, and `defineChannel` handles them. `start` does only the
 platform: it listens, turns each message into an `Incoming`, calls
-`receive(agent(), incoming, rulesOf({ ...options, bound }))`, and sends back
-the text it returns. An option every channel should have is added to `Shared`,
-`defineChannel` and `rulesOf`, and no channel changes.
+`receive(agent(), incoming, rulesOf({ ...options, bound }))`, and sends back the
+text that returns.
 
-A channel only reads its platform and sends to it. What happens to a message is
-the same for every channel and is not the channel's to decide: it turns the
-message into an `Incoming` (who sent it, where, the text, whether it is a
-private chat, whether it mentions the agent) and calls `receive()` from
-`@chloejs/core/channels/shared`, which returns the text to send back. In order,
-`receive()`:
+`receive()` decides what happens to a message, the same for every channel, in
+this order:
 
-1. Answers nobody outside `allowFrom`, and while that is empty tells a private
-   sender their id.
-2. Hands an answer to a job waiting on that chat to the job.
-3. Leaves a group message alone unless it is for the agent, or `inGroups` is
-   `"always"`.
-4. Runs `/<job id>`, with `_` for `-`, and answers `/clear`, `/models` and
-   `/model` itself.
-5. Otherwise asks the agent, showing it the chat's recent conversation, and
-   sends its reply. With a `job`, a message that got past 3 goes to that job
-   instead of 4 and 5, and its reply is what the job returned. A reply that reads `/<job id>` starts nothing: the agent
-   may have read a page or a mail written to ask for it. A job starts on its
-   schedule or from a command a person sent. A skill is how the agent handles
-   a plain message itself.
+1. Nobody outside `allowFrom` is answered.
+2. The answer to a sign-in goes to the connection that asked, and the answer to
+   a job waiting on that chat goes to the job.
+3. In a group, a message not meant for the agent is left alone.
+4. `/<job id>` runs that job, and `/clear`, `/models` and `/model` are answered.
+5. Anything else is a turn, or goes to the channel's `job`. A reply that reads
+   `/<job id>` starts nothing, because the model may have read a page written
+   to ask for it.
 
-A channel that can send more than one reply hands `receive()` a `send`, which
-is what `sendWhileWorking` uses; the API cannot, so it always gets the answer
-alone. One that shows what the agent is doing hands it `calling`, told as each
-tool starts, and `writing`, handed the words as they are written. A channel
-for strangers says `strangers: true` in its rules, and `receive()` then takes
-a message as a turn, `/clear` or an answer to a job that asked them, and
-nothing else.
-
-`commands(agent)` from the same file is the list a channel offers in its own
-menu, the way Telegram shows one when you type `/`: the jobs, then `/models`.
-A reply can carry `buttons`, each with a label and what pressing it sends, and
-a channel that can show them does; Telegram makes them an inline keyboard.
-
-How much of a conversation is shown is the channel's `chatHistory`: the last
-`messages` (10 when unsaid) and none older than `days` (no limit when unsaid),
-like `telegramChannel({ chatHistory: { messages: 20, days: 30 } })` or
-`apiChannel({ chatHistory: { messages: 4 } })`. It is a channel's setting and
-not an agent's, because only a conversation has a history: a job is shown what
-its code hands it. A job's reply in a chat is kept in that chat's conversation too.
-
-**A channel says its own name, and nothing else may say it for it.** A job's
-question goes out to an address, `channel:who`, and the runtime looks the channel
-half up in a registry that each running channel fills for its own agent. So an
-agent's question goes out through its own bot, and the runtime reaches somebody
-without knowing how.
+Hand `receive()` a `send` to allow `sendWhileWorking`, `calling` to be told as
+each tool starts, and `writing` for the words as they are written. A reply can
+carry `buttons`. `commands(agent)` is the list to show in the platform's own
+command menu.

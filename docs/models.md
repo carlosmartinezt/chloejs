@@ -1,161 +1,102 @@
 ---
 title: Models
 order: 7
-summary: A job picks its own model in one line, a person can pick one on the fly, and a call goes out by key or by subscription.
+summary: Which model answers, how each call reaches it and who pays, every model setting, and picking one from a chat.
 ---
 
-**A job can choose its own model, and that is the whole reason this runtime
-exists.** One line, in the job:
+A model is named as provider and name, `"anthropic/claude-sonnet-5"`. An agent,
+a job or a single step can each name its own, so a cheap step can ask a small
+model while the rest of the agent asks a large one.
 
-```
-model: "anthropic/claude-haiku-4.5"
-```
+## Which model answers
 
-No `model` means the agent's own, from its `agent.ts`, and an agent with no
-`model` line asks `model.defaultModel` in settings, which is where `npx chloe setup`
-writes the one you chose. So a project has that name in one place, and an agent
-that names neither is refused as it loads rather than at its first model call.
+The first of these that is set wins.
 
-Most jobs that still ask a model should ask a small one: the cheapest model that
-can do the step is the right model for the step, and picking it per job is how
-that stays true.
+| | Set with |
+|---|---|
+| One step | `model` on `work.model()` or `work.agent()` |
+| A pick for one job | `/model <name> for <job>` in a chat |
+| One job | `model` in `defineJob`, or in a markdown job's frontmatter |
+| A pick for one chat | `/model <name>` in that chat (chat turns only) |
+| A pick for the agent | `/model <name> for everything` |
+| The agent | `model` in `defineAgent` |
+| Every agent | `model.defaultModel` in settings, which `npx chloe setup` writes |
 
-If you are ever tempted to move onto a framework, check that it can do this
-first.
+An agent with none of these is refused as it loads. A model given as an AI SDK
+model, like `anthropic("claude-opus-5-5")`, always goes to that provider's own
+API, on whatever key that package reads.
 
-## Getting one
+## How a call reaches it, and who pays
 
-`npx chloe setup` asks which of these you have, writes it, and then makes one
-real call and asks for a tool call back. That last part is worth more than it
-sounds: a key with a character missing, a CLI nobody has signed in to, and a
-model name that was retired last month all look exactly the same until something
-asks.
+There are five routes. Each call goes by the first route in
+`model.preferredRoute` that can carry the model's provider and is set up on this
+machine. A route with nothing set up is skipped.
 
-**A subscription you already pay for.** A Claude subscription or a ChatGPT plan,
-through the CLI that credential authorises, below. Nothing to paste and no key to
-keep.
+| Route | Goes through | Carries | Paid by | What to set up |
+|---|---|---|---|---|
+| `claude` | the `claude` command | Anthropic models | your Claude subscription | install Claude Code and sign in |
+| `codex` | the `codex` command | the OpenAI models your plan allows | your ChatGPT plan | install Codex and sign in |
+| `opencode` | the `opencode` command | whatever it is signed in to | that account | install opencode and sign in |
+| `direct` | the provider's own API | Anthropic and OpenAI | your key, per call | `model.keys.anthropic`, `model.keys.openai` |
+| `gateway` | an AI gateway | any provider it carries | its key, per call | `model.key` |
 
-**A key from Anthropic or OpenAI**, the one you made in its console, in
-`model.keys` under the provider's name. Setup finds one already in
-`ANTHROPIC_API_KEY` or `OPENAI_API_KEY` and offers it, and the config hands it
-over as `model: { keys: { openai: process.env.OPENAI_API_KEY } }`. Each call is
-charged to that account, and priced in the run record from its tokens at the
-gateway's public list price. A key carries only its own provider's models.
+The default order is the one above, so a subscription is used before a key that
+charges per call. To pay with a key instead, put `direct` first:
+`model: { preferredRoute: ["direct", "claude", "codex", "opencode", "gateway"] }`,
+which is what setup writes when you give it a key.
 
-**A gateway key**, in `model.key`, against whatever `model.gatewayUrl` points at.
-The key goes in `.env` as `CHLOE_MODEL_KEY` and the config hands it over as
-`model: { key: process.env.CHLOE_MODEL_KEY }`.
-One gateway for the whole machine, so if you might add a second provider later,
-pick one that carries every provider rather than one provider's own address.
+A key is a secret, so it goes in `.env`, and the config hands it over:
+`model: { keys: { anthropic: process.env.ANTHROPIC_API_KEY } }`, or
+`model: { key: process.env.CHLOE_MODEL_KEY }` for a gateway.
 
-**Neither.** Free models need an account and no card: make a key at
-[openrouter.ai/keys](https://openrouter.ai/keys), point `model.gatewayUrl` at
+| Setting | Default | What it controls |
+|---|---|---|
+| `model.defaultModel` | none | The model of an agent that names none. |
+| `model.preferredRoute` | `["claude", "codex", "opencode", "direct", "gateway"]` | The order routes are tried in. |
+| `model.keys` | none | Anthropic's and OpenAI's own keys, for `direct`. |
+| `model.key` | none | The gateway's key. |
+| `model.gatewayUrl` | the Vercel AI Gateway | Any gateway that speaks the OpenAI chat shape. |
+| `model.models` | ask each route | The shortlist a person may pick from in a chat. Empty offers everything this machine can reach, often hundreds. |
+| `model.program` | `claude`, `codex`, `opencode` | Where each command is, when it is not on the path under that name. |
+| `model.judgeModel` | `"anthropic/claude-sonnet-5"` | Who marks an eval. |
+| `model.namingModel` | `"anthropic/claude-haiku-4.5"` | Who names a new conversation on the dashboard. Empty leaves them unnamed. |
+
+### No model and no key yet
+
+OpenRouter has free models with no card: make a key at
+[openrouter.ai/keys](https://openrouter.ai/keys), set `model.gatewayUrl` to
 `https://openrouter.ai/api/v1/chat/completions`, and ask for `openrouter/free`,
-which is one model id that picks a free model and only ones that can do what the
-call needs, tool calling included. Three things to know before you build on it: a
-free balance is rate limited to a few dozen calls a day, a different model may
-answer each call, and free models report no price, so those runs cost 0 in the
+which picks a free model that can call tools. It is limited to a few dozen calls
+a day, a different model may answer each time, and the runs cost 0 in the
 record.
 
-You can get a long way with no model at all. A job whose steps are all code runs
-on any of this and costs nothing, which is why setup runs one of those before it
-asks any of the above.
+A job whose steps are all code needs no model at all, which is why setup runs
+one before it asks for one.
 
-## A key or a subscription
+### What the command routes do
 
-A model call goes one of five ways. Everything above the one function that makes
-the call is the same either way, which is why that function is the only seam.
+Each one runs the command once per step, with the command's own tools, settings
+and MCP servers switched off, so every tool call is chloe's and is written
+down.
 
-```ts
-settings: { model: { preferredRoute: ["claude", "codex", "opencode", "direct", "gateway"] } }
-```
+- **claude** hands the tools over as real tools. It is never given
+  `ANTHROPIC_API_KEY`, so a key in `.env` cannot quietly pay for a subscription
+  run.
+- **codex** and **opencode** describe the tools in the prompt and read the calls
+  back from the reply, which is a little less reliable and costs about 500
+  tokens a step. codex adds about 7,000 tokens of its own instructions to every
+  call.
 
-That is the default, and it is an order, not a choice. Each model goes by the
-first way in the list that can carry its provider and that this machine is set up
-for, so a subscription is spent before a key that charges per call, and the
-gateway comes last because it is the only one that can carry any provider. A way
-you have no credential for is skipped, so a fresh install runs whichever way that
-machine can with nothing set.
+A run on the claude route shows what it would have cost on the API, as a price,
+not a charge. codex names no price, so its runs cost 0 in the record.
 
-**A subscription and an API key are two ways to the same model.** Nothing about a
-model's name says which account pays for it. To put Anthropic and OpenAI models on
-a key rather than on their subscriptions, put the route with the key first,
-which is what setup writes when you give it one:
+## Picking one from a chat
 
-```ts
-settings: { model: { preferredRoute: ["direct", "claude", "codex", "opencode", "gateway"] } }
-```
+`/models` lists what may be picked, with a button each on Telegram.
+`/model <name>` picks one for that chat, `/model <name> for everything` for the
+agent, `/model <name> for <job>` for one job, and `/model default` takes a pick
+back, with the same `for`. The run record still says which model made each run.
 
-**gateway** is the plain one: one `fetch`, a model named
-`anthropic/claude-sonnet-5`, and `model.gatewayUrl` points it at anything that
-speaks the same shape, so another provider works without touching the code. It
-needs `model.key`.
-
-**direct** is the provider's own API, through its AI SDK package, on its key in
-`model.keys`. It carries each provider that has a key there, Anthropic and
-OpenAI, and a model an agent's file gave as an AI SDK model, like
-`anthropic("claude-opus-5-5")`, always goes this way, on whatever key that
-package reads.
-
-**claude** exists for the credential rather than the model. A subscription
-authorises the Claude Code CLI and is not an API key, so there is nothing to put
-in a bearer header and HTTP is not an option. It shells out to `claude -p` once
-per step, with `--tools ""`, `--restricted` and `--strict-mcp-config`, so the CLI
-brings none of its own tools, none of that machine's settings and no MCP servers.
-Chloe still runs every tool itself, checks it against its schema and writes it
-down, because a model that quietly read a file would leave nothing in the run
-record. Only Anthropic models run this way. The CLI is never handed
-`ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, because it would use either ahead
-of the subscription, and a key in `.env` would quietly be paying for a route that
-says it is free.
-
-**codex** is the same shape for OpenAI models on a ChatGPT plan: `codex exec`
-once per step, in an empty temporary folder, with its shell, skills, browser,
-MCP servers and AGENTS.md reading switched off and its instructions replaced by
-the request's. It is a coding tool underneath, so every call carries about
-7,000 tokens of its own instructions, and it names no price, so a run on it
-costs 0 in the record. A ChatGPT plan allows only some models through it.
-
-**opencode** is the third CLI, and the only one that is not one provider's. It
-runs whatever opencode is signed in to, so chloe asks it (`opencode models`)
-rather than being told, once per process. It is `opencode run` once per step, in
-an empty temporary folder holding a config that names an agent with every tool
-off and the request's own instructions. Two traps, both paid for: a config with a
-`$schema` line makes it fetch that URL and hang, and it reads `PWD` rather than
-asking where it is, so the folder has to be given as `--dir` too, because a
-spawned process keeps its parent's `PWD` however its working folder was set. An
-`--agent` it does not recognise is passed over in silence rather than refused, so
-a tool call in the output means its own tools were in force, and chloe treats that
-as an error rather than using the answer.
-
-Two things to know before choosing a CLI route. The tools are described in the
-prompt and asked for as JSON rather than through the provider's own tool
-calling, which is a little less reliable and costs about 500 tokens of
-instructions per step. And the cost on the run is what the call would have cost
-on the API: a subscription is not billed per call, so that number prices the run
-rather than charging it.
-
-A job asking for a model its route cannot run says so rather than failing at
-the provider.
-
-## Picking one on the fly
-
-The config is the default, and a pick on top of it lives in the database, so the
-run record still says which model made each run. `model.models` in settings is a
-shortlist, on top of what the agents already name, and only what that machine can
-run is offered.
-
-You do not have to write that list. Empty means chloe asks each way what it
-carries: `opencode models`, and the gateway's own list, which is usually several
-hundred. So the shortlist is for cutting that down to the few worth offering, not
-for making the feature work.
-
-In a chat, `/models` lists them, with a button each on Telegram. `/model <name>`
-picks one for that chat, `/model <name> for everything` for the whole agent,
-`/model <name> for <job>` for one job, and `/model default` takes a pick back,
-with the same `for`. A pick for everything beats the agent's own model and
-never a job's own: the job's line is the job's.
-
-The same over the API: `GET /api/models` lists them and
-`POST /api/agents/<id>/model` takes `{ "scope", "model" }`, where scope is
-`agent`, `job:<id>` or `chat:<thread>` and an empty model takes the pick back.
+Over the API: `GET /api/models`, and `POST /api/agents/<id>/model` with
+`{ "scope", "model" }`, where scope is `agent`, `job:<id>` or `chat:<thread>`
+and an empty model takes the pick back.

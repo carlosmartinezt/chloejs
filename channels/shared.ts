@@ -47,7 +47,7 @@ import { clock, type Fired, ran } from "#chloe/core/clock";
 import { answer, waitingOn, WrongArgs } from "#chloe/core/steps";
 import { turn } from "#chloe/core/turn";
 import type { Connection } from "#chloe/connections/connection";
-import { connectionsUsed, type ChloeTool } from "#chloe/model/tool";
+import { neededBy, type ChloeTool } from "#chloe/model/tool";
 
 /** One message, in the words every channel shares. */
 export interface Incoming {
@@ -314,7 +314,7 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
   const picking = rules.strangers || rules.job ? undefined : modelCommand(text);
   if (picking) return { ...bound(agent, message, picking), steps: 0, cost: 0 };
 
-  const signingIn = text && !rules.strangers && !rules.job ? connectionsUsed(agent.tools ?? {}).find((one) => one.signIn?.answers(text)) : undefined;
+  const signingIn = text && !rules.strangers && !rules.job ? neededBy(agent).find((one) => one.signIn?.answers(text)) : undefined;
   if (signingIn) return during(working, () => signedIn(agent, message, signingIn, rules, whileWorking));
 
   const waiting = text ? waitingOn(`${channel}:${message.chat}`, agent.id) : undefined;
