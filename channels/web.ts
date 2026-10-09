@@ -33,18 +33,24 @@ import type { Agent, Channel, ChatHistory } from "#chloe/load/load";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { remember } from "#chloe/model/memory";
 import { reachBy, unreach } from "#chloe/model/ask";
+import type { ChloeTool } from "#chloe/model/tool";
+import { bind, type Answering } from "./shared.ts";
 
 /** What a web channel is made with: the sites that may show it, the tools a visitor's turn gets and what visitors may spend. */
 export interface WebOptions {
   /** The sites that may show the chat box, each a scheme and a host: "https://myshop.com". A page anywhere else is refused. */
   origins: string[];
   /**
-   * The only tools a web turn has, by the names the agent gives them. None when
-   * unsaid. Its memory and self tools are refused, apart from
-   * `memoryWriteUserNotes`, which a visitor's turn has without it being named
-   * when the agent keeps `memoryPerUser`.
+   * The only tools a web turn has, each the tool itself or its name in the
+   * agent's `tools`, as on every channel. None when unsaid, and unlike other
+   * channels no memory or skills unless named: a visitor is a stranger. Its
+   * memory and self tools are refused, apart from `memoryWriteUserNotes`,
+   * which a visitor's turn has without it being named when the agent keeps
+   * `memoryPerUser`.
    */
-  tools?: string[];
+  tools?: (ChloeTool | string)[];
+  /** A job every visitor's message starts, in place of a turn, as on every channel. See Answering. */
+  job?: Answering["job"];
   /** What the box shows before anybody has written. */
   greeting?: string;
   limits?: WebLimits;
@@ -67,7 +73,10 @@ export interface WebLimits {
 /** A web channel's settings, with every default filled in. */
 export interface Web {
   origins: string[];
+  /** By name, read against the agent as it loads. */
   tools: string[];
+  /** The id of the job every message starts, when there is one. */
+  job?: string;
   greeting: string;
   limits: { perVisitor: { messages: number; dollars: number }; perDay: { dollars: number } };
   chatHistory?: ChatHistory;
@@ -91,7 +100,8 @@ export function webChannel(options: WebOptions): Channel & { web: Web } {
   if (!origins.length) throw new Error('webChannel needs origins: the sites that may show the chat box, like ["https://myshop.com"].');
   const web: Web = {
     origins,
-    tools: options.tools ?? [],
+    tools: (options.tools ?? []).map((one) => (typeof one === "string" ? one : "(a tool)")),
+    job: options.job?.id,
     greeting: options.greeting ?? "",
     limits: {
       perVisitor: { messages: 30, dollars: 0.5, ...options.limits?.perVisitor },
@@ -104,15 +114,16 @@ export function webChannel(options: WebOptions): Channel & { web: Web } {
   return {
     name: "web",
     chatHistory: web.chatHistory,
-    madeWith: JSON.stringify(web),
+    get madeWith() {
+      return JSON.stringify(web);
+    },
+    job: options.job,
     web,
     check(agent) {
+      web.tools = bind(agent, "web", { tools: options.tools ?? [] }).tools ?? [];
       for (const name of web.tools) {
         if (/^(memory|self)[A-Z]/.test(name)) {
           throw new Error(`its web channel cannot have ${name}. A visitor is a stranger, and what the agent remembers and its own files are not theirs.`);
-        }
-        if (name !== "skillRead" && !agent.tools?.[name]) {
-          console.error(`${agent.id}: its web channel names ${name}, which it does not have, so a visitor's turn goes without it. It has: ${Object.keys(agent.tools ?? {}).join(", ") || "none"}.`);
         }
       }
     },

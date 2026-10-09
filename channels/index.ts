@@ -13,4 +13,19 @@ export { whatsappChannel, type WhatsAppOptions } from "./whatsapp.ts";
 export { emailChannel, openEmail, type EmailOptions, type Started } from "./email.ts";
 export { apiChannel } from "./api.ts";
 export { webChannel, type WebOptions, type WebLimits } from "./web.ts";
-export { receive, commands, inPieces, type Incoming, type Rules, type While, type Handled, type Button } from "./shared.ts";
+export {
+  defineChannel,
+  rulesOf,
+  receive,
+  commands,
+  inPieces,
+  type Shared,
+  type Answering,
+  type Starting,
+  type Bound,
+  type Incoming,
+  type Rules,
+  type While,
+  type Handled,
+  type Button,
+} from "./shared.ts";

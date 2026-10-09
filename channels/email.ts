@@ -32,8 +32,14 @@
 // on a message are named to the agent and not handed over.
 //
 // What happens to a message once it is taken is channels/shared.ts, the same
-// for every channel. `withoutTools` keeps tools away from every turn on this
-// channel, for an agent whose tools reach things this person should not.
+// for every channel: `tools` keeps a turn here to the tools named, for an
+// agent whose other tools reach things this person should not, and `job` hands
+// every message to a job instead.
+//
+// A message is written down as answered only once its answer is sent. The post
+// box forgets a delivery only after it has been dealt with, so a restart in the
+// middle of a turn gets it again, and it is answered then rather than dropped as
+// already seen.
 import { randomUUID } from "node:crypto";
 
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
@@ -44,7 +50,7 @@ import { readEmail, signedBy, whenSent, type Email, type LookUp } from "#chloe/c
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { markdownToHtml, markdownToText } from "#chloe/services/emailService";
 import { boxFor, collectFrom, type Box } from "./postbox.ts";
-import { receive, type Rules } from "./shared.ts";
+import { type Bound, defineChannel, receive, rulesOf, type Shared } from "./shared.ts";
 
 db.exec(`
   create table if not exists email_addresses (
@@ -65,14 +71,12 @@ db.exec(`
 /** How long an address stays open with nothing sent or received on it. */
 const OPEN_FOR = 30 * 24 * 3600 * 1000;
 
-/** How an agent is put on email: who may write to it, and what its turns may not use. */
-export interface EmailOptions {
+/** How an agent is put on email: who may write to it, and what its messages get (`tools` or `job`, see Answering). */
+export interface EmailOptions extends Shared {
   /** "email" unless the agent has two. The first half of an address a job asks, "email:someone@example.com". */
   name?: string;
   /** The people it may write to and hear from, by address. Nobody else is ever sent anything. */
   allowFrom: string[];
-  /** Tools a turn on this channel is not given, by name, like the ones that read the owner's own mail. */
-  withoutTools?: string[];
   /** How much of a conversation a turn is shown: `{ messages, days }`. */
   chatHistory?: ChatHistory;
   /** Where the dashboard is, instead of `dashboard.remote.url` in settings. Only the tests change it. */
@@ -149,33 +153,29 @@ export function quoted(mail: Email): { text: string; html: string } {
 
 /** An agent on email, as a channel its own `agent.ts` names. */
 export function emailChannel(options: EmailOptions): Channel {
-  return {
-    name: options.name ?? "email",
-    chatHistory: options.chatHistory,
-    madeWith: JSON.stringify({ ...options, lookUp: undefined, key: undefined }),
-    start(agent) {
-      const agentId = agent()?.id ?? "";
-      const dashboard = (options.dashboard ?? settings.dashboard.remote.url).replace(/\/+$/, "");
-      const key = options.key ?? settings.dashboard.remote.api_key;
-      if (!dashboard || !key) {
-        console.error(
-          `email: ${agentId} is on email and has no ${dashboard ? "workspace key" : "dashboard"}. Email goes through a remote dashboard: ` +
-            `put the workspace's key ${whereKeyGoes(["dashboard", "remote", "api_key"])}.`,
-        );
-        return { stop: () => {} };
-      }
-      return listen({ ...options, agentId, channel: options.name ?? "email", dashboard, key, agent });
-    },
-  };
+  // Ignored, it would hand every tool to a turn that was meant to have fewer.
+  if ("withoutTools" in options) throw new Error("emailChannel's withoutTools is gone: name the tools its turns may have instead, like tools: [tools.readPage].");
+  return defineChannel("email", options, ({ agent, agentId, name, bound }) => {
+    const dashboard = (options.dashboard ?? settings.dashboard.remote.url).replace(/\/+$/, "");
+    const key = options.key ?? settings.dashboard.remote.api_key;
+    if (!dashboard || !key) {
+      console.error(
+        `email: ${agentId} is on email and has no ${dashboard ? "workspace key" : "dashboard"}. Email goes through a remote dashboard: ` +
+          `put the workspace's key ${whereKeyGoes(["dashboard", "remote", "api_key"])}.`,
+      );
+      return { stop: () => {} };
+    }
+    return listen({ ...options, agentId, channel: name, dashboard, key, agent, bound });
+  }, { hidden: ["lookUp", "key"] });
 }
 
 /** Answers on email until stopped. Separate from the channel so the tests can point it somewhere else. */
 export function listen(
-  options: EmailOptions & { agentId: string; channel: string; dashboard: string; key: string; agent: () => Agent | undefined },
+  options: EmailOptions & { agentId: string; channel: string; dashboard: string; key: string; agent: () => Agent | undefined; bound?: Bound },
 ): Running {
   const { agentId, channel, dashboard, key } = options;
   const allowed = options.allowFrom.map(lower);
-  const rules: Rules = { allowFrom: allowed, chatHistory: options.chatHistory };
+  const rules = rulesOf(options, allowed);
   const stopping = new AbortController();
   let box: Promise<Box> | undefined;
   const ourBox = () => (box ??= boxFor("email", agentId, channel, dashboard));
@@ -267,15 +267,22 @@ export function listen(
       seen.add(mail.messageId);
       if (seen.size > 500) for (const oldest of seen) if (seen.delete(oldest)) break;
     }
-    db.prepare("update email_addresses set used = ?, last_id = ?, refs = ? where address = ?").run(
-      new Date().toISOString(),
-      mail.messageId || null,
-      mail.references || null,
-      row.address,
-    );
-
     const agent = options.agent();
     if (!agent) return;
+    try {
+      await answerMail(agent, row, mail, from);
+    } finally {
+      db.prepare("update email_addresses set used = ?, last_id = ?, refs = ? where address = ?").run(
+        new Date().toISOString(),
+        mail.messageId || null,
+        mail.references || null,
+        row.address,
+      );
+    }
+  }
+
+  /** One checked email handed to the agent, and its answer sent back. */
+  async function answerMail(agent: Agent, row: Row, mail: Email, from: string): Promise<void> {
     const said = mail.reply || mail.text;
     const files = mail.files.map((one) => `(They attached ${one}, which this channel does not hand over.)`);
     if (!said && !files.length) return;
@@ -289,7 +296,6 @@ export function listen(
         text: said,
         private: true,
         context: { address: from, subject: mail.subject || row.subject },
-        withoutTools: options.withoutTools,
         files: files.length ? async () => ({ notes: files }) : undefined,
       },
       rules,

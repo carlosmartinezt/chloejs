@@ -781,21 +781,25 @@ function Agent({
             const file = held.find((path) => path.startsWith(`jobs/${job.id}.`));
             return (
               <tr key={job.id}>
-                <td className={job.when ? "timing" : "cron"} title={job.cron}>{job.when ?? job.cron ?? "when started"}</td>
+                <td className={job.when ? "timing" : "cron"} title={job.cron}>
+                  {job.channels ? `each message on ${job.channels.join(" and ")}` : (job.when ?? job.cron ?? "when started")}
+                </td>
                 <td title={job.description}>
                   {file ? <Link to={{ at: "file", agent: id, path: file }}>{job.id}</Link> : job.id}
                 </td>
                 <td className="dim num aside">{job.timezone}</td>
                 <td className="dim aside">{job.code ? "code" : job.model}</td>
                 <td className="right">
-                  <button
-                    className="small"
-                    onClick={() => fire(id, job.id)}
-                    disabled={now || offline || Boolean(cannot)}
-                    title={offline ? "This runtime is offline." : cannot}
-                  >
-                    {now ? "Running" : "Run now"}
-                  </button>
+                  {!job.channels && (
+                    <button
+                      className="small"
+                      onClick={() => fire(id, job.id)}
+                      disabled={now || offline || Boolean(cannot)}
+                      title={offline ? "This runtime is offline." : cannot}
+                    >
+                      {now ? "Running" : "Run now"}
+                    </button>
+                  )}
                 </td>
               </tr>
             );

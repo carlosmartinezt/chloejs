@@ -190,8 +190,10 @@ export interface Envelope {
   /** Where it was said, as the channel names it. */
   chat: string;
   chatTitle: string;
-  /** Who said it. */
+  /** Who said it, by name. */
   user: string;
+  /** Who said it, by their id on that channel: an email address, a Telegram id, a web visitor's id. */
+  userId: string;
   thread: string;
   replyTo: string;
 }
@@ -338,7 +340,7 @@ export async function work(options: {
  * `work.input` and kept out of `args`, so a job that declares no shape is
  * never refused for being sent a message.
  */
-const ENVELOPE_KEYS = ["text", "from", "chat", "chatTitle", "user", "thread", "replyTo"] as const satisfies (keyof Envelope)[];
+const ENVELOPE_KEYS = ["text", "from", "chat", "chatTitle", "user", "userId", "thread", "replyTo"] as const satisfies (keyof Envelope)[];
 
 /** Where a run was started from, read off what started it. */
 function envelopeOf(sent: unknown): Envelope {

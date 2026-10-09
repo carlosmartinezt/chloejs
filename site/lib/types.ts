@@ -15,7 +15,8 @@ export interface AgentSummary {
   memory: string;
   tools: string[];
   skills: string[];
-  jobs: { id: string; description?: string; cron?: string; when?: string; timezone: string; model: string; code?: boolean; files: string[] }[];
+  /** `channels` is set for a job only a message on those channels starts. */
+  jobs: { id: string; description?: string; cron?: string; when?: string; timezone: string; model: string; code?: boolean; files: string[]; channels?: string[] }[];
 }
 
 export interface RunRow {

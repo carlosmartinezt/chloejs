@@ -40,13 +40,13 @@ import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
 import type { Attachment } from "#chloe/model/model";
 import { settings, whereKeyGoes } from "#chloe/core/settings";
-import { receive, type Incoming, type Rules } from "./shared.ts";
+import { type Bound, defineChannel, type Incoming, receive, rulesOf, type Shared } from "./shared.ts";
 
 const MAX_MESSAGE = 4000; // Slack cuts a message's text at 40000, and advises under 4000.
 const READS = new Set(["auth.test", "apps.connections.open", "users.info", "conversations.info"]);
 
 /** How an agent is put on Slack: who may reach it, and how it behaves in a channel. */
-export interface SlackOptions {
+export interface SlackOptions extends Shared {
   /**
    * "slack" unless the agent is in two workspaces. It is what the log shows a
    * run came in on, and the start of every address on this app, like "slack:U0123ABCD".
@@ -104,37 +104,31 @@ interface Envelope {
 
 /** An agent on Slack, as a channel its own `agent.ts` names. */
 export function slackChannel(options: SlackOptions = {}): Channel {
-  return {
-    name: options.name ?? "slack",
-    chatHistory: options.chatHistory,
-    madeWith: JSON.stringify(options),
-    start(agent) {
-      const agentId = agent()?.id ?? "";
-      const token = options.credentials?.botToken || settings.agents[agentId]?.slack.bot_token || "";
-      const appToken = options.credentials?.appToken || settings.agents[agentId]?.slack.app_token || "";
-      if (!token || !appToken) {
-        console.error(
-          `slack: ${agentId} has a Slack channel but no ${token ? "app token" : "bot token"}. Make an app at api.slack.com/apps ` +
-            `with Socket Mode on, and put its bot token ${whereKeyGoes(["agents", agentId, "slack", "bot_token"])}, ` +
-            `and its app token ${whereKeyGoes(["agents", agentId, "slack", "app_token"])}.`,
-        );
-        return { stop: () => {} };
-      }
-      const holder = taken.get(appToken);
-      if (holder && holder !== agentId) {
-        console.error(`slack: ${holder} already answers this app, so ${agentId}'s channel does nothing. Give it its own app.`);
-        return { stop: () => {} };
-      }
-      taken.set(appToken, agentId);
-      const running = listen({ ...options, agentId, channel: options.name, token, appToken, agent });
-      return {
-        stop() {
-          running.stop();
-          taken.delete(appToken);
-        },
-      };
-    },
-  };
+  return defineChannel("slack", options, ({ agent, agentId, name, bound }) => {
+    const token = options.credentials?.botToken || settings.agents[agentId]?.slack.bot_token || "";
+    const appToken = options.credentials?.appToken || settings.agents[agentId]?.slack.app_token || "";
+    if (!token || !appToken) {
+      console.error(
+        `slack: ${agentId} has a Slack channel but no ${token ? "app token" : "bot token"}. Make an app at api.slack.com/apps ` +
+          `with Socket Mode on, and put its bot token ${whereKeyGoes(["agents", agentId, "slack", "bot_token"])}, ` +
+          `and its app token ${whereKeyGoes(["agents", agentId, "slack", "app_token"])}.`,
+      );
+      return { stop: () => {} };
+    }
+    const holder = taken.get(appToken);
+    if (holder && holder !== agentId) {
+      console.error(`slack: ${holder} already answers this app, so ${agentId}'s channel does nothing. Give it its own app.`);
+      return { stop: () => {} };
+    }
+    taken.set(appToken, agentId);
+    const running = listen({ ...options, agentId, channel: name, bound, token, appToken, agent });
+    return {
+      stop() {
+        running.stop();
+        taken.delete(appToken);
+      },
+    };
+  });
 }
 
 /** Reads messages until stopped. Separate from the channel so the tests can point it somewhere else. */
@@ -147,12 +141,14 @@ export function listen(
     token: string;
     appToken: string;
     agent: () => Agent | undefined;
+    /** Its `tools` and `job`, read against the agent as it loaded. */
+    bound?: Bound;
   },
 ): Running {
   const { agentId, token } = options;
   const channel = options.channel ?? "slack";
   const api = options.api ?? "https://slack.com/api";
-  const rules: Rules = { allowFrom: options.allowFrom ?? [], inGroups: options.inGroups, chatHistory: options.chatHistory, sendWhileWorking: options.sendWhileWorking };
+  const rules = rulesOf(options, options.allowFrom ?? []);
   const allowedTypes = options.uploadPolicy?.allowedMediaTypes ?? ["image/*", "application/pdf", "text/*"];
   const maxBytes = options.uploadPolicy?.maxBytes ?? 10 * 1024 * 1024;
   let stopped = false;

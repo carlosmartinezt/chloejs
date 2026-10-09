@@ -638,8 +638,23 @@ tool, or a job's `ask("email:<address>")`, and only ever with somebody in
 only to an open address made here, from the one person it was made for, with a
 DKIM signature that checks out against the key their domain publishes
 (`core/mail.ts`, node's own crypto and DNS). Do not loosen that last check:
-a From line is whatever the sender typed. `withoutTools` keeps tools away from
-every turn on a channel, for when the person writing should not reach them.
+a From line is whatever the sender typed. A reply is written down as answered
+only once its answer is sent, so one cut off by a restart is answered when the
+post box delivers it again.
+
+**Every channel takes `tools` and `job`, read once in `channels/shared.ts`**
+(`Answering`, `bind`). `tools` keeps a turn to the tools named, plus memory
+and skills (a stranger: only what is named). `job` hands every message to a
+job, run through the clock once per conversation, not once per job. That job
+is named on the channel only: the loader adds it to the agent's jobs with
+`channels` set (`channelJobs` in `load/load.ts`), and nothing but a message
+there starts it, so it is kept out of the command menu, `/<job>` and
+`POST /api/agents/:id/job/:job`. A channel
+gets no further options for instructions, skills or memory: past a tool list
+it is a job, or a second agent. A tool is named by the object itself and read
+to its name in `check`, as the agent loads, because a reload makes new tool
+objects and a running channel keeps the names; `madeWith` writes the names,
+so a changed list restarts the channel.
 
 **An agent is reachable by another system because its `agent.ts` lists
 `apiChannel()` in `channels`**, imported from `@chloejs/core/channels`.

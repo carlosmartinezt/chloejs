@@ -1,14 +1,20 @@
-// This agent on WhatsApp, through WhatsApp's own API. The number's id, a token
-// and the app secret go in .env, and chloe.config.ts hands them over under
-// `agents: { shop: { whatsapp: { ... } } }`. Without them the channel says so
-// and does not start.
+// The shop's WhatsApp number, where customers write in. The number's id, a
+// token and the app secret go in .env, and chloe.config.ts hands them over
+// under `agents: { shop: { whatsapp: { ... } } }`. Without them the channel
+// says so and does not start.
 //
 // Meta posts each message to an address and has nothing to fetch one with, so
 // chloe keeps a post box somewhere else and collects from it. Nothing here is
 // opened, and the address to paste into the app is written to the log on start.
 //
-// allowFrom is numbers in full international form, and an empty list answers
-// the first message with the sender's number, which is what goes in it.
+// Anybody may write, so no message is a turn with the agent's tools. Every one
+// goes to answer-whatsapp-customer, which is code: it looks the number up
+// first, and a number on no account is answered without asking a model. The job
+// is named here and nowhere else, so nothing but a message on this number
+// starts it. A channel for some people only lists their numbers in allowFrom,
+// in full international form.
 import { whatsappChannel } from "@chloejs/core/channels";
 
-export default whatsappChannel({ allowFrom: [] });
+import answerWhatsappCustomer from "../jobs/answer-whatsapp-customer.ts";
+
+export default whatsappChannel({ job: answerWhatsappCustomer });

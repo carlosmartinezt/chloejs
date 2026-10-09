@@ -85,6 +85,9 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   const outbox: any[] = [];
   const keys: string[] = [];
   let boxKey = "";
+  // While holding, a send is answered only when the case lets it go.
+  let holding = false;
+  const sending: (() => void)[] = [];
   const dashboard = createServer((request, response) => {
     let raw = "";
     request.on("data", (chunk) => (raw += chunk));
@@ -104,7 +107,8 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
       if (url.pathname === "/mail/addresses") return void response.end(JSON.stringify({ address: ADDRESS }));
       if (url.pathname === "/mail/send") {
         outbox.push(JSON.parse(raw));
-        return void response.end(JSON.stringify({ sent: true, id: "r1" }));
+        const sent = () => response.end(JSON.stringify({ sent: true, id: "r1" }));
+        return void (holding ? sending.push(sent) : sent());
       }
       response.writeHead(404).end();
     });
@@ -118,25 +122,30 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   };
   const deliver = (id: string, raw: string, to = ADDRESS) => held.push({ id, body: JSON.stringify({ to, raw: Buffer.from(raw, "latin1").toString("base64") }) });
 
-  const agent = {
-    ...agentFor(codeJob("unused", async () => ({}))),
-    label: "Chloe",
-    tools: {
-      gmailReadEmail: { description: "Read the owner's mail.", inputSchema: z.object({}), execute: async () => "mail" },
-      webReadPage: { description: "Read a page.", inputSchema: z.object({}), execute: async () => "page" },
-    },
-  } as unknown as Agent;
+  const own = {
+    gmailReadEmail: { description: "Read the owner's mail.", inputSchema: z.object({}), execute: async () => "mail" },
+    webReadPage: { description: "Read a page.", inputSchema: z.object({}), execute: async () => "page" },
+  };
+  const agent = { ...agentFor(codeJob("unused", async () => ({}))), label: "Chloe", tools: own } as unknown as Agent;
+  const { bind } = await import("#chloe/channels/shared");
   const running = listen({
     agentId: "test",
     channel: "email",
     dashboard: where,
     key: "chl_workspace_test",
     allowFrom: ["Jenny@Example.com"],
-    withoutTools: ["gmailReadEmail"],
+    bound: bind(agent, "email", { tools: [own.webReadPage] }),
     lookUp: dns,
     agent: () => agent,
   });
-  const { openEmail } = await import("#chloe/channels/email");
+  const { openEmail, emailChannel } = await import("#chloe/channels/email");
+  let old = "";
+  try {
+    emailChannel({ allowFrom: [], withoutTools: ["gmailReadEmail"] } as never);
+  } catch (error) {
+    old = (error as Error).message;
+  }
+  is("the old withoutTools stops the agent loading rather than being ignored", old.includes("withoutTools is gone"), true);
 
   let refused = "";
   try {
@@ -161,8 +170,19 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   console.warn = (...line: unknown[]) => void warned.push(line.join(" "));
 
   answers.push("Saturdays it is. I will look for clubs with a café.");
+  holding = true;
   deliver("e1", SIGNED.relaxed);
   await until(() => outbox.length > 1);
+  const answered = () => (db.prepare("select last_id from email_addresses where address = ?").get(ADDRESS) as { last_id: string | null }).last_id;
+  const whileSending = answered();
+  holding = false;
+  for (const sent of sending.splice(0)) sent();
+  await until(() => answered() !== null);
+  is(
+    "a reply is written down as answered only once its answer is sent, so one cut off by a restart is answered when it comes again",
+    [whileSending, answered()],
+    [null, "<abc@example.com>"],
+  );
   is(
     "her signed reply is answered in the same thread",
     [outbox[1]?.from, outbox[1]?.subject, outbox[1]?.inReplyTo, outbox[1]?.text.split("\n\nOn ")[0].trim()],
@@ -181,7 +201,7 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   is("the turn had what she wrote this time, not the quoted history", lastAsked.at(-1)?.content.includes("Saturdays work best") && !lastAsked.at(-1)?.content.includes("What matters most to you in a club?"), true);
   is("and was told her address and the subject", lastAsked.at(-1)?.content.includes("address: jenny@example.com") && lastAsked.at(-1)?.content.includes("subject: Re: Tennis"), true);
   is("and saw what was sent to start it", lastAsked.some((one) => one.role === "assistant" && one.content.includes("What matters most")), true);
-  is("a tool the channel leaves out is not offered", [lastTools.includes("gmailReadEmail"), lastTools.includes("webReadPage")], [false, true]);
+  is("only the tool the channel names is offered", [lastTools.includes("gmailReadEmail"), lastTools.includes("webReadPage")], [false, true]);
 
   deliver("e2", SIGNED.relaxed);
   await pause(300);

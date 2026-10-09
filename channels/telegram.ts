@@ -19,7 +19,7 @@
 // Two ways for messages to arrive, and `mode` picks:
 //
 //   "polling"  chloe asks Telegram for them. Nothing is exposed, and a message
-//              sent while chloe is down is picked up when it comes back. The
+//              sent while chloe is down is bound up when it comes back. The
 //              default.
 //   "webhook"  Telegram sends each one to publicUrl + /chloe/v1/<id>/telegram,
 //              which has to be reachable past the login, and checks
@@ -39,7 +39,7 @@ import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
 import type { Attachment } from "#chloe/model/model";
 import { settings, whereKeyGoes } from "#chloe/core/settings";
-import { type Button, commands, inPieces, isForAgent, receive, type Incoming, type Rules } from "./shared.ts";
+import { type Bound, type Button, commands, defineChannel, type Incoming, inPieces, isForAgent, receive, rulesOf, type Shared } from "./shared.ts";
 
 const MAX_MESSAGE = 3500; // Telegram rejects anything over 4096, and the tags added below count.
 const WAIT = 50; // Seconds Telegram holds a poll open when there is nothing new.
@@ -48,7 +48,7 @@ const WAIT = 50; // Seconds Telegram holds a poll open when there is nothing new
  * How an agent is put on Telegram: who may reach it, and whether messages are
  * fetched or posted.
  */
-export interface TelegramOptions {
+export interface TelegramOptions extends Shared {
   /**
    * "telegram" unless the agent has two bots. It is what the log shows a run
    * came in on, and the start of every address on this bot, like "telegram:123".
@@ -128,36 +128,30 @@ interface Update {
 
 /** An agent on Telegram, as a channel its own `agent.ts` names. */
 export function telegramChannel(options: TelegramOptions = {}): Channel {
-  return {
-    name: options.name ?? "telegram",
-    chatHistory: options.chatHistory,
-    madeWith: JSON.stringify(options),
-    start(agent) {
-      const agentId = agent()?.id ?? "";
-      const token = options.credentials?.botToken || settings.agents[agentId]?.telegram || "";
-      if (!token) {
-        console.error(
-          `telegram: ${agentId} has a Telegram channel but no bot. Message @BotFather in Telegram, send /newbot, ` +
-            `and put the token it gives you ${whereKeyGoes(["agents", agentId, "telegram"])}.`,
-        );
-        return { stop: () => {} };
-      }
-      const holder = taken.get(token);
-      if (holder && holder !== agentId) {
-        console.error(`telegram: ${holder} already answers this bot, so ${agentId}'s channel does nothing. Give it its own bot.`);
-        return { stop: () => {} };
-      }
-      taken.set(token, agentId);
-      const running = listen({ ...options, agentId, channel: options.name, token, agent });
-      return {
-        routes: running.routes,
-        stop() {
-          running.stop();
-          taken.delete(token);
-        },
-      };
-    },
-  };
+  return defineChannel("telegram", options, ({ agent, agentId, name, bound }) => {
+    const token = options.credentials?.botToken || settings.agents[agentId]?.telegram || "";
+    if (!token) {
+      console.error(
+        `telegram: ${agentId} has a Telegram channel but no bot. Message @BotFather in Telegram, send /newbot, ` +
+          `and put the token it gives you ${whereKeyGoes(["agents", agentId, "telegram"])}.`,
+      );
+      return { stop: () => {} };
+    }
+    const holder = taken.get(token);
+    if (holder && holder !== agentId) {
+      console.error(`telegram: ${holder} already answers this bot, so ${agentId}'s channel does nothing. Give it its own bot.`);
+      return { stop: () => {} };
+    }
+    taken.set(token, agentId);
+    const running = listen({ ...options, agentId, channel: name, bound, token, agent });
+    return {
+      routes: running.routes,
+      stop() {
+        running.stop();
+        taken.delete(token);
+      },
+    };
+  });
 }
 
 /** Reads messages until stopped. Separate from the channel so the tests can point it somewhere else. */
@@ -169,12 +163,14 @@ export function listen(
     channel?: string;
     token: string;
     agent: () => Agent | undefined;
+    /** Its `tools` and `job`, read against the agent as it loaded. */
+    bound?: Bound;
   },
 ): Running {
   const { agentId, token } = options;
   const channel = options.channel ?? "telegram";
   const api = options.api ?? "https://api.telegram.org";
-  const rules: Rules = { allowFrom: options.allowFrom ?? [], inGroups: options.inGroups, chatHistory: options.chatHistory, sendWhileWorking: options.sendWhileWorking };
+  const rules = rulesOf(options, options.allowFrom ?? []);
   const mode = options.mode ?? "polling";
   const path = `/chloe/v1/${agentId}/${channel}`;
   const secret = options.credentials?.webhookSecretToken || randomBytes(24).toString("hex");

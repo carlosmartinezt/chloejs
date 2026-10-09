@@ -44,18 +44,22 @@ export function Jobs({
               <li key={job.id}>
                 <span className="line">
                   <b className="num">{job.id}</b>
-                  <button
-                    className="small"
-                    onClick={() => fire(id, job.id)}
-                    disabled={now || offline || Boolean(cannot)}
-                    title={offline ? "This runtime is offline." : cannot}
-                  >
-                    {now ? "Running" : "Run now"}
-                  </button>
+                  {job.channels ? (
+                    <span className="dim">answers {job.channels.join(" and ")}</span>
+                  ) : (
+                    <button
+                      className="small"
+                      onClick={() => fire(id, job.id)}
+                      disabled={now || offline || Boolean(cannot)}
+                      title={offline ? "This runtime is offline." : cannot}
+                    >
+                      {now ? "Running" : "Run now"}
+                    </button>
+                  )}
                 </span>
                 {job.description && <span className="does">{job.description}</span>}
                 <span className="num dim needs">
-                  {job.when ?? job.cron ?? "when started"} · {job.timezone} · {job.code ? "code" : job.model}
+                  {job.channels ? `each message on ${job.channels.join(" and ")}` : (job.when ?? job.cron ?? "when started")} · {job.timezone} · {job.code ? "code" : job.model}
                 </span>
                 {job.files.length ? (
                   <span className="num needs made">

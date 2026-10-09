@@ -78,7 +78,7 @@ import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
 import type { Attachment } from "#chloe/model/model";
 import { nameInEnv, settings, whereKeyGoes } from "#chloe/core/settings";
 import { boxFor, collectFrom, keptBox } from "./postbox.ts";
-import { inPieces, receive, type Button, type Incoming, type Rules } from "./shared.ts";
+import { type Bound, type Button, defineChannel, type Incoming, inPieces, receive, rulesOf, type Shared } from "./shared.ts";
 
 const MAX_MESSAGE = 4000; // WhatsApp refuses a text body over 4096.
 const MAX_BUTTONS = 3; // What the API takes on one message.
@@ -87,7 +87,7 @@ const MAX_BODY = 1024; // Characters it takes on a message that has buttons.
 const TYPING = 20_000; // WhatsApp clears "typing..." after 25 seconds.
 
 /** How an agent is put on WhatsApp's own API: who may reach it, and where its messages arrive. */
-export interface WhatsAppOptions {
+export interface WhatsAppOptions extends Shared {
   /**
    * "whatsapp" unless the agent is on two numbers. It is what the log shows
    * a run came in on, the end of the address Meta sends to, and the start of
@@ -173,27 +173,21 @@ export function collectsAt(agent: string, channel = "whatsapp"): string {
 
 /** An agent on WhatsApp's own API, as a channel its own `agent.ts` names. */
 export function whatsappChannel(options: WhatsAppOptions = {}): Channel {
-  return {
-    name: options.name ?? "whatsapp",
-    chatHistory: options.chatHistory,
-    madeWith: JSON.stringify(options),
-    start(agent) {
-      const agentId = agent()?.id ?? "";
-      const held = settings.agents[agentId]?.whatsapp;
-      const phoneNumberId = options.credentials?.phoneNumberId || held?.phone_number_id || "";
-      const token = options.credentials?.token || held?.token || "";
-      const appSecret = options.credentials?.appSecret || held?.app_secret || "";
-      if (!phoneNumberId || !token) {
-        console.error(
-          `whatsapp: ${agentId} is on WhatsApp's API and has no ${phoneNumberId ? "token" : "number"}. Add an app at ` +
-            `developers.facebook.com, add WhatsApp to it, and put the number's id ` +
-            `${whereKeyGoes(["agents", agentId, "whatsapp", "phone_number_id"])}, and its token and app secret beside it.`,
-        );
-        return { stop: () => {} };
-      }
-      return listen({ ...options, agentId, channel: options.name, phoneNumberId, token, appSecret, verifyToken: options.credentials?.verifyToken, agent });
-    },
-  };
+  return defineChannel("whatsapp", options, ({ agent, agentId, name, bound }) => {
+    const held = settings.agents[agentId]?.whatsapp;
+    const phoneNumberId = options.credentials?.phoneNumberId || held?.phone_number_id || "";
+    const token = options.credentials?.token || held?.token || "";
+    const appSecret = options.credentials?.appSecret || held?.app_secret || "";
+    if (!phoneNumberId || !token) {
+      console.error(
+        `whatsapp: ${agentId} is on WhatsApp's API and has no ${phoneNumberId ? "token" : "number"}. Add an app at ` +
+          `developers.facebook.com, add WhatsApp to it, and put the number's id ` +
+          `${whereKeyGoes(["agents", agentId, "whatsapp", "phone_number_id"])}, and its token and app secret beside it.`,
+      );
+      return { stop: () => {} };
+    }
+    return listen({ ...options, agentId, channel: name, bound, phoneNumberId, token, appSecret, verifyToken: options.credentials?.verifyToken, agent });
+  });
 }
 
 /** Answers one number until stopped. Separate from the channel so the tests can point it somewhere else. */
@@ -208,6 +202,8 @@ export function listen(
     appSecret: string;
     verifyToken?: string;
     agent: () => Agent | undefined;
+    /** Its `tools` and `job`, read against the agent as it loaded. */
+    bound?: Bound;
   },
 ): Running {
   const { agentId, phoneNumberId, token, appSecret } = options;
@@ -219,11 +215,7 @@ export function listen(
   const verify = options.verifyToken || randomBytes(12).toString("hex");
   const allowedTypes = options.uploadPolicy?.allowedMediaTypes ?? ["image/*", "application/pdf", "text/*"];
   const maxBytes = options.uploadPolicy?.maxBytes ?? 10 * 1024 * 1024;
-  const rules: Rules = {
-    allowFrom: options.allowFrom?.map(asNumber),
-    chatHistory: options.chatHistory,
-    sendWhileWorking: options.sendWhileWorking,
-  };
+  const rules = rulesOf(options, options.allowFrom?.map(asNumber));
 
   if (!appSecret) {
     console.error(

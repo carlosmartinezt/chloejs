@@ -8,6 +8,8 @@
 export interface Customer {
   id: string;
   name: string;
+  /** The number they write from, in full international form. */
+  phone: string;
   /** When they first bought something. */
   since: string;
   /** Their last order, or missing if they have never ordered. */
@@ -15,10 +17,10 @@ export interface Customer {
 }
 
 const CUSTOMERS: Customer[] = [
-  { id: "c-91", name: "Halliday Coffee", since: "2024-02-11", lastOrder: "2026-09-16" },
-  { id: "c-44", name: "Marchetti & Sons", since: "2023-08-30", lastOrder: "2026-09-15" },
-  { id: "c-12", name: "The Corner Roastery", since: "2022-05-19", lastOrder: "2026-06-02" },
-  { id: "c-30", name: "Ostrava Supplies", since: "2021-11-04", lastOrder: "2026-05-20" },
+  { id: "c-91", name: "Halliday Coffee", phone: "+15550100091", since: "2024-02-11", lastOrder: "2026-09-16" },
+  { id: "c-44", name: "Marchetti & Sons", phone: "+15550100044", since: "2023-08-30", lastOrder: "2026-09-15" },
+  { id: "c-12", name: "The Corner Roastery", phone: "+15550100012", since: "2022-05-19", lastOrder: "2026-06-02" },
+  { id: "c-30", name: "Ostrava Supplies", phone: "+15550100030", since: "2021-11-04", lastOrder: "2026-05-20" },
 ];
 
 export async function customers(): Promise<Customer[]> {
@@ -27,6 +29,12 @@ export async function customers(): Promise<Customer[]> {
 
 export async function customer(id: string): Promise<Customer | undefined> {
   return CUSTOMERS.find((one) => one.id === id);
+}
+
+/** The customer who writes from this number, by its digits, so "+1 555 0100 091" finds them too. */
+export async function customerByPhone(phone: string): Promise<Customer | undefined> {
+  const digits = phone.replace(/\D/g, "");
+  return digits ? CUSTOMERS.find((one) => one.phone.replace(/\D/g, "") === digits) : undefined;
 }
 
 /** Customers who used to buy and have not ordered for this many days. */

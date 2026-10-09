@@ -109,8 +109,11 @@ that is already in the WhatsApp app.
 4. Start chloe. It asks for a post box once and writes that address to the log.
    Paste it into the app's WhatsApp page as the webhook, subscribed to
    `messages`. The page shows the same address on the agent's channel row.
-5. Write to the number from your phone. With nobody allowed yet it answers with
-   your own number. Put that in `allowFrom`.
+5. Write to the number from your phone. This one hands every message to a job
+   (see [`job`](#what-a-message-gets-tools-or-a-job)), which answers a number it
+   cannot find by saying so. A channel for some people only lists them in
+   `allowFrom`; with that list empty, it answers with your own number, which is
+   what goes in it.
 
 | Option | What it does |
 |---|---|
@@ -284,8 +287,9 @@ person on every other channel too.
 
 **A visitor is a stranger**, so a web turn gets almost nothing:
 
-- Only the tools the channel names, and its note on them. Naming the agent's memory or
-  self tools stops the agent loading, saying why.
+- Only the tools the channel names (see [`tools`](#what-a-message-gets-tools-or-a-job)),
+  and its note on them. Naming the agent's memory or self tools stops the agent
+  loading, saying why.
 - No `/command` but `/clear`, no `/model`, and never a sign-in: a slash is only
   text, and a tool that needs somebody to sign in fails rather than sending a
   visitor a link.
@@ -333,6 +337,61 @@ visitors, messages and dollars the last day came to. A job asks a visitor with
 `web:<visitor>`, and the question waits in their conversation for the next time
 the box loads it.
 
+## What a message gets: `tools` or a `job`
+
+Every channel takes the same two options, and both are optional. Without
+either, a message is a turn with the agent and every tool it has.
+
+**`tools`** keeps a turn on that channel to the tools named, for when the
+person writing should not reach the rest. Name each by the tool itself, so a
+typo or a rename is an error in your editor. The shop's web page names the one
+tool a visitor may use:
+
+```ts file=example/channels/web.ts
+```
+
+A name works too (`"orderStatus"`). The agent's memory and skills come with
+the named tools; its self tools only when named. A tool that is not in the
+agent's `tools` stops it loading. On a web page a visitor is a stranger, so
+there it is only what is named, never memory or skills.
+
+**`job`** hands every message to one of the agent's jobs, in place of a turn.
+Code goes first: look up who wrote, read their orders, and decide whether a
+model is needed at all. The job reads the message from `work.input`, and
+`work.input.userId` is the sender's id on that channel (an email address, a
+Telegram id, a WhatsApp number, a visitor's id). What it returns is the reply:
+
+```ts file=example/jobs/answer-whatsapp-customer.ts
+```
+
+Name it on the channel, and only there, as the shop's WhatsApp number does:
+
+```ts file=example/channels/whatsapp.ts
+```
+
+The agent loads it from the channel. It shows on the page with its runs,
+marked with the channel it answers, and only a message there starts it: no
+`/command`, no Run now, and no route a program can call. It must be code with
+`run` and no cron line, and not also in the agent's `jobs`. A channel hands
+its messages to one job. Two channels may name the same one.
+
+- One conversation runs the job once at a time, and two conversations run it
+  side by side. A message in a conversation whose last one is still being
+  answered is told to send it again.
+- A job that asks with `work.ask` asks in that conversation, and the next
+  message there is the answer.
+- On a channel with a job, a slash is only text: no `/model`, no `/<job>`.
+  `/clear` still starts the conversation fresh.
+- A run that fails tells the person only that something went wrong. The error
+  is in the run, and in the mail the owner gets when a job starts failing.
+- `work.state` is one store for every conversation. Keep anything per person
+  under `work.input.userId`.
+
+Anything past a tool list belongs in a job, and a channel takes no other
+options for instructions, skills or memory. An agent that should be a
+different agent altogether for some people is a second agent, with its own
+channel.
+
 ## Running a job from a chat
 
 A message beginning with `/<job id>` runs that job of that agent, and nothing
@@ -362,6 +421,18 @@ it does not is written right there, without editing anything in the runtime.
 `channels` in `agent.ts` is a list, and two channels of one agent cannot share
 a name.
 
+Write it with `defineChannel(kind, options, start)` from
+`@chloejs/core/channels`. Its options extend `Shared`, so it takes `name`,
+`allowFrom`, `chatHistory`, `sendWhileWorking`, `tools` and `job` the way every
+channel does, and `defineChannel` does everything about them: it checks
+`tools` and `job` as the agent loads, loads the job, and writes the options
+out for the page (`{ hidden: ["key"] }` leaves a secret out). `start` is handed
+the agent, its id, the channel's name and what was bound, and does only the
+platform: it listens, turns each message into an `Incoming`, calls
+`receive(agent(), incoming, rulesOf({ ...options, bound }))`, and sends back
+the text it returns. An option every channel should have is added to `Shared`,
+`defineChannel` and `rulesOf`, and no channel changes.
+
 A channel only reads its platform and sends to it. What happens to a message is
 the same for every channel and is not the channel's to decide: it turns the
 message into an `Incoming` (who sent it, where, the text, whether it is a
@@ -377,7 +448,8 @@ private chat, whether it mentions the agent) and calls `receive()` from
 4. Runs `/<job id>`, with `_` for `-`, and answers `/clear`, `/models` and
    `/model` itself.
 5. Otherwise asks the agent, showing it the chat's recent conversation, and
-   sends its reply. A reply that reads `/<job id>` starts nothing: the agent
+   sends its reply. With a `job`, a message that got past 3 goes to that job
+   instead of 4 and 5, and its reply is what the job returned. A reply that reads `/<job id>` starts nothing: the agent
    may have read a page or a mail written to ask for it. A job starts on its
    schedule or from a command a person sent. A skill is how the agent handles
    a plain message itself.

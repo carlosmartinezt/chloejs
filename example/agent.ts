@@ -3,7 +3,8 @@
 // model at all), the inbox sorted (one model step), buying stock (code decides,
 // a model writes the line), a customer's problem looked into (one of each, in
 // one job), a customer who went quiet (an agent step), a refund big enough that a
-// person decides, and one job that is a prompt from end to end.
+// person decides, one job that is a prompt from end to end, and a customer's
+// message answered with their orders at hand.
 //
 // `services/` stands in for the systems a shop already has. Point those at the real
 // thing and nothing in `jobs/` changes.
@@ -33,6 +34,8 @@ export default defineAgent({
   description: "Watches the orders, the inbox, the shelves and the customers who stopped buying.",
   instructions: prompt("instructions.md"),
   tools: { orderStatus },
+  // A channel's job is named on its channel, not here: answer-whatsapp-customer
+  // is in channels/whatsapp.ts.
   jobs: [stuckOrders, sortMessages, restock, orderIssues, whyTheyLeft, bigRefunds, howItWent],
   channels: [telegram, whatsapp, api, web],
 });

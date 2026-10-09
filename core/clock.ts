@@ -45,8 +45,13 @@ export interface Clock {
    * the error rather than a failed run. `channel` is what the log shows it
    * came in on, and is "unknown" when left out. A run that did not happen
    * hands back why, so a caller can say which of the two it was.
+   *
+   * With `conversation`, as a channel's job is run, the guard is one run per
+   * conversation rather than one per job, so two people are answered side by
+   * side. An answer to a run waiting in that conversation has already gone to
+   * it before this is called.
    */
-  fire(agent: Agent, job: Job, input?: unknown, channel?: string): Promise<Fired | NotRun>;
+  fire(agent: Agent, job: Job, input?: unknown, channel?: string, conversation?: string): Promise<Fired | NotRun>;
   /**
    * Pick up a run of a prompt job that the service stopped in the middle of,
    * or that ran out of steps, under the same guard as `fire`, so it never overlaps another run of that
@@ -87,16 +92,16 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
    * inside the run is that run's own record, and is logged rather than thrown:
    * the clock has nobody to tell.
    */
-  async function fire(agent: Agent, job: Job, input?: unknown, channel = "unknown"): Promise<Fired | NotRun> {
-    return guarded(agent, job, () =>
+  async function fire(agent: Agent, job: Job, input?: unknown, channel = "unknown", conversation?: string): Promise<Fired | NotRun> {
+    return guarded(agent, job, conversation, () =>
       job.run
         ? work({ agent, job, source: channel, input })
         : turn({ agent, prompt: job.prompt, model: modelFor(agent, job), source: channel, job: job.id }),
     );
   }
 
-  async function guarded(agent: Agent, job: Job, run: () => Promise<Fired>): Promise<Fired | NotRun> {
-    const key = `${agent.id}/${job.id}`;
+  async function guarded(agent: Agent, job: Job, conversation: string | undefined, run: () => Promise<Fired>): Promise<Fired | NotRun> {
+    const key = conversation ? `${agent.id}/${job.id}/${conversation}` : `${agent.id}/${job.id}`;
     if (busy.has(key)) {
       console.warn(`${key}: still running from last time, skipping this one`);
       return { skipped: "busy" };
@@ -104,7 +109,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
     // A job waiting on a person is still that job's turn. Starting a second
     // one would ask the same question twice and act on whichever came back
     // first.
-    if (job.run && waitingFor(agent.id, job.id)) {
+    if (job.run && !conversation && waitingFor(agent.id, job.id)) {
       console.warn(`${key}: still waiting on an answer, skipping this one`);
       return { skipped: "waiting" };
     }
@@ -154,7 +159,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
   current = {
     stop: () => clearInterval(timer),
     fire,
-    carryOn: (agent, job, runId) => guarded(agent, job, () => carryOn({ agent, runId })),
+    carryOn: (agent, job, runId) => guarded(agent, job, undefined, () => carryOn({ agent, runId })),
     running: () => [...busy],
   };
   return current;

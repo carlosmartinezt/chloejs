@@ -4,7 +4,7 @@ import { isStepCount, tool } from "ai";
 import { z } from "zod";
 import { about, is } from "#chloe/ops/check";
 import type { Job } from "./shared.ts";
-import { agentFor, answers, asked, codeJob, db, lastAsked, row } from "./shared.ts";
+import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from "./shared.ts";
 
 {
   about("runs a stop cut off");
@@ -260,4 +260,101 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, row } from "./shared.
   answers.push({ content: "", tool_calls: [call] });
   const alone = await turn({ agent, prompt: "any late orders?", source: "schedule" });
   is("a run with nobody to answer starts no sign-in, and says who can", alone.text.includes("signs in from a chat") && !alone.text.includes(link), true);
+}
+
+{
+  about("a channel's tools and job");
+  const { bind, receive } = await import("#chloe/channels/shared");
+  const { startClock } = await import("#chloe/core/clock");
+  const fake = (description: string) => tool({ description, inputSchema: z.object({}), execute: async () => description });
+  const own = { shopOrders: fake("Orders."), ownerMail: fake("The owner's mail."), memoryReadFile: fake("A note."), selfWriteFile: fake("Its own file.") };
+  const shop = { ...agentFor(codeJob("unused", async () => ({}))), tools: own };
+
+  is("a tool is named by the tool itself, and read as its name", bind(shop, "email", { tools: [own.shopOrders, "ownerMail"] }).tools, ["shopOrders", "ownerMail"]);
+  const refusal = (options: Parameters<typeof bind>[2]) => {
+    try {
+      bind(shop, "email", options);
+      return "";
+    } catch (error) {
+      return (error as Error).message;
+    }
+  };
+  is("a tool that is not one of the agent's stops it loading", refusal({ tools: [fake("Elsewhere.")] }).includes("not in its tools"), true);
+
+  // A channel's job is named on the channel, and the agent loads it from there.
+  const { defineAgent, defineJob } = await import("@chloejs/core");
+  const { tmpdir } = await import("node:os");
+  const { resolveAgent } = await import("#chloe/load/load");
+  const { commands } = await import("#chloe/channels/shared");
+  const replying = defineJob({ id: "reply", description: "Replies.", run: async () => "Hi." });
+  const loading = (job: unknown, jobs: unknown[] = []) =>
+    resolveAgent(
+      defineAgent({
+        id: "desk",
+        description: "",
+        instructions: "Hello.",
+        model: "m",
+        folder: tmpdir(),
+        jobs: jobs as never,
+        channels: [
+          { name: "first", job, start: () => ({ stop: () => {} }) },
+          { name: "second", job, start: () => ({ stop: () => {} }) },
+        ] as never,
+      }),
+    ).then(
+      (agent) => agent,
+      (error: Error) => error.message,
+    );
+  const loaded = await loading(replying);
+  is(
+    "a channel's job is one of the agent's jobs, once, with each channel that names it",
+    typeof loaded === "string" ? loaded : loaded.jobs.map((one) => [one.id, one.channels]),
+    [["reply", ["first", "second"]]],
+  );
+  is("and no channel offers it as a command", typeof loaded === "string" ? loaded : commands(loaded).some((one) => one.command === "reply"), false);
+  is("one also in its jobs stops the agent loading", String(await loading(replying, [replying])).includes("also in its jobs"), true);
+  is("so does one that is a prompt", String(await loading(defineJob({ id: "said", description: "", markdown: "Say hi." } as never))).includes("is a prompt"), true);
+  is("and one with a cron line", String(await loading(defineJob({ id: "timed", description: "", cron: "0 9 * * *", run: async () => "" }))).includes("cron line"), true);
+
+  answers.push("Order 12 ships Monday.");
+  await receive(shop, { channel: "test", chat: "t", thread: "test/tools-named", from: { id: "1", name: "Me" }, text: "where is it?", private: true }, { tools: ["shopOrders"] });
+  is(
+    "a turn has the tools named, its memory and its skills, and nothing else",
+    [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("skillRead"), lastTools.includes("ownerMail"), lastTools.includes("selfWriteFile")],
+    [true, true, true, false, false],
+  );
+  answers.push("Hello.");
+  await receive(shop, { channel: "test", chat: "t", thread: "test/tools-stranger", from: { id: "v", name: "a visitor" }, text: "hi", private: true }, { tools: ["shopOrders"], strangers: true });
+  is("a stranger's turn has only what is named", [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("skillRead")], [true, false, false]);
+
+  // A job that holds each run open until the case lets it go.
+  const inputs: { text: string; userId: string; from: string }[] = [];
+  const going: (() => void)[] = [];
+  const answer = {
+    ...codeJob("answer", async ({ input }) => {
+      inputs.push({ text: input.text, userId: input.userId, from: input.from });
+      await new Promise<void>((done) => going.push(done));
+      return `Thanks, ${input.userId}.`;
+    }),
+  } as Job;
+  delete answer.cron;
+  const desk = { ...agentFor(answer), tools: own };
+  const ticking = startClock(() => new Map([["test", desk]]));
+  const from = (who: string, text: string) =>
+    receive(desk, { channel: "email", chat: who, thread: `test/${who}`, from: { id: who, name: who }, text, private: true }, { job: "answer" });
+  const asking = asked;
+  const first = from("ann@shop.test", "/model gpt-5");
+  const second = from("bob@shop.test", "Where is my order?");
+  for (let i = 0; i < 50 && inputs.length < 2; i++) await new Promise((done) => setTimeout(done, 10));
+  is("every message starts the job, with who sent it, and a slash is only text", inputs, [
+    { text: "/model gpt-5", userId: "ann@shop.test", from: "email" },
+    { text: "Where is my order?", userId: "bob@shop.test", from: "email" },
+  ]);
+  is("two conversations are answered side by side", ticking.running().length, 2);
+  const again = await from("ann@shop.test", "Hello?");
+  is("a second message in one conversation still being answered is told to wait", again?.text, "I am still answering your last message. Send this one again once I have.");
+  for (const done of going.splice(0)) done();
+  is("what the job returns is the reply", [(await first)?.text, (await second)?.text], ["Thanks, ann@shop.test.", "Thanks, bob@shop.test."]);
+  is("and no model was asked for any of it", asked, asking);
+  ticking.stop();
 }

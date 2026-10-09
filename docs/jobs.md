@@ -44,8 +44,10 @@ not up it.
   not change. Most jobs declare nothing and never touch it. `state` moves,
   `args` does not, so there is nothing to set.
 - `input` is where the run was started from: the text, the channel, the chat
-  and who said it. Always there, so a job that reads what started it declares
-  nothing.
+  and who said it (`user`, their name, and `userId`, their id on that channel).
+  Always there, so a job that reads what started it declares nothing. A job a
+  channel hands every message to (`job` on the channel, see
+  [channels](/docs/channels)) reads the message from here.
 - `memory` is where its agent remembers things. A job that files something
   there reads the path from here, so the agent's definition is the one place
   that says where.

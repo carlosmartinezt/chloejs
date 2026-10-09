@@ -234,6 +234,8 @@ export function summary(agent: Agent) {
       // A job made of code has no model until one of its steps asks for one.
       model: s.run ? "code" : modelFor(agent, s),
       code: Boolean(s.run),
+      // The channels that hand it every message, for a job only they start.
+      channels: s.channels,
       files: s.files,
     })),
   };
@@ -698,6 +700,8 @@ export const routes: Route[] = [
       const agent = context.agent(params.id);
       const job = agent.jobs.find((one: Job) => one.id === params.job);
       if (!job) throw new NotFound(`${agent.id} has no job called ${JSON.stringify(params.job)}.`);
+      // Started by a message on its channel only: here the sender would be whoever called.
+      if (job.channels) throw new BadRequest(`${job.id} answers ${agent.id}'s ${job.channels.join(" and ")} channel, and only a message there starts it.`);
 
       // A query string for the one-liner case, a body for anything with
       // newlines or numbers in it, and the body wins where they overlap.

@@ -345,6 +345,12 @@ export interface Job {
   state?: z.ZodType;
   /** The shape of what starting it by hand may send. See job.ts. */
   args?: z.ZodType;
+  /**
+   * The channels that hand it every message, for a job named on a channel
+   * rather than in `jobs`. Only a message there starts it: it has no schedule,
+   * no /command, and nothing on the page or the API runs it.
+   */
+  channels?: string[];
 }
 
 /** Tools the runtime brings, switched on per agent: `features: { selfImprovement: true }`. */
@@ -442,6 +448,11 @@ export interface Channel {
    * long as it runs.
    */
   madeWith?: string;
+  /**
+   * The job it hands every message to, when it has one. The agent loads it as
+   * one of its jobs, started only from this channel.
+   */
+  job?: JobConfig<any, any, any, any>;
   /** Asked as the agent loads whether it can be bound to that agent. Throws, saying why, when it cannot, and the agent does not load. */
   check?(agent: Agent): void;
   /** Starts listening. `agent` is read again for every message, so an edit is live. */
@@ -612,6 +623,7 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
     );
   }
   const home = { id, folder, memory };
+  const bound = channelsOf(channels ?? [], where);
   const agent: Agent = {
     ...rest,
     model,
@@ -624,8 +636,8 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
     ],
     tools: toolsOf({ ...(await connectionTools(connections ?? [], where)), ...featureTools(definition.features, home, where), ...tools }, where),
     skills: await skillsIn(`${folder}/skills`),
-    jobs: await jobsOf(id, folder, jobs ?? []),
-    channels: channelsOf(channels ?? [], where),
+    jobs: await channelJobs(id, folder, await jobsOf(id, folder, jobs ?? []), bound),
+    channels: bound,
     connections: connections ?? [],
   };
   for (const channel of agent.channels) {
@@ -742,6 +754,33 @@ export async function jobsOf(agent: string, dir: string, list: (JobConfig<any, a
     add("markdownJob" in one ? await fromMarkdown(agent, dir, one.markdownJob) : await fromCode(agent, dir, one));
   }
   return jobs;
+}
+
+/**
+ * Its jobs, and the ones its channels hand messages to, each of those once
+ * with every channel that names it. A channel's job is named on the channel
+ * only, so nothing but a message there can start it: one also in `jobs`, a
+ * prompt, or one with a cron line stops the agent loading.
+ */
+async function channelJobs(agent: string, dir: string, jobs: Job[], channels: Channel[]): Promise<Job[]> {
+  const all = [...jobs];
+  for (const channel of channels) {
+    if (!channel.job) continue;
+    const where = `${agent}'s ${channel.name} channel`;
+    const same = all.find((one) => one.id === channel.job!.id);
+    if (same && !same.channels) {
+      throw new Error(`${where} hands its messages to ${same.id}, which is also in its jobs. Name a channel's job on the channel only, so nothing else starts it.`);
+    }
+    if (same) {
+      same.channels!.push(channel.name);
+      continue;
+    }
+    const job = await fromCode(agent, dir, channel.job);
+    if (!job.run) throw new Error(`${where} hands its messages to ${job.id}, which is a prompt. A channel's job is code with run, which reads the message from work.input.`);
+    if (job.cron) throw new Error(`${where} hands its messages to ${job.id}, which has a cron line. A channel's job starts from its messages only.`);
+    all.push({ ...job, channels: [channel.name] });
+  }
+  return all;
 }
 
 /**

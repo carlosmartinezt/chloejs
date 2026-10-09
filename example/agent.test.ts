@@ -10,8 +10,9 @@ const shop = await load("shop");
 
 is("it is reached the four ways its agent.ts names, and no other", shop.channels.map((one) => one.name), ["telegram", "whatsapp", "api", "web"]);
 is(
-  "its jobs are the ones it names",
+  "its jobs are the ones it and its channels name",
   shop.jobs.map((one) => one.id).sort(),
-  ["big-refunds", "how-it-went", "order-issues", "restock", "sort-messages", "stuck-orders", "why-they-left"],
+  ["answer-whatsapp-customer", "big-refunds", "how-it-went", "order-issues", "restock", "sort-messages", "stuck-orders", "why-they-left"],
 );
+is("one answers its WhatsApp number, and only a message there starts it", shop.jobs.filter((one) => one.channels).map((one) => [one.id, one.channels]), [["answer-whatsapp-customer", ["whatsapp"]]]);
 is("one is a prompt and the rest are code", shop.jobs.filter((one) => !one.run).map((one) => one.id), ["how-it-went"]);

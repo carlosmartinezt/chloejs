@@ -28,11 +28,17 @@
 // On a channel for strangers (`strangers` in Rules), there is no sign-in in 2
 // and nothing in 4: a slash is only text, and the message is a turn.
 //
+// A channel can narrow 5, or replace it, with the two options every channel
+// takes (`Answering`): `tools`, the only tools its turns have, and `job`, a
+// job every message starts in place of a turn. With a job there is no model
+// pick, no sign-in and no /command either: the job decides.
+//
 // What a job said in a chat is kept in that chat's conversation, so the next
 // turn knows it happened.
 import { z } from "zod";
 
-import type { Agent, ChatHistory, Job } from "#chloe/load/load";
+import type { Agent, Channel, ChatHistory, Job, Running } from "#chloe/load/load";
+import type { JobConfig } from "#chloe/load/job";
 import type { Attachment } from "#chloe/model/model";
 import { choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices";
 import { forget, remember } from "#chloe/model/memory";
@@ -41,7 +47,7 @@ import { clock, type Fired, ran } from "#chloe/core/clock";
 import { answer, waitingOn, WrongArgs } from "#chloe/core/steps";
 import { turn } from "#chloe/core/turn";
 import type { Connection } from "#chloe/connections/connection";
-import { connectionsUsed } from "#chloe/model/tool";
+import { connectionsUsed, type ChloeTool } from "#chloe/model/tool";
 
 /** One message, in the words every channel shares. */
 export interface Incoming {
@@ -98,6 +104,149 @@ export interface Rules {
    * sign-in a tool needs is never started for them.
    */
   strangers?: boolean;
+  /** The names of the only tools a turn has, from the channel's `tools` read by `bind`. Every tool when unset. */
+  tools?: string[];
+  /** The id of the job every message starts, from the channel's `job`, filled in by `bind`. */
+  job?: string;
+}
+
+/**
+ * The two options every channel takes, both optional, for what its messages
+ * get when it is not a turn with every tool the agent has.
+ */
+export interface Answering {
+  /**
+   * The only tools a turn on this channel has, each the tool itself or its
+   * name in the agent's `tools`: `tools: [tools.readPage]`. The agent's memory
+   * and skills come too, and its self tools only when named. Every tool when
+   * unsaid.
+   */
+  tools?: (ChloeTool | string)[];
+  /**
+   * A job every message starts, in place of a turn: code that can look up who
+   * wrote before anybody answers. It reads the message from `work.input`, and
+   * what it returns is the reply. Named here and not in the agent's `jobs`:
+   * the agent loads it from here, and only a message on this channel starts
+   * it. Code with `run`, and no cron line. One conversation runs it once at a
+   * time; two conversations run it side by side.
+   */
+  job?: JobConfig<any, any, any, any>;
+}
+
+/** A channel's `tools` and `job` once read against its agent: the part of its rules they come to. */
+export type Bound = Pick<Rules, "tools" | "job">;
+
+/**
+ * What every channel takes, whatever its platform. A channel's own options
+ * extend this, and `defineChannel` and `rulesOf` read it, so an option every
+ * channel should have is added here and in those two, and no channel changes.
+ */
+export interface Shared extends Answering {
+  /** The kind of channel unless the agent has two of one kind. What the log shows a run came in on, and the start of every address on it. */
+  name?: string;
+  /** Who may reach the agent, as the platform names them. */
+  allowFrom?: (string | number)[];
+  /** How much of a conversation a turn is shown: `{ messages, days }`. */
+  chatHistory?: ChatHistory;
+  /** Off unless true. Sends what the model writes on its way to an answer as it writes it. */
+  sendWhileWorking?: boolean;
+}
+
+/** What a channel's own code is handed as it starts. */
+export interface Starting {
+  /** The agent, read again for every message, so an edit is live. */
+  agent: () => Agent | undefined;
+  agentId: string;
+  /** The channel's name: its `name` option, or its kind. */
+  name: string;
+  /** Its `tools` and `job`, read against the agent as it loaded. Hand them to `rulesOf`. */
+  bound: Bound;
+}
+
+/**
+ * Makes a channel. `kind` is the platform it is for, like "telegram", and is
+ * also its name unless `options.name` gives another (an agent with two bots
+ * names one of them). `start` is what it does to start. This does everything
+ * but the platform. It checks `tools` and `job`
+ * against the agent as it loads, loads the job, and writes the options out for
+ * the page, leaving out any named in `hidden`. `start` only reads the platform
+ * and sends to it, handing each message to `receive()` with `rulesOf` its
+ * options.
+ */
+export function defineChannel<O extends Shared>(
+  kind: string,
+  options: O,
+  start: (starting: Starting) => Running,
+  more: { hidden?: (keyof O)[] } = {},
+): Channel {
+  const name = options.name ?? kind;
+  let bound: Bound = {};
+  const shown = Object.fromEntries(Object.entries(options).filter(([key]) => !more.hidden?.includes(key as keyof O)));
+  return {
+    name,
+    chatHistory: options.chatHistory,
+    job: options.job,
+    get madeWith() {
+      return madeWith(shown, bound);
+    },
+    check(agent) {
+      bound = bind(agent, name, options);
+    },
+    start(agent) {
+      return start({ agent, agentId: agent()?.id ?? "", name, bound });
+    },
+  };
+}
+
+/**
+ * The rules a channel hands `receive()`, from its options and what was bound.
+ * `allowFrom` is the channel's own, written the way its platform writes ids,
+ * when it reads them differently.
+ */
+export function rulesOf(options: Shared & { inGroups?: Rules["inGroups"]; bound?: Bound }, allowFrom = options.allowFrom): Rules {
+  return { allowFrom, inGroups: options.inGroups, chatHistory: options.chatHistory, sendWhileWorking: options.sendWhileWorking, ...options.bound };
+}
+
+/**
+ * Reads a channel's `tools` and `job` against the agent it is bound to, as
+ * the agent loads (a channel's `check`), into what its rules take. Throws,
+ * saying why, for a tool object that is not the agent's. A name it does not
+ * have is said in the log and left out, since a connection that did not
+ * answer leaves its tools out too.
+ */
+export function bind(agent: Agent, channel: string, options: Answering): Bound {
+  const bound: Bound = {};
+  if (options.tools) {
+    const own = Object.entries(agent.tools ?? {});
+    bound.tools = options.tools.map((one) => {
+      if (typeof one === "string") {
+        if (one !== "skillRead" && !agent.tools?.[one]) {
+          console.error(`${agent.id}: its ${channel} channel names ${one}, which it does not have, so a turn there goes without it. It has: ${own.map(([name]) => name).join(", ") || "none"}.`);
+        }
+        return one;
+      }
+      const found = own.find(([, tool]) => tool === one);
+      if (!found) throw new Error(`its ${channel} channel names a tool that is not in its tools. Add it to tools in agent.ts, and name it from there.`);
+      return found[0];
+    });
+  }
+  // The loader has made it one of the agent's jobs, and checked it.
+  if (options.job) bound.job = options.job.id;
+  return bound;
+}
+
+/**
+ * A channel's options as they are written out for `madeWith`: its tools by
+ * name and its job by id, so a reload restarts the channel when either
+ * changes, and nothing is written out of a tool but its name.
+ */
+export function madeWith(options: object, bound: Bound): string {
+  const said = options as Answering;
+  return JSON.stringify({
+    ...options,
+    ...(said.tools && { tools: bound.tools ?? said.tools.map((one) => (typeof one === "string" ? one : "(a tool)")) }),
+    ...(said.job && { job: said.job.id }),
+  });
 }
 
 /** What a channel can do while a message is being dealt with. */
@@ -162,16 +311,18 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
     return said("Conversation cleared.");
   }
 
-  const picking = rules.strangers ? undefined : modelCommand(text);
-  if (picking) return { ...picked(agent, message, picking), steps: 0, cost: 0 };
+  const picking = rules.strangers || rules.job ? undefined : modelCommand(text);
+  if (picking) return { ...bound(agent, message, picking), steps: 0, cost: 0 };
 
-  const signingIn = text && !rules.strangers ? connectionsUsed(agent.tools ?? {}).find((one) => one.signIn?.answers(text)) : undefined;
+  const signingIn = text && !rules.strangers && !rules.job ? connectionsUsed(agent.tools ?? {}).find((one) => one.signIn?.answers(text)) : undefined;
   if (signingIn) return during(working, () => signedIn(agent, message, signingIn, rules, whileWorking));
 
   const waiting = text ? waitingOn(`${channel}:${message.chat}`, agent.id) : undefined;
   if (waiting) return during(working, () => answered(agent, message, waiting.id, waiting.job));
 
   if (!isForAgent(message, rules)) return undefined;
+
+  if (rules.job) return during(working, () => handedTo(agent, message, rules.job!));
 
   const job = text && !rules.strangers ? jobFor(agent, text) : undefined;
   if (job && clock()) {
@@ -204,10 +355,11 @@ function clearCommand(text: string): boolean {
   return /^\/clear(?:@\w+)?\s*$/i.test(text);
 }
 
-/** The commands a channel can offer in its own menu: each job, with "_" for "-", then /models and /clear. */
+/** The commands a channel can offer in its own menu: each job a person may start, with "_" for "-", then /models and /clear. */
 export function commands(agent: Agent): { command: string; description: string }[] {
   return [
     ...agent.jobs
+      .filter((job) => !job.channels)
       .map((job) => ({ command: job.id.replace(/-/g, "_").toLowerCase(), description: (job.description || job.id).slice(0, 256) }))
       .filter((one) => /^[a-z0-9_]{1,32}$/.test(one.command)),
     { command: "models", description: "Which model answers here, and the ones to pick from" },
@@ -235,7 +387,7 @@ function modelCommand(text: string): { pick?: string; target?: string } | undefi
 const SHOWN = 20;
 
 /** What a model command comes back with: the list, or the pick made. */
-function picked(agent: Agent, message: Incoming, asked: { pick?: string; target?: string }): { text: string; buttons?: Button[] } {
+function bound(agent: Agent, message: Incoming, asked: { pick?: string; target?: string }): { text: string; buttons?: Button[] } {
   const offered = models(agent);
   const thread = message.thread;
   const here = thread ? chosen(agent.id, `chat:${thread}`) : undefined;
@@ -324,7 +476,8 @@ function jobFor(agent: Agent, text: string): { job: Job; text: string } | undefi
   if (!text.startsWith("/")) return undefined;
   const [word] = text.trim().split(/\s+/);
   const asked = word.slice(1).split("@")[0].toLowerCase();
-  const job = agent.jobs.find((one) => one.id === asked || one.id === asked.replace(/_/g, "-"));
+  // A channel's job is started by a message on that channel, never by a command.
+  const job = agent.jobs.find((one) => !one.channels && (one.id === asked || one.id === asked.replace(/_/g, "-")));
   return job && { job, text: text.trim().slice(word.length).trim() };
 }
 
@@ -386,12 +539,7 @@ async function started(agent: Agent, message: Incoming, job: Job, text: string):
   const input = {
     ...argsFrom(job, text),
     text,
-    from: message.channel,
-    chat: message.chat,
-    chatTitle: message.chatTitle ?? "",
-    user: message.from.name,
-    thread: message.thread,
-    replyTo: message.replyTo ?? "",
+    ...envelope(message),
   };
   try {
     const result = await clock()!.fire(agent, job, input, message.channel);
@@ -409,6 +557,47 @@ async function started(agent: Agent, message: Incoming, job: Job, text: string):
     const why = error instanceof WrongArgs ? `${error.message}\n${usage(job)}` : "It is in the logs on the box.";
     if (!(error instanceof WrongArgs)) console.error(`${agent.id}/${job.id}: failed`, error);
     return { text: `I could not run ${job.id}. ${why}`, steps: 0, cost: 0, job: job.id };
+  }
+}
+
+/** A message as a job's `work.input` has it. */
+function envelope(message: Incoming): Record<string, string> {
+  return {
+    from: message.channel,
+    chat: message.chat,
+    chatTitle: message.chatTitle ?? "",
+    user: message.from.name,
+    userId: message.from.id,
+    thread: message.thread,
+    replyTo: message.replyTo ?? "",
+  };
+}
+
+/**
+ * A message on a channel with a `job`: start that job with it, once per
+ * conversation, and send back what it returns. What went wrong is the run's
+ * and the log's, never the person's: on some channels they are a stranger.
+ */
+async function handedTo(agent: Agent, message: Incoming, id: string): Promise<Handled> {
+  const job = agent.jobs.find((one) => one.id === id);
+  const wrong = { text: "Something went wrong on my end. It is in the logs on the box.", steps: 0, cost: 0, job: id };
+  if (!job || !clock()) {
+    console.error(`${message.channel}: ${agent.id}'s job ${id} could not start: ${job ? "nothing runs jobs in this process" : "the agent has no such job"}.`);
+    return wrong;
+  }
+  try {
+    const conversation = message.thread || `${message.channel}:${message.chat}`;
+    const result = await clock()!.fire(agent, job, { text: message.text, ...envelope(message) }, message.channel, conversation);
+    if (!ran(result)) {
+      if (result.skipped) return { ...wrong, text: "I am still answering your last message. Send this one again once I have." };
+      return wrong;
+    }
+    const reply = replyOf(result, job);
+    if (result.runId) kept(message, reply);
+    return { text: reply, runId: result.runId, steps: result.steps, cost: result.cost, job: job.id };
+  } catch (error) {
+    console.error(`${agent.id}/${job.id}: failed`, error);
+    return wrong;
   }
 }
 
@@ -478,7 +667,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
       model: message.model ?? (message.thread ? chosen(agent.id, `chat:${message.thread}`) : undefined),
       source: message.channel,
       owner: `${message.channel}:${message.from.id}`,
-      without: message.withoutTools,
+      without: [...(message.withoutTools ?? []), ...leftOut(agent, rules)],
       stranger: rules.strangers,
       user: `${message.channel}:${message.from.id}`,
       signal: message.signal,
@@ -490,4 +679,18 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
     if (error instanceof UsageLimit) return { text: error.message, steps: 0, cost: 0 };
     return { text: "Something went wrong on my end. It is in the logs on the box.", steps: 0, cost: 0 };
   }
+}
+
+/**
+ * The tools a turn goes without because its channel names the ones it may
+ * have: everything not named, less the memory tools and `skillRead`, which
+ * come with the agent. A stranger gets only what is named, and their own note
+ * when the agent keeps one per person.
+ */
+function leftOut(agent: Agent, rules: Rules): string[] {
+  const named = rules.tools;
+  if (!named) return [];
+  const keeps = (name: string) =>
+    named.includes(name) || (rules.strangers ? name === "memoryWriteUserNotes" : /^memory[A-Z]/.test(name) || name === "skillRead");
+  return [...Object.keys(agent.tools ?? {}), "skillRead"].filter((name) => !keeps(name));
 }

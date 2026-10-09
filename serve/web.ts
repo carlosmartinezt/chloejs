@@ -324,13 +324,12 @@ export async function webTurn(at: At): Promise<void> {
         text,
         private: true,
         model: web.model,
-        withoutTools: [...Object.keys(agent.tools ?? {}), "skillRead"].filter((one) => !web.tools.includes(one) && one !== "memoryWriteUserNotes"),
         files: images.length
           ? async () => ({ attachments: images.map(({ name, mediaType, data }) => ({ name, mediaType, data })), notes: images.map((one) => `(Attached: ${one.name})`) })
           : undefined,
         signal: gone.signal,
       },
-      { chatHistory: web.chatHistory, sendWhileWorking: true, strangers: true },
+      { chatHistory: web.chatHistory, sendWhileWorking: true, strangers: true, tools: web.tools, job: web.job },
       {
         send: async (words) => {
           if (!drafted) event("said", { text: words });
