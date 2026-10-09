@@ -123,6 +123,10 @@ export const api = {
   me: () => call<Me>("/me"),
   agents: () => call<AgentSummary[]>("/agents"),
   agent: (id: string) => call<AgentSummary>(`/agents/${id}`),
+  /** The models somebody may pick for that agent. */
+  models: (agent: string) => call<{ model: string; route: string }[]>(`/models?agent=${encodeURIComponent(agent)}`),
+  /** Picks a model for "agent", "job:<id>" or "chat:<thread>". An empty model takes the pick back. */
+  pickModel: (agent: string, scope: string, model: string) => call<AgentSummary>(`/agents/${agent}/model`, { scope, model }),
   health: () => call<{ agents: string[]; running: string[] }>("/health"),
   runs: (limit = 60, agent?: string) =>
     call<RunRow[]>(`/runs?limit=${limit}${agent ? `&agent=${encodeURIComponent(agent)}` : ""}`),
