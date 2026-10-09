@@ -19,8 +19,8 @@ export interface AgentSummary {
   /** What the site calls its memory. Every agent has one. */
   memory: string;
   tools: string[];
-  /** Where each tool it did not write itself comes from, like "features.memory". */
-  toolsFrom: Record<string, string>;
+  /** Where each tool it did not write itself comes from, like "features.memory". A runtime older than 0.34 sends none. */
+  toolsFrom?: Record<string, string>;
   skills: string[];
   /** `channels` is set for a job only a message on those channels starts. */
   jobs: { id: string; description?: string; cron?: string; when?: string; timezone: string; model: string; code?: boolean; files: string[]; channels?: string[] }[];

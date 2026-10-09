@@ -431,7 +431,8 @@ function Agent({
   if (!agent) return <p className="dim">Loading</p>;
   const mine = runs.filter((run) => run.agent === id);
   const held = flatten(files ?? []);
-  const own = agent.tools.filter((name) => !agent.toolsFrom[name]);
+  const from = agent.toolsFrom ?? {};
+  const own = agent.tools.filter((name) => !from[name]);
 
   return (
     <>
@@ -461,11 +462,11 @@ function Agent({
           </>
         )}
         {/* The tools a feature or a connection adds, under the line in agent.ts that adds them. */}
-        {[...new Set(Object.values(agent.toolsFrom))].sort().map((from) => (
-          <Fragment key={from}>
-            <dt className="from">{from}</dt>
+        {[...new Set(Object.values(from))].sort().map((source) => (
+          <Fragment key={source}>
+            <dt className="from">{source}</dt>
             <dd className="dim">
-              {agent.tools.filter((name) => agent.toolsFrom[name] === from).join(", ")}
+              {agent.tools.filter((name) => from[name] === source).join(", ")}
             </dd>
           </Fragment>
         ))}
