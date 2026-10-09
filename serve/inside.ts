@@ -10,7 +10,6 @@ import { ownKey, sdkModel } from "#chloe/model/key";
 import { providerOf, routeFor, type Route } from "#chloe/model/model";
 import { descriptionOf, neededBy } from "#chloe/model/tool";
 import type { Agent } from "#chloe/load/load";
-import { collectsAt } from "#chloe/channels/whatsapp";
 import { webOf } from "#chloe/channels/web";
 import { money } from "#chloe/core/turn";
 import { BadRequest, NotFound } from "./errors.ts";
@@ -147,12 +146,9 @@ export function channelsOf(agent: Agent): Way[] {
       }
       if (channel.name === "whatsapp") {
         const whatsapp = settings.agents[agent.id]?.whatsapp;
-        const box = collectsAt(agent.id, channel.name);
         return {
           name: "whatsapp",
-          does:
-            "A number on WhatsApp's own API. It answers one-to-one messages, and WhatsApp allows no groups on it." +
-            (box ? ` Paste ${box} into the app's WhatsApp page: that is the post box it collects from.` : ""),
+          does: "A number on WhatsApp's own API. It answers one-to-one messages, and WhatsApp allows no groups on it.",
           needs: `agents.${agent.id}.whatsapp`,
           ready: filled(whatsapp?.phone_number_id) && filled(whatsapp?.token) && filled(whatsapp?.app_secret),
           settings: how,

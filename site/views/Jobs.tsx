@@ -11,18 +11,18 @@ export function Jobs({
   agent,
   id,
   running,
-  offline,
-  cannot,
   fire,
+  cannot,
+  owner = true,
 }: {
   agent?: AgentSummary;
   id: string;
   running: string[];
-  /** Reached through a cloud, and its connection is not open: nothing can be started. */
-  offline: boolean;
-  /** Why this account may not start a job here, when it may not: a guest who was not given that. */
-  cannot?: string;
   fire: (agent: string, job: string) => Promise<void>;
+  /** Why whoever is signed in may not start a job here, when they may not: somebody invited who was not given that. */
+  cannot?: string;
+  /** Only the owner can open the files a job is made of. */
+  owner?: boolean;
 }) {
   if (!agent) return <p className="dim">Loading</p>;
 
@@ -34,7 +34,7 @@ export function Jobs({
       <p className="empty">What {labelOf(id)} runs on a clock, and what it will run when asked.</p>
       {agent.jobs.length === 0 ? (
         <p className="empty frame">
-          Nothing on a clock. Put a markdown file in its jobs folder, or name one in its definition.
+          Nothing on a clock.{owner && " Put a markdown file in its jobs folder, or name one in its definition."}
         </p>
       ) : (
         <ul className="ways">
@@ -47,12 +47,7 @@ export function Jobs({
                   {job.channels ? (
                     <span className="dim">answers {job.channels.join(" and ")}</span>
                   ) : (
-                    <button
-                      className="small"
-                      onClick={() => fire(id, job.id)}
-                      disabled={now || offline || Boolean(cannot)}
-                      title={offline ? "This runtime is offline." : cannot}
-                    >
+                    <button className="small" onClick={() => fire(id, job.id)} disabled={now || Boolean(cannot)} title={cannot}>
                       {now ? "Running" : "Run now"}
                     </button>
                   )}
@@ -61,7 +56,7 @@ export function Jobs({
                 <span className="num dim needs">
                   {job.channels ? `each message on ${job.channels.join(" and ")}` : (job.when ?? job.cron ?? "when started")} · {job.timezone} · {job.code ? "code" : job.model}
                 </span>
-                {job.files.length ? (
+                {owner && job.files.length ? (
                   <span className="num needs made">
                     {job.files.map((path) => (
                       <Link key={path} to={{ at: "file", agent: id, path }} className={kindOf(path)}>

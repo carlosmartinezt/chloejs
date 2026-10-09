@@ -85,13 +85,11 @@ export function Log({
   agent,
   agents,
   open,
-  notice,
 }: {
   agent?: string;
   /** Every agent there is, for the agent filter. */
   agents: AgentSummary[];
   open?: string;
-  notice?: ReactNode;
 }) {
   const [rows, setRows] = useState<RunRow[] | null>(null);
   const [trouble, setTrouble] = useState("");
@@ -204,7 +202,6 @@ export function Log({
   return (
     <div className={open ? "log-split reading" : "log-split"} style={{ "--list-w": `${share * 100}%` } as CSSProperties}>
       <section className="runs" aria-label="Runs">
-        {notice}
         <div className="runs-head">
           <h1>{agent ? `${labelOf(agent)}'s log` : "Every agent's log"}</h1>
           <span className="num dim">{rows ? (narrowed ? `${shown.length} of ${rows.length}` : rows.length) : ""}</span>
@@ -1047,7 +1044,8 @@ function Rows({ rows }: { rows: Plain[] }) {
 /** What a parked run is waiting for, out of the record it left. */
 function waitingOn(parked: string): string {
   try {
-    const one = JSON.parse(parked) as { who: string; question: string; expires: string };
+    const one = JSON.parse(parked) as { who: string; question: string; expires: string; wait?: true };
+    if (one.wait) return `Waiting until ${when(one.expires)}.`;
     return `Waiting on ${one.who} until ${when(one.expires)}: ${one.question}`;
   } catch {
     return "Waiting on an answer.";

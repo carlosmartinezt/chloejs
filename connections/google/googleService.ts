@@ -231,22 +231,7 @@ function mustBeAClient(parsed: Record<string, unknown>): { id: string; secret: s
 }
 
 /**
- * Whether an address is a remote dashboard's own route, which is the one kind that
- * hands the answer back down the connection instead of showing it to somebody.
- * Matched on the route's shape rather than built, so the workspace name in it is
- * whatever it is and nothing here has to know. False when
- * `dashboard.remote.allow.google` is off, because then the dashboard's handing back is refused
- * and nothing would arrive.
- */
-function caughtByDashboard(url: string): boolean {
-  const dashboard = settings.dashboard.remote.url.trim().replace(/\/+$/, "");
-  if (!dashboard || !settings.dashboard.remote.allow.google) return false;
-  return url.startsWith(`${dashboard}/oauth/google/callback/`);
-}
-
-/**
- * Where Google is told to send its answer, and whether it comes back without
- * anybody carrying it.
+ * Where Google is told to send its answer.
  *
  * **The flow this is built for is the one with a code in it.** `connections.google.callback`
  * is `SHOWS_THE_CODE`, one address that is the same for everybody: the person
@@ -256,27 +241,20 @@ function caughtByDashboard(url: string): boolean {
  * secret never left this machine. Nothing per-copy is registered and no connection has
  * to be up at the right moment.
  *
- * `relayed` means the answer gets back on its own, and that is true for one
- * address only: a remote dashboard's `/oauth/google/callback/<workspace>`, which
- * hands the code down the connection the runtime holds open. Every other
- * address, a page that shows a code included, needs the person to send
- * something back, and saying otherwise leaves them waiting for a sign-in that
- * cannot finish.
- *
  * Unset, it is the page that shows a code for a web client, which is what the
  * console's "Web application" makes, and the loopback port on this machine for a
  * desktop one, because that is the only address Google will take for those. The
  * loopback one reads as a broken page and the person pastes the whole address
  * back, so it is the last resort rather than the aim.
  */
-export function callback(): { url: string; relayed: boolean } {
+export function callback(): { url: string } {
   const said = settings.connections.google.callback.trim();
-  if (said) return { url: said, relayed: caughtByDashboard(said) };
+  if (said) return { url: said };
   // A desktop client may answer to any port here and to nothing on the internet,
   // so for one of those the loopback address is the only one Google will take.
   // A web client is the other way round, and then the page that shows a code is
   // what somebody actually wants, so it is what they get without asking.
-  return { url: clientKind() === "web" ? SHOWS_THE_CODE : "", relayed: false };
+  return { url: clientKind() === "web" ? SHOWS_THE_CODE : "" };
 }
 
 /**
@@ -349,12 +327,6 @@ export interface Started {
   link: string;
   /** The Google account the sign-in is for, from `connections.google.account`. */
   account: string;
-  /**
-   * `true` when Google's answer comes back to chloe by itself, through a
-   * remote dashboard. `false` when the person has to send back a code or an
-   * address.
-   */
-  relayed: boolean;
   /** What to tell the person, in plain words. It matches how this sign-in will finish. */
   say: string;
 }
@@ -373,9 +345,8 @@ function scopesFor(services: string): string[] {
  *
  * - `services`: the Google services to ask for, separated by commas. Default: `"gmail,calendar,drive"`. Keep the default: chloe only counts a sign-in as ready when it has all three.
  *
- * Send the person `say` and `link`. Unless `relayed` is `true`, they send
- * back a short code, or the address of the page their browser landed on. Pass
- * that to `finish()`.
+ * Send the person `say` and `link`. They send back a short code, or the
+ * address of the page their browser landed on. Pass that to `finish()`.
  *
  * The started sign-in is saved in a file, so chloe can restart, or a job can
  * wait a day, before `finish()`. Starting a new one replaces the one that was
@@ -409,7 +380,7 @@ export async function start({ services = SERVICES }: { services?: string } = {})
     code_challenge_method: "S256",
   })}`;
   writeSecret(PENDING, { account, services, redirect, state, verifier, started: new Date().toISOString() } satisfies Pending);
-  return { link, account, relayed: to.relayed, say: whatToDo(account, to) };
+  return { link, account, say: whatToDo(account, to) };
 }
 
 /** Whether an address is on the machine the runtime is on, where no browser of the person's can reach it. */
@@ -423,16 +394,15 @@ function onThisMachine(url: string): boolean {
 }
 
 /**
- * What to tell the person, which is different in each of the three ways this
+ * What to tell the person, which is different in each of the two ways this
  * can end and is the whole of what they experience.
  *
  * The one that reads as broken is the last: nothing is listening on that port,
  * so their browser shows an error and the answer is in the address bar. Saying
  * so in advance is the difference between a step and a fault.
  */
-export function whatToDo(account: string, to: { url: string; relayed: boolean }): string {
+export function whatToDo(account: string, to: { url: string }): string {
   const open = `Open this link and approve it as ${account}.`;
-  if (to.relayed) return `${open} I will know when you are done, so there is nothing to send back.`;
   if (!onThisMachine(to.url || PASTE_BACK)) {
     return `${open} The page it lands on will show you a short code: send me that code and I will finish.`;
   }
@@ -664,11 +634,9 @@ export function setupSteps(): { steps: string[]; addresses: string[]; why: strin
       "Under Audience, press Publish app so it is In production. Left in Testing, Google ends the sign-in every 7 days. Google will show a warning that it has not checked the app, once, when you approve: it is your own app, so go on past it.",
       "Go to Clients, create an OAuth client, and choose Web application as the type.",
       "Add the redirect addresses listed here, exactly as they are written, one per line in that form.",
-      to.relayed
-        ? `The ${new URL(to.url).hostname} one is the one that matters: with that registered the sign-in finishes on its own, because the page you land on hands the answer straight back to me.`
-        : to.url === SHOWS_THE_CODE
-          ? "The chloejs.org one is the one that matters: with that registered, the page you land on shows you a short code to send back. Without it you get a browser error with the answer hidden in its address bar."
-          : "The chloejs.org one is optional and worth it, if you make a Web application client: with that registered, the page you land on shows you a short code to send back, instead of a browser error with the answer hidden in its address bar.",
+      to.url === SHOWS_THE_CODE
+        ? "The chloejs.org one is the one that matters: with that registered, the page you land on shows you a short code to send back. Without it you get a browser error with the answer hidden in its address bar."
+        : "The chloejs.org one is optional and worth it, if you make a Web application client: with that registered, the page you land on shows you a short code to send back, instead of a browser error with the answer hidden in its address bar.",
       `Download the client file it gives you, and put its path or its contents ${whereKeyGoes(["connections", "google", "client"])}.`,
       "Then ask me for your mail again, and I will send you the link to approve.",
     ],

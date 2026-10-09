@@ -153,14 +153,6 @@ export const EyeOff = () => (
   </Icon>
 );
 
-/** Notifications, in the bar. */
-export const Bell = () => (
-  <Icon>
-    <path d="M4 11.5V7.2a4 4 0 0 1 8 0v4.3l1.2 1.3H2.8Z" />
-    <path d="M6.6 14.2a1.5 1.5 0 0 0 2.8 0" />
-  </Icon>
-);
-
 /** The way a menu opens, beside the thing that opens it. */
 export const Down = () => (
   <Icon>
@@ -218,14 +210,6 @@ export const Plus = () => (
 export const Send = () => (
   <Icon>
     <path d="M8 13V3.6M4.2 7.4 8 3.4l3.8 4" />
-  </Icon>
-);
-
-/** Somewhere higher up: the workspace a page is inside. */
-export const Stack = () => (
-  <Icon>
-    <path d="m8 2.2 5.4 2.8L8 7.8 2.6 5z" />
-    <path d="m2.6 8 5.4 2.8L13.4 8" />
   </Icon>
 );
 

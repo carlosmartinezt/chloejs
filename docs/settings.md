@@ -39,8 +39,7 @@ default, and so is one handed a variable nothing set. Any other value can be
 kept out of the file the same way.
 
 The secrets are `model.key`, `model.keys`, `connections.resend.api_key`,
-`connections.google.client`, `dashboard.remote.api_key`, and everything under
-`agents`. Their names in `.env` are `CHLOE_` and the path in capitals, and a
+`connections.google.client`, and everything under `agents`. Their names in `.env` are `CHLOE_` and the path in capitals, and a
 message saying a key is missing gives both the name and the config line.
 
 ## Every setting
@@ -52,7 +51,6 @@ message saying a key is missing gives both the name and the config line.
 | `connections.google` | The Google account and the app it signs in with. | [Connections](/docs/connections#google) |
 | `connections.resend` | The Resend key, and chloe's alert mail. | [Connections](/docs/connections#resend) |
 | `agents.<id>` | Each agent's channel tokens, under the `id` in its `agent.ts`. | [Channels](/docs/channels) |
-| `dashboard.remote` | A remote dashboard: its key, what is sent up, and what it may do. | [The site](/docs/the-page#a-remote-dashboard) |
 | `serve` | Where the port listens: `127.0.0.1:3067`. Change takes a restart. | [The site](/docs/the-page) |
 | `owner` | Who a run the clock started belongs to, as `channel:who`. | [Asking a person](/docs/asking-a-person) |
 | `node` | Which node `npx chloe install` runs. Empty is whichever is on the path. | |

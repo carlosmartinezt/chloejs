@@ -8,7 +8,9 @@
 // link. The first one is set on the page by a browser already signed in, or
 // with `npx chloe account`, which is also how a password is changed.
 //
-// There is no username, because with one account a name identifies nobody.
+// The owner has no username, because with one account a name identifies
+// nobody. The people the owner invites (people.ts) sign in with their email
+// and a password of their own, and their session names them.
 //
 // Hand rolled on node:crypto, scrypt for the password and HMAC-SHA256 for the
 // cookie, because the alternative is a dependency for forty lines.
@@ -18,6 +20,8 @@ import type { IncomingMessage } from "node:http";
 
 import { STATE } from "#chloe/core/paths";
 import { settings } from "#chloe/core/settings";
+import { checkPassword as check, hashPassword as hash, same } from "./password.ts";
+import { type Given, person } from "./people.ts";
 import { checkToken, type Token } from "./tokens.ts";
 import { lockedOut } from "#chloe/core/alerts";
 
@@ -153,6 +157,39 @@ export function signIn(password: string, from: string): string {
   return sign(found);
 }
 
+/**
+ * The cookie value for somebody the owner invited, or the reason it was
+ * refused. Wrong passwords count towards the same lockout as the owner's, and
+ * the answer is the same whether the address is somebody's or not.
+ */
+export function signInGuest(email: string, password: string, from: string): string {
+  const wait = lockedFor(from);
+  if (wait) throw new Error(`Too many tries. Try again in ${Math.ceil(wait / 60)} minutes.`);
+  const found = person(email);
+  if (!found || !check(password, found.password)) {
+    countFailure(from);
+    throw new Error("Wrong email or password.");
+  }
+  failures.delete(from);
+  return guestSession(found.email);
+}
+
+/** A session for somebody invited, a week long, signed with the account's secret under a purpose of its own. */
+export function guestSession(email: string): string {
+  return seal("guest", { e: email, u: Math.floor(Date.now() / 1000) + LASTS });
+}
+
+/**
+ * Who a guest session is for, read from the table every time, so somebody
+ * taken off their last agent is signed out at once.
+ */
+function guestIn(value: string): Caller {
+  const said = unseal<{ e?: unknown; u?: unknown }>("guest", value);
+  if (typeof said?.e !== "string" || typeof said.u !== "number" || said.u <= Math.floor(Date.now() / 1000)) return null;
+  const found = person(said.e);
+  return found ? { kind: "guest", email: found.email, name: found.name, given: found.given } : null;
+}
+
 /** How long a link works, in seconds. */
 const LINK_LASTS = 60 * 60;
 
@@ -196,6 +233,9 @@ export function signInWithLink(code: string, from: string): string {
  * difference is the whole of the authorisation this runtime has:
  *
  *   account  somebody signed in on this box. Can do everything.
+ *   guest    somebody the owner invited, signed in with their email. Only the
+ *            agents they were let in to, only what they were given on each,
+ *            and never a change to anything (people.ts, and `guest` on a route).
  *   token    another system holding a token. Read, plus the agents that bind
  *            an api channel. Cannot write files, make tokens or revoke them.
  *
@@ -205,117 +245,23 @@ export function signInWithLink(code: string, from: string): string {
  */
 export type Caller =
   | { kind: "account" }
+  | { kind: "guest"; email: string; name: string; given: Given }
   | { kind: "token"; token: Token }
-  | { kind: "dashboard"; user: string; name?: string; guest?: Guest }
   | null;
 
-/**
- * What somebody the workspace's owner invited may do, agent by agent: the
- * switches of `dashboard.remote.allow` they were given on it. An agent that is not a key
- * here is one they cannot see. Never more than `dashboard.remote.allow` allows anybody.
- */
-export type Guest = Record<string, string[]>;
-
 export function caller(request: IncomingMessage): Caller {
-  const relayed = relayedBy(request);
-  if (relayed !== null) {
-    const guest = guestOf(request);
-    const name = nameOf(request);
-    return { kind: "dashboard", user: relayed, ...(name ? { name } : {}), ...(guest ? { guest } : {}) };
-  }
   const found = read();
   const values = carried(request);
   if (found && values.some((value) => holds(value, found))) return { kind: "account" };
+  for (const value of values) {
+    const guest = guestIn(value);
+    if (guest) return guest;
+  }
   for (const value of values) {
     const token = checkToken(value);
     if (token) return { kind: "token", token };
   }
   return null;
-}
-
-/**
- * The third kind of caller: a request the dashboard sent down this runtime's
- * own connection to it, which dashboard/connect.ts turns into a request to this
- * port. It carries this secret, which is made when the process starts and
- * never leaves it, so nothing that reaches the port from outside can carry
- * it. What such a caller may have is decided by `dashboard.remote.allow` in settings,
- * in api() in http.ts, and it never has a session: signing in is not relayed.
- */
-export const RELAY_SECRET = crypto.randomBytes(32).toString("base64url");
-
-/** The header that carries the secret, and the one that says who asked. */
-export const RELAY = "x-chloe-relay";
-export const RELAY_USER = "x-chloe-relay-user";
-
-/**
- * Set by the dashboard when who asked is a guest rather than the workspace's
- * owner: JSON, each agent they may reach with the switches they were given on
- * it. Only read on a relayed request. A value that does not read as that is a
- * guest who may do nothing, never an owner.
- */
-export const RELAY_GUEST = "x-chloe-relay-guest";
-
-function guestOf(request: IncomingMessage): Guest | undefined {
-  const carried = request.headers[RELAY_GUEST];
-  const value = Array.isArray(carried) ? carried[0] : carried;
-  if (value === undefined) return undefined;
-  try {
-    const said = JSON.parse(value) as unknown;
-    if (!said || typeof said !== "object" || Array.isArray(said)) return {};
-    const guest: Guest = {};
-    for (const [agent, given] of Object.entries(said)) {
-      if (Array.isArray(given)) guest[agent] = given.filter((one): one is string => typeof one === "string");
-    }
-    return guest;
-  } catch {
-    return {};
-  }
-}
-
-/**
- * The name the person who asked goes by on the dashboard, URI encoded, and
- * left out when they have not set one. Only read on a relayed request. It ends
- * up in what an agent is told, so it is cut to one plain line.
- */
-export const RELAY_NAME = "x-chloe-relay-name";
-
-function nameOf(request: IncomingMessage): string {
-  const carried = request.headers[RELAY_NAME];
-  const value = Array.isArray(carried) ? carried[0] : carried;
-  if (!value) return "";
-  let name: string;
-  try {
-    name = decodeURIComponent(value);
-  } catch {
-    return "";
-  }
-  return name.replace(/[\p{Cc}<>]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 80);
-}
-
-/**
- * The path this runtime's addresses sit under on the dashboard, when the
- * request came from one: `/workspaces/<name>`. A memory file's root-relative
- * links are pointed back into its own memory, and the address they have to end
- * up at is the browser's, not this port's, so the dashboard says what to put in
- * front. Only trusted on a relayed request, and only when it is plain path
- * segments, so nothing from outside can move the frame's links elsewhere.
- */
-export const RELAY_UNDER = "x-chloe-relay-under";
-
-export function relayUnder(request: IncomingMessage): string {
-  if (relayedBy(request) === null) return "";
-  const carried = request.headers[RELAY_UNDER];
-  const value = Array.isArray(carried) ? carried[0] : carried;
-  return value && /^(?:\/[A-Za-z0-9._~-]+)+$/.test(value) ? value : "";
-}
-
-/** The account the dashboard relayed this request for, or null when it is not a relayed request. */
-export function relayedBy(request: IncomingMessage): string | null {
-  const carried = request.headers[RELAY];
-  const value = Array.isArray(carried) ? carried[0] : carried;
-  if (!value || !same(value, RELAY_SECRET)) return null;
-  const user = request.headers[RELAY_USER];
-  return (Array.isArray(user) ? user[0] : user) || "somebody";
 }
 
 /** Whether this request carries anything at all this copy will accept. */
@@ -401,39 +347,6 @@ function sign(account: Account): string {
   return `${body}.${crypto.createHmac("sha256", account.secret).update(body).digest("base64url")}`;
 }
 
-/**
- * scrypt:N:r:p:salt:hash, colon separated rather than the usual $ separated
- * form: some environment loaders read $16384 as a variable and quietly cut the
- * hash in half, which is a login that always fails and never says why.
- */
-function hash(password: string): string {
-  const N = 16384, r = 8, p = 1;
-  const salt = crypto.randomBytes(16);
-  const made = crypto.scryptSync(password.normalize("NFKC"), salt, 32, { N, r, p });
-  return `scrypt:${N}:${r}:${p}:${salt.toString("base64")}:${made.toString("base64")}`;
-}
-
-function check(password: string, stored: string): boolean {
-  try {
-    const [scheme, N, r, p, salt, expected] = stored.split(":");
-    if (scheme !== "scrypt") return false;
-    const want = Buffer.from(expected, "base64");
-    const got = crypto.scryptSync(password.normalize("NFKC"), Buffer.from(salt, "base64"), want.length, {
-      N: Number(N), r: Number(r), p: Number(p),
-    });
-    return crypto.timingSafeEqual(got, want);
-  } catch {
-    return false;
-  }
-}
-
-/** Compares without letting the time it takes say how much of it matched. */
-function same(a: string, b: string): boolean {
-  const one = Buffer.from(a), two = Buffer.from(b);
-  if (one.length !== two.length) return false;
-  return crypto.timingSafeEqual(one, two);
-}
-
 // In this process, so a restart clears it.
 const failures = new Map<string, { count: number; first: number; until: number }>();
 
@@ -478,15 +391,6 @@ function countFailure(from: string): void {
  * binding loopback: nothing else can reach this port to set these headers.
  */
 export function from(request: IncomingMessage): string {
-  const address = addressOf(request);
-  // Through the dashboard, the address is the browser's as the dashboard saw it, and
-  // the audit log and the console say whose account it was signed in to.
-  const user = relayedBy(request);
-  return user === null ? address : `${address} via dashboard as ${user}`;
-}
-
-/** The address a request came from, as `from()` reads it, without saying who relayed it. */
-export function addressOf(request: IncomingMessage): string {
   const head = (name: string): string[] => {
     const value = request.headers[name];
     return (Array.isArray(value) ? value[0] : value)?.split(",").map((one) => one.trim()).filter(Boolean) ?? [];

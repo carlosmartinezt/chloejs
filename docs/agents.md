@@ -37,7 +37,9 @@ job's code sets its own limits on each step: see
 ## features
 
 Switched on in the definition, with nothing to import:
-`features: { memoryPerUser: true, runScripts: true }`.
+`features: { memoryPerUser: true, runScripts: true }`. Every tool each one
+adds, and the ones an agent has with no feature, are on
+[Features](/docs/features).
 
 | Feature | Default | What it adds |
 |---|---|---|
@@ -50,7 +52,7 @@ Every agent also has four tools that need no feature, in turns its owner wrote
 and no others: `selfListFiles` and `selfReadFile` read its own folder (never
 its memory), and `selfListRuns` and `selfReadRun` read its own runs, so you can
 ask "how do you send the morning facts?" or "what did you send me yesterday?".
-A job, a guest, a token and a visitor never get them, because a run holds what
+A job, a token and a visitor never get them, because a run holds what
 other people said. Who the owner is: `owner` in settings, the first entry in a
 channel's `allowFrom`, or the account on the dashboard.
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { cloud } from "../../lib/api.ts";
+import { api } from "../../lib/api.ts";
 
 /**
  * A strip across the top of a server that says it is a copy somebody is working
@@ -16,7 +16,7 @@ export function Dev() {
 
   useEffect(() => {
     let stale = false;
-    void cloud.account().then(
+    void api.account().then(
       (said) => !stale && said.dev && setRoot(said.root ?? ""),
       () => {},
     );

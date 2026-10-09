@@ -60,7 +60,7 @@ the state folder, mode 600.
 |---|---|---|
 | `connections.google.account` | none | The account that signs in. The mail tools read it, and the email channel on Gmail sends from it. |
 | `connections.google.client` | none | The client file from step 5: its path or its contents. A secret, so it comes from `.env`. |
-| `connections.google.callback` | `https://chloejs.org/connected` | Where Google sends you after you approve. Set it to `https://dashboard.chloejs.org/oauth/google/callback/<workspace>`, register that too, and turn on `dashboard.remote.allow.google`, and the sign-in finishes with no code to send. |
+| `connections.google.callback` | `https://chloejs.org/connected` | Where Google sends you after you approve. |
 
 **What the sign-in may do.** Read and send mail, never delete it. Read
 calendar events and add them. Read files. If you untick one on Google's
@@ -123,8 +123,8 @@ Then bind `resend.sendEmail()` from `@chloejs/core/tools/resend`.
 
 | What sends it | From | Where that is set |
 |---|---|---|
-| The [email channel](/docs/channels#email) on Gmail | the agent's label and `connections.google.account` | settings |
-| The email channel through a remote dashboard | `reply-<id>@` the dashboard's mail domain | nothing to set |
+| The [email channel](/docs/channels-email) on Gmail | the agent's label and `connections.google.account` | settings |
+| The email channel on a mailbox of your own | whatever its `send` does | your `Mailbox` |
 | `gmail.replyEmail` | the signed-in Google account | settings |
 | `gmail.sendEmail` | its `from`: the signed-in account or an alias Google verified | `agent.ts` |
 | `resend.sendEmail` | its `from`, on a domain verified with Resend | `agent.ts` |

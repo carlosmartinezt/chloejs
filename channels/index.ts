@@ -10,7 +10,7 @@
 export { telegramChannel, type TelegramOptions } from "./telegram.ts";
 export { slackChannel, type SlackOptions } from "./slack.ts";
 export { whatsappChannel, type WhatsAppOptions } from "./whatsapp.ts";
-export { emailChannel, openEmail, type EmailOptions, type Started } from "./email.ts";
+export { emailChannel, openEmail, type EmailOptions, type Mailbox, type OutgoingMail, type Started } from "./email.ts";
 export { apiChannel } from "./api.ts";
 export { webChannel, type WebOptions, type WebLimits } from "./web.ts";
 export {

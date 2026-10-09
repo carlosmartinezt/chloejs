@@ -40,20 +40,6 @@ export interface RunRow {
   archived?: string | null;
 }
 
-/** One line of what an agent did recently: a run, or several of the same in a row. */
-export interface RecentWork {
-  id: string;
-  source: string;
-  job?: string | null;
-  started: string;
-  finished: string | null;
-  summary: string | null;
-  error: string | null;
-  times: number;
-  failed: number;
-  cost: number;
-}
-
 /**
  * A line of a run: a model answer, a tool call, or one step of a job.
  *
@@ -80,7 +66,7 @@ export interface Step {
   args?: unknown;
   result?: unknown;
   /** Set on a job's lines. */
-  kind?: "step" | "model" | "ask" | "agent";
+  kind?: "step" | "model" | "ask" | "agent" | "wait";
   name?: string;
   ms?: number;
   note?: string;
@@ -220,8 +206,6 @@ export interface Thread {
   label?: string | null;
   /** When it was archived, or null. */
   archived?: string | null;
-  /** The email of the guest it belongs to. Only the workspace's owner is told. */
-  owner?: string | null;
 }
 
 export interface Said {
@@ -271,102 +255,13 @@ export type Git =
       log: { sha: string; date: string; author: string; subject: string }[];
     };
 
-/**
- * What /api/account says before anybody is signed in: whether there is an
- * account yet, and on a cloud, whether somebody may make one and how.
- */
+/** What /api/account says before anybody is signed in: whether there is an account yet. */
 export interface Account {
   exists: boolean;
-  cloud?: boolean;
-  signup?: Signup;
   /** A copy somebody is working on, which says so across the top of the page. */
   dev?: boolean;
   /** The folder that copy is running out of. Only a dev copy says. */
   root?: string;
-}
-
-/** Who may make an account on a cloud: anybody, somebody with the invite code, or nobody. */
-export type Signup = "invite" | "open" | "closed";
-
-/** The signed-in account on a cloud. */
-export interface Me {
-  email: string;
-  /** What the page calls you. Empty until it is set, and the address stands in for it. */
-  name: string;
-  /** The chat the front page opens. Null is the first agent there is. */
-  home: Home | null;
-  organizations: { id: string; name: string; role: string }[];
-  /** What the cloud thinks this account should do next. Each goes away by itself once it is done. */
-  notifications?: Notification[];
-}
-
-/** One note under the bell: a title, a line, and a button that goes to `to`, a path on this site. */
-export interface Notification {
-  id: string;
-  title: string;
-  text: string;
-  button: string;
-  to: string;
-}
-
-/** One agent in one workspace: where the front page of a cloud goes. */
-export interface Home {
-  workspace: string;
-  agent: string;
-}
-
-/** One runtime a cloud hosts, as the cloud knows it from what the runtime last sent. */
-export interface Workspace {
-  /** Fixed, and what every address of its is under. Made from the label when it was created. */
-  name: string;
-  /** What to call it on the page. Free to change. */
-  label: string;
-  organization: string;
-  created: string;
-  online: boolean;
-  lastSeen: string | null;
-  coreVersion?: string;
-  nodeVersion?: string;
-  /** What the machine the runtime is on calls itself, as it last said. */
-  machine?: string;
-  protocol?: number;
-  capabilities?: string[];
-  remote?: { read: boolean; chat: boolean; run: boolean; memory: boolean; write: boolean };
-  upload?: { runs: boolean; replies?: boolean; agents: boolean };
-  /** The agents' ids. */
-  agents: string[];
-  today: { runs: number; failed: number; cost: number };
-  keys: { id: string; created: string; lastUsed?: string; revoked?: string }[];
-  /** Set when this account is a guest here: each agent it may reach, with what it was given on it. */
-  guest?: Record<string, Given[]>;
-}
-
-/** What a guest can be given on an agent. */
-export type Given = "chat" | "read" | "run" | "memory";
-
-/** Everybody let in to a workspace's agents, and the invitations still open, as its owner sees them. */
-export interface People {
-  guests: { email: string; name: string; agent: string; given: Given[]; added: string }[];
-  invited: { email: string; agent: string; given: Given[]; created: string; expires: string }[];
-}
-
-/** What an invitation is for, as the sign-up page shows it. */
-export interface Invitation {
-  email: string;
-  workspace: string;
-  agent: string;
-  by: string;
-  expires: string;
-}
-
-/** One request that went through the cloud to a workspace. */
-export interface Relayed {
-  at: string;
-  user: string;
-  from: string;
-  method: string;
-  path: string;
-  status: number;
 }
 
 /** Somebody an agent's web channel has had, as its owner sees them. The model never sees `ip`. */
@@ -379,4 +274,31 @@ export interface Visitor {
   browser: string | null;
   facts: Record<string, string>;
   thread: string;
+}
+
+/** What somebody invited may be given on an agent. */
+export type Switch = "chat" | "read" | "run";
+
+/** Each agent somebody invited may reach, with what they were given on it. */
+export type Given = Record<string, Switch[]>;
+
+/** Who is signed in, from /api/me: the owner, or somebody they invited. */
+export type Me = { owner: true } | { owner: false; email: string; name: string; given: Given };
+
+/** Everybody the owner has invited, and the invitations nobody has used yet. */
+export interface People {
+  people: { email: string; name: string; given: Given; added: string }[];
+  invitations: { email: string; name: string; agent: string; given: Switch[]; created: string; expires: string }[];
+}
+
+/** What an invitation is for, as its page shows it. */
+export interface Invitation {
+  email: string;
+  name: string;
+  agent: string;
+  /** What the agent is called on the page. */
+  label: string;
+  given: Switch[];
+  /** That address already has a password here, from an earlier invitation. */
+  known: boolean;
 }

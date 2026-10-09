@@ -15,9 +15,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { build } from "esbuild";
 
 import { api, frameUnder, NeedsSignIn, serverAt, servesFrom } from "./lib/api.ts";
-import { enter, href, workspace, read } from "./lib/route.ts";
-import { homeAt, homeOf } from "./lib/home.ts";
-import type { Me, Way, Workspace } from "./lib/types.ts";
+import { href, read } from "./lib/route.ts";
+import { allowed, landing } from "./lib/given.ts";
+import type { Way } from "./lib/types.ts";
 import { parts, sourceAt } from "./lib/blocks.ts";
 import { languageOf, tokens } from "./lib/code.ts";
 
@@ -79,32 +79,17 @@ describe("code, painted", () => {
   });
 });
 
-describe("in front of a cloud", () => {
-  const list = (paths: string[]) => paths.map((path) => ({ method: "GET", path }));
-
-  test("a server that hosts workspaces is a cloud, and one that does not is not", () => {
-    deepStrictEqual(servesFrom(list(["/api/agents", "/api/workspaces"])), { agents: true, tokens: false, cloud: true });
-    deepStrictEqual(servesFrom(list(["/api/agents", "/api/tokens"])), { agents: true, tokens: true, cloud: false });
-  });
-
-  // Every address of one workspace's is the address the page has always had
-  // with the workspace in front of it, so one prefix is the whole change.
-  test("an address inside a workspace reads back as itself", () => {
-    for (const path of [
-      "/workspaces/acme",
-      "/workspaces/acme/agents/cc/log",
-      "/workspaces/acme/agents/chloe/memory/01_projects/x.html",
-      "/workspaces/acme/log",
-      "/workspaces/acme/tokens",
-    ]) {
+describe("where the page is, as an address", () => {
+  test("an address reads back as itself", () => {
+    for (const path of ["/", "/agents/cc", "/agents/cc/log", "/agents/chloe/memory/01_projects/x.html", "/log", "/tokens", "/settings", "/people"]) {
       strictEqual(href(read(path, "")), path, path);
-      strictEqual(workspace(), "acme");
     }
+    deepStrictEqual(read("/agents/cc/log", ""), { at: "log", agent: "cc", run: undefined });
   });
 
   test("a conversation is in the address, and read back from it", () => {
     const at = href({ at: "chat", agent: "chloe", thread: "chloe/telegram-1" });
-    ok(at.endsWith("/agents/chloe/chat/telegram-1"));
+    strictEqual(at, "/agents/chloe/chat/telegram-1");
     deepStrictEqual(read(at, ""), { at: "chat", agent: "chloe", thread: "chloe/telegram-1" });
     // One not under its agent's id keeps the whole of it.
     deepStrictEqual(read(href({ at: "chat", agent: "chloe", thread: "cc/x" }), ""), { at: "chat", agent: "chloe", thread: "cc/x" });
@@ -112,50 +97,26 @@ describe("in front of a cloud", () => {
     deepStrictEqual(read("/agents/chloe/chat", "?thread=chloe%2Fweb-1"), { at: "chat", agent: "chloe", thread: "chloe/web-1" });
   });
 
-  test("the list is /workspaces, and being there is being in no workspace", () => {
-    deepStrictEqual(read("/workspaces", ""), { at: "workspaces" });
-    strictEqual(workspace(), null);
-    strictEqual(href({ at: "workspaces" }), "/workspaces");
+  test("an invitation's link opens its own page, code and all", () => {
+    strictEqual(href({ at: "invitation", code: "abc123" }), "/invitation/abc123");
+    deepStrictEqual(read("/invitation/abc123", ""), { at: "invitation", code: "abc123" });
+    deepStrictEqual(read(href({ at: "invitation", code: "a b/c" }), ""), { at: "invitation", code: "a b/c" });
+    // With no code it is nothing to open.
+    deepStrictEqual(read("/invitation", ""), { at: "home" });
   });
 
-  test("a cloud's front page is the chosen chat, or the first agent, a connected workspace first", () => {
-    const one = (name: string, online: boolean, agents: string[], guest?: Workspace["guest"]) =>
-      ({ name, online, agents, guest }) as Workspace;
-    const me = (home: Me["home"]) => ({ home }) as Me;
-    const all = [one("away", false, ["cc"]), one("box", true, ["tempo", "cc"])];
-    deepStrictEqual(homeOf(me(null), all), { workspace: "box", agent: "tempo" });
-    deepStrictEqual(homeOf(me({ workspace: "away", agent: "cc" }), all), { workspace: "away", agent: "cc" });
-    // One that is gone is the first agent again.
-    deepStrictEqual(homeOf(me({ workspace: "box", agent: "gone" }), all), { workspace: "box", agent: "tempo" });
-    // A guest only has the agents it may chat with.
-    deepStrictEqual(homeOf(me(null), [one("theirs", true, ["cc", "tempo"], { cc: ["read"], tempo: ["chat"] })]), {
-      workspace: "theirs",
-      agent: "tempo",
-    });
-    strictEqual(homeOf(me(null), [one("empty", true, [])]), null);
-    strictEqual(homeAt({ workspace: "box", agent: "cc" }), "/workspaces/box/agents/cc/chat");
-  });
-
-  test("the way in is the host's, not a workspace's", () => {
-    enter("acme");
+  test("the way in: signing in, or opening a copy that has no password yet", () => {
     strictEqual(href({ at: "signin", making: false }), "/login");
-    strictEqual(href({ at: "signin", making: true }), "/signup");
-    deepStrictEqual(read("/signup", ""), { at: "signin", making: true });
-    strictEqual(workspace(), null);
-  });
-
-  test("with no workspace the addresses are what they always were", () => {
-    enter(null);
-    strictEqual(href({ at: "home" }), "/");
-    strictEqual(href({ at: "log", agent: "cc" }), "/agents/cc/log");
-    deepStrictEqual(read("/agents/cc/log", ""), { at: "log", agent: "cc", run: undefined });
+    strictEqual(href({ at: "signin", making: true }), "/setup");
+    deepStrictEqual(read("/login", ""), { at: "signin", making: false });
+    deepStrictEqual(read("/setup", ""), { at: "signin", making: true });
   });
 
   // A memory file is shown in a frame from the address the runtime handed out,
   // which hangs off wherever that runtime's API is.
   test("a frame hangs off the same place the API does", () => {
     strictEqual(frameUnder("/api", "/memory/p"), "/memory/p");
-    strictEqual(frameUnder("/workspaces/acme/api", "/memory/p"), "/workspaces/acme/memory/p");
+    strictEqual(frameUnder("https://agents.example.com/api", "/memory/p"), "https://agents.example.com/memory/p");
   });
 });
 
@@ -206,6 +167,31 @@ describe("talking to a runtime", () => {
     );
   });
 
+  test("and so is a wrong password taking an invitation", async () => {
+    await ready;
+    answer = { status: 401, body: { error: "That is not the password this address has here." } };
+    await rejects(
+      () => api.accept("abc", "nope", ""),
+      (error: Error) => !(error instanceof NeedsSignIn) && error.message.startsWith("That is not"),
+    );
+    strictEqual(asked.at(-1), "/api/invitations/abc/accept");
+  });
+
+  test("somebody invited sends their email, and the owner does not", async () => {
+    await ready;
+    answer = { status: 200, body: { ok: true, token: "t" } };
+    const sent: unknown[] = [];
+    const was = globalThis.fetch;
+    globalThis.fetch = ((url: string, init?: RequestInit) => (sent.push(JSON.parse(String(init?.body))), was(url, init))) as typeof fetch;
+    try {
+      await api.signIn("pw");
+      await api.signIn("pw", "someone@example.com");
+    } finally {
+      globalThis.fetch = was;
+    }
+    deepStrictEqual(sent, [{ password: "pw" }, { password: "pw", email: "someone@example.com" }]);
+  });
+
   test("and any other trouble is said as the runtime said it", async () => {
     await ready;
     answer = { status: 500, body: { error: "The database is locked." } };
@@ -214,11 +200,41 @@ describe("talking to a runtime", () => {
   });
 });
 
+describe("somebody invited, on the page", () => {
+  const given = { cc: ["chat" as const], tempo: ["run" as const, "read" as const] };
+
+  test("sees only the pages they were given", () => {
+    ok(allowed(given, { at: "chat", agent: "cc" }));
+    ok(!allowed(given, { at: "chat", agent: "tempo" }));
+    ok(allowed(given, { at: "jobs", agent: "tempo" }));
+    ok(!allowed(given, { at: "jobs", agent: "cc" }));
+    ok(allowed(given, { at: "log", agent: "tempo" }) && allowed(given, { at: "log" }));
+    ok(!allowed({ cc: ["chat"] }, { at: "log" }));
+    for (const view of [{ at: "home" }, { at: "agent", agent: "cc" }, { at: "memory", agent: "cc" }, { at: "people" }, { at: "tokens" }, { at: "settings" }] as const) {
+      ok(!allowed(given, view), view.at);
+    }
+  });
+
+  test("lands on a chat, on the agent they were on when they may", () => {
+    deepStrictEqual(landing(given, ["cc", "tempo"]), { at: "chat", agent: "cc" });
+    deepStrictEqual(landing(given, ["cc", "tempo"], "tempo"), { at: "jobs", agent: "tempo" });
+    deepStrictEqual(landing({ tempo: ["read"] }, ["tempo"]), { at: "jobs", agent: "tempo" });
+    strictEqual(landing({}, []), null);
+  });
+});
+
 describe("what the server can do, from its list of routes", () => {
   const route = (path: string, method = "GET") => ({ method, path });
 
-  test("the runtime: agents and tokens", () =>
-    deepStrictEqual(servesFrom([route("/api"), route("/api/agents"), route("/api/tokens")]), { agents: true, tokens: true, cloud: false }));
+  test("the runtime: agents, tokens and people", () =>
+    deepStrictEqual(servesFrom([route("/api"), route("/api/agents"), route("/api/tokens"), route("/api/people")]), {
+      agents: true,
+      tokens: true,
+      people: true,
+    }));
+
+  test("one from before anybody could be invited has no People page", () =>
+    strictEqual(servesFrom([route("/api/agents"), route("/api/tokens")]).people, false));
 
   test("only a GET counts", () => deepStrictEqual(servesFrom([route("/api/tokens", "POST")]).tokens, false));
 });

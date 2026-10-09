@@ -8,7 +8,6 @@ import { z } from "zod";
 
 import { duringRun } from "#chloe/core/current";
 import { CUT_OFF, db } from "#chloe/core/db";
-import { runChanged } from "#chloe/core/events";
 import { oneLineSummary } from "#chloe/core/markdown";
 import { ownFileRules, type Agent, type ChatHistory, type Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
@@ -109,8 +108,8 @@ export interface Ask {
    * Set when the agent's owner wrote this message and may change the agent
    * with it. Only then does the model get the tools that change the agent
    * (tools marked `changesAgent`, like `selfWriteFile`). Setting it also
-   * counts as `fromOwner`. Off by default, so a job, a schedule, a guest or
-   * another program never changes the agent.
+   * counts as `fromOwner`. Off by default, so a job, a schedule or another
+   * program never changes the agent.
    *
    * Even then, once a tool not marked `own` (one that reads from outside the
    * agent's own folder and memory) has answered in this conversation, the
@@ -191,7 +190,6 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   db.prepare(
     "insert into runs (id, agent, started, source, job, model, prompt, asked, kind, owner, thread) values (?, ?, ?, ?, ?, ?, ?, ?, 'turn', ?, ?)",
   ).run(runId, agent.id, started, source, job ?? null, using, prompt, asked ?? null, owner ?? null, thread ?? null);
-  runChanged(runId);
 
   const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent });
   // What an earlier reply read can come back through what it said, so a
@@ -244,7 +242,6 @@ export async function carryOn({ agent, runId, signal }: { agent: Agent; runId: s
       : "The service stopped here, and the run carried on from where it was.",
   });
   db.prepare("update runs set finished = null, error = null, trace = ? where id = ?").run(JSON.stringify(trace), runId);
-  runChanged(runId);
 
   return go({
     agent,
@@ -781,14 +778,12 @@ function finish(runId: string, reply: string, steps: number, cost: number, trace
   db.prepare("update runs set finished = ?, reply = ?, summary = ?, steps = ?, cost = ?, trace = ? where id = ?").run(
     new Date().toISOString(), reply, oneLineSummary(reply), steps, cost, JSON.stringify(trace), runId,
   );
-  runChanged(runId);
 }
 
 function fail(runId: string, error: string, steps: number, cost: number, trace: unknown[]): void {
   db.prepare("update runs set finished = ?, error = ?, steps = ?, cost = ?, trace = ? where id = ?").run(
     new Date().toISOString(), error, steps, cost, JSON.stringify(trace), runId,
   );
-  runChanged(runId);
 }
 
 /** How much of one tool's answer the record keeps. */

@@ -1,36 +1,19 @@
 import { type CSSProperties, useEffect, useState } from "react";
 
-import { api, cloud } from "../lib/api.ts";
-import { labelOf } from "../lib/format.ts";
-import { chatsIn, homeOf } from "../lib/home.ts";
+import { api } from "../lib/api.ts";
 import * as prefs from "../lib/prefs.ts";
-import type { Me, Workspace } from "../lib/types.ts";
 
 /**
  * Account settings. How the page looks is this browser's alone: it is kept in
  * local storage and never sent anywhere, so the same account on another
- * computer keeps its own. On a cloud, the chat the front page opens is the
- * account's, and follows it everywhere.
+ * computer keeps its own.
  */
-export function Settings({
-  email,
-  signOut,
-  me,
-  said,
-}: {
-  email?: string;
-  signOut?: () => void;
-  /** On a cloud, the account, for the front page. */
-  me?: Me | null;
-  said?: (me: Me) => void;
-}) {
+export function Settings() {
   return (
     <>
       <div className="head">
         <h1>Account settings</h1>
       </div>
-
-      {me && said && <FrontPage me={me} said={said} />}
 
       <section className="setting">
         <h2>Appearance</h2>
@@ -45,20 +28,7 @@ export function Settings({
 
       <section className="setting">
         <h2>Account</h2>
-        {email ? (
-          <>
-            <p className="empty">
-              Signed in as <span className="mono">{email}</span>.
-            </p>
-            {signOut && (
-              <button className="small" onClick={signOut}>
-                Sign out
-              </button>
-            )}
-          </>
-        ) : (
-          <Password />
-        )}
+        <Password />
       </section>
     </>
   );
@@ -123,49 +93,6 @@ function Password() {
       </form>
       {trouble && <p className="bad">{trouble}</p>}
     </>
-  );
-}
-
-/** Which agent the front page opens a chat with: one of every agent this account can chat with. */
-function FrontPage({ me, said }: { me: Me; said: (me: Me) => void }) {
-  const [all, setAll] = useState<Workspace[] | null>(null);
-  const [trouble, setTrouble] = useState("");
-  useEffect(() => {
-    cloud.workspaces().then(setAll, () => setAll([]));
-  }, []);
-  if (!all?.some((one) => chatsIn(one).length)) return null;
-  const now = homeOf(me, all);
-  const choose = async (value: string) => {
-    const [workspace, agent] = value.split("/");
-    try {
-      said(await cloud.setHome(value ? { workspace, agent } : null));
-      setTrouble("");
-    } catch (error) {
-      setTrouble((error as Error).message);
-    }
-  };
-  return (
-    <section className="setting">
-      <h2>Front page</h2>
-      <p className="empty">The agent you are chatting with when you open Chloe.</p>
-      <select
-        aria-label="Front page"
-        value={me.home && now ? `${now.workspace}/${now.agent}` : ""}
-        onChange={(event) => void choose(event.target.value)}
-      >
-        <option value="">The first one there is{now && !me.home ? `, ${labelOf(now.agent)}` : ""}</option>
-        {all.map((one) => (
-          <optgroup key={one.name} label={one.label}>
-            {chatsIn(one).map((agent) => (
-              <option key={agent} value={`${one.name}/${agent}`}>
-                {labelOf(agent)}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-      {trouble && <p className="bad">{trouble}</p>}
-    </section>
   );
 }
 

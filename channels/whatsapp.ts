@@ -5,9 +5,8 @@
 //   import { whatsappChannel } from "@chloejs/core/channels";
 //   channels: [whatsappChannel({ allowFrom: ["+447700900123"] })],
 //
-// It needs nothing installed, and nothing open on this box. The number it
-// answers as is one registered with Meta, and it cannot be a number that is
-// already in the WhatsApp app.
+// It needs nothing installed. The number it answers as is one registered with
+// Meta, and it cannot be a number that is already in the WhatsApp app.
 //
 // Setting it up, at developers.facebook.com: make an app, add WhatsApp to it,
 // and it gives you a test number and a token to try with. The three things
@@ -23,27 +22,10 @@
 // whatsapp_business_messaging permission and take a permanent token from that.
 //
 // Then point the app at an address. Meta posts each message once and has
-// nothing to fetch one with, so that address has to be public, and this box is
-// not: the runtime is never the public half of a connection.
-//
-// Two ways, and neither needs anything you did not choose:
-//
-// With no remote dashboard, the route this channel answers on the one port,
-// `/chloe/v1/<id>/<channel name>`, is the address: reached through a web server
-// of your own that passes that one path on, the way a web chat is.
-//
-// With a remote dashboard connected (`dashboard.remote.api_key`), or a
-// `postBox` named, there is a **post box**. On start this asks `postBox` for one of its own,
-// writes the address it was given to the log, and then collects from it with one
-// request held open at a time, the way Telegram is polled. Paste that address
-// into the app's WhatsApp page and nothing here is ever reached from outside.
-// Each delivery is sealed to a key made here, so what holds it cannot read it,
-// and Meta's signature travels with it and is checked below against the app
-// secret, so what holds it cannot make one up either. `dashboard.remote.url` in settings is
-// where a box is asked for when `postBox` does not say.
-//
-// `postBox: ""` turns the post box off even with a remote dashboard. The route
-// sits outside the login, so:
+// nothing to fetch one with, so that address has to be public: the route this
+// channel answers on the one port, `/chloe/v1/<id>/<channel name>`, reached
+// through a web server of your own that passes that one path on, the way a web
+// chat is. The route sits outside the login, so:
 //
 //   Every POST is checked against app_secret before it is read, and one that
 //   does not match is refused without a word about why. Without an app_secret
@@ -83,7 +65,6 @@ import type { Agent, Channel, ChannelRoute, ChatHistory, Running } from "#chloe/
 import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
 import type { Attachment } from "#chloe/model/model";
 import { nameInEnv, settings, whereKeyGoes } from "#chloe/core/settings";
-import { boxFor, collectFrom, keptBox } from "./postbox.ts";
 import { type Bound, type Button, defineChannel, type Incoming, inPieces, receive, rulesOf, type Shared } from "./shared.ts";
 
 const MAX_MESSAGE = 4000; // WhatsApp refuses a text body over 4096.
@@ -128,27 +109,9 @@ export interface WhatsAppOptions extends Shared {
    */
   allowFrom?: string[];
   /**
-   * The address of a post box service to collect messages from.
-   *
-   * Meta only sends messages to a public address, and never lets anything
-   * fetch them. A post box takes the messages at a public address and holds
-   * them, sealed, until chloe collects them, so nothing on your machine needs
-   * to be reachable from the internet. When the channel starts, it writes the
-   * post box's address to the log: register that address with Meta.
-   *
-   * Default: `dashboard.remote.url` in settings when a remote dashboard is
-   * connected (`dashboard.remote.api_key` is set), otherwise none. Set it to
-   * "" for no post box even with a remote dashboard.
-   *
-   * With no post box, Meta must reach the channel's own address,
-   * `/chloe/v1/<agent id>/<name>` on chloe's web server port, through a web
-   * server of your own.
-   */
-  postBox?: string;
-  /**
    * The address where this server can be reached from the internet, like
-   * "https://agents.example.com". Only used, when there is no post box, to
-   * write the full address to register with Meta in the log.
+   * "https://agents.example.com". Only used to write the full address to
+   * register with Meta in the log.
    */
   publicUrl?: string;
   /**
@@ -219,16 +182,6 @@ interface Posted {
 }
 
 /**
- * Where this agent's messages are collected from, for a page to show: the post
- * box address it was given, or "" before it has asked for one or when it is
- * collecting from nowhere. The address is not a secret: posting to it is the
- * point, and collecting from it needs the key kept beside it.
- */
-export function collectsAt(agent: string, channel = "whatsapp"): string {
-  return keptBox("whatsapp", agent, channel)?.at ?? "";
-}
-
-/**
  * Puts an agent on WhatsApp, through WhatsApp's own API from Meta. Add it to
  * the `channels` list in the agent's `agent.ts`:
  *
@@ -246,8 +199,8 @@ export function collectsAt(agent: string, channel = "whatsapp"): string {
  *   shows lasts only one day.
  * - Without `app_secret`, every message is refused, because it is the only
  *   way to tell a message from Meta apart from a fake one.
- * - Messages arrive through a post box, or through the channel's own address.
- *   See `postBox`.
+ * - Messages arrive at the channel's own address, `/chloe/v1/<agent id>/<name>`,
+ *   which Meta must reach through a web server of your own.
  * - WhatsApp's API has no groups: every message is one-to-one.
  * - WhatsApp refuses a message sent more than 24 hours after that person's
  *   last message. So a job that asks somebody who has not written in the
@@ -292,9 +245,6 @@ export function listen(
   const api = options.api ?? "https://graph.facebook.com";
   const version = options.version ?? "v23.0";
   const path = `/chloe/v1/${agentId}/${channel}`;
-  // The dashboard's post box only when one is connected: nothing is sent through
-  // a service the owner did not choose.
-  const postBox = (options.postBox ?? (settings.dashboard.remote.api_key ? settings.dashboard.remote.url : "")).replace(/\/+$/, "");
   const verify = options.verifyToken || randomBytes(12).toString("hex");
   const allowedTypes = options.uploadPolicy?.allowedMediaTypes ?? ["image/*", "application/pdf", "text/*"];
   const maxBytes = options.uploadPolicy?.maxBytes ?? 10 * 1024 * 1024;
@@ -307,14 +257,10 @@ export function listen(
         `settings page at developers.facebook.com.`,
     );
   }
-  // Only worth saying when nothing is being collected: otherwise the post box's
-  // address is the one to register, and it is said once the box is known.
-  if (!postBox) {
-    console.log(
-      `whatsapp: ${agentId} answers ${options.publicUrl ? `${options.publicUrl.replace(/\/+$/, "")}${path}` : path}. ` +
-        `Register that address on the app's WhatsApp page, subscribed to messages, with ${verify} as the word it checks.`,
-    );
-  }
+  console.log(
+    `whatsapp: ${agentId} answers ${options.publicUrl ? `${options.publicUrl.replace(/\/+$/, "")}${path}` : path}. ` +
+      `Register that address on the app's WhatsApp page, subscribed to messages, with ${verify} as the word it checks.`,
+  );
 
   /** One call to the API. `where` is what it is for, so a failure says which call failed. */
   async function call<T>(to: string, body: object, where: string): Promise<T> {
@@ -496,9 +442,8 @@ export function listen(
   const seen = new Set<string>();
 
   /**
-   * One delivery from Meta, however it got here: the body exactly as Meta wrote
-   * it and the signature that came with it. The signature is checked against
-   * the app secret, so a post box in the middle is not trusted with anything.
+   * One delivery from Meta: the body exactly as Meta wrote it and the
+   * signature that came with it, checked against the app secret.
    *
    * Returns false when the signature did not match, which is the only thing a
    * caller needs to know.
@@ -547,32 +492,13 @@ export function listen(
   };
 
   const route: ChannelRoute = { path, methods: ["GET", "POST"], handle: webhook };
-  const stopping = new AbortController();
-  if (postBox) void collect().catch((error) => console.error("whatsapp:", (error as Error).message));
 
   return {
     routes: [route],
     stop() {
-      stopping.abort();
       unreach(channel, agentId);
     },
   };
-
-  /** Collects from this number's post box until stopped. Where it is goes to the log, to be pasted into the app. */
-  async function collect(): Promise<void> {
-    const box = await boxFor("whatsapp", agentId, channel, postBox);
-    console.log(
-      `whatsapp: ${agentId} collects from ${box.at}. Register that address on the app's WhatsApp page at ` +
-        `developers.facebook.com, subscribed to messages.`,
-    );
-    await collectFrom(box, {
-      label: `whatsapp: ${agentId}`,
-      signal: stopping.signal,
-      open: async (body, signature) => {
-        if (!(await delivered(body, signature))) console.warn(`whatsapp: a message from the post box was not signed by the app, and was dropped.`);
-      },
-    });
-  }
 }
 
 /** A number as one way of writing it: "+447700900123", however it was typed. */

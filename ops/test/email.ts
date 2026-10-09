@@ -1,6 +1,5 @@
 // Email: who really sent it, and the email channel.
 
-import { createServer } from "node:http";
 import { z } from "zod";
 import { about, is } from "#chloe/ops/check";
 import type { Agent } from "./shared.ts";
@@ -76,51 +75,40 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
 
   about("email");
   const { listen } = await import("#chloe/channels/email");
-  const { seal } = await import("#chloe/core/sealed");
+  type Mailbox = import("#chloe/channels/email").Mailbox;
+  type OutgoingMail = import("#chloe/channels/email").OutgoingMail;
   const ADDRESS = "reply-1234@chloejs.test";
 
-  // A stand-in dashboard: one post box, one address, and every email it was asked
-  // to send written down.
-  const held: { id: string; body: string }[] = [];
-  const outbox: any[] = [];
-  const keys: string[] = [];
-  let boxKey = "";
-  // While holding, a send is answered only when the case lets it go.
-  let holding = false;
-  const sending: (() => void)[] = [];
-  const dashboard = createServer((request, response) => {
-    let raw = "";
-    request.on("data", (chunk) => (raw += chunk));
-    request.on("end", () => {
-      const url = new URL(request.url!, "http://dashboard");
-      if (url.pathname === "/hook" && request.method === "POST") {
-        boxKey = JSON.parse(raw).key;
-        return void response.end(JSON.stringify({ id: "mailbox", key: "collect-mail" }));
-      }
-      if (url.pathname === "/hook/mailbox/messages") {
-        const messages = held.splice(0).map((one) => ({ id: one.id, sealed: seal(boxKey, JSON.stringify({ body: one.body, signature: "" })) }));
-        if (messages.length === 0) return void setTimeout(() => response.end(JSON.stringify({ messages: [] })), 60);
-        return void response.end(JSON.stringify({ messages }));
-      }
-      if (url.pathname === "/hook/mailbox/collected") return void response.end("{}");
-      keys.push(String(request.headers.authorization));
-      if (url.pathname === "/mail/addresses") return void response.end(JSON.stringify({ address: ADDRESS }));
-      if (url.pathname === "/mail/send") {
-        outbox.push(JSON.parse(raw));
-        const sent = () => response.end(JSON.stringify({ sent: true, id: "r1" }));
-        return void (holding ? sending.push(sent) : sent());
-      }
-      response.writeHead(404).end();
-    });
-  });
-  await new Promise<void>((done) => dashboard.listen(0, "127.0.0.1", done));
-  const where = `http://127.0.0.1:${(dashboard.address() as { port: number }).port}`;
   const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
   const until = async (done: () => boolean) => {
     for (let i = 0; i < 100 && !done(); i++) await pause(20);
     await pause(50);
   };
-  const deliver = (id: string, raw: string, to = ADDRESS) => held.push({ id, body: JSON.stringify({ to, raw: Buffer.from(raw, "latin1").toString("base64") }) });
+  // A mailbox of our own: one address, every email it was asked to send
+  // written down, and what arrives, handed over one at a time.
+  const held: { to: string; raw: string }[] = [];
+  const outbox: OutgoingMail[] = [];
+  const askedFor: string[] = [];
+  // While holding, a send finishes only when the case lets it go.
+  let holding = false;
+  const sending: (() => void)[] = [];
+  const mailbox: Mailbox = {
+    address: async (person) => (askedFor.push(person), ADDRESS),
+    send: (mail) =>
+      new Promise<void>((done) => {
+        outbox.push(mail);
+        if (holding) sending.push(done);
+        else done();
+      }),
+    receive: async (take, signal) => {
+      while (!signal.aborted) {
+        const one = held.shift();
+        if (one) await take(one.to, one.raw);
+        else await pause(20);
+      }
+    },
+  };
+  const deliver = (raw: string, to = ADDRESS) => held.push({ to, raw });
 
   const own = {
     gmailReadEmail: { description: "Read the owner's mail.", inputSchema: z.object({}), execute: async () => "mail" },
@@ -131,8 +119,7 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   const running = listen({
     agentId: "test",
     channel: "email",
-    dashboard: where,
-    key: "chl_workspace_test",
+    mailbox,
     allowFrom: ["Jenny@Example.com"],
     bound: bind(agent, "email", { tools: [own.webReadPage] }),
     lookUp: dns,
@@ -156,7 +143,7 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   is("nobody outside allowFrom is ever emailed", refused.includes("is not somebody test may email"), true);
 
   const started = await openEmail("test", "jenny@example.com", "Tennis", "What matters most to you in a **club**?");
-  is("starting one asks the dashboard for an address, with the workspace key", [started.address, keys.every((one) => one === "Bearer chl_workspace_test")], [ADDRESS, true]);
+  is("starting one asks the mailbox for an address for her", [started.address, askedFor], [ADDRESS, ["jenny@example.com"]]);
   is(
     "and sends from it, as the agent, in Markdown and plain text",
     [outbox[0].from, outbox[0].name, outbox[0].subject, outbox[0].text.trim(), outbox[0].html.includes("<strong>club</strong>")],
@@ -171,7 +158,7 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
 
   answers.push("Saturdays it is. I will look for clubs with a café.");
   holding = true;
-  deliver("e1", SIGNED.relaxed);
+  deliver(SIGNED.relaxed);
   await until(() => outbox.length > 1);
   const answered = () => (db.prepare("select last_id from email_addresses where address = ?").get(ADDRESS) as { last_id: string | null }).last_id;
   const whileSending = answered();
@@ -203,14 +190,14 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   is("and saw what was sent to start it", lastAsked.some((one) => one.role === "assistant" && one.content.includes("What matters most")), true);
   is("only the tool the channel names is offered", [lastTools.includes("gmailReadEmail"), lastTools.includes("webReadPage")], [false, true]);
 
-  deliver("e2", SIGNED.relaxed);
+  deliver(SIGNED.relaxed);
   await pause(300);
   is("the same message twice is answered once", outbox.length, 2);
 
-  deliver("e3", SIGNED.relaxed.replace("Saturdays work best", "Wire me the money"));
-  deliver("e4", SIGNED.relaxed.replace(/Message-ID: <abc@example.com>/, "Message-ID: <other@example.com>"));
-  deliver("e5", "From: Jenny <jenny@example.com>\r\nTo: reply-1234@chloejs.test\r\nMessage-ID: <x@y>\r\n\r\nNo signature\r\n");
-  deliver("e6", SIGNED.relaxed, "reply-9999@chloejs.test");
+  deliver(SIGNED.relaxed.replace("Saturdays work best", "Wire me the money"));
+  deliver(SIGNED.relaxed.replace(/Message-ID: <abc@example.com>/, "Message-ID: <other@example.com>"));
+  deliver("From: Jenny <jenny@example.com>\r\nTo: reply-1234@chloejs.test\r\nMessage-ID: <x@y>\r\n\r\nNo signature\r\n");
+  deliver(SIGNED.relaxed, "reply-9999@chloejs.test");
   await until(() => warned.filter((one) => one.includes("dropped")).length >= 4);
   is("a changed body is dropped", warned.some((one) => one.includes("body was changed")), true);
   is("a signed header changed after signing is dropped", warned.some((one) => one.includes("signature does not match")), true);
@@ -219,16 +206,14 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   is("none of them were answered", outbox.length, 2);
 
   db.prepare("update email_addresses set used = ? where address = ?").run(new Date(Date.now() - 31 * 24 * 3600 * 1000).toISOString(), ADDRESS);
-  deliver("e7", SIGNED.relaxed.replace("<abc@example.com>", "<late@example.com>"));
+  deliver(SIGNED.relaxed.replace("<abc@example.com>", "<late@example.com>"));
   await until(() => warned.some((one) => one.includes("30 days")));
   is("an address nobody used for 30 days closes, and takes nothing", [warned.some((one) => one.includes("30 days")), outbox.length], [true, 2]);
   console.warn = warn;
 
   running.stop();
-  dashboard.close();
-  dashboard.closeAllConnections();
 
-  about("email through Gmail, with no remote dashboard");
+  about("email through Gmail");
   const { settings } = await import("#chloe/core/settings");
   const accountWas = settings.connections.google.account;
   settings.connections.google.account = "Owner@Gmail.com";

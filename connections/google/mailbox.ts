@@ -16,8 +16,8 @@ export interface Since {
   history: string;
 }
 
-/** What the email channel needs from a mailbox. Gmail is one; a test hands in its own. */
-export interface Mailbox {
+/** What the email channel needs from Gmail. A test hands in its own. */
+export interface Gmail {
   /** Where the mailbox is now. Asking from here later gives what arrived in between. */
   now(): Promise<string>;
   /** What arrived since `history`, or "gone" when that point is too old to ask from. */
@@ -36,7 +36,7 @@ interface Header {
 }
 
 /** The signed-in account's mailbox, through Google's own web addresses. */
-export const gmailMailbox: Mailbox = {
+export const gmailMailbox: Gmail = {
   async now() {
     const profile = await googleApi<{ historyId?: string }>(`${MAILBOX}/profile`);
     if (!profile.historyId) throw new Error("Gmail did not say where the mailbox is up to.");

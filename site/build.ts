@@ -56,14 +56,16 @@ export const script: BuildOptions = {
 };
 
 /**
- * The mark is inlined rather than emitted beside the stylesheet, so a built
- * stylesheet is the same bytes however it is served. One code path.
+ * The mark is inlined, being small. The fonts are written to page/fonts/
+ * under names that carry what they hold, like the bundles, so a new font is a
+ * new address.
  */
 export const sheet: BuildOptions = {
   entryPoints: [`${dir}/static/styles.css`],
   bundle: true,
   minify: true,
-  loader: { ".png": "dataurl" },
+  loader: { ".png": "dataurl", ".woff2": "file" },
+  assetNames: "fonts/[name]-[hash]",
   outfile: `${out}/page.css`,
   plugins: [version],
 };
@@ -82,4 +84,7 @@ await versioned();
 await cp(`${dir}/static/icon.png`, `${out}/icon.png`);
 await cp(`${dir}/manifest.webmanifest`, `${out}/manifest.webmanifest`);
 await cp(`${dir}/static/icons`, `${out}/icons`, { recursive: true });
+for (const license of ["OFL-instrument-sans.txt", "OFL-google-sans-code.txt"]) {
+  await cp(`${dir}/static/fonts/${license}`, `${out}/fonts/${license}`);
+}
 await cp(`${dir}/notes`, out, { recursive: true });

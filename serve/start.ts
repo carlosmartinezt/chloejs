@@ -21,15 +21,13 @@ import { run } from "#chloe/services/runService";
 import { learnModels, runnable } from "#chloe/model/model";
 import { claimPort, ownAddress, serve as listen } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
-import { startDashboard } from "#chloe/dashboard/connect";
 import { hasPassword, makeLink } from "#chloe/serve/login";
 import { alertsSay } from "#chloe/core/alerts";
 
 /**
- * Starts chloe in this process: every agent's cron lines and channels, chloe's
- * web server, and the connection to a remote dashboard if you set one. The
- * promise resolves once everything has started, and chloe keeps running until
- * the process stops. To run one job and exit, use `agent.run`.
+ * Starts chloe in this process: every agent's cron lines and channels, and
+ * chloe's web server. The promise resolves once everything has started, and
+ * chloe keeps running until the process stops. To run one job and exit, use `agent.run`.
  *
  * `npx chloe` calls it with no options, and it reads `chloe.config.ts`. A
  * script with no `chloe.config.ts` can pass the agents and settings that file
@@ -112,42 +110,6 @@ export async function startChloe(given?: Config): Promise<void> {
     heldPort,
   });
 
-  // The connection to the remote dashboard, if there is a key for one. It reads the
-  // settings, so a change to dashboard.remote.api_key or
-  // dashboard.remote.url is a reload away like everything else.
-  //
-  // Its first line is held back so it can be printed in among the rest below
-  // rather than landing a moment later on its own. Every line after that is
-  // something that changed, and goes out as it happens.
-  let dashboardSays = "";
-  let started = false;
-  const dashboard = startDashboard({
-    agents: () => agents,
-    says: (line) => {
-      dashboardSays = line;
-      if (started) console.log(`dashboard: ${line}`);
-    },
-  });
-
-  /** Waits for the connection to say where it stands, and gives up after `within` ms. */
-  function firstWord(within: number): Promise<void> {
-    return new Promise((done) => {
-      if (dashboardSays) return done();
-      const looking = setInterval(() => {
-        if (!dashboardSays) return;
-        clearInterval(looking);
-        clearTimeout(enough);
-        done();
-      }, 25);
-      const enough = setTimeout(() => {
-        clearInterval(looking);
-        done();
-      }, within);
-    });
-  }
-
-  await firstWord(1500);
-  started = true;
   const outside = await connected();
   for (const line of startup(outside)) console.log(line);
 
@@ -214,8 +176,6 @@ export async function startChloe(given?: Config): Promise<void> {
       lines.push(under("Opens the page signed in, in one browser, within the hour. Another: npx chloe link"));
     }
     lines.push(row("Alerts", alertsSay()));
-
-    lines.push(row("Dashboard", dashboardSays || `connecting to ${settings.dashboard.remote.url}`));
 
     // Every route in the order they are tried, those this box is set up for only,
     // so the line says what will actually be used and not what was asked for.
@@ -314,7 +274,6 @@ export async function startChloe(given?: Config): Promise<void> {
           watchFolders();
           startChannels(changedChannels);
           changedChannels.clear();
-          dashboard.reload();
           console.log(`reloaded: ${[...agents.keys()].join(", ")}`);
         } catch (error) {
           console.error(
@@ -398,7 +357,7 @@ export async function startChloe(given?: Config): Promise<void> {
   watchFolders();
 
   /**
-   * Stop the clock, the port and the dashboard, let the runs that are going
+   * Stop the clock and the port, let the runs that are going
    * finish, then exit. A run still going after STOP_WAIT is left as it is, and
    * the next start closes it as cut off. A second signal exits at once, for a
    * person at a terminal who meant it.
@@ -410,7 +369,6 @@ export async function startChloe(given?: Config): Promise<void> {
     clearTimeout(pending);
     for (const watcher of watching.values()) watcher.close();
     clock.stop();
-    dashboard.stop();
     server.close();
     const until = Date.now() + STOP_WAIT;
     const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));

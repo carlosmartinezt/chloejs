@@ -117,10 +117,3 @@ export const clock = (iso: string | null | undefined) =>
 
 export const text = (value: unknown) =>
   typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? "";
-
-/** One or two letters for an account's square, out of the name, or out of what comes before the @. */
-export function initials(called: string): string {
-  const parts = called.split(/[\s.\-_+]/).filter(Boolean);
-  if (!parts.length) return called.slice(0, 1).toUpperCase();
-  return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
-}

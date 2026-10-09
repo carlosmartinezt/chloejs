@@ -40,11 +40,11 @@ import { about, is } from "#chloe/ops/check";
     modelLine({ defaultModel: "openai/gpt-6-luna" }, "OPENAI_API_KEY", ["keys", "openai"]),
     'model: { defaultModel: "openai/gpt-6-luna", keys: { openai: process.env.OPENAI_API_KEY } },',
   );
-  const keyLine = "dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } },";
+  const keyLine = "connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } },";
   const withKey = withSetting(config, keyLine);
   is("a key's line goes into the settings setup wrote", withKey?.includes(`  settings: {\n    ${keyLine}\n`), true);
   is("and not twice", withSetting(withKey!, keyLine), null);
-  is("nor into a config that already says dashboard", withSetting(withKey!, "dashboard: { remote: { url: \"https://example.com\" } },"), null);
+  is("nor into a config that already says connections", withSetting(withKey!, "connections: { google: { account: \"you@gmail.com\" } },"), null);
 
   // Written inside the repo rather than in tmp, because the config imports
   // "@chloejs/core" and a package can only import itself from inside itself.

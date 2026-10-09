@@ -54,7 +54,6 @@ import type { Tools } from "./shared.ts";
 
   about("where Google is told to send its answer");
   const callbackWas = settings.connections.google.callback;
-  const urlWas = settings.dashboard.remote.url;
 
   // Set outright, not left to whatever ran before this: the client decides the
   // address when nobody says one, so a case about the address has to pin it.
@@ -62,18 +61,11 @@ import type { Tools } from "./shared.ts";
   settings.connections.google.callback = "";
   settings.connections.google.client = "";
   is("with no client and nothing set, the answer goes to this machine", callback().url, "");
-  is("so somebody pastes it back", callback().relayed, false);
-
-  // A dashboard is never the default, because which way a sign-in finishes is the
-  // owner's choice and the one with a code in it needs nothing registered.
-  settings.dashboard.remote.url = "https://remote.example";
-  settings.dashboard.remote.allow.google = true;
 
   // With nothing said, the kind of client decides, because that is what decides
   // which addresses Google will take.
   settings.connections.google.client = { web: { client_id: "a", client_secret: "b" } };
   is("a web client gets the page that shows a code, unasked", callback().url, SHOWS_THE_CODE);
-  is("and a dashboard does not change that", callback().relayed, false);
   settings.connections.google.client = { installed: { client_id: "a", client_secret: "b" } };
   is("a desktop client gets the loopback address, the only one Google will take", callback().url, "");
   settings.connections.google.client = "";
@@ -83,26 +75,10 @@ import type { Tools } from "./shared.ts";
   // Said outright, for an address somebody opened themselves.
   settings.connections.google.callback = SHOWS_THE_CODE;
   is("the page that shows a code is the address Google is told", callback().url, "https://chloejs.org/connected");
-  is("and it is not relayed, because the person carries the code", callback().relayed, false);
-
-  // The one address that does come back on its own, written out by hand, which is
-  // how somebody opts into it. Recognised by the route's shape, so whatever the
-  // workspace is called it is still that route.
-  settings.connections.google.callback = "https://remote.example/oauth/google/callback/personal";
-  is("a dashboard's own route is relayed", callback().relayed, true);
-  settings.connections.google.callback = "https://remote.example/oauth/google/callback/anything-else";
-  is("whatever the workspace is called", callback().relayed, true);
-  settings.connections.google.callback = "https://remote.example/something/else";
-  is("and another address on the same dashboard is not", callback().relayed, false);
-  settings.connections.google.callback = "https://remote.example/oauth/google/callback/personal";
-
-  // Switched off, the dashboard would refuse the handing back, so it is a paste again.
-  settings.dashboard.remote.allow.google = false;
-  is("with the switch off, the same address needs a paste", callback().relayed, false);
-  settings.dashboard.remote.allow.google = true;
+  settings.connections.google.callback = "https://example.com/somewhere/of/mine";
+  is("and any other address somebody set is told as it is", callback().url, "https://example.com/somewhere/of/mine");
 
   settings.connections.google.callback = callbackWas;
-  settings.dashboard.remote.url = urlWas;
 
   about("what a reply reads off the message it is answering");
   const { marked } = await import("#chloe/connections/google/googleService");
@@ -219,32 +195,28 @@ import type { Tools } from "./shared.ts";
     [true],
   );
   is("and the page can start that sign-in", typeof signInOf(onGmail, "google").start, "function");
-  const onDashboard = { id: "mailer", model: "m", tools: {}, channels: [emailChannel({ allowFrom: ["a@b.co"] })] } as any;
-  is("one through a remote dashboard needs no Google", (await connectionsOf(onDashboard)).some((one) => one.name === "google"), false);
+  const ownBox = { address: async () => "", send: async () => {}, receive: async () => {} };
+  const onItsOwn = { id: "mailer", model: "m", tools: {}, channels: [emailChannel({ allowFrom: ["a@b.co"], mailbox: ownBox })] } as any;
+  is("one on a mailbox of its own needs no Google", (await connectionsOf(onItsOwn)).some((one) => one.name === "google"), false);
 
   about("what the person is told to do");
   const { whatToDo } = await import("#chloe/connections/google/googleService");
 
-  // Three endings, and these words are the whole of what the person
+  // Two endings, and these words are the whole of what the person
   // experiences. The one that reads as a fault is the default, so saying so
   // before they see it is the difference between a step and a broken page.
   const page = "https://chloejs.org/connected";
   is(
-    "with the answer coming back on its own, there is nothing to send",
-    whatToDo("a@b.co", { url: page, relayed: true }).includes("nothing to send back"),
-    true,
-  );
-  is(
     "with a page in front of it, the person sends a code",
-    whatToDo("a@b.co", { url: page, relayed: false }).includes("short code"),
+    whatToDo("a@b.co", { url: page }).includes("short code"),
     true,
   );
-  const loopback = whatToDo("a@b.co", { url: "", relayed: false });
+  const loopback = whatToDo("a@b.co", { url: "" });
   is("and on this machine, that the page will not load is said first", loopback.includes("will not load"), true);
   is("with the reason, which is that the address is not theirs", loopback.includes("not yours"), true);
   is(
     "an address that happens to be localhost is the same case",
-    whatToDo("a@b.co", { url: "http://localhost:9/x", relayed: false }).includes("will not load"),
+    whatToDo("a@b.co", { url: "http://localhost:9/x" }).includes("will not load"),
     true,
   );
 

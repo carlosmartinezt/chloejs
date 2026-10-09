@@ -25,9 +25,7 @@ it puts this one on the next free port, as `serve: { port }` in
    OpenAI or gateway key in your environment, takes one you paste, or offers a
    free one. Then it makes one real call to check the model answers and can call
    a tool. See [Models](/docs/models).
-2. **Where to watch it from**: the dashboard on this machine, and, only if you
-   want, a [remote dashboard](/docs/the-page#a-remote-dashboard) too.
-3. **A git repository.** In a folder that is not one, it makes one and commits
+2. **A git repository.** In a folder that is not one, it makes one and commits
    what is there, under your git name, or "npx chloe setup" when git has none.
    Every change an agent makes to itself is a commit you can read and undo, and
    it may not change a file nobody has committed, so without one it cannot
@@ -83,8 +81,8 @@ a service: a systemd user unit on Linux, a launchd agent on a Mac.
 in a browser on the same machine and you are in, with nothing to set: it signs
 that browser in for a week, works once, and only within the hour.
 `npx chloe link` prints another. From another machine, use
-`ssh -L 3067:127.0.0.1:3067 you@box` and open the link there, or a
-[remote dashboard](/docs/the-page#a-remote-dashboard), which needs no open port.
+`ssh -L 3067:127.0.0.1:3067 you@box` and open the link there, or see
+[From another machine](/docs/the-page#from-another-machine).
 
 `npx chloe install` writes one service per machine, so on a machine already
 running chloe it would move that service to this folder.

@@ -50,17 +50,17 @@ import { about, is } from "#chloe/ops/check";
   // a credential comes from without holding one.
   is(
     "a setting handed a variable nothing set is one the config did not say",
-    readSettings({ dashboard: { remote: { url: process.env.NOTHING_SETS_THIS } } }).dashboard.remote.url,
-    "https://dashboard.chloejs.org",
+    readSettings({ serve: { host: process.env.NOTHING_SETS_THIS } }).serve.host,
+    "127.0.0.1",
   );
-  is("and the workspace key is a setting like any other", readSettings({ dashboard: { remote: { api_key: "chl_workspace_x" } } }).dashboard.remote.api_key, "chl_workspace_x");
+  is("and a key is a setting like any other", readSettings({ model: { key: "k_x" } }).model.key, "k_x");
   // Nothing is read from the environment by itself, so the config shows every value.
   {
-    process.env.CHLOE_DASHBOARD_REMOTE_URL = "https://env";
-    process.env.CHLOE_DASHBOARD_REMOTE_API_KEY_NOT_NAMED = "chl_from_env";
-    is("a setting is never read from the environment by itself", readSettings({}).dashboard.remote.url, "https://dashboard.chloejs.org");
-    delete process.env.CHLOE_DASHBOARD_REMOTE_URL;
-    delete process.env.CHLOE_DASHBOARD_REMOTE_API_KEY_NOT_NAMED;
+    process.env.CHLOE_SERVE_HOST = "0.0.0.0";
+    process.env.CHLOE_CONNECTIONS_GOOGLE_ACCOUNT = "env@example.com";
+    is("a setting is never read from the environment by itself", [readSettings({}).serve.host, readSettings({}).connections.google.account], ["127.0.0.1", ""]);
+    delete process.env.CHLOE_SERVE_HOST;
+    delete process.env.CHLOE_CONNECTIONS_GOOGLE_ACCOUNT;
   }
   is("but one the config hands over is read", readSettings({ connections: { resend: { api_key: "re_x" } } }).connections.resend.api_key, "re_x");
 
@@ -83,12 +83,12 @@ import { about, is } from "#chloe/ops/check";
   is("a misspelt key under an agent names the agent, not a star",
     said({ agents: { tempo: { telegarm: "t" } } }),
     "agents.tempo.telegarm is not a setting. Under agents.tempo there is telegram, slack, whatsapp.");
-  is("a switch given a word is refused", said({ dashboard: { remote: { allow: { write: "yes" } } } }), "dashboard.remote.allow.write is true or false.");
+  is("a switch given a word is refused", said({ connections: { resend: { alerts: "yes" } } }), "connections.resend.alerts is true or false.");
   is("a list given a word is refused", said({ model: { models: "a,b" } }), "model.models is a list of words.");
   is("a group given a word is refused", said({ model: "claude" }), "model holds more settings, so it is an object.");
   is("connections.google.client takes the file's own shape", said({ connections: { google: { client: { web: { client_id: "x" } } } } }), "");
   is("and refuses what is neither that nor a path", said({ connections: { google: { client: 7 } } }), "connections.google.client is the client file, its path, or its contents as one string.");
-  is("a switch handed over as a word is refused too", said({ dashboard: { remote: { allow: { write: "true" } } } }), "dashboard.remote.allow.write is true or false.");
+  is("a switch handed over as a word is refused too", said({ connections: { resend: { alerts: "true" } } }), "connections.resend.alerts is true or false.");
 
   const thrown = (declared: unknown) => {
     try {
@@ -98,10 +98,9 @@ import { about, is } from "#chloe/ops/check";
       return error instanceof Error ? error.message : "";
     }
   };
-  is("a config written for cloud says where it went", thrown({ cloud: { api_key: "chl_workspace_x" } }).includes("cloud is dashboard.remote now"), true);
-  is("and one written for page", thrown({ page: "builtin" }).includes("dashboard.local is gone"), true);
-  is("and one written for dashboard.local", thrown({ dashboard: { local: "builtin" } }).includes("dashboard.local is gone"), true);
-  is("and the dashboard's address is what it is unless somebody says", readSettings({}).dashboard.remote.url, "https://dashboard.chloejs.org");
+  is("a config written for a remote dashboard says it is gone", thrown({ dashboard: { remote: { api_key: "chl_workspace_x" } } }).includes("dashboard is gone"), true);
+  is("and one written for cloud", thrown({ cloud: { api_key: "chl_workspace_x" } }).includes("dashboard is gone"), true);
+  is("and one written for page", thrown({ page: "builtin" }).includes("dashboard is gone"), true);
   is("sign-in alerts are on unless somebody says", readSettings({}).connections.resend.alerts, true);
 
   {
@@ -110,7 +109,7 @@ import { about, is } from "#chloe/ops/check";
     const { settings } = await import("@chloejs/core");
     declareSettings({ connections: { resend: { email_from: "chloe <x@example.com>" } } });
     is("what the config declares reaches the settings everything reads", settings.connections.resend.email_from, "chloe <x@example.com>");
-    is("and a setting it says nothing about is left at its default", settings.dashboard.remote.url, "https://dashboard.chloejs.org");
+    is("and a setting it says nothing about is left at its default", settings.serve.host, "127.0.0.1");
     declareSettings({ model: { preferredRoute: ["gateway"] } });
     is("declaring again drops what the last one said", settings.connections.resend.email_from, "");
     // Back to what the test config says, which is where the stand-in gateway comes from.
@@ -131,7 +130,7 @@ import { about, is } from "#chloe/ops/check";
   about("the .env file beside chloe.config.ts");
   const { readEnvFile } = await import("#chloe/core/env");
 
-  is("a plain line", readEnvFile("CHLOE_DASHBOARD_REMOTE_API_KEY=chl_workspace_x").CHLOE_DASHBOARD_REMOTE_API_KEY, "chl_workspace_x");
+  is("a plain line", readEnvFile("CHLOE_MODEL_KEY=k_x").CHLOE_MODEL_KEY, "k_x");
   is("blank lines and comments are passed over", Object.keys(readEnvFile("\n# a note\nA=1\n")), ["A"]);
   is("quotes around a value come off", readEnvFile('A="one two"').A, "one two");
   is("and so does export in front, so a shell reads the same file", readEnvFile("export A=1").A, "1");

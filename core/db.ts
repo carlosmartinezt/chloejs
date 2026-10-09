@@ -117,9 +117,10 @@ if (added("runs", "asked", "text")) {
 added("runs", "thread", "text");
 db.exec("create index if not exists runs_parked on runs (parked) where parked is not null");
 
-// What a person calls a conversation, when they archived it, and the email of
-// the guest it belongs to. A row only for a conversation somebody has named or
-// archived, or a guest has started: the rest have none, and are the owner's.
+// What a person calls a conversation, when they archived it, and whose it is:
+// the person an email conversation is with. A row only for a conversation
+// somebody has named or archived, or one started by email: the rest have
+// none, and are the owner's.
 db.exec("create table if not exists threads (thread text primary key, label text, archived text)");
 if (added("threads", "owner", "text")) {
   // A guest's conversation used to say whose it was in its id,
@@ -152,9 +153,9 @@ db.exec(`
 db.exec("create table if not exists seen (agent text primary key, at text not null)");
 
 /**
- * The columns a run is listed by: GET /api/runs, an agent's log, and what is
- * sent to a dashboard. `asked` is the start of what the person wrote, enough
- * for a line; the trace, the state and the prompt are left to GET /api/runs/:id.
+ * The columns a run is listed by: GET /api/runs and an agent's log. `asked`
+ * is the start of what the person wrote, enough for a line; the trace, the
+ * state and the prompt are left to GET /api/runs/:id.
  */
 export const RUN_COLUMNS =
   "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary, archived, substr(coalesce(asked, prompt), 1, 200) as asked";

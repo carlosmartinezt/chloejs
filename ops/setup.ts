@@ -96,7 +96,6 @@ try {
   await theFiles();
   const port = await thePort();
   await theModel();
-  await somewhereToWatch(port);
   await theRepository();
   sayWhatNext(port);
 } catch (error) {
@@ -406,25 +405,6 @@ function inSettings(line: string): void {
   if (!added) return void console.log(`\nchloe.config.ts is yours, so put this in its settings:\n  ${line}`);
   writeFileSync(configFile, added);
   written("chloe.config.ts", line);
-}
-
-/** Where the runs are watched from: this box always, and dashboard.chloejs.org as well if they want. */
-async function somewhereToWatch({ port }: { port: number }): Promise<void> {
-  const where = await pick("\nSomewhere to watch it from:", [
-    { key: "here", what: `this box only, at 127.0.0.1:${port}` },
-    { key: "remote", what: "a workspace on dashboard.chloejs.org as well, which needs nothing open on this box" },
-  ]);
-
-  if (where === "remote") {
-    console.log("\nMake a workspace at https://dashboard.chloejs.org and paste the key it shows you once.");
-    console.log("It connects out and stays connected, so there is no port to open and no name to point anywhere.");
-    const key = (await askHidden("Paste the workspace key (or Enter to do it later): ")).trim();
-    if (key) {
-      putInEnv("CHLOE_DASHBOARD_REMOTE_API_KEY", key);
-      written(".env", "CHLOE_DASHBOARD_REMOTE_API_KEY, mode 600");
-      inSettings("dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } },");
-    }
-  }
 }
 
 /**

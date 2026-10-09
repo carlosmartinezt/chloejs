@@ -36,6 +36,8 @@ export interface Page {
   title: string;
   order: number;
   summary: string;
+  /** The slug of the page this one sits under in a list of pages, from `under` in its frontmatter. */
+  under?: string;
   /** The markdown, with every `file=` block filled in. */
   body: string;
 }
@@ -145,6 +147,7 @@ export function pages(): Page[] {
         title: said.get("title") ?? file,
         order: Number(said.get("order") ?? 99),
         summary: said.get("summary") ?? "",
+        under: said.get("under") || undefined,
         body: filled(raw.slice(front[0].length)),
       };
     });
@@ -177,9 +180,13 @@ export function problems(): string[] {
     }
   }
   if (found.length) return found;
-  return pages()
-    .filter((one) => !one.title || !one.summary)
-    .map((one) => `docs/${one.slug}.md has no title or no summary in its frontmatter.`);
+  const all = pages();
+  return [
+    ...all.filter((one) => !one.title || !one.summary).map((one) => `docs/${one.slug}.md has no title or no summary in its frontmatter.`),
+    ...all
+      .filter((one) => one.under && !all.some((other) => other.slug === one.under && !other.under))
+      .map((one) => `docs/${one.slug}.md is under ${one.under}, which is not a page of its own.`),
+  ];
 }
 
 /**

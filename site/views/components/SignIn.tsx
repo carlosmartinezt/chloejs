@@ -5,8 +5,7 @@ import { api } from "../../lib/api.ts";
 /**
  * Signing in to one connection from the page: the same sign-in a chat runs, so
  * the link comes from the runtime as it made it and the code goes straight back
- * to it. Where the dashboard catches Google's answer there is nothing to paste,
- * and `done` refreshing the list is how that shows.
+ * to it. `done` refreshes the list once it is finished.
  */
 export function SignIn({ agent, name, again, done }: { agent: string; name: string; again: boolean; done: () => void }) {
   const [started, setStarted] = useState<{ say: string; link?: string } | null>(null);

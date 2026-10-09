@@ -30,7 +30,7 @@ const SIDE = 1568;
 
 /**
  * A file as a picture to send, made smaller first when it is big, so a photo
- * off a phone fits through a cloud and costs what it needs to.
+ * off a phone costs what it needs to.
  */
 async function picture(file: File): Promise<Held> {
   const bitmap = await createImageBitmap(file);
@@ -56,7 +56,7 @@ async function picture(file: File): Promise<Held> {
   return { name, mediaType: "image/jpeg", data: url.slice(url.indexOf(",") + 1), url };
 }
 
-/** Shown while something is read through a cloud, which can take a second or two. */
+/** Shown while something is being read, which can take a second or two. */
 const Loading = () => (
   <p className="thinking">
     <span className="dots">
@@ -89,17 +89,14 @@ const freshThread = (agent: string) => {
  * reading, so it is called by when it last moved.
  */
 const called = (one: Thread): string => {
-  // One a guest started before conversations had an owner is "guest-<their email>-" and then its name.
-  const own = threadName(one.thread).replace(/^guest-.+@.+?-(?=web(-|$))/, "");
-  const name = /^web(-|$)/.test(own) ? ago(one.last) || "just now" : own.replace(/^visitor-(.{6}).*/, "Visitor $1");
-  return one.owner ? `${one.owner}, ${name}` : name;
+  const own = threadName(one.thread);
+  return /^web(-|$)/.test(own) ? ago(one.last) || "just now" : own.replace(/^visitor-(.{6}).*/, "Visitor $1");
 };
 
 /** A visitor's conversation, from a chat box on a web page. */
 const fromWeb = (one: Thread): boolean => threadName(one.thread).startsWith("visitor-");
 
-/** `offline` is a runtime reached through a cloud whose connection is not open: it cannot be talked to. */
-export function Chat({ agent, thread: asked, offline = false }: { agent: string; thread?: string; offline?: boolean }) {
+export function Chat({ agent, thread: asked }: { agent: string; thread?: string }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [listed, setListed] = useState(false);
   const [thread, setThread] = useState("");
@@ -153,8 +150,8 @@ export function Chat({ agent, thread: asked, offline = false }: { agent: string;
 
   // Something said on another channel, or in another window, turns up here on
   // its own. The list of conversations is the one thing read every few
-  // seconds, since every read through a cloud is a line in its audit; the open
-  // conversation is read again only when the list says it grew.
+  // seconds; the open conversation is read again only when the list says it
+  // grew.
   const known = useRef(0);
   useEffect(() => {
     if (waiting) return;
@@ -381,10 +378,10 @@ export function Chat({ agent, thread: asked, offline = false }: { agent: string;
       <div
         className={blank ? "talking blank" : "talking"}
         onDragOver={(event) => {
-          if (!offline && event.dataTransfer.types.includes("Files")) event.preventDefault();
+          if (event.dataTransfer.types.includes("Files")) event.preventDefault();
         }}
         onDrop={(event) => {
-          if (offline || !event.dataTransfer.files.length) return;
+          if (!event.dataTransfer.files.length) return;
           event.preventDefault();
           void hold(event.dataTransfer.files);
         }}
@@ -471,8 +468,7 @@ export function Chat({ agent, thread: asked, offline = false }: { agent: string;
               ref={box}
               rows={1}
               value={prompt}
-              disabled={offline}
-              placeholder={offline ? `${labelOf(agent)} is offline` : `Ask ${labelOf(agent)} something`}
+              placeholder={`Ask ${labelOf(agent)} something`}
               onChange={(event) => setPrompt(event.target.value)}
               onPaste={(event) => {
                 if (!event.clipboardData.files.length) return;
@@ -483,20 +479,19 @@ export function Chat({ agent, thread: asked, offline = false }: { agent: string;
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  if (!offline) void send();
+                  void send();
                 }
               }}
             />
             {/* Under the words, the way other chat boxes are: adding on the left, sending on the right. */}
             <div className="row">
-              <label className={offline ? "attach dim" : "attach"} title="Add a picture" aria-label="Add a picture">
+              <label className="attach" title="Add a picture" aria-label="Add a picture">
                 <Icons.Plus />
                 <input
                   type="file"
                   accept="image/*"
                   multiple
                   hidden
-                  disabled={offline}
                   onChange={(event) => {
                     if (event.currentTarget.files) void hold(event.currentTarget.files);
                     event.currentTarget.value = "";
@@ -507,7 +502,7 @@ export function Chat({ agent, thread: asked, offline = false }: { agent: string;
                 className="go"
                 aria-label={`Send to ${labelOf(agent)}`}
                 onClick={send}
-                disabled={offline || waiting || (!prompt.trim() && !pictures.length)}
+                disabled={waiting || (!prompt.trim() && !pictures.length)}
               >
                 <Icons.Send />
               </button>

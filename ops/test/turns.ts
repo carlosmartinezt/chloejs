@@ -227,7 +227,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("anybody else allowed in may not", [lastTools.includes("selfWriteFile"), lastTools.includes("memoryReadFile")], [false, true]);
   answers.push("No.");
   await receive(agent, { ...from("1"), mayChangeAgent: false }, { allowFrom: ["1"] });
-  is("nor the owner when the caller says not, as a remote dashboard without write does", lastTools.includes("selfWriteFile"), false);
+  is("nor the owner when the caller says not, as a token does", lastTools.includes("selfWriteFile"), false);
   answers.push("No.");
   await receive(agent, from("1"), { allowFrom: ["1"], strangers: true });
   is("nor anybody on a channel for strangers", lastTools.includes("selfWriteFile"), false);

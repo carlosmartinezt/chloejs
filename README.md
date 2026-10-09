@@ -41,25 +41,14 @@ skills add carlosmartinezt/chloejs` gets it that far before anything is.
 [Examples](https://chloejs.org/examples) ·
 [Primitives](https://chloejs.org/docs/primitives)
 
-## Somewhere to watch it from
+## Private by default
 
-The runtime serves its own dashboard, on the box it runs on. To watch it from anywhere without opening a
-port, point it at a remote dashboard.
-
-Make a workspace there, and put the key it shows you once in `.env`, beside
-`chloe.config.ts`, which is one of the questions `npx chloe setup` asks:
-
-```sh
-CHLOE_DASHBOARD_REMOTE_API_KEY=chl_workspace_...
-```
-
-That is the whole of it: `https://dashboard.chloejs.org` is where it looks
-unless `dashboard.remote.url` in settings says otherwise. It connects out and stays
-connected, and that dashboard can then show this runtime and send it what you
-ask for. Nothing reaches in: there is no port to open, no domain and no
-certificate. What may be asked for is switch by switch
-in `dashboard.remote.allow`, off for memory and for writes until you say otherwise, and
-taking the key out leaves everything running exactly as it was.
+Chloe sends nothing to anyone you didn't name: no telemetry, no copy of your
+runs, and no remote dashboard. A request leaves the machine only for the model,
+the channels and the connections you set up. The runtime serves its own
+dashboard, on the box it runs on. To reach it from elsewhere, use an SSH
+tunnel, a private network, or your own web server in front of it: see
+[From another machine](https://chloejs.org/docs/the-page#from-another-machine).
 
 ## The least autonomy that does the job
 

@@ -31,7 +31,7 @@ Import a set as a whole and bind each tool you want:
 | `email` | `startConversation` | Which email channel. | Who, from the channel's `allowFrom`, and what to say. |
 
 The memory, self and script tools are not imported: `features` on the agent
-switches them on. See [An agent](/docs/agents#features).
+switches them on. See [Features](/docs/features).
 
 ### Sending an email
 
@@ -48,7 +48,7 @@ writes only the subject and the body.
 | `markdown` | off | Sends the body as HTML with a plain text copy. Off, plain text as written. |
 | `keep` | none | A folder in its memory, like `"outbox"`, that gets a copy of each email sent. |
 
-To mail somebody and read their reply, use the [email channel](/docs/channels#email)
+To mail somebody and read their reply, use the [email channel](/docs/channels-email)
 instead.
 
 ## Your own tool

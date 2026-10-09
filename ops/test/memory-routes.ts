@@ -99,6 +99,12 @@ import { agentFor, answer, codeJob, work } from "./shared.ts";
   is("which is where the stylesheet it links really is", (await (await fetch(`${at}${under}/static/style.css`)).text()), "h1 { color: red }");
 
   is("a made-up pass is refused", (await fetch(`${at}/memory/not-a-pass/01_projects/move.html`)).status, 403);
+  // A note's script can carry its pass out by navigating, so a pass works only
+  // from the address that asked for it, as the proxy in front says it.
+  const behind = { "cf-connecting-ip": "203.0.113.7" };
+  const { at: proxied } = (await (await fetch(`${at}/api/agents/test/memory/pass`, { headers: { ...as, ...behind } })).json()) as { at: string };
+  is("a pass made through a proxy opens from the address that asked", (await fetch(`${at}${proxied}/01_projects/move.html`, { headers: behind })).status, 200);
+  is("and from anywhere else it is refused", (await fetch(`${at}${proxied}/01_projects/move.html`, { headers: { "cf-connecting-ip": "198.51.100.9" } })).status, 403);
   const theirs = (await (await fetch(`${at}/api/agents/other/memory/pass`, { headers: as })).json()) as { at: string };
   is("and one agent's pass does not open another's memory", (await fetch(`${at}${theirs.at}/01_projects/move.html`)).status, 404);
   // Sent as raw HTTP, because fetch resolves ".." itself before sending and
@@ -123,7 +129,7 @@ import { agentFor, answer, codeJob, work } from "./shared.ts";
   // What was served is written down, before it is served. That includes what a
   // frame loaded, not only what somebody clicked.
   const log = (await (await fetch(`${at}/api/agents/test/memory/log`, { headers: as })).json()) as { what: string; path: string }[];
-  is("every file read or served is in the log", log.filter((one) => one.what === "serve").map((one) => one.path), ["static/style.css", "01_projects/move.html"]);
+  is("every file read or served is in the log", log.filter((one) => one.what === "serve").map((one) => one.path), ["01_projects/move.html", "static/style.css", "01_projects/move.html"]);
   is("and a refused path put nothing in it", log.some((one) => one.path.includes("passwd")), false);
   is("the log is kept outside the memory it records", (await get(`${process.env.CHLOE_STATE}/memory-audit/test.jsonl`, "utf8")).length > 0, true);
 

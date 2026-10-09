@@ -2,9 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 
 /**
  * One thing a menu can do. A line on its own is a divider, and a head is a
- * line of text that says what the menu is about and cannot be pressed. A head
- * may carry a quieter second line, which is how an account shows the name it
- * goes by over the address it signs in with.
+ * line of text that says what the menu is about and cannot be pressed.
  */
 export type Choice =
   | {
@@ -13,13 +11,9 @@ export type Choice =
       danger?: boolean;
       disabled?: boolean;
       current?: boolean;
-      /** A red dot before the label, for a workspace that is not connected. */
-      red?: boolean;
       title?: string;
     }
-  | { head: string; under?: string }
-  /** A note with a title, a line about it, and one button that does something about it. */
-  | { title: string; text: string; button: string; run: () => void }
+  | { head: string }
   | "line";
 
 /**
@@ -82,24 +76,8 @@ export function ContextMenu({
         choice === "line" ? (
           <li key={`line-${index}`} className="line" role="separator" />
         ) : "head" in choice ? (
-          <li key={`head-${index}`} className="head" role="presentation" title={choice.under ?? choice.head}>
+          <li key={`head-${index}`} className="head" role="presentation" title={choice.head}>
             <span className="who">{choice.head}</span>
-            {choice.under && <span className="under">{choice.under}</span>}
-          </li>
-        ) : "button" in choice ? (
-          <li key={`card-${index}`} className="card" role="none">
-            <span className="title">{choice.title}</span>
-            <span className="text">{choice.text}</span>
-            <button
-              role="menuitem"
-              className="go small"
-              onClick={() => {
-                close();
-                choice.run();
-              }}
-            >
-              {choice.button}
-            </button>
           </li>
         ) : (
           <li key={choice.label} role="none">
@@ -114,7 +92,6 @@ export function ContextMenu({
                 choice.run();
               }}
             >
-              {choice.red && <span className="dot bad" aria-hidden="true" />}
               {choice.label}
             </button>
           </li>

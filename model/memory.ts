@@ -2,7 +2,6 @@
 // nothing kept between threads. What an agent should remember across runs it
 // writes into its own folder, where it can be read and corrected.
 import { db } from "#chloe/core/db";
-import { runChanged } from "#chloe/core/events";
 import type { Message } from "./model.ts";
 import type { Call } from "./tool.ts";
 
@@ -74,14 +73,12 @@ export function recall(thread: string, { limit = RECALL, days, tools = false }: 
 
 /**
  * Forgets a conversation: its messages, and the words in the runs it had, so
- * the log and the dashboard's copy keep only that a run happened and what it cost.
+ * the log keeps only that a run happened and what it cost.
  */
 export function forget(thread: string): void {
   db.prepare("delete from messages where thread = ?").run(thread);
-  const runs = db.prepare("select id from runs where thread = ?").all(thread) as { id: string }[];
   db.prepare("update runs set prompt = '', asked = null, reply = null, summary = null, context = null, trace = '[]' where thread = ?").run(thread);
-  for (const { id } of runs) runChanged(id);
-  // A guest's keeps its owner, so nobody else can take up its id.
+  // One with an owner keeps it, so nobody else can take up its id.
   db.prepare("delete from threads where thread = ? and owner is null").run(thread);
   db.prepare("update threads set label = null, archived = null where thread = ?").run(thread);
 }

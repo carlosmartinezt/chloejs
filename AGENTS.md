@@ -132,12 +132,12 @@ that check are read off, so the words cannot disagree with the type. A setting
 has one name and no older one.
 
 A setting is read from `settings`, never from `process.env`. A config hands a
-secret over as the variable itself, `dashboard: { remote: { api_key:
-process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } }`, which is how it says where a
-credential comes from without holding one, and a setting given `undefined` is
-one it did not say. A config still written for `cloud`, `page` or `dashboard.local` is refused
-with where each went, because a key that silently stops being read is a
-runtime that silently leaves its dashboard. The server reads both again when either changes, so a
+secret over as the variable itself, `model: { key:
+process.env.CHLOE_MODEL_KEY }`, which is how it says where a credential comes
+from without holding one, and a setting given `undefined` is one it did not
+say. A config still written for `cloud`, `page` or `dashboard` is refused with
+a line saying they are gone, because a key that silently stops being read is
+a setting somebody thinks is on. The server reads both again when either changes, so a
 setting is read when it is needed, never copied at import.
 
 **Plug and play.** Adding a capability should be writing a file and naming it
@@ -149,15 +149,20 @@ only when the model asks for it. Everything else is named: a job, a tool and a
 channel exist because `agent.ts` says so. There is no deploy, so an edit is live
 in under a second.
 
-**Nothing here needs a way in.** The one port binds loopback (`serve.host`
-moves it, for a container behind a proxy, and nothing else should), and a box running
-chloe should never have to open one to the internet. Telegram and Slack work
-because chloe calls out to them. A channel that can only be pushed to, which is
-what WhatsApp is, takes its messages through something the runtime connects out
-to and asks: a remote dashboard, or anything else of that shape. An address the person
-deliberately opened is their choice to make and never the only way. The channel
-is the same either way, and the runtime is never the public half of a
-connection.
+**Privacy first: chloe sends nothing to anyone the owner did not name.** No
+telemetry, no update check, no remote dashboard, no font or script fetched from
+somebody's server. A request leaves the machine only for the model, a channel
+or a connection the owner set up, and the code that sends it is in that model's,
+channel's or connection's own file. Never add anything that sends the owner's
+data, or even that it ran, anywhere else, however optional.
+
+**Nothing here needs a way in until the owner opens one.** The one port binds
+loopback (`serve.host` moves it, for a container behind a proxy, and nothing
+else should). Telegram, Slack and email work because chloe calls out to them.
+A channel that can only be pushed to, which is what WhatsApp is, answers on its
+own route, which the owner's own web server passes on. Reaching the dashboard
+from elsewhere is the owner's tunnel, private network or web server, never a
+service of chloe's.
 
 **Generic before specific.** Anything every agent needs is written once and
 bound, never copied per agent. If you find yourself writing the same small file
@@ -267,7 +272,7 @@ reached. The rest is the runtime plus what a job commonly
 needs, in folders by what they do: `model/` is asking a model, and
 `model/tools/` inside it is the only thing a model can be handed,
 `load/` is what an agent and a job
-are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `dashboard/` is the connection out to a dashboard somewhere else, `connections/` is each outside account a tool works through, a folder each (Google, Resend), and an MCP server an agent connects to, `serve/` is the one port
+are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `connections/` is each outside account a tool works through, a folder each (Google, Resend), and an MCP server an agent connects to, `serve/` is the one port
 and what it answers with, which is `/api` and nothing else (the routes, the
 login, and the folder behind the file tree), and every other address is the
 page, `site/` (`serve/page.ts`), `core/` is the floor (paths, running a command, staying
@@ -511,6 +516,9 @@ it does not start a second run, because that would ask the same
 question twice. `within:` is how long it waits, `otherwise:` is what to carry
 on with, and the clock sweeps for the ones nobody answered. An ask with neither
 is a job that ends with "nobody answered", which is still an ending.
+`work.wait("90m")` parks the same way with nobody asked, so a job that sends
+one thing now and another later is one run that survives a restart, and the
+sweep carries it on. It is left out of `parkedRuns()`, which is the questions.
 
 **An answer from a person is understood, not interpreted.** `ask` matches what
 they typed against the schema, and "yes" against `z.boolean()` is a yes. No
@@ -637,20 +645,13 @@ chloe connecting out to Slack, so it adds no path past the login at all.
 no library: a number registered with Meta, a token, and one route past the login
 at `/chloe/v1/<id>/whatsapp`, which checks the app secret on every POST and
 answers Meta's verification GET only for the word it was given. Meta only pushes,
-and has nothing to ask for messages with, so by default nothing reaches that
-route at all: the channel asks `postBox` (`dashboard.remote.url` in settings, and no account
-is needed) for a box of its own, that address is what goes into the app, and it
-collects from it with one held-open request at a time. Each delivery is sealed to
-a key the runtime made (`core/sealed.ts`), and Meta's signature travels with it
-and is checked here, so whatever holds a message can neither read it nor make one
-up. `postBox: ""` leaves only the route, for somebody who opened an address on
-purpose. A channel with
+so that route is the way in, through the owner's own web server. A channel with
 no app secret refuses every message rather than trusting the address. There are
 no groups, because the API carries none, and a reply outside 24 hours of the
 last message that person sent is refused by WhatsApp itself, which is what a job
 that stops to ask somebody runs into.
 
-**Email is a conversation per address, through Gmail or a remote dashboard.**
+**Email is a conversation per address, through Gmail or a mailbox of the owner's own.**
 With `mailbox: "gmail"`, `emailChannel` uses the account Google is signed in to
 (`connections.google.account`, the same sign-in as the mail tools): it makes
 each conversation's address by tagging that account (`you+<8 letters>@gmail.com`),
@@ -660,12 +661,12 @@ to, what was added since, the recipients of each, and the whole message only for
 one addressed to an open tag). Where it is up to is kept in `email_mailbox` and
 moved only after everything new was dealt with. The channel names Google as its
 `needs`, the way a tool does, so `neededBy()` puts it on the Connections page
-and a pasted code finishes its sign-in, with no Gmail tool beside it. With no `mailbox` and a remote
-dashboard connected (`dashboard.remote.url` and `dashboard.remote.api_key`), the
-dashboard owns a mail domain, hands out `reply-<id>@<domain>`, sends from it,
-and puts replies in the channel's post box, collected like WhatsApp's
-(`channels/postbox.ts`). Neither is required, and the remote dashboard is never
-the only way. A conversation starts with `openEmail()`, the `startConversation`
+and a pasted code finishes its sign-in, with no Gmail tool beside it. Any
+other service is a `Mailbox` the owner writes and hands in as `mailbox`: it
+makes an address for a person, sends from it, and hands over what arrives
+(`receive`), and the channel makes every check itself whichever mailbox it is.
+`mailbox` is required, so which account mail goes out from is never a
+surprise. A conversation starts with `openEmail()`, the `startConversation`
 tool, or a job's `ask("email:<address>")`, and only ever with somebody in
 `allowFrom`. Nothing between the sender and here is trusted: a reply is taken
 only to an open address made here, from the one person it was made for, with a
@@ -752,24 +753,16 @@ build step, served at `/api/web/chat.js` and copied into `dist/` by the build.
 Do not let a web turn reach a memory or self tool, and do not answer a visitor
 with anything the pass does not name.
 
-**A dashboard is something this runtime connects out to, never something that
-reaches in.** `dashboard/connect.ts` opens one WebSocket to `dashboard.remote.url` in
-settings, says which workspace it is with `dashboard.remote.api_key` inside the first
-message, and answers requests the dashboard sends down it by making them
-against the one port with `RELAY_SECRET` from `serve/login.ts`, a secret made
-when the process starts and never written anywhere. That makes the caller kind
-`dashboard`, and `api()` in `serve/http.ts` lets it have a route only if the route
-names an `allow` switch and `dashboard.remote.allow` in settings has every one it names
-on. A route with no `allow` is never answered through the dashboard: signing in,
-setting up, the tokens, and the web channel's routes. The dashboard is for the
-owner and the people they invite, never the public: a visitor reaches a web
-channel through the owner's own server. Do not add one without deciding which switch it
-is, and do not let the secret out of the process. `from()` says "via dashboard as
-<email>" for such a request, so the memory audit log still says who.
-What goes up is `dashboard.remote.upload`: each run's facts as its row is written
-(`core/events.ts` is how the runners say so) and the agent summaries on reload.
-What a run said (its reply and summary) goes up only with `upload.replies`, off
-unless said: the cloud keeps what happened, not the conversations.
+**The owner can invite people** (`serve/people.ts`), each to one agent or
+more, with any of chat, read and run on each. The owner gets a link once and
+sends it themselves: the runtime sends nothing. Somebody invited signs in with
+their email and their own password, and their session is checked against the
+`people` table on every request, so removing them signs them out at once. What
+they may reach is `guest` on each route in `serve/http.ts`: a route without it
+is never theirs, which is every write, memory, file, setting, token and
+anything that is no agent's. A new route that a guest should reach says which
+switch it needs, or "filtered" and filters in its handler. They never count as
+the owner (`fromOwner`, `mayChangeAgent`) and never pick a model.
 
 **The runtime serves its own dashboard**, a React app in `site/`. `npm run
 build:site` bundles it into `site/page/`, and the package ships that folder as
@@ -779,8 +772,8 @@ a reload in the browser is the new build, with no restart. A clone that has not
 built it answers every page address with how to. The page holds nothing of the
 agents': it is the same files for everybody and asks the API, which asks for
 the login. Write it as React, never as HTML in a TypeScript string. GET /api
-shows it to a browser, as the list of routes. A remote dashboard serves the same
-build, and the page asks `GET /api` which of the two it is in front of.
+shows it to a browser, as the list of routes. The fonts are in `site/static/fonts/`
+and shipped in the package: the page loads nothing from anybody else's server.
 
 The page reaches the runtime only over HTTP and imports nothing of it. If it
 wants something the API does not answer, add a route, never an import. Its
@@ -851,7 +844,8 @@ mints a token. **Never give the frame `allow-same-origin`, never drop the
 `sandbox` from those headers, and never serve a memory file from a route that
 takes the session cookie instead of a pass.** The pass (`serve/pass.ts`) exists
 because a sandboxed document sends no cookie, so its own stylesheet needs another
-way in: read one agent's memory, for ten minutes, and nothing else.
+way in: read one agent's memory, for ten minutes, from the address that asked
+for it (`from()`), and nothing else.
 
 **A memory is a git repository only if its folder is the top of one.** Being
 inside one is not enough: an agent's default memory is inside the repo its

@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { cloud, NeedsSignIn } from "../lib/api.ts";
-import { ZONE } from "../lib/format.ts";
-import { go } from "../lib/route.ts";
-import type { Given, People as Everybody, Workspace } from "../lib/types.ts";
+import { api } from "../lib/api.ts";
+import { copy } from "../lib/copy.ts";
+import { labelOf, ZONE } from "../lib/format.ts";
+import type { AgentSummary, People as Everybody, Switch } from "../lib/types.ts";
 
-/** Each thing a guest can be given: a short name for its toggle, and what it means. */
-const SWITCHES: { given: Given; short: string; long: string; means: string }[] = [
-  { given: "chat", short: "Chat", long: "Chat", means: "Talk to it. Its tools work for them as they do for you." },
-  { given: "read", short: "Runs", long: "See its runs and setup", means: "Its log, its jobs, its instructions and skills." },
-  { given: "run", short: "Run jobs", long: "Run its jobs", means: "Start a job now, rather than waiting for its clock." },
-  { given: "memory", short: "Memory", long: "Read its memory", means: "Open what it keeps. Every file they read is logged." },
+/** Each thing somebody can be given on an agent: a short name for its toggle, and what it means. */
+const SWITCHES: { given: Switch; short: string; means: string }[] = [
+  { given: "chat", short: "Chat", means: "Talk to it, in conversations of their own." },
+  { given: "read", short: "Read", means: "See the runs they started." },
+  { given: "run", short: "Run", means: "Start its jobs." },
 ];
 
 /** "2 Oct": the day, where the box is. */
@@ -22,13 +21,22 @@ const initials = (called: string): string => {
   return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
 };
 
+/** One line on the page: somebody on one agent, in already or still invited. */
+interface Row {
+  email: string;
+  name: string;
+  agent: string;
+  given: Switch[];
+  invited: boolean;
+  state: string;
+}
+
 /**
- * A workspace's people, a page of its own: who its owner has let in to its
- * agents, grouped by agent, with what each may do as toggles, and a card to
- * invite somebody else. Everybody is mailed an invitation, account or not, and
- * the link goes nowhere else: if the mail does not arrive, invite them again.
+ * Who the owner has let in to which agent, grouped by agent, with what each may
+ * do there as toggles, and a card to invite somebody else. Inviting makes a
+ * link the owner sends themselves: the runtime mails nobody.
  */
-export function People({ workspace }: { workspace: Workspace }) {
+export function People({ agents }: { agents: AgentSummary[] }) {
   const [people, setPeople] = useState<Everybody | null>(null);
   const [trouble, setTrouble] = useState("");
   const [inviting, setInviting] = useState(false);
@@ -36,73 +44,80 @@ export function People({ workspace }: { workspace: Workspace }) {
 
   const refresh = useCallback(async () => {
     try {
-      setPeople(await cloud.people(workspace.name));
+      setPeople(await api.people());
+      setTrouble("");
     } catch (error) {
-      if (error instanceof NeedsSignIn) return go({ at: "signin", making: false });
       setTrouble((error as Error).message);
     }
-  }, [workspace.name]);
+  }, []);
 
   useEffect(() => void refresh(), [refresh]);
 
-  async function tried(what: () => Promise<unknown>) {
+  async function tried(what: () => Promise<Everybody>) {
     setBusy(true);
     try {
-      await what();
+      setPeople(await what());
       setTrouble("");
     } catch (error) {
       setTrouble((error as Error).message);
     }
     setBusy(false);
-    await refresh();
   }
 
-  const rows = [
-    ...(people?.guests ?? []).map((one) => ({ ...one, invited: false, state: `Joined ${day(one.added)}` })),
-    ...(people?.invited ?? []).map((one) => ({ ...one, name: "", invited: true, state: `Invited, until ${day(one.expires)}` })),
+  const rows: Row[] = [
+    ...(people?.people ?? []).flatMap((one) =>
+      Object.entries(one.given).map(([agent, given]) => ({
+        email: one.email,
+        name: one.name,
+        agent,
+        given,
+        invited: false,
+        state: `In since ${day(one.added)}`,
+      })),
+    ),
+    ...(people?.invitations ?? []).map((one) => ({
+      email: one.email,
+      name: one.name,
+      agent: one.agent,
+      given: one.given,
+      invited: true,
+      state: `Invited, the link works until ${day(one.expires)}`,
+    })),
   ];
-  const agents = [...new Set(rows.map((one) => one.agent))].sort();
+  const groups = [...new Set(rows.map((one) => one.agent))].sort();
 
   return (
     <>
       <div className="head">
         <h1>People</h1>
-        {!inviting && workspace.agents.length > 0 && (
-          <span className="actions">
-            <button className="go small" onClick={() => setInviting(true)}>
-              Invite someone
-            </button>
-          </span>
+        {!inviting && agents.length > 0 && (
+          <button className="go small" onClick={() => setInviting(true)}>
+            Invite somebody
+          </button>
         )}
       </div>
       <p className="empty">
-        Let somebody use one of {workspace.label}&rsquo;s agents. They see only that agent, and their conversations are
-        their own, which you can read.
+        Let somebody use one of your agents. They see only the agents you invite them to, and on each only what you
+        allow here. Nothing they are given lets them change anything.
       </p>
 
       {trouble && <p className="bad">{trouble}</p>}
 
-      {inviting && <Invite workspace={workspace} done={() => setInviting(false)} sent={refresh} />}
+      {inviting && <Invite agents={agents} done={() => setInviting(false)} made={refresh} />}
 
       {!people ? (
-        <p className="dim">Loading</p>
+        !trouble && <p className="dim">Loading</p>
       ) : rows.length === 0 ? (
-        !inviting && (
-          <p className="empty frame">
-            {workspace.agents.length
-              ? "Nobody yet. Invite someone to let them use one agent."
-              : "Its runtime has not said which agents it has yet, so there is nothing to invite anybody to."}
-          </p>
-        )
+        !inviting && <p className="empty frame">Nobody yet. Invite somebody to let them use one agent.</p>
       ) : (
-        agents.map((agent) => (
+        groups.map((agent) => (
           <section key={agent}>
-            <h2 className="group">{agent}</h2>
+            <h2 className="group">{labelOf(agent)}</h2>
             <ul className="rows">
               {rows
                 .filter((one) => one.agent === agent)
                 .map((one) => (
-                  <li key={one.email}>
+                  <li key={`${one.email} ${one.invited}`}>
                     <span className={one.invited ? "face waiting" : "face"} aria-hidden="true">
                       {initials(one.name || one.email.split("@")[0])}
                     </span>
@@ -121,12 +136,11 @@ export function People({ workspace }: { workspace: Workspace }) {
                             key={each.given}
                             className="pill"
                             aria-pressed={on}
-                            title={`${each.long}: ${each.means}`}
+                            title={on && one.given.length === 1 ? `${each.means} The last one cannot be taken away: remove them instead.` : each.means}
                             disabled={busy || (on && one.given.length === 1)}
                             onClick={() =>
                               void tried(() =>
-                                cloud.change(
-                                  workspace.name,
+                                api.changePerson(
                                   one.email,
                                   one.agent,
                                   on ? one.given.filter((given) => given !== each.given) : [...one.given, each.given],
@@ -143,11 +157,13 @@ export function People({ workspace }: { workspace: Workspace }) {
                       className="plain small"
                       disabled={busy}
                       onClick={() => {
-                        const what = one.invited ? `Cancel the invitation to ${one.email}?` : `Take ${one.email} off ${one.agent}? They lose it at once.`;
-                        if (window.confirm(what)) void tried(() => cloud.letGo(workspace.name, one.email, one.agent));
+                        const what = one.invited
+                          ? `Stop the invitation to ${one.email}? The link stops working.`
+                          : `Take ${one.email} off ${labelOf(one.agent)}? They lose it at once.`;
+                        if (window.confirm(what)) void tried(() => api.removePerson(one.email, one.agent));
                       }}
                     >
-                      {one.invited ? "Cancel" : "Remove"}
+                      Remove
                     </button>
                   </li>
                 ))}
@@ -160,13 +176,16 @@ export function People({ workspace }: { workspace: Workspace }) {
 }
 
 /** The card for inviting somebody: who, to which agent, and what they may do there. */
-function Invite({ workspace, done, sent }: { workspace: Workspace; done: () => void; sent: () => unknown }) {
+function Invite({ agents, done, made }: { agents: AgentSummary[]; done: () => void; made: () => unknown }) {
   const [email, setEmail] = useState("");
-  const [agent, setAgent] = useState(workspace.agents[0] ?? "");
-  const [given, setGiven] = useState<Given[]>(["chat"]);
+  const [name, setName] = useState("");
+  const [agent, setAgent] = useState(agents[0]?.id ?? "");
+  const [given, setGiven] = useState<Switch[]>(["chat"]);
   const [busy, setBusy] = useState(false);
   const [trouble, setTrouble] = useState("");
-  const [answer, setAnswer] = useState<string | null>(null);
+  // The link, which the runtime hands over once and never again.
+  const [link, setLink] = useState<{ email: string; url: string } | null>(null);
+  const [copied, setCopied] = useState("");
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
@@ -174,41 +193,45 @@ function Invite({ workspace, done, sent }: { workspace: Workspace; done: () => v
     if (!who || !agent || !given.length) return;
     setBusy(true);
     try {
-      await cloud.letIn(workspace.name, who, agent, given);
-      setAnswer(who);
+      const { path } = await api.invite(who, name.trim(), agent, given);
+      setLink({ email: who, url: window.location.origin + path });
+      setCopied("");
       setTrouble("");
-      await sent();
+      await made();
     } catch (error) {
       setTrouble((error as Error).message);
     }
     setBusy(false);
   }
 
-  if (answer) {
+  if (link) {
     return (
       <section className="ready">
-        <header>
-          <div>
-            <h2>Invitation sent to {answer}</h2>
-            <p className="dim">
-              It is good for a week. They make an account from the link, or sign in to the one they have. If the mail
-              does not arrive, invite them again.
-            </p>
-          </div>
-        </header>
+        <h2>The link for {link.email}</h2>
+        <p className="dim">Send this link to them yourself. It works once, for a week. Chloe sends nothing.</p>
+        <pre className="key">{link.url}</pre>
+        <p className="dim">It is not shown again. If it is lost, remove the invitation below and make another.</p>
         <div className="buttons">
+          <button
+            className="go small"
+            onClick={() => void copy(link.url).then((done) => setCopied(done ? "Copied." : "This browser would not copy it. Select it and copy it by hand."))}
+          >
+            Copy the link
+          </button>
           <button
             className="small"
             onClick={() => {
-              setAnswer(null);
+              setLink(null);
               setEmail("");
+              setName("");
             }}
           >
-            Invite someone else
+            Invite somebody else
           </button>
           <button className="plain small" onClick={done}>
             Done
           </button>
+          {copied && <span className="dim">{copied}</span>}
         </div>
       </section>
     );
@@ -216,12 +239,8 @@ function Invite({ workspace, done, sent }: { workspace: Workspace; done: () => v
 
   return (
     <section className="ready">
-      <header>
-        <div>
-          <h2>Invite someone</h2>
-          <p className="dim">With no account yet, they are mailed a link to make one. With one, they are in at once.</p>
-        </div>
-      </header>
+      <h2>Invite somebody</h2>
+      <p className="dim">You get a link to send them. With it they choose a password, and sign in with their email and that password after.</p>
       {trouble && <p className="bad">{trouble}</p>}
       <form onSubmit={send}>
         <div className="fields">
@@ -230,18 +249,22 @@ function Invite({ workspace, done, sent }: { workspace: Workspace; done: () => v
             <input value={email} type="email" autoFocus placeholder="name@example.com" onChange={(event) => setEmail(event.target.value)} />
           </label>
           <label>
+            Name, if you like
+            <input value={name} placeholder="What to call them" onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label>
             Agent
             <select value={agent} onChange={(event) => setAgent(event.target.value)}>
-              {workspace.agents.map((one) => (
-                <option key={one} value={one}>
-                  {one}
+              {agents.map((one) => (
+                <option key={one.id} value={one.id}>
+                  {labelOf(one.id)}
                 </option>
               ))}
             </select>
           </label>
         </div>
         <fieldset className="switches">
-          <legend>What they can do</legend>
+          <legend>What they may do</legend>
           {SWITCHES.map((each) => (
             <label key={each.given}>
               <input
@@ -252,15 +275,15 @@ function Invite({ workspace, done, sent }: { workspace: Workspace; done: () => v
                 }
               />
               <span>
-                <b>{each.long}</b>
+                <b>{each.short}</b>
                 <span>{each.means}</span>
               </span>
             </label>
           ))}
         </fieldset>
         <div className="buttons">
-          <button className="go small" type="submit" disabled={busy || !email.trim() || !given.length}>
-            {busy ? "Sending" : "Send invitation"}
+          <button className="go small" type="submit" disabled={busy || !email.trim() || !agent || !given.length}>
+            {busy ? "Making it" : "Make the link"}
           </button>
           <button className="plain small" type="button" onClick={done}>
             Cancel

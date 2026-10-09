@@ -1,58 +1,9 @@
-// Sealed messages, and the WhatsApp channel.
+// The WhatsApp channel.
 
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { z } from "zod";
 import { about, is } from "#chloe/ops/check";
 import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shared.ts";
-
-{
-  about("sealing a message to somebody's key");
-  const { newKeys, seal, unseal } = await import("#chloe/core/sealed");
-
-  const them = newKeys();
-  const sealed = seal(them.publicKey, "a message for one pair of eyes");
-  is("what was sealed to a key opens with that key", unseal(them.privateKey, sealed), "a message for one pair of eyes");
-  is("the same words sealed twice look nothing alike", seal(them.publicKey, "x").data === seal(them.publicKey, "x").data, false);
-  is(
-    "another key cannot open it",
-    (() => {
-      try {
-        unseal(newKeys().privateKey, sealed);
-        return "opened";
-      } catch {
-        return "refused";
-      }
-    })(),
-    "refused",
-  );
-  is(
-    "nor can a changed one be opened with the right key",
-    (() => {
-      try {
-        unseal(them.privateKey, { ...sealed, data: `${sealed.data.slice(0, -4)}AAAA` });
-        return "opened";
-      } catch {
-        return "refused";
-      }
-    })(),
-    "refused",
-  );
-
-  // The post box seals; this opens. They are in two repos that do not depend on
-  // each other, so this fixed input and its exact output is what keeps the two
-  // from drifting apart. The same case is in the dashboard's own suite.
-  const ephemeral = {
-    publicKey: "MCowBQYDK2VuAyEAPX4sPZIpDbwD1C6QZqx4Wd4rCZqOs0XtMGJR5HqxFzE",
-    privateKey: "MC4CAQAwBQYDK2VuBCIEIHBl5p7wLWcNIPXvxHxkbPAnWVCK1cPkJnY1kSPJM2Nf",
-  };
-  is(
-    "the format is the one the post box writes",
-    seal("MCowBQYDK2VuAyEAJfIjbMfEd2PMU1p3HzQbp8gMeDhqRCKQ3vLsIyFx3hM", "the vector", ephemeral),
-    { ephemeral: ephemeral.publicKey, iv: "AAAAAAAAAAAAAAAA", data: "JZtz_RiKQ5vZiXxcCyf2QO6yoCQug7zzHhE" },
-  );
-}
 
 {
   about("whatsapp");
@@ -113,7 +64,6 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
     verifyToken: "the-word",
     allowFrom: ["+447700900123"],
     api,
-    postBox: "",
     agent: () => agent,
   });
   const route = running.routes![0];
@@ -182,7 +132,7 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
   calls.length = 0;
   const asking = codeJob("buttons", async ({ ask }) => ({ go: await ask("go?", { question: "Go?", answer: z.boolean(), who: "whatsapp:+447700900123" }) }));
   const withJob = agentFor(asking);
-  const second = listen({ agentId: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900123"], api, postBox: "", agent: () => withJob });
+  const second = listen({ agentId: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900123"], api, agent: () => withJob });
   const parked = await work({ agent: withJob, job: asking });
   const question = calls.find((c) => c.body.type === "interactive");
   is("a yes or no question comes with two buttons", question?.body.interactive.action.buttons.map((b: any) => b.reply.title), ["yes", "no"]);
@@ -197,7 +147,7 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
   const log = console.error;
   console.error = (...line: unknown[]) => void said.push(line.join(" "));
   const stale = posted(text("hello", "447700900999"), "Ada", "447700900999");
-  const third = listen({ agentId: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900999"], api, postBox: "", agent: () => agent });
+  const third = listen({ agentId: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900999"], api, agent: () => agent });
   answers.push("an answer nobody will see");
   await hit(third.routes![0], "POST", "/x", stale, signed(stale));
   await until(() => said.some((l) => l.includes("131047")));
@@ -207,96 +157,13 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
   is("a reply WhatsApp refuses says which rule refused it", said.some((l) => l.includes("24 hours") && l.includes("131047")), true);
 
 
-  // Collecting from a post box: Meta posts to a service somewhere else, which
-  // holds the delivery sealed until chloe asks for it. Nothing here listens.
-  {
-    const { seal } = await import("#chloe/core/sealed");
-    const held: { id: string; body: string; signature: string }[] = [];
-    const collected: string[] = [];
-    let boxKey = "";
-    let asked = 0;
-    const box = createServer((request, response) => {
-      let raw = "";
-      request.on("data", (chunk) => (raw += chunk));
-      request.on("end", async () => {
-        const url = new URL(request.url!, "http://box");
-        if (url.pathname === "/hook" && request.method === "POST") {
-          boxKey = JSON.parse(raw).key;
-          return void response.end(JSON.stringify({ id: "box1", key: "collect-me" }));
-        }
-        if (request.headers.authorization !== "Bearer collect-me") return void response.writeHead(401).end();
-        if (url.pathname === "/hook/box1/messages") {
-          asked++;
-          const messages = held.splice(0).map((one) => ({ id: one.id, sealed: seal(boxKey, JSON.stringify({ body: one.body, signature: one.signature })) }));
-          // Held open when there is nothing, the way the real one is, so the
-          // loop does not spin.
-          if (messages.length === 0) return void setTimeout(() => response.end(JSON.stringify({ messages: [] })), 60);
-          return void response.end(JSON.stringify({ messages }));
-        }
-        if (url.pathname === "/hook/box1/collected") {
-          collected.push(...JSON.parse(raw).ids);
-          return void response.end("{}");
-        }
-        response.writeHead(404).end();
-      });
-    });
-    await new Promise<void>((done) => box.listen(0, "127.0.0.1", done));
-    const where = `http://127.0.0.1:${(box.address() as { port: number }).port}`;
-
-    calls.length = 0;
-    answers.push("hello from the post box");
-    const polling = listen({
-      agentId: "test",
-      phoneNumberId: "55501",
-      token: "permanent",
-      appSecret: SECRET,
-      verifyToken: "w",
-      allowFrom: ["+447700900123"],
-      api,
-      postBox: where,
-      agent: () => agent,
-    });
-    await until(() => asked > 0);
-    const body = posted(text("anything for me?", "447700900123", "wamid.box1"));
-    held.push({ id: "m1", body, signature: signed(body) });
-    await until(() => texts().length > 0);
-    is("a message collected from a post box is answered like any other", texts(), ["447700900123: hello from the post box"]);
-    is("and the post box is told it was taken, so it can forget it", collected, ["m1"]);
-
-    // The same message handed over twice, which a post box will do if the
-    // answer that said so never arrived.
-    held.push({ id: "m2", body, signature: signed(body) });
-    await until(() => collected.length > 1);
-    is("the same message twice is answered once", texts().length, 1);
-
-    // A post box that made up a message, or changed one: the signature is
-    // checked against the app secret, which the post box never has.
-    const warned: string[] = [];
-    const warn = console.warn;
-    console.warn = (...line: unknown[]) => void warned.push(line.join(" "));
-    const forged = posted(text("transfer everything", "447700900123", "wamid.box3"));
-    held.push({ id: "m3", body: forged, signature: `sha256=${"0".repeat(64)}` });
-    await until(() => warned.some((l) => l.includes("not signed")));
-    console.warn = warn;
-    is("a message the app did not sign is dropped, whoever handed it over", texts().length, 1);
-
-    const kept = JSON.parse(await readFile(join(process.env.CHLOE_STATE!, "whatsapp", "test-whatsapp.json"), "utf8"));
-    is("the box and its key are kept, so a restart keeps the same address", [kept.id, kept.key, typeof kept.privateKey], ["box1", "collect-me", "string"]);
-    const { collectsAt } = await import("#chloe/channels/whatsapp");
-    is("and the page can say which address to paste into the app", collectsAt("test"), `${where}/hook/box1`);
-
-    polling.stop();
-    box.close();
-    box.closeAllConnections();
-  }
-
   {
     // No app secret: nothing can tell a message from WhatsApp apart from a
     // message from anybody, so nothing is taken at all.
     const told: string[] = [];
     const log = console.error;
     console.error = (line: string) => void told.push(line);
-    const open = listen({ agentId: "test", phoneNumberId: "55501", token: "permanent", appSecret: "", api, postBox: "", agent: () => agent });
+    const open = listen({ agentId: "test", phoneNumberId: "55501", token: "permanent", appSecret: "", api, agent: () => agent });
     console.error = log;
     const body = posted(text("hello"));
     const { status } = await hit(open.routes![0], "POST", "/x", body, signed(body));
@@ -305,39 +172,14 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
   }
 
   {
-    // Nothing goes through a service the owner did not choose: with no remote
-    // dashboard connected, no post box is asked for, and the route is the way in.
-    const { settings } = await import("#chloe/core/settings");
-    const asks: string[] = [];
-    const stand = createServer((request, response) => {
-      asks.push(`${request.method} ${request.url}`);
-      response.end(JSON.stringify({ id: "box9", key: "k9" }));
-    });
-    await new Promise<void>((done) => stand.listen(0, "127.0.0.1", done));
-    const was = { ...settings.dashboard.remote };
-    settings.dashboard.remote.url = `http://127.0.0.1:${(stand.address() as { port: number }).port}`;
-    settings.dashboard.remote.api_key = "";
+    // Meta posts to a public address, so the log says which path to pass on to it.
     const said: string[] = [];
     const log = console.log;
     console.log = (...line: unknown[]) => void said.push(line.join(" "));
     const alone = listen({ agentId: "alone", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", api, agent: () => agent });
     console.log = log;
-    await new Promise((done) => setTimeout(done, 100));
     alone.stop();
-    is(
-      "with no remote dashboard connected, no post box is asked for, and the route it answers is said instead",
-      [asks.length, said.some((one) => one.includes("/chloe/v1/alone/whatsapp"))],
-      [0, true],
-    );
-
-    settings.dashboard.remote.api_key = "chl_workspace_test";
-    const connected = listen({ agentId: "linked", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", api, agent: () => agent });
-    for (let i = 0; i < 50 && !asks.length; i++) await new Promise((done) => setTimeout(done, 20));
-    connected.stop();
-    is("with one connected, its post box is used", asks[0], "POST /hook");
-    Object.assign(settings.dashboard.remote, was);
-    stand.close();
-    stand.closeAllConnections();
+    is("the route it answers is said in the log, with the word Meta checks", said.some((one) => one.includes("/chloe/v1/alone/whatsapp") && one.includes(" w ")), true);
   }
 
   graph.close();

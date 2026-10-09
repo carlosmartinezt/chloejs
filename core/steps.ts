@@ -22,7 +22,6 @@ import { z } from "zod";
 import { deliver, owner as whoOwns } from "#chloe/model/ask";
 import { duringRun } from "#chloe/core/current";
 import { db } from "#chloe/core/db";
-import { runChanged } from "#chloe/core/events";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { oneLineSummary } from "#chloe/core/markdown";
 import type { Agent, Job } from "#chloe/load/load";
@@ -47,11 +46,11 @@ export interface Line {
   seq: number;
   /** The name the job gave the step, like "fetch orders" in `work.step("fetch orders", ...)`. */
   name: string;
-  /** The kind of step: `work.step()`, `work.model()`, `work.ask()` or `work.agent()`. */
-  kind: "step" | "model" | "ask" | "agent";
+  /** The kind of step: `work.step()`, `work.model()`, `work.ask()`, `work.agent()` or `work.wait()`. */
+  kind: "step" | "model" | "ask" | "agent" | "wait";
   /** When the step finished, as an ISO date string. */
   at: string;
-  /** How long the step took, in milliseconds. Always 0 for an ask. */
+  /** How long the step took, in milliseconds. Always 0 for an ask. For a wait, how long it waited. */
   ms: number;
   /** What the step spent on models, in dollars. 0 for a step that asked no model. */
   cost: number;
@@ -90,6 +89,8 @@ interface Parked {
   late?: boolean;
   /** Set when it is an agent step waiting on a call somebody has to approve: where to pick the loop up. */
   agent?: AgentWait;
+  /** Set when it is `work.wait()`: nobody was asked, `who` and `question` are "", and it carries on at `expires`. */
+  wait?: true;
 }
 
 /** An agent step stopped at a call a person has to approve, as much as it takes to carry on from there. */
@@ -298,7 +299,7 @@ export interface Envelope {
  * the run.
  *
  * Put every piece of work inside a step. When a run pauses (for `work.ask()`,
- * or for a tool call that needs a yes), it later continues by running `run`
+ * `work.wait()`, or a tool call that needs a yes), it later continues by running `run`
  * again from the top. Each finished step then returns its saved result and
  * does not run again. Code outside a step runs again every time, so if it
  * sends, writes or spends something, that happens twice.
@@ -364,6 +365,16 @@ export interface Work<State = Data, Args = Data> {
    * that throws an error. See `AskStep` for the options.
    */
   ask<S extends z.ZodType>(name: string, options: AskStep<S>): Promise<z.infer<S>>;
+  /**
+   * Pauses the run for a length of time, a number and then `m`, `h` or `d`,
+   * like "90m" or "2d". It carries on within a minute after the time is up.
+   *
+   * The run is saved while it waits, the same as for `work.ask()`, so chloe
+   * can restart in the meantime, and while it waits the job does not start
+   * again on its schedule. Call it between steps, never inside the function
+   * you give `work.step()`.
+   */
+  wait(name: string, length: string): Promise<void>;
   /**
    * Data this run keeps between its steps. It starts as what the job's
    * `state` schema makes of `{}` (so fields with a default start filled), or
@@ -443,7 +454,7 @@ export interface Result {
   steps: number;
   /** What the run has spent so far, in dollars. */
   cost: number;
-  /** `true` when the run is paused, waiting for a person's answer. */
+  /** `true` when the run is paused, waiting for a person's answer or in `work.wait()`. */
   parked: boolean;
 }
 
@@ -451,7 +462,7 @@ export interface Result {
 const MOST = 64_000;
 const WAIT = "2h";
 
-/** Not an error: the job stopped on purpose and is waiting for somebody. */
+/** Not an error: the job stopped on purpose and is waiting for somebody, or for a time. */
 class Waiting extends Error {}
 /** Nobody answered, and the ask had nothing to carry on with. */
 class Unanswered extends Error {}
@@ -530,7 +541,6 @@ export async function work(options: {
     JSON.stringify(args),
     JSON.stringify(input),
   );
-  runChanged(runId);
 
   return drive({
     runId,
@@ -646,6 +656,7 @@ async function drive(ctx: Ctx): Promise<Result> {
     model: (name, options) => modelStep(ctx, name, options),
     agent: ((name: string, options: AgentStep) => agentStep(ctx, name, options)) as Work["agent"],
     ask: (name, options) => askStep(ctx, name, options),
+    wait: (name, length) => waitStep(ctx, name, length),
     get state() {
       return ctx.state;
     },
@@ -678,7 +689,7 @@ async function drive(ctx: Ctx): Promise<Result> {
   } catch (error) {
     if (error instanceof Waiting) {
       save(ctx);
-      await committed({ summary: `waiting on ${ctx.parked?.who ?? "an answer"}` });
+      await committed({ summary: error.message });
       return { runId: ctx.runId, text: error.message, steps: ctx.lines.length, cost: ctx.cost, parked: true };
     }
     ctx.parked = undefined;
@@ -1091,6 +1102,53 @@ async function askStep<S extends z.ZodType>(ctx: Ctx, name: string, options: Ask
   throw new Waiting(`waiting on ${who}`);
 }
 
+/**
+ * Pause the run until a length of time has passed. It parks like an ask with
+ * nobody asked, so it survives a restart, and `sweep()` carries it on.
+ */
+async function waitStep(ctx: Ctx, name: string, length: string): Promise<void> {
+  if (ctx.inside) {
+    throw new Error(
+      `wait(${JSON.stringify(name)}) was called inside the step ${JSON.stringify(ctx.inside)}. A job pauses between ` +
+        `steps and not inside one. Wait before or after the step.`,
+    );
+  }
+  const seen = ctx.lines[ctx.seq];
+  if (seen) {
+    if (seen.name !== name || seen.kind !== "wait") {
+      throw new Changed(
+        `This job changed while the run was waiting: step ${ctx.seq} was ${JSON.stringify(seen.name)} ` +
+          `and is now ${JSON.stringify(name)}. Start it again rather than carrying on from the middle.`,
+      );
+    }
+    ctx.seq++;
+    return;
+  }
+
+  const waiting = ctx.parked?.seq === ctx.seq ? ctx.parked : undefined;
+  if (waiting?.late) {
+    ctx.lines.push({
+      seq: ctx.seq,
+      name,
+      kind: "wait",
+      at: new Date().toISOString(),
+      ms: Date.now() - Date.parse(waiting.asked),
+      cost: 0,
+      note: `waited ${length}`,
+    });
+    ctx.seq++;
+    ctx.parked = undefined;
+    save(ctx);
+    return;
+  }
+  if (waiting) throw new Waiting(`waiting until ${waiting.expires}`);
+
+  const until = new Date(Date.now() + minutes(length) * 60_000).toISOString();
+  ctx.parked = { seq: ctx.seq, name, who: "", question: "", asked: new Date().toISOString(), expires: until, wait: true };
+  save(ctx);
+  throw new Waiting(`waiting until ${until}`);
+}
+
 /** Write the answer down as the ask's result and carry on past it. */
 function settle<T>(ctx: Ctx, name: string, value: T, note: string, question: string, reply?: string): T {
   ctx.lines.push({
@@ -1227,8 +1285,13 @@ export interface ParkedRun {
   expires: string;
 }
 
-/** Returns every run that is waiting for a person right now. */
+/** Returns every run that is waiting for a person right now. A run in `work.wait()` is not one. */
 export function parkedRuns(): ParkedRun[] {
+  return everyParked().filter((one) => !one.wait);
+}
+
+/** Every parked run, those waiting for a time as well as those waiting for a person. */
+function everyParked(): (ParkedRun & { wait?: true })[] {
   const rows = db.prepare("select id, agent, job, parked from runs where parked is not null").all() as {
     id: string;
     agent: string;
@@ -1245,6 +1308,7 @@ export function parkedRuns(): ParkedRun[] {
       question: parked.question,
       asked: parked.asked,
       expires: parked.expires,
+      ...(parked.wait ? { wait: true as const } : {}),
     };
   });
 }
@@ -1284,13 +1348,15 @@ export async function answer(runId: string, reply: string, agents: Map<string, A
   const row = db.prepare("select parked from runs where id = ?").get(runId) as { parked?: string } | undefined;
   if (!row?.parked) throw new Error(`Run ${JSON.stringify(runId)} is not waiting for an answer.`);
   const parked = { ...(JSON.parse(row.parked) as Parked), reply };
+  if (parked.wait) throw new Error(`Run ${JSON.stringify(runId)} is waiting until ${parked.expires}, not for an answer.`);
   db.prepare("update runs set parked = ? where id = ?").run(JSON.stringify(parked), runId);
   return resume(runId, agents);
 }
 
 /**
  * Stops waiting for every question whose time to answer has passed, and
- * continues each of those runs:
+ * every `work.wait()` whose time is up, and continues each of those runs:
+ * - a `wait` goes on past it;
  * - an `ask` with `otherwise` goes on with that value;
  * - an `ask` without it ends the run with an error;
  * - a tool call waiting for a yes does not run, and the model is told.
@@ -1300,14 +1366,14 @@ export async function answer(runId: string, reply: string, agents: Map<string, A
  */
 export async function sweep(agents: Map<string, Agent>): Promise<void> {
   const now = new Date().toISOString();
-  for (const one of parkedRuns()) {
+  for (const one of everyParked()) {
     if (one.expires > now) continue;
     const row = db.prepare("select parked from runs where id = ?").get(one.id) as { parked?: string } | undefined;
     if (!row?.parked) continue;
     const parked = { ...(JSON.parse(row.parked) as Parked), late: true };
     db.prepare("update runs set parked = ? where id = ?").run(JSON.stringify(parked), one.id);
     await resume(one.id, agents).catch((error: unknown) => {
-      console.error(`${one.agent}/${one.job}: giving up on an unanswered question failed`, error);
+      console.error(`${one.agent}/${one.job}: ${one.wait ? "carrying on after a wait" : "giving up on an unanswered question"} failed`, error);
     });
   }
 }
@@ -1341,7 +1407,6 @@ function finish(ctx: Ctx, reply: string, summary: string | null): void {
   save(ctx);
   db.prepare("update runs set finished = ?, reply = ?, summary = ? where id = ?")
     .run(new Date().toISOString(), reply, summary, ctx.runId);
-  runChanged(ctx.runId);
 }
 
 /**
@@ -1361,5 +1426,4 @@ function said(job: Job, value: unknown): { words?: string; summary: string | nul
 function fail(ctx: Ctx, why: string): void {
   save(ctx);
   db.prepare("update runs set finished = ?, error = ? where id = ?").run(new Date().toISOString(), why, ctx.runId);
-  runChanged(ctx.runId);
 }

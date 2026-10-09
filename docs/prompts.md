@@ -72,7 +72,7 @@ Every agent may rewrite its own instructions, skills and jobs, and its code:
 `agent.ts`, its tools, services, channels and scripts. `selfImprovement: false`
 turns that off, and `{ code: false }` keeps it to plain text. Every change is a
 commit under its name, which you can read and undo from the dashboard. It never
-writes its evals or its memory. See [An agent](/docs/agents#features).
+writes its evals or its memory. See [Features](/docs/features).
 
 So "every morning at 7, tell me
 what is most urgent in my mail" can end as a job it wrote. It writes every
@@ -91,9 +91,8 @@ Any agent can read its own folder and runs when its owner asks
 (`selfListFiles`, `selfReadFile`, `selfListRuns`, `selfReadRun`). It changes
 itself only when its owner asks: a message from the agent's owner
 on one of its channels (`owner` in settings, or the first entry in the
-channel's `allowFrom`), or from the account on the dashboard. Through a remote
-dashboard that needs `dashboard.remote.allow.write` on. A job, a schedule, a
-guest, a token and a visitor never get `selfWriteFile`, and an agent step
+channel's `allowFrom`), or from the account on the dashboard. A job, a
+schedule, a token and a visitor never get `selfWriteFile`, and an agent step
 handed it is refused. Once any tool in a conversation has read something
 from outside the agent (mail, a web page, a script, an MCP server, one of its
 own runs, which holds what those said), a change is refused for the rest of

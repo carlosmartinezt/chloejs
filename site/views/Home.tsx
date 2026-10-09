@@ -22,25 +22,13 @@ export function Home({
   runs,
   parked,
   running,
-  offline = false,
-  cloud = false,
-  machine,
   refresh,
-  menu,
 }: {
   agents: AgentSummary[];
   runs: RunRow[];
   parked: ParkedRun[];
   running: string[];
-  /** Reached through a cloud, and its connection is not open. What is shown is what was synced. */
-  offline?: boolean;
-  /** Through a cloud, which is where there is a connection to say anything about. */
-  cloud?: boolean;
-  /** What the machine this runtime is on calls itself, when it said. */
-  machine?: string;
   refresh: () => void;
-  /** The workspace's own menu, for its owner, beside the heading. */
-  menu?: React.ReactNode;
 }) {
   const since = Date.now() - DAYS * 86_400_000;
   const lately = runs.filter((run) => new Date(run.started).getTime() > since);
@@ -54,19 +42,11 @@ export function Home({
   return (
     <>
       {parked.map((one) => (
-        <Waiting key={one.id} parked={one} offline={offline} done={refresh} />
+        <Waiting key={one.id} parked={one} done={refresh} />
       ))}
 
       <div className="head">
         <h1>Your agents</h1>
-        <span className="ends">
-          {cloud && (
-            <span className="dim num" title={machine ?? "This runtime has not said which machine it is on."}>
-              {offline ? "last connected from" : "connected from"} {machine ?? "somewhere"}
-            </span>
-          )}
-          {menu}
-        </span>
       </div>
 
       <div className="figures">
@@ -120,7 +100,7 @@ function Few({ what, names }: { what: string; names: string[] }) {
  * A job that stopped to ask somebody. It is the only thing on the page that
  * shouts, because it is the only thing that does not carry on without a person.
  */
-function Waiting({ parked, offline, done }: { parked: ParkedRun; offline: boolean; done: () => void }) {
+function Waiting({ parked, done }: { parked: ParkedRun; done: () => void }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [trouble, setTrouble] = useState("");
@@ -146,12 +126,11 @@ function Waiting({ parked, offline, done }: { parked: ParkedRun; offline: boolea
       <div className="reply">
         <input
           value={text}
-          disabled={offline}
-          placeholder={offline ? "That runtime is offline." : "Your answer"}
+          placeholder="Your answer"
           onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => event.key === "Enter" && !offline && void send()}
+          onKeyDown={(event) => event.key === "Enter" && void send()}
         />
-        <button className="go" onClick={send} disabled={offline || !text.trim() || sending}>
+        <button className="go" onClick={send} disabled={!text.trim() || sending}>
           {sending ? "Sending" : "Send answer"}
         </button>
       </div>

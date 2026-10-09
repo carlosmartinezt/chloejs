@@ -54,31 +54,6 @@ about("what a run did, in one line");
   const done = await work({ agent: agentFor(broken), job: broken });
   is("a response that throws does not fail the run", row(done.runId).error, null);
   is("and it says so", row(done.runId).summary, "(its response failed: no such field)");
-
-  const { recentWork } = await import("#chloe/serve/recentWork");
-  const agent = { ...agentFor(counted), id: "recent" };
-  const at = (minutes: number) => new Date(Date.UTC(2026, 0, 1, 0, minutes)).toISOString();
-  const insert = db.prepare(
-    "insert into runs (id, agent, started, finished, source, job, model, prompt, summary, error, cost) values (?, 'recent', ?, ?, ?, ?, 'code', '', ?, ?, ?)",
-  );
-  insert.run("l1", at(0), at(0), "schedule", "backup", "copied", null, 0);
-  insert.run("l2", at(1), at(1), "schedule", "counted", "15 sites", null, 0);
-  insert.run("l3", at(2), at(2), "schedule", "counted", null, "no answer", 0.5);
-  insert.run("l4", at(3), at(3), "schedule", "counted", "15 sites, all up", null, 0.25);
-  insert.run("l5", at(4), at(4), "telegram", null, "Hello.", null, 0.1);
-  const recent = recentWork(agent);
-  is("the newest first, a job in a row folded into one line", recent.map((one) => [one.id, one.times]), [
-    ["l5", 1],
-    ["l4", 3],
-    ["l1", 1],
-  ]);
-  is("a line says the channel and the job", recent.map((one) => [one.source, one.job]), [
-    ["telegram", null],
-    ["schedule", "counted"],
-    ["schedule", "backup"],
-  ]);
-  is("a folded line keeps count of what failed and what it cost", [recent[1].failed, recent[1].cost], [1, 0.75]);
-  is("and stops at the count it is given", recentWork(agent, 2).length, 2);
 }
 
 about("what started a run, and what to say about it");
@@ -590,6 +565,33 @@ about("nobody answers");
   await sweep(new Map([[agent.id, agent]]));
   is("it carried on with what the ask said to", JSON.parse(row(first.runId).reply), { deployed: false });
   is("and stopped holding its job", waitingFor("test", "lapsing"), false);
+}
+
+about("a job waits for a time");
+{
+  const done: string[] = [];
+  const job = codeJob("later", async ({ step, wait }) => {
+    await step("first", () => done.push("first"));
+    await wait("a while", "90m");
+    await step("second", () => done.push("second"));
+    return "both";
+  });
+  const agent = agentFor(job);
+  const first = await work({ agent, job });
+  is("it parked", first.parked, true);
+  is("the job is held while it waits", waitingFor("test", "later"), true);
+  is("nobody was asked anything", waitingOn(""), undefined);
+  await sweep(new Map([[agent.id, agent]]));
+  is("it does not carry on before the time is up", done, ["first"]);
+  let refused = "";
+  await answer(first.runId, "yes", new Map([[agent.id, agent]])).catch((error: Error) => (refused = error.message));
+  is("an answer is refused", refused.includes("not for an answer"), true);
+  timePasses(first.runId);
+  await sweep(new Map([[agent.id, agent]]));
+  is("then it carries on, running each step once", done, ["first", "second"]);
+  is("and finishes", row(first.runId).reply, "both");
+  is("the wait is a line in the record", JSON.parse(row(first.runId).trace)[1].kind, "wait");
+  is("and stopped holding its job", waitingFor("test", "later"), false);
 }
 
 about("nobody answers, and the ask had nothing to carry on with");

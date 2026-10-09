@@ -65,7 +65,7 @@ interface ListedJob {
 interface Step {
   seq: number;
   name: string;
-  kind: "step" | "model" | "ask";
+  kind: "step" | "model" | "ask" | "wait";
   ms: number;
   cost: number;
 }
@@ -268,8 +268,9 @@ if (job) {
     shown = (run.trace ?? []).length;
 
     if (run.parked) {
-      const waiting = JSON.parse(run.parked) as { who: string; question: string };
-      console.log(`\n${bold("Waiting on")} ${waiting.who}: ${waiting.question}`);
+      const waiting = JSON.parse(run.parked) as { who: string; question: string; expires: string; wait?: true };
+      if (waiting.wait) console.log(`\n${bold("Waiting until")} ${waiting.expires}`);
+      else console.log(`\n${bold("Waiting on")} ${waiting.who}: ${waiting.question}`);
       console.log(dim(`Answer it on the page, or leave it: ${runId}\n`));
       break;
     }

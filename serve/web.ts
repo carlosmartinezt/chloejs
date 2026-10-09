@@ -35,7 +35,7 @@ import { receive } from "#chloe/channels/shared";
 import { visitorThread, webOf, type Web } from "#chloe/channels/web";
 import { BadRequest, NotFound, Refused } from "./errors.ts";
 import { Picture, type At } from "./http.ts";
-import { addressOf, from } from "./login.ts";
+import { from } from "./login.ts";
 import { checkToken } from "./tokens.ts";
 
 /** How long a pass is good for, in seconds. */
@@ -244,7 +244,7 @@ function noted(agent: string, pass: Pass, request: IncomingMessage): Record<stri
     `insert into visitors (agent, id, first, last, ip, country, browser) values (?, ?, ?, ?, ?, ?, ?)
      on conflict (agent, id) do update set last = excluded.last, ip = excluded.ip,
        country = coalesce(excluded.country, visitors.country), browser = excluded.browser`,
-  ).run(agent, pass.v, now_, now_, addressOf(request), country, browserOf(header("user-agent")) || null);
+  ).run(agent, pass.v, now_, now_, from(request), country, browserOf(header("user-agent")) || null);
   const row = db.prepare("select * from visitors where agent = ? and id = ?").get(agent, pass.v) as unknown as Visitor;
   const before = (db.prepare("select count(*) as n from runs where agent = ? and source = 'web' and owner = ?").get(agent, `web:${pass.v}`) as { n: number }).n;
   const facts = row.facts ? (JSON.parse(row.facts) as Record<string, string>) : {};

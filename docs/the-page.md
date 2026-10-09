@@ -1,7 +1,7 @@
 ---
 title: The site, the API, and the run record
 order: 10
-summary: What a run writes down, the dashboard and the API, a remote dashboard and what it may do, an agent's memory, and where state lives.
+summary: What a run writes down, the dashboard and the API, reaching them from another machine, an agent's memory, and where state lives.
 ---
 
 ## What a run writes down
@@ -31,14 +31,16 @@ in.
 | `/agents/<id>/memory` | its memory |
 | `/log` | every agent's runs, searched together |
 | `/tokens` | making and revoking tokens |
+| `/people` | inviting people, and changing or removing what they were given |
 
 ## Who may reach it
 
 | Who | How | What they may do |
 |---|---|---|
 | You | a link from `npx chloe link`, or the password if you set one | everything |
-| Another system | a token, made at `/tokens` or with `npx chloe tokens make` | read the API, and chat to and run the jobs of agents with an [HTTP channel](/docs/channels#http). Never write a file, read a memory or touch the tokens. |
-| Anybody | | five routes: `GET /api`, whether there is a password, signing in with it or a link, and signing out |
+| Somebody you invited | their email and their own password, from the link you sent them | only the agents they were let in to, and on each only chat, read or run as given. See [One person, and the people you invite](/docs/one-person). |
+| Another system | a token, made at `/tokens` or with `npx chloe tokens make` | read the API, and chat to and run the jobs of agents with an [HTTP channel](/docs/channels-http). Never write a file, read a memory or touch the tokens. |
+| Anybody | | `GET /api`, whether there is a password, signing in, signing out, and reading or taking an invitation whose link they hold |
 
 A fresh copy has no password and opens with a link: `npx chloe` prints one as
 it starts while there is no password, and `npx chloe link` prints one whenever
@@ -61,43 +63,35 @@ token=$(curl -s -X POST localhost:3067/api/login \
 curl -s localhost:3067/api/agents -H "authorization: Bearer $token"
 ```
 
-**Reaching it from another machine.** chloe listens on loopback only. The
-simplest way in is an SSH tunnel, `ssh -L 3067:127.0.0.1:3067 you@yourbox`, then
-`127.0.0.1:3067` in your browser. Putting it on a public name puts the run
-history, the agents' files and their memories one password away from the
-internet. If you do, the proxy in front must pass the visitor's address on, as
-`cf-connecting-ip` or by adding to `x-forwarded-for`, and nothing but the proxy
-may reach the port, or the lockout for wrong passwords is worth nothing.
+## From another machine
 
-## A remote dashboard
+chloe listens on loopback only, and sends nothing anywhere you did not name: no
+copy of your runs, agents or memories goes to any other dashboard. To reach the
+dashboard from somewhere else, use what you already use for your servers:
 
-To watch it from anywhere without opening a port, make a workspace on
-[dashboard.chloejs.org](https://dashboard.chloejs.org), or on a dashboard of
-your own, and put the key it shows you once in `.env` as
-`CHLOE_DASHBOARD_REMOTE_API_KEY`. The config hands it over as
-`dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } }`.
-chloe connects out to it and stays connected. Nothing about how jobs run
-depends on it, and taking the key out leaves everything running as it was.
+- **An SSH tunnel.** `ssh -L 3067:127.0.0.1:3067 you@yourbox`, then
+  `127.0.0.1:3067` in your browser. Nothing is opened.
+- **A private network** of your own, such as Tailscale or WireGuard, with a
+  web server on the box that only it reaches.
+- **Your own web server on a public name**, passing everything on to chloe's
+  port. This puts the run history, the agents' files and their memories one
+  password away from the internet, so use a long password. The server in front
+  must pass the visitor's address on, as `cf-connecting-ip` or by adding to
+  `x-forwarded-for`, and nothing but it may reach the port, or the lockout for
+  wrong passwords is worth nothing. A memory file's pass works only from the
+  address that asked for it, which is read the same way.
 
-It is for you and the people you invite, never the public: a web page's chat
-box reaches chloe through your own server, not the dashboard.
+For Caddy, the whole of it is:
 
-| Setting | Default | What it controls |
-|---|---|---|
-| `dashboard.remote.api_key` | none | The workspace key. Without it there is no connection. |
-| `dashboard.remote.url` | `https://dashboard.chloejs.org` | Where the dashboard is. |
-| `dashboard.remote.upload.runs` | on | Each run's facts as it starts and ends: when, which job, the model, the steps, the cost, the error. Never what was said. |
-| `dashboard.remote.upload.replies` | off | With `runs`, each run's reply and summary too. |
-| `dashboard.remote.upload.agents` | on | Each agent's configuration. |
-| `dashboard.remote.allow.read` | on | It may read the agents, runs, files and conversations. |
-| `dashboard.remote.allow.chat` | on | It may talk to an agent. |
-| `dashboard.remote.allow.run` | on | It may run a job now. |
-| `dashboard.remote.allow.memory` | off | It may read a memory. Every file is still logged first. |
-| `dashboard.remote.allow.write` | off | It may write a file, a memory, an answer to a waiting job, a model pick. |
-| `dashboard.remote.allow.google` | off | It may finish a Google sign-in for you. See [Connections](/docs/connections#google). |
+```
+agents.example.com {
+	reverse_proxy 127.0.0.1:3067 {
+		flush_interval -1
+	}
+}
+```
 
-A remote dashboard also takes WhatsApp deliveries for you and gives the email
-channel its addresses: see [Channels](/docs/channels).
+`flush_interval -1` lets a reply stream while the agent is still working.
 
 ## An agent's memory
 

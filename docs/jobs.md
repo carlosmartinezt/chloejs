@@ -33,6 +33,7 @@ A job is an async function made of steps, or a prompt. It is written with
 | `work.model(name, options)` | Asks a model one question, answered in a shape you give. |
 | `work.agent(name, options)` | Gives a model a goal and tools, and lets it pick the order, inside limits you set. |
 | `work.ask(name, options)` | Stops and waits for a person. See [Asking a person](/docs/asking-a-person). |
+| `work.wait(name, length)` | Stops for a length of time, like `"90m"`, then carries on. |
 | `work.state`, `work.setState(next)` | The shared store. A step's result is for the next step; `state` is what the whole job builds up. |
 | `work.args` | What this run was started with, already checked against `args`. It does not change. |
 | `work.input` | Where the run came from, and the message. [Below](#starting-one-with-something). |
@@ -44,8 +45,8 @@ The options of `model` and `agent`, and when to use which, are in
 
 ## Work happens inside a step
 
-A job that waited on a person carries on by running the function again from the
-top, with each finished step handing back what it returned last time instead of
+A job that waited, on a person or with `work.wait`, carries on by running the
+function again from the top, with each finished step handing back what it returned last time instead of
 running again. So **a line outside a step runs again on every resume**: if it
 sends, writes or spends, it does so twice. Code outside a step only decides.
 
@@ -54,7 +55,7 @@ changed, rather than handing a recorded answer to the wrong step. Start it
 again.
 
 A run that was going when chloe stopped is closed as failed. Only a run waiting
-on a person survives a restart.
+on a person or in `work.wait` survives a restart.
 
 ## Two runs never overlap
 

@@ -9,14 +9,13 @@ import { CopyPath } from "./components/CopyPath.tsx";
 import { Listing } from "./components/Listing.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { Minimap } from "./components/Minimap.tsx";
-import { Offline } from "./components/Offline.tsx";
 import { api, frameAt, type MemoryRead } from "../lib/api.ts";
 import { copy } from "../lib/copy.ts";
 import { labelOf, when } from "../lib/format.ts";
 import { go } from "../lib/route.ts";
 import * as prefs from "../lib/prefs.ts";
 import { loadOpen, loadTabs, saveLast, saveOpen, saveTabs, tabName } from "../lib/tabs.ts";
-import type { AgentSummary, Entry, Git, Workspace } from "../lib/types.ts";
+import type { AgentSummary, Entry, Git } from "../lib/types.ts";
 
 /**
  * Where one agent remembers things, laid out the way an editor lays out a
@@ -39,16 +38,10 @@ export function Memory({
   agents,
   agent,
   path,
-  offline = false,
-  where,
 }: {
   agents: AgentSummary[];
   agent: string;
   path?: string;
-  /** Reached through a cloud whose connection to the runtime is not open. */
-  offline?: boolean;
-  /** What the cloud knows about the workspace, which is what the panel says. */
-  where?: Workspace | null;
 }) {
   const [tree, setTree] = useState<Entry[] | null>(null);
   const [tabs, setTabs] = useState<string[]>(() => loadTabs(agent));
@@ -328,9 +321,7 @@ export function Memory({
           </div>
         )}
 
-        {offline && <Offline name={agent} where={where ?? null} />}
-
-        {trouble && !offline && <p className="bad pad">{trouble}</p>}
+        {trouble && <p className="bad pad">{trouble}</p>}
 
         {path && <Crumbs label={label} path={path} pick={(to) => show(to)} />}
         {path && !tree ? (
@@ -558,9 +549,8 @@ function Shown({
   }
 
   // frameAt hangs the address the runtime handed out off wherever that runtime
-  // is: the root when the page is in front of one, and that workspace's when
-  // it is in front of a cloud. Never anywhere else: this is the only address a
-  // memory file may be loaded from, and it is what carries the sandbox.
+  // is. Never anywhere else: this is the only address a memory file may be
+  // loaded from, and it is what carries the sandbox.
   const src = at ? `${frameAt(at)}/${path.split("/").map(encodeURIComponent).join("/")}${docStyle ? "?style=basic" : ""}` : null;
 
   // A folder with no agent behind it has no history to ask for.

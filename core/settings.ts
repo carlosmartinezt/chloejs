@@ -281,10 +281,6 @@ export interface Settings {
        *   page there, and the person copies the whole address from the
        *   browser and sends it back to the agent.
        *
-       * With a remote dashboard, you can set it to
-       * `<dashboard.remote.url>/oauth/google/callback/<workspace>` and turn on
-       * `dashboard.remote.allow.google`. The sign-in then finishes by itself.
-       *
        * For a "web" client, you must also add the address to the client in
        * the Google Cloud console.
        */
@@ -309,98 +305,6 @@ export interface Settings {
    * to its log when an entry matches no agent.
    */
   agents: Record<string, AgentSettings>;
-  /**
-   * A remote dashboard. chloe always serves its own dashboard on its own
-   * port. These settings are only for a second dashboard on another server.
-   */
-  dashboard: {
-    /**
-     * A dashboard on another server that chloe connects to, so you can see
-     * and use your agents from anywhere. chloe opens the connection itself,
-     * so you do not have to open a port on this machine.
-     *
-     * Off until you set `api_key`. How jobs run does not depend on it.
-     */
-    remote: {
-      /**
-       * Your workspace key, from the remote dashboard. Setting it turns the
-       * connection on. Removing it turns the connection off, and everything
-       * else keeps running. Default: "" (no connection).
-       *
-       * It is a secret: put it in `.env`, like
-       * `dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } }`.
-       */
-      api_key: string;
-      /**
-       * The address of the remote dashboard. Change it to use a dashboard you
-       * run yourself. Default: "https://dashboard.chloejs.org".
-       *
-       * When `api_key` is set, the WhatsApp channel, and the email channel
-       * without `mailbox: "gmail"`, also use this address to collect their
-       * messages.
-       */
-      url: string;
-      /**
-       * What chloe sends to the remote dashboard as it happens, so the
-       * dashboard can show it while this machine is offline.
-       */
-      upload: {
-        /**
-         * Sends the facts of each run when it starts and when it ends: when,
-         * which agent and job, the model, the steps, the cost and the error.
-         * It does not send what was said (see `replies`). On by default.
-         */
-        runs: boolean;
-        /**
-         * Also sends each run's reply and its one-line summary, so the remote
-         * dashboard keeps what the agents said. Works only when `runs` is on.
-         * Off by default.
-         */
-        replies: boolean;
-        /**
-         * Sends the setup of every agent (what `GET /api/agents` shows) when
-         * chloe connects, and each time the agents reload. On by default.
-         */
-        agents: boolean;
-      };
-      /**
-       * What the remote dashboard may do. Each switch allows one group of
-       * requests. A request that needs a switch that is off is refused.
-       */
-      allow: {
-        /** Lets it read the agents, the runs, the files and the conversations. On by default. */
-        read: boolean;
-        /** Lets it send messages to an agent. On by default. */
-        chat: boolean;
-        /** Lets it start a job now. On by default. */
-        run: boolean;
-        /**
-         * Lets it read an agent's memory. Each file it reads is still written to
-         * the memory log first, with a note that it came through the remote
-         * dashboard. Writing to a memory also needs `write`. Off by default.
-         */
-        memory: boolean;
-        /**
-         * Lets it change things, such as: write a file in an agent's folder,
-         * write a memory file (with `memory` on too), answer a job that is
-         * waiting for an answer, and pick a model. Off by default.
-         */
-        write: boolean;
-        /**
-         * Lets it start and finish the sign-in to a connection, and pass back
-         * Google's answer to a Google sign-in that chloe started, so nobody has
-         * to send a code back. Nothing else about Google goes through it. An
-         * answer that does not match the sign-in chloe is waiting for is
-         * refused. Off by default.
-         *
-         * For Google, also set `connections.google.callback` to
-         * `<url>/oauth/google/callback/<workspace>`. With the default `url`,
-         * that is `https://dashboard.chloejs.org/oauth/google/callback/<workspace>`.
-         */
-        google: boolean;
-      };
-    };
-  };
   /**
    * Where chloe's web server listens. It serves the dashboard, the API, and
    * the addresses some channels need. A change needs a restart.
@@ -471,14 +375,6 @@ export const DEFAULTS: Settings = {
     google: { account: "", client: "", callback: "", GA_KEY_FILE: "" },
   },
   agents: {},
-  dashboard: {
-    remote: {
-      api_key: "",
-      url: "https://dashboard.chloejs.org",
-      upload: { runs: true, replies: false, agents: true },
-      allow: { read: true, chat: true, run: true, memory: false, write: false, google: false },
-    },
-  },
   serve: { host: "127.0.0.1", port: 3067 },
   owner: "",
   node: "",
@@ -542,7 +438,7 @@ export function nameInEnv(path: string[]): string {
  * from your config with `process.env`. "agents" means the channel tokens of
  * every agent.
  */
-export const KEYS = ["model.key", "model.keys", "connections.resend.api_key", "connections.google.client", "dashboard.remote.api_key", "agents"];
+export const KEYS = ["model.key", "model.keys", "connections.resend.api_key", "connections.google.client", "agents"];
 
 
 /**
@@ -656,17 +552,17 @@ function wrong(defaults: unknown, said: unknown, path: string[] = []): string {
  * It checks `declared` first, and throws an error that says what is wrong:
  * a name that is not a setting, a value of the wrong type, or a word that is
  * not one of the allowed values. It also refuses `cloud`, `page` and
- * `dashboard.local`, and says which settings to use.
+ * `dashboard`, which are gone, and says so.
  */
 export function readSettings(declared: unknown): Settings {
   const merged = (declared ?? {}) as Record<string, unknown>;
   // Named rather than left to "is not a setting", so a config written for the
   // old shape says where each part went.
-  if (merged.cloud !== undefined) {
-    throw new Error("settings: cloud is dashboard.remote now, and cloud.remote is dashboard.remote.allow: `dashboard: { remote: { api_key: process.env.CHLOE_DASHBOARD_REMOTE_API_KEY } }`.");
-  }
-  if (merged.page !== undefined || (merged.dashboard as { local?: unknown } | undefined)?.local !== undefined) {
-    throw new Error("settings: dashboard.local is gone. The runtime serves one page, the dashboard, and needs no setting for it.");
+  if (merged.cloud !== undefined || merged.page !== undefined || merged.dashboard !== undefined) {
+    throw new Error(
+      "settings: dashboard is gone. The runtime serves one page, the dashboard, on its own port, and sends nothing to any other. " +
+        "To reach it from another machine, use an SSH tunnel or your own web server in front of it: see https://chloejs.org/docs/the-page.",
+    );
   }
   const problem = wrong(DEFAULTS, merged);
   if (problem) throw new Error(`settings are not valid:\n${problem}`);

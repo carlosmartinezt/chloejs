@@ -3,9 +3,9 @@
 // under `agents: { shop: { whatsapp: { ... } } }`. Without them the channel
 // says so and does not start.
 //
-// Meta posts each message to an address and has nothing to fetch one with, so
-// chloe keeps a post box somewhere else and collects from it. Nothing here is
-// opened, and the address to paste into the app is written to the log on start.
+// Meta posts each message to a public address and has nothing to fetch one
+// with, so the shop's web server passes /chloe/v1/shop/whatsapp on to chloe's
+// port. The address to paste into the app is written to the log on start.
 //
 // Anybody may write, so no message is a turn with the agent's tools. Every one
 // goes to answer-whatsapp-customer, which is code: it looks the number up

@@ -16,10 +16,9 @@
 // agent's memory, cannot make a token or talk to an agent. A script in a note
 // can read the pass from its own address, and can carry it out by navigating
 // or opening a window, which no content policy stops (connect-src 'none' only
-// stops fetch and the like). On this box that reaches nobody, since the port
-// is on loopback. A dashboard that relays frames must make a copied pass
-// worthless elsewhere: the remote dashboard answers one only from the address that
-// asked for it.
+// stops fetch and the like). So a pass works only from the address that asked
+// for it, as `from()` reads it: copied to anywhere else, it is worthless, even
+// with the runtime behind a web server on a public name.
 import { seal, unseal } from "./login.ts";
 
 /** Long enough to load a frame and everything it links, short enough to be worthless later. */
@@ -32,17 +31,19 @@ interface Payload {
   a: string;
   /** Until when, in seconds since the epoch. */
   u: number;
+  /** The address it was made for. */
+  f: string;
 }
 
-/** A pass to read that agent's memory. */
-export function makePass(agent: string): string {
-  return seal(PURPOSE, { a: agent, u: Math.floor(Date.now() / 1000) + LASTS } satisfies Payload);
+/** A pass to read that agent's memory, from `address` only. */
+export function makePass(agent: string, address: string): string {
+  return seal(PURPOSE, { a: agent, u: Math.floor(Date.now() / 1000) + LASTS, f: address } satisfies Payload);
 }
 
-/** Which agent's memory this pass reads, or null when it is not a live pass. */
-export function checkPass(value: string): string | null {
+/** Which agent's memory this pass reads, or null when it is not a live pass made for `address`. */
+export function checkPass(value: string, address: string): string | null {
   const payload = unseal<Payload>(PURPOSE, value);
-  if (!payload || typeof payload.a !== "string" || typeof payload.u !== "number") return null;
+  if (!payload || typeof payload.a !== "string" || typeof payload.u !== "number" || payload.f !== address) return null;
   if (payload.u <= Math.floor(Date.now() / 1000)) return null;
   return payload.a;
 }
