@@ -81,10 +81,14 @@ describe("code, painted", () => {
 
 describe("where the page is, as an address", () => {
   test("an address reads back as itself", () => {
-    for (const path of ["/", "/agents/cc", "/agents/cc/log", "/agents/chloe/memory/01_projects/x.html", "/log", "/tokens", "/settings", "/people"]) {
+    for (const path of ["/", "/agents/cc", "/agents/cc/config", "/agents/cc/log", "/agents/chloe/memory/01_projects/x.html", "/log", "/tokens", "/settings", "/people"]) {
       strictEqual(href(read(path, "")), path, path);
     }
     deepStrictEqual(read("/agents/cc/log", ""), { at: "log", agent: "cc", run: undefined });
+    // An agent's own address is its chat; its overview is config.
+    deepStrictEqual(read("/agents/cc", ""), { at: "chat", agent: "cc", thread: undefined });
+    deepStrictEqual(read("/agents/cc/config", ""), { at: "agent", agent: "cc" });
+    deepStrictEqual(read("/agents/cc/chat", ""), { at: "chat", agent: "cc", thread: undefined });
   });
 
   test("a conversation is in the address, and read back from it", () => {

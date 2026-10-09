@@ -40,8 +40,9 @@ const conversation = (agent: string, thread: string): string =>
 /**
  * An agent is under /agents/ rather than at the top, so that an agent called
  * "runs" is still an agent and not a broken page. Everything of one agent's is
- * under its id: /agents/cc/log, /agents/cc/chat, and its files under files/,
- * so /agents/tempo/files/skills/analytics.md is that file, where it lives.
+ * under its id: /agents/cc is its chat, /agents/cc/config its overview,
+ * /agents/cc/log, and its files under files/, so
+ * /agents/tempo/files/skills/analytics.md is that file, where it lives.
  * /log is every agent's log at once.
  */
 export function href(view: View): string {
@@ -49,11 +50,11 @@ export function href(view: View): string {
     case "home":
       return "/";
     case "agent":
-      return `/agents/${view.agent}`;
+      return `/agents/${view.agent}/config`;
     case "file":
       return `/agents/${view.agent}/files/${view.path}`;
     case "chat":
-      return `/agents/${view.agent}/chat` + (view.thread ? `/${encodeURIComponent(conversation(view.agent, view.thread))}` : "");
+      return view.thread ? `/agents/${view.agent}/chat/${encodeURIComponent(conversation(view.agent, view.thread))}` : `/agents/${view.agent}`;
     case "instructions":
     case "skills":
     case "jobs":
@@ -91,7 +92,8 @@ export function read(path = window.location.pathname, search = window.location.s
   if (parts[0] === "settings") return { at: "settings" };
   if (parts[0] === "agents" && parts[1]) {
     const [, agent, what, ...rest] = parts;
-    if (!what) return { at: "agent", agent };
+    if (!what) return { at: "chat", agent, thread };
+    if (what === "config" && !rest.length) return { at: "agent", agent };
     if (what === "files" && rest.length) return { at: "file", agent, path: rest.join("/") };
     if (what === "log" && !rest.length) return { at: "log", agent, run };
     if (what === "chat" && rest.length === 1) return { at: "chat", agent, thread: rest[0].includes("/") ? rest[0] : `${agent}/${rest[0]}` };

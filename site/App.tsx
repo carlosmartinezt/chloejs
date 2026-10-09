@@ -197,16 +197,16 @@ export function App() {
             page has to give up room to hold it. */}
         {agents[0] && <WhichAgent here={here} all={agents} view={view} given={given} />}
         <Menu closeOn={window.location.pathname}>
-          {/* Config, Chat and Memory belong to an agent, so these go to the
+          {/* Chat, Config and Memory belong to an agent, so these go to the
               one you are with, or were last with. Config is every page of its
               own, with the sidebar that moves between them. */}
           {agents[0] && !given && (
             <>
-              <Link to={lastOf("agent", agents, view)} current={railed}>
-                Config
-              </Link>
               <Link to={lastOf("chat", agents, view)} current={view.at === "chat"}>
                 Chat
+              </Link>
+              <Link to={lastOf("agent", agents, view)} current={railed}>
+                Config
               </Link>
               <Link to={lastOf("memory", agents, view)} current={view.at === "memory"}>
                 Memory
