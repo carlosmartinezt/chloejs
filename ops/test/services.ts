@@ -126,3 +126,19 @@ import { db, sent } from "./shared.ts";
   ended("alert-4", "2026-01-04T10:00:00.000Z", null);
   is("working again says so, once", jobTurned("alerted", "daily", "2026-01-04T09:59:00.000Z")?.subject, "alerted/daily works again");
 }
+
+{
+  about("the guides an agent reads to learn what it could be given");
+
+  const { listGuides, readGuide } = await import("#chloe/services/guidesService");
+  const all = listGuides();
+  is("every guide is listed, with what it covers", all.some((one) => one.page === "connections" && one.about.length > 0), true);
+  is("one is read whole by its name", readGuide("connections").includes("Google"), true);
+  let refused = "";
+  try {
+    readGuide("../package");
+  } catch (error) {
+    refused = (error as Error).message;
+  }
+  is("a path out of the guides is no guide", refused.startsWith("There is no guide called ../package"), true);
+}

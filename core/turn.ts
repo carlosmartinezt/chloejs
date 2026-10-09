@@ -199,7 +199,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   // In the instructions rather than the message, so it is not kept in the conversation again each turn.
   const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools)) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools), whatYouRunOn(agent, tools)) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -751,9 +751,29 @@ function cannotChange(agent: Agent, tools: Tools): string {
   );
 }
 
-function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = "", cannot = ""): string {
+/**
+ * What an agent that may change itself is told in a turn its owner wrote: that
+ * the guides say what it can be given, and that a secret never goes through a
+ * chat. Empty for any other turn.
+ */
+function whatYouRunOn(agent: Agent, tools: Tools): string {
+  if (!ownFileRules(agent.features) || !tools.selfReadGuide) return "";
+  return (
+    "## What you run on\n\n" +
+    "You run on Chloe, and you can be given more than you have now: Gmail, Calendar and Drive, sending mail, " +
+    "Telegram, Slack, WhatsApp, email conversations, a chat box on a website, reading web pages, scripts, jobs on a " +
+    "schedule. When you are asked for something you cannot do yet, read the guides with selfReadGuide, then say " +
+    "what you would add to yourself and what your owner has to do for it. If you need to look something up on the " +
+    "web and have no tool for it, offer to add the web tools to yourself; the tools guide says how. Never ask for " +
+    "a key, password or secret in a chat: say which line goes in .env and let your owner put it there. A sign-in " +
+    "like Google's is done by Chloe itself, with a link, never by you."
+  );
+}
+
+function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = "", cannot = "", runsOn = ""): string {
   const parts = [agent.instructions];
   if (person) parts.push(talkingWith(person));
+  if (runsOn) parts.push(runsOn);
   if (cannot) parts.push(cannot);
   if (note) parts.push(`## Your note on them\n\n${note}`);
   if (overviews) parts.push(overviews);

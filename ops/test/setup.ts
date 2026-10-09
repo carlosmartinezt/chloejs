@@ -17,14 +17,10 @@ import { about, is } from "#chloe/ops/check";
 
   const files = starterFiles();
   const config = files.find((one) => one.path === "chloe.config.ts")!.body;
-  is("setup writes no agent", files.map((one) => one.path), ["chloe.config.ts", ".gitignore", "AGENTS.md", "CLAUDE.md"]);
+  is("setup writes no agent", files.map((one) => one.path), ["chloe.config.ts", "tsconfig.json", ".gitignore"]);
   is("and chloe.config.ts lists none", config.includes("agents: [],"), true);
   is("it has the line setup puts the chosen model in", config.includes(STARTER_MODEL_LINE), true);
-  const guide = files.find((one) => one.path === "AGENTS.md")?.body ?? "";
-  is("AGENTS.md sends a coding agent to the guides for the installed version", guide.includes(GUIDES), true);
-  is("and tells it the first agent is its to write", guide.includes("write the first agent"), true);
-  is("which the build writes into dist/docs", GUIDES, "node_modules/@chloejs/core/dist/docs/README.md");
-  is("and CLAUDE.md reads AGENTS.md", files.find((one) => one.path === "CLAUDE.md")?.body, "@AGENTS.md\n");
+  is("the guides setup points to are where the build writes them", GUIDES, "node_modules/@chloejs/core/dist/docs/README.md");
   is(
     "and the model goes in as a setting, with preferredRoute as a list",
     modelLine({ defaultModel: "anthropic/claude-sonnet-5", preferredRoute: "gateway,claude" }),

@@ -30,6 +30,8 @@ export type View =
   | { at: "api" }
   /** How this browser shows the page, and what the account can be told to do. */
   | { at: "settings" }
+  /** Where to ask the people who make Chloe. */
+  | { at: "help" }
   /** Signing in. "making" is the same form when this copy has no account yet. */
   | { at: "signin"; making: boolean };
 
@@ -70,6 +72,8 @@ export function href(view: View): string {
       return `/invitation/${encodeURIComponent(view.code)}`;
     case "settings":
       return "/settings";
+    case "help":
+      return "/help";
     case "memory":
       return `/agents/${view.agent}/memory${view.path ? `/${view.path}` : ""}`;
     // The runtime's own: a browser asking for /api gets this page, and anything else the list as JSON.
@@ -90,6 +94,7 @@ export function read(path = window.location.pathname, search = window.location.s
 
   if (parts[0] === "login" || parts[0] === "setup") return { at: "signin", making: parts[0] === "setup" };
   if (parts[0] === "settings") return { at: "settings" };
+  if (parts[0] === "help") return { at: "help" };
   if (parts[0] === "agents" && parts[1]) {
     const [, agent, what, ...rest] = parts;
     if (!what) return { at: "chat", agent, thread };

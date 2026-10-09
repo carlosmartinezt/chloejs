@@ -186,8 +186,8 @@ export async function startChloe(given?: Config): Promise<void> {
     lines.push(row("AI models", reached.length ? reached.join("; ") : "not set up"));
     if (ready[0] === "claude" || ready[0] === "codex") {
       lines.push(under(
-        "A subscription is for trying things out: its terms may not cover a service running agents. " +
-          'To run on a key, put "direct" or "gateway" first in model.preferredRoute.',
+        "A subscription is fine while you build and try agents. Its terms may not cover agents running on their own, " +
+          'so for that put "direct" or "gateway" first in model.preferredRoute, with a key.',
       ));
     }
     if (!ready.length && !given.length) {

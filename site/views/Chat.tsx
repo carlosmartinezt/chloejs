@@ -1,14 +1,15 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { Picture, Said, Thread } from "../lib/types.ts";
+import type { AgentSummary, Picture, Said, Thread } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
 import { ago, labelOf, many, money, threadName, when } from "../lib/format.ts";
 import * as Icons from "./components/Icons.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { Trail } from "./components/Link.tsx";
-import { ContextMenu } from "./components/ContextMenu.tsx";
+import { ContextMenu, type Choice } from "./components/ContextMenu.tsx";
 import { Prompt } from "./Log.tsx";
 import { go, href } from "../lib/route.ts";
+import { ideasFor } from "../lib/ideas.ts";
 import { Collapse } from "./components/Collapse.tsx";
 
 interface Line extends Said {
@@ -96,7 +97,8 @@ const called = (one: Thread): string => {
 /** A visitor's conversation, from a chat box on a web page. */
 const fromWeb = (one: Thread): boolean => threadName(one.thread).startsWith("visitor-");
 
-export function Chat({ agent, thread: asked }: { agent: string; thread?: string }) {
+/** `owner` may pick the model for a conversation; anybody else only sees it. */
+export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: string; owner: boolean }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [listed, setListed] = useState(false);
   const [thread, setThread] = useState("");
@@ -110,7 +112,11 @@ export function Chat({ agent, thread: asked }: { agent: string; thread?: string 
   const [naming, setNaming] = useState("");
   const [archived, setArchived] = useState(false);
   const [doing, setDoing] = useState("");
-  const [model, setModel] = useState("");
+  const [summary, setSummary] = useState<AgentSummary | null>(null);
+  const [offered, setOffered] = useState<string[]>([]);
+  const [picking, setPicking] = useState<{ x: number; y: number } | null>(null);
+  // Up to three things to ask under an empty box, chosen as the agent opens.
+  const [ideas, setIdeas] = useState<string[]>([]);
   const foot = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
 
@@ -131,8 +137,28 @@ export function Chat({ agent, thread: asked }: { agent: string; thread?: string 
     setListed(false);
     api.threads(agent).then(setThreads, () => setThreads([])).finally(() => setListed(true));
     // Which model the answer will come from, so it is known before anything is asked.
-    api.agent(agent).then((one) => setModel(one.model), () => setModel(""));
-  }, [agent]);
+    api.agent(agent).then(
+      (one) => {
+        setSummary(one);
+        setIdeas(ideasFor(one));
+      },
+      () => setSummary(null),
+    );
+    setOffered([]);
+    if (owner) api.models(agent).then((all) => setOffered(all.map((one) => one.model)), () => {});
+  }, [agent, owner]);
+
+  // A pick for this conversation beats what the agent runs on otherwise.
+  const picked = summary?.chosen.find((one) => one.scope === `chat:${thread}`)?.model;
+  const model = picked ?? summary?.model ?? "";
+
+  async function pick(to: string) {
+    try {
+      setSummary(await api.pickModel(agent, `chat:${thread}`, to));
+    } catch (error) {
+      setTrouble((error as Error).message);
+    }
+  }
 
   // The conversation in the address, or a new one. Picking one puts it in the
   // address, so a reload comes back to it.
@@ -255,6 +281,8 @@ export function Chat({ agent, thread: asked }: { agent: string; thread?: string 
       // A conversation started here only exists once something is in it, so
       // this is where it turns up in the list beside, and in the address.
       api.threads(agent).then(setThreads, () => {});
+      // /model typed in the box picks one too.
+      if (/^\/models?\b/i.test(asked)) api.agent(agent).then(setSummary, () => {});
       if (!asked) window.history.replaceState(null, "", href({ at: "chat", agent, thread }));
     } catch (error) {
       setLines((said) => [...said, { role: "assistant", content: (error as Error).message, failed: true }]);
@@ -388,7 +416,37 @@ export function Chat({ agent, thread: asked }: { agent: string; thread?: string 
       >
         <div className="head">
           <Trail agent={agent} steps={[{ name: "chat" }]} />
-          {model && <span className="model">{model}</span>}
+          {model &&
+            (owner ? (
+              <button
+                className={picked ? "model picked" : "model"}
+                title={picked ? "Picked for this conversation" : "What the agent runs on. Pick another for this conversation."}
+                aria-haspopup="menu"
+                aria-expanded={Boolean(picking)}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  const box = event.currentTarget.getBoundingClientRect();
+                  setPicking(picking ? null : { x: box.right, y: box.bottom + 4 });
+                }}
+              >
+                {model}
+              </button>
+            ) : (
+              <span className="model">{model}</span>
+            ))}
+          {picking && summary && (
+            <ContextMenu
+              at={picking}
+              from="right"
+              close={() => setPicking(null)}
+              choices={[
+                { head: "For this conversation" },
+                { label: `Default (${summary.model})`, run: () => void pick(""), current: !picked },
+                "line",
+                ...offered.map((one): Choice => ({ label: one, run: () => void pick(one), current: one === picked })),
+              ]}
+            />
+          )}
         </div>
 
         <div className="scroll">
@@ -509,6 +567,22 @@ export function Chat({ agent, thread: asked }: { agent: string; thread?: string 
             </div>
           </div>
           {trouble && <p className="under">{trouble}</p>}
+          {blank && !prompt && ideas.length > 0 && (
+            <div className="ideas">
+              {ideas.map((idea) => (
+                <button
+                  key={idea}
+                  className="plain"
+                  onClick={() => {
+                    setPrompt(idea);
+                    box.current?.focus();
+                  }}
+                >
+                  {idea}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

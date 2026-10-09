@@ -82,6 +82,7 @@ Give each script a skill that says when to run it.
 | `selfReadFile` | turns its owner wrote | Reads one of them. |
 | `selfListRuns` | turns its owner wrote | Lists its own runs, newest first: the job or chat, where it came from, when, the cost, and whether it failed. |
 | `selfReadRun` | turns its owner wrote | Reads one run: what started it, the answer or the error, and each step on the way. |
+| `selfReadGuide` | turns its owner wrote | Reads these guides, for the version installed, so it can say what it could be given (Gmail, a channel, web pages) and how. An agent that may change itself is told to read them before saying something cannot be done, and never to ask for a secret in a chat. |
 
 The owner is `owner` in settings, the first entry in a channel's `allowFrom`,
 or the account on the dashboard. A job, a token and a visitor never

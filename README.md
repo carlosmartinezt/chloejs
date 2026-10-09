@@ -29,7 +29,7 @@ password is for later, if you want one.
 
 For a coding agent: `npx chloe setup` asks nothing when there is no keyboard,
 taking every default, and writes no agent: the first one is the coding agent's
-to write. It writes an `AGENTS.md` that sends the agent to the guides in
+to write. Its last lines send the agent to the guides in
 `node_modules/@chloejs/core/dist/docs/`, for the version installed, and `npx
 skills add carlosmartinezt/chloejs` gets it that far before anything is.
 

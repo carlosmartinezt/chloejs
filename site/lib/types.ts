@@ -6,7 +6,12 @@ export interface AgentSummary {
   /** What to call it on the page, when that is not its id. */
   label?: string;
   description: string;
+  /** What its runs go to now: a pick made on the fly, else what agent.ts names. */
   model: string;
+  /** What agent.ts names. */
+  declaredModel: string;
+  /** Every pick made on the fly: "agent", "job:<id>" or "chat:<thread>". */
+  chosen: { scope: string; model: string; at: string }[];
   /** The ways in it binds: telegram, api, whatever else. */
   channels: string[];
   /** Whether a token may chat to it or run its jobs. It binds an api channel. */
@@ -14,6 +19,8 @@ export interface AgentSummary {
   /** What the site calls its memory. Every agent has one. */
   memory: string;
   tools: string[];
+  /** Where each tool it did not write itself comes from, like "features.memory". */
+  toolsFrom: Record<string, string>;
   skills: string[];
   /** `channels` is set for a job only a message on those channels starts. */
   jobs: { id: string; description?: string; cron?: string; when?: string; timezone: string; model: string; code?: boolean; files: string[]; channels?: string[] }[];

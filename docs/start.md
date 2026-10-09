@@ -35,8 +35,8 @@ it puts this one on the next free port, as `serve: { port }` in
 ## The first agent
 
 Ask your coding agent, in the project's folder, for what you want done, like
-"an agent that tells me every morning at 7 what is most urgent in my mail". The
-`AGENTS.md` setup wrote sends it to these guides, for the version installed, and
+"an agent that tells me every morning at 7 what is most urgent in my mail". It
+reads these guides, which ship in the package for the version installed, and
 it writes the agent and lists it in `chloe.config.ts`. From then on, ask the
 agent itself on the dashboard to change: its words, its jobs, its code. See
 [What an agent may change about itself](/docs/prompts#what-an-agent-may-change-about-itself).
@@ -50,7 +50,7 @@ for later, if you want one.
 |---|---|
 | `chloe.config.ts` | The list of agents, empty, and every [setting](/docs/settings). An agent not on it does not run. |
 | `.env` | Every password, key and token, mode 600, never committed. |
-| `AGENTS.md`, `CLAUDE.md` | Send a coding agent to these guides, which ship in the package for the version you installed, and tell it the first agent is its to write. |
+| `tsconfig.json` | How your editor and `tsc` read the project's TypeScript. Node runs it as it is, so nothing is compiled. Setup also offers to install `typescript` and `@types/node`. |
 
 It also adds `"type": "module"` to `package.json`, and `node_modules`, `data`
 and `.env` to `.gitignore`.

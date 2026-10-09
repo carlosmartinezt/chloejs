@@ -16,6 +16,7 @@ import { build } from "esbuild";
 
 import { api, frameUnder, NeedsSignIn, serverAt, servesFrom } from "./lib/api.ts";
 import { href, read } from "./lib/route.ts";
+import { ideasFor } from "./lib/ideas.ts";
 import { allowed, landing } from "./lib/given.ts";
 import type { Way } from "./lib/types.ts";
 import { parts, sourceAt } from "./lib/blocks.ts";
@@ -81,7 +82,7 @@ describe("code, painted", () => {
 
 describe("where the page is, as an address", () => {
   test("an address reads back as itself", () => {
-    for (const path of ["/", "/agents/cc", "/agents/cc/config", "/agents/cc/log", "/agents/chloe/memory/01_projects/x.html", "/log", "/tokens", "/settings", "/people"]) {
+    for (const path of ["/", "/agents/cc", "/agents/cc/config", "/agents/cc/log", "/agents/chloe/memory/01_projects/x.html", "/log", "/tokens", "/settings", "/help", "/people"]) {
       strictEqual(href(read(path, "")), path, path);
     }
     deepStrictEqual(read("/agents/cc/log", ""), { at: "log", agent: "cc", run: undefined });
@@ -317,5 +318,22 @@ describe("a connection, and what it is missing", () => {
     const html = render([{ ...google, ready: true, missing: ["left over"] }]);
     ok(!html.includes("left over"));
     ok(html.includes("from google.client in settings"));
+  });
+});
+
+describe("things to ask under an empty chat box", () => {
+  const plain = { id: "a", description: "", model: "", declaredModel: "", chosen: [], channels: [], api: false, memory: "", tools: [], toolsFrom: {}, skills: [], jobs: [] };
+  test("an agent with nothing turned on gets the one that fits any agent", () => {
+    deepStrictEqual(ideasFor(plain), ["What can you do?"]);
+  });
+  test("what it has turned on decides the rest, three at most", () => {
+    const self = { ...plain, toolsFrom: { selfWriteFile: "features.selfImprovement" }, channels: ["telegram"] };
+    const said = ideasFor(self, 3, () => 0);
+    strictEqual(said.length, 3);
+    const every = ideasFor(self, 99);
+    strictEqual(said[0], every[0]);
+    ok(said[0].startsWith("Write a job"));
+    ok(every.some((one) => one.includes("Telegram")));
+    ok(!every.some((one) => one.includes("Slack")));
   });
 });

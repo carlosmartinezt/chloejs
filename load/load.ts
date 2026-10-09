@@ -742,6 +742,8 @@ export interface Agent extends Omit<DefinedAgent, "instructions" | "tools" | "jo
   included?: string[];
   /** Every tool the agent has: its own `tools`, plus the ones `features` and `connections` add. */
   tools?: Tools;
+  /** Where each tool that is not the agent's own comes from, like `features.memory` or `connection github`. */
+  toolsFrom?: Record<string, string>;
   /** The agent's skills, read from the markdown files in its `skills/` folder. */
   skills: Skill[];
   /** The agent's jobs, loaded, including the jobs named on its channels. */
@@ -936,7 +938,7 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
       ...includedIn(definition.instructions, folder),
       ...(jobs ?? []).flatMap((one) => includedIn((one as { markdown?: unknown }).markdown, folder)),
     ],
-    tools: toolsOf({ ...(await connectionTools(connections ?? [], where)), ...featureTools(definition.features, home, where), ...tools }, where),
+    ...withTools(await connectionTools(connections ?? [], where), featureTools(definition.features, home, where), tools ?? {}, where),
     skills: await skillsIn(`${folder}/skills`),
     jobs: await channelJobs(id, folder, await jobsOf(id, folder, jobs ?? []), bound),
     channels: bound,
@@ -957,7 +959,7 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
  * left out and said in the log, and the agent loads without it: the setup page
  * says why. A tool of the agent's own with the same name wins.
  */
-async function connectionTools(connections: McpConnection[], where: string): Promise<Tools> {
+async function connectionTools(connections: McpConnection[], where: string): Promise<Record<string, Tools>> {
   if (!Array.isArray(connections)) {
     throw new Error(`${where}: connections is a list, like [mcpConnection({ name: "github", url })].`);
   }
@@ -972,7 +974,25 @@ async function connectionTools(connections: McpConnection[], where: string): Pro
       }),
     ),
   );
-  return Object.assign({}, ...found);
+  return Object.fromEntries(connections.map((one, i) => [`connection ${one.name}`, found[i]]));
+}
+
+/**
+ * Every tool, the agent's own winning over a connection's or a feature's of the
+ * same name, and where each one it did not write itself comes from.
+ */
+function withTools(
+  connected: Record<string, Tools>,
+  featured: Record<string, Tools>,
+  own: Tools,
+  where: string,
+): { tools: Tools; toolsFrom: Record<string, string> } {
+  const added = { ...connected, ...featured };
+  const toolsFrom: Record<string, string> = {};
+  for (const [from, tools] of Object.entries(added)) for (const name of Object.keys(tools)) toolsFrom[name] = from;
+  const tools = toolsOf({ ...Object.assign({}, ...Object.values(added)), ...own }, where);
+  for (const name of Object.keys(own)) delete toolsFrom[name];
+  return { tools, toolsFrom };
 }
 
 function channelsOf(channels: Channel[], where: string): Channel[] {
@@ -995,7 +1015,6 @@ export function hasChannel(agent: Pick<Agent, "channels">, name: string): boolea
   return agent.channels.some((one) => one.name === name);
 }
 
-/** What an agent's `features` turn on, as tools. The memory tools unless it says memory: false. */
 /**
  * What `selfImprovement` comes to: undefined when it is `false`, and otherwise
  * the files the agent may change, code among them unless it says `code: false`
@@ -1010,7 +1029,11 @@ export function ownFileRules(features: Features = {}): OwnFileRules | undefined 
   return { ...said, code, files: said.files ?? (code ? [...PLAIN_TEXT, ...CODE_FILES] : PLAIN_TEXT) };
 }
 
-function featureTools(features: Features = {}, home: Home, where: string): Tools {
+/**
+ * What an agent's `features` turn on, as tools, under where each comes from:
+ * `features.memory` unless it says memory: false.
+ */
+function featureTools(features: Features = {}, home: Home, where: string): Record<string, Tools> {
   const self = features.selfImprovement;
   if (typeof self === "object" && self.files && self.files.length === 0) {
     throw new Error(`${where}: selfImprovement is false, or says which files it may change, like { files: ["md"] }.`);
@@ -1020,10 +1043,10 @@ function featureTools(features: Features = {}, home: Home, where: string): Tools
   }
   const rules = ownFileRules(features);
   return {
-    ...(features.memory === false ? {} : memoryTools()(home)),
-    ...(rules ? selfWriteTools(rules)(home) : {}),
-    ...(features.runScripts ? scriptTools()(home) : {}),
-    ...(features.memoryPerUser ? userNotesTools()() : {}),
+    ...(features.memory === false ? {} : { "features.memory": memoryTools()(home) }),
+    ...(rules ? { "features.selfImprovement": selfWriteTools(rules)(home) } : {}),
+    ...(features.runScripts ? { "features.runScripts": scriptTools()(home) } : {}),
+    ...(features.memoryPerUser ? { "features.memoryPerUser": userNotesTools()() } : {}),
   };
 }
 

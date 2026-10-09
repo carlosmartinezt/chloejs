@@ -22,8 +22,8 @@ here so the runtime's own tests have an agent to load, and `example/` and
 **The guides are here too, and ship in the package.** `docs/` is every written
 page, and `ops/docs.ts` fills in their code and writes them into `dist/docs/` on
 every build, with a `README.md` listing them, so whoever installed chloe reads
-the guides for the version they have. `npx chloe setup` writes an `AGENTS.md`
-into the project that sends a coding agent there. A change here that changes
+the guides for the version they have, and `npx chloe setup`'s last lines send
+a coding agent there. A change here that changes
 what a guide says changes the guide in the same commit: that is the reason they
 live here and not beside the site. No page writes its own code. Each block
 names a file, `file=example/jobs/restock.ts` or `file=index.ts#defineJob`, and
@@ -66,7 +66,8 @@ one already running. It sets no password: the server prints a link as it
 starts, which works once and only within the hour, so the one a coding agent
 reads and passes on is dead once used, where a password would not be.
 It writes no agent: the person's coding agent writes the first one from the
-guides, which the `AGENTS.md` it writes points to. `ops/setup.ts` is that,
+guides, which setup's last lines point to. It writes no `AGENTS.md` or
+`CLAUDE.md`: those are the project's own. `ops/setup.ts` is that,
 `ops/starter.ts` is the files it writes, and neither is imported by the service.
 
 **Two places, and which one a value goes in is the question to ask.** A choice
@@ -170,8 +171,8 @@ into three folders, stop: that is the signal you are about to industrialise
 boilerplate rather than build a system.
 
 **Self-improving, within a boundary.** An agent keeps its own notes, so a run
-can leave the next one better informed. Every agent can read its own folder
-and runs in its owner's turns (`selfReadTools` in `model/tools/self.ts`,
+can leave the next one better informed. Every agent can read its own folder,
+its runs and the guides in its owner's turns (`selfReadTools` in `model/tools/self.ts`,
 added by `toolsFor()` in `core/turn.ts` like `skillRead`, so they are not in
 the agent's `tools`). Unless it says `selfImprovement: false`, it may also
 change its own folder, `ownFileRules()` in `load/load.ts`: its instructions,

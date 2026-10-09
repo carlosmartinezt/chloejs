@@ -199,6 +199,8 @@ export function summary(agent: Agent) {
     /** What the site calls its memory. Every agent has one. */
     memory: memoryLabel(agent),
     tools: Object.keys(agent.tools ?? {}).sort(),
+    /** Where each tool it did not write itself comes from, like "features.memory". */
+    toolsFrom: agent.toolsFrom ?? {},
     skills: agent.skills.map((s) => s.name),
     jobs: agent.jobs.map((s) => ({
       id: s.id,

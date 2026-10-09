@@ -104,8 +104,8 @@ for one in ${PREFER//,/ }; do
   command -v "$one" >/dev/null 2>&1 || continue
   case "$one" in
     claude|codex)
-      echo "Model calls will go through $one, on a subscription. That is for trying things out: its terms may" >&2
-      echo "not cover a service running agents. To run on a key, put \"gateway\" first in model.preferredRoute." >&2 ;;
+      echo "Model calls will go through $one, on a subscription. That is fine while you build and try agents. Its terms" >&2
+      echo "may not cover agents running on their own, so for that put \"direct\" or \"gateway\" first in model.preferredRoute, with a key." >&2 ;;
   esac
   break
 done

@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import * as Icons from "./views/components/Icons.tsx";
 import { AgentChanges } from "./views/components/Changes.tsx";
@@ -23,6 +23,7 @@ import { Invitation } from "./views/Invitation.tsx";
 import { Jobs } from "./views/Jobs.tsx";
 import { Skills } from "./views/Skills.tsx";
 import { Tools } from "./views/Tools.tsx";
+import { Help } from "./views/Help.tsx";
 import { Settings } from "./views/Settings.tsx";
 import { Log, LogTable } from "./views/Log.tsx";
 import { Memory } from "./views/Memory.tsx";
@@ -166,9 +167,10 @@ export function App() {
   // belong on every one of them.
   const inside = Boolean(here);
   // Chat and memory carry their own two columns and put the same sidebar in
-  // the first of them, so the shell is every other page of an agent's.
+  // the first of them, and the log is a page of its own, so the shell is every
+  // other page of an agent's.
   // Somebody invited has no sidebar: every page on it is the owner's.
-  const railed = inside && view.at !== "chat" && view.at !== "memory" && !given;
+  const railed = inside && view.at !== "chat" && view.at !== "memory" && view.at !== "log" && !given;
 
   if (view.at === "api") return <Api />;
   if (view.at === "signin") return <Doorway making={view.making} />;
@@ -231,22 +233,12 @@ export function App() {
               Log
             </Link>
           )}
-          {serves.tokens && !given && (
-            <Link to={{ at: "tokens" }} current={view.at === "tokens"}>
-              Tokens
-            </Link>
-          )}
-          {serves.people && !given && (
-            <Link to={{ at: "people" }} current={view.at === "people"}>
-              People
-            </Link>
-          )}
         </Menu>
         {/* Only what is not already on the page below. How many agents there
             are is the page below. */}
         {busy > 0 && <span className="count num">{many(busy, "run")} now</span>}
         {trouble && <span className="bad num">{trouble}</span>}
-        <You me={me} />
+        <You me={me} tokens={Boolean(serves.tokens)} people={Boolean(serves.people)} />
       </header>
 
       {/* A rail is for moving around inside one agent. The way in is not
@@ -257,7 +249,7 @@ export function App() {
           {!landAt && <p className="empty frame">Nothing here has been given to you yet. Ask whoever invited you.</p>}
         </main>
       ) : view.at === "chat" ? (
-        <Chat agent={view.agent} thread={view.thread} />
+        <Chat agent={view.agent} thread={view.thread} owner={owner} />
       ) : view.at === "log" ? (
         <Log agent={view.agent} agents={given ? reach((agent) => may(given, agent, "read")) : agents} open={view.run} />
       ) : view.at === "memory" ? (
@@ -270,6 +262,7 @@ export function App() {
           {view.at === "tokens" && <Tokens />}
           {view.at === "people" && <People agents={agents} />}
           {view.at === "settings" && <Settings />}
+          {view.at === "help" && <Help />}
           {view.at === "jobs" && given && jobsOf(view.agent)}
         </main>
       ) : (
@@ -319,7 +312,8 @@ function lastOf(what: "agent" | "chat" | "memory" | "jobs", agents: AgentSummary
 
 /**
  * Which agent you are on, and the others. It keeps the page you are on where
- * it can: on somebody's log, the next agent's log is what you wanted. Somebody
+ * it can: on somebody's log, the next agent's log is what you wanted. From
+ * anywhere else it opens the agent's chat. Somebody
  * invited goes to a page they were given on the next one, and has no overview.
  */
 function WhichAgent({ here, all, view, given }: { here?: string; all: AgentSummary[]; view: View; given: Given | null }) {
@@ -332,7 +326,9 @@ function WhichAgent({ here, all, view, given }: { here?: string; all: AgentSumma
           ? { at: "log", agent }
           : view.at === "jobs" && given
             ? { at: "jobs", agent }
-            : { at: "agent", agent };
+            : view.at === "agent"
+              ? { at: "agent", agent }
+              : { at: "chat", agent };
   const sameKind = (agent: string): View =>
     !given || allowed(given, kind(agent)) ? kind(agent) : (landing(given, [agent], agent) ?? kind(agent));
   return (
@@ -435,6 +431,7 @@ function Agent({
   if (!agent) return <p className="dim">Loading</p>;
   const mine = runs.filter((run) => run.agent === id);
   const held = flatten(files ?? []);
+  const own = agent.tools.filter((name) => !agent.toolsFrom[name]);
 
   return (
     <>
@@ -454,15 +451,28 @@ function Agent({
         <dd>
           <Names names={agent.skills} agent={id} held={held} folder="skills" ending=".md" />
         </dd>
-        <dt>tools</dt>
-        <dd>
-          <Names names={agent.tools} agent={id} held={held} folder="tools" ending=".ts" />
-        </dd>
+        {/* Its own tools, left out when it has none and a feature adds some. */}
+        {(own.length > 0 || agent.tools.length === 0) && (
+          <>
+            <dt>tools</dt>
+            <dd>
+              <Names names={own} agent={id} held={held} folder="tools" ending=".ts" />
+            </dd>
+          </>
+        )}
+        {/* The tools a feature or a connection adds, under the line in agent.ts that adds them. */}
+        {[...new Set(Object.values(agent.toolsFrom))].sort().map((from) => (
+          <Fragment key={from}>
+            <dt className="from">{from}</dt>
+            <dd className="dim">
+              {agent.tools.filter((name) => agent.toolsFrom[name] === from).join(", ")}
+            </dd>
+          </Fragment>
+        ))}
       </dl>
 
       <div className="head spread">
-        <h2>What it runs</h2>
-        <Link to={{ at: "jobs", agent: id }}>All of {labelOf(id)}&rsquo;s jobs</Link>
+        <h2>Jobs</h2>
       </div>
       {agent.jobs.length === 0 && (
         <p className="empty">Nothing on a clock. It runs when you or a message ask it to.</p>
@@ -499,7 +509,6 @@ function Agent({
 
       <div className="head spread">
         <h2>Log</h2>
-        <Link to={{ at: "log", agent: id }}>{labelOf(id)}&rsquo;s full log</Link>
       </div>
       <LogTable rows={mine.slice(0, 12)} agent={id} />
     </>
@@ -554,14 +563,19 @@ function flatten(entries: Entry[]): string[] {
 /**
  * The account, from the right of the bar. The owner is the one account with a
  * password and no name, so it says Account. Somebody invited sees their name,
- * and has nothing here but signing out.
+ * and has nothing here but signing out. Tokens and People are here because
+ * they are about the whole of this copy, not one agent.
  */
-function You({ me }: { me: Me }) {
+function You({ me, tokens, people }: { me: Me; tokens: boolean; people: boolean }) {
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const close = useCallback(() => setAt(null), []);
   const choices: Choice[] = me.owner
     ? [
         { label: "Account settings", run: () => go({ at: "settings" }) },
+        ...(tokens ? [{ label: "Tokens", run: () => go({ at: "tokens" }) }] : []),
+        ...(people ? [{ label: "People", run: () => go({ at: "people" }) }] : []),
+        // The people who make Chloe. Somebody invited asks whoever invited them.
+        { label: "Get help", run: () => go({ at: "help" }) },
         { label: "Sign out", run: () => signOut(false) },
       ]
     : [{ head: me.email }, { label: "Sign out", run: () => signOut(true) }];

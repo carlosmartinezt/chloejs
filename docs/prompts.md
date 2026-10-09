@@ -88,7 +88,8 @@ the same reason, an agent with `except` (files it may never change) writes no
 code, and says so with a warning as it loads until it says `code: false`.
 
 Any agent can read its own folder and runs when its owner asks
-(`selfListFiles`, `selfReadFile`, `selfListRuns`, `selfReadRun`). It changes
+(`selfListFiles`, `selfReadFile`, `selfListRuns`, `selfReadRun`), and the
+guides for the version installed (`selfReadGuide`). It changes
 itself only when its owner asks: a message from the agent's owner
 on one of its channels (`owner` in settings, or the first entry in the
 channel's `allowFrom`), or from the account on the dashboard. A job, a

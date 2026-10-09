@@ -6,7 +6,7 @@
 // It writes the files a project needs, puts the server on a free port, and asks
 // which model to use and checks that model actually answers. It writes no
 // agent: the person's coding agent writes the first one, for what they want,
-// from the guides AGENTS.md points it to. Every answer has a default, so holding Enter
+// from the guides in the package, which setup's last lines point it to. Every answer has a default, so holding Enter
 // through it works. It sets no password: the server prints a link that opens
 // the page signed in, and a password is for later, if ever.
 //
@@ -27,7 +27,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { firstCommit, hasGit, hasGitName, repositoryOf } from "./git.ts";
-import { GUIDES, modelLine, STARTER_MODEL_LINE, starterFiles, withSetting } from "./starter.ts";
+import { DEV_PACKAGES, GUIDES, modelLine, STARTER_MODEL_LINE, starterFiles, withSetting } from "./starter.ts";
 import { ask, askHidden, pick, takeDefaults, yes } from "./terminal.ts";
 import type { Provider } from "#chloe/core/settings";
 
@@ -133,6 +133,14 @@ async function theProject(): Promise<void> {
       }
     }
   }
+
+  // Without these an editor underlines process in chloe.config.ts, and an
+  // agent's own change to its code is not type checked.
+  const missing = DEV_PACKAGES.filter((one) => !existsSync(join(HERE, "node_modules", one)));
+  if (missing.length && (await yes(`Run npm install --save-dev ${missing.join(" ")}, so your editor and tsc can read the TypeScript? (Y/n)`, true))) {
+    const done = spawnSync("npm", ["install", "--save-dev", ...missing], { cwd: HERE, stdio: "inherit" });
+    if (done.status !== 0) console.log(`That did not work. Chloe runs without them: npm install --save-dev ${missing.join(" ")} when you can.`);
+  }
 }
 
 /** chloe.config.ts with no agents, and the files beside it. A config already here is somebody's own and is left alone. */
@@ -143,19 +151,13 @@ async function theFiles(): Promise<void> {
     const path = join(HERE, file.path);
     if (file.add) {
       // A file the project may have already, added to and never replaced, so
-      // a project with its own .gitignore or AGENTS.md keeps it.
+      // a project with its own .gitignore keeps it.
       const held = existsSync(path) ? readFileSync(path, "utf8") : "";
       const gap = held && !held.endsWith("\n") ? "\n" : "";
-      if (file.add === "lines") {
-        const lines = file.body.trim().split("\n").filter((line) => !held.split("\n").includes(line));
-        if (lines.length === 0) continue;
-        appendFileSync(path, `${gap}${lines.join("\n")}\n`);
-        written(file.path, `${lines.join(", ")} added`);
-      } else {
-        if (held.split("\n").includes(file.body.split("\n")[0])) continue;
-        appendFileSync(path, held ? `${gap}\n${file.body}` : file.body);
-        written(file.path, held ? "added to" : "written");
-      }
+      const lines = file.body.trim().split("\n").filter((line) => !held.split("\n").includes(line));
+      if (lines.length === 0) continue;
+      appendFileSync(path, `${gap}${lines.join("\n")}\n`);
+      written(file.path, `${lines.join(", ")} added`);
       continue;
     }
     if (existsSync(path)) continue;
@@ -453,9 +455,10 @@ function sayWhatNext({ port, moved }: { port: number; moved: boolean }): void {
   // Whoever ran this without a keyboard is most likely a coding agent, about to
   // build what somebody asked for, and the guides it needs are already here.
   if (nobodyHere) {
-    console.log("Read the guides above before writing any code: they are for this version. AGENTS.md here says so for later sessions.");
+    console.log("Read the guides above before writing any code: they are for this version.");
     console.log("To show the person the page: start npx chloe in the background, leave it running, and give them the link it prints.");
-    console.log("It opens the page signed in, with no password to set. npx chloe link prints another.");
+    console.log("Tell them that is what you started, that the link signs them in once within the hour, and that npx chloe link prints another.");
+    console.log("A subscription is fine while they build and try agents: say so only if they ask to run agents on their own for real.");
   }
 }
 

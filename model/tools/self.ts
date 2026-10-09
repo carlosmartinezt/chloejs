@@ -8,13 +8,14 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import type { Home, OwnFileRules } from "#chloe/load/load";
+import { listGuides, readGuide } from "#chloe/services/guidesService";
 import { listOwn, readOwn, writeOwn } from "#chloe/services/ownFilesService";
 import { listOwnRuns, readOwnRun } from "#chloe/services/ownRunsService";
 import type { ChloeTool, Tools } from "../tool.ts";
 
 const forOwner = (one: ChloeTool, own: boolean): ChloeTool => Object.assign(one, { forOwner: true, own });
 
-/** selfListFiles, selfReadFile, selfListRuns and selfReadRun. `rules` is what they say it may change, none without. */
+/** selfListFiles, selfReadFile, selfListRuns, selfReadRun and selfReadGuide. `rules` is what they say it may change, none without. */
 export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
   return (agent) => ({
     selfListFiles: forOwner(
@@ -60,6 +61,18 @@ export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
         execute: ({ id }) => readOwnRun(agent.id, id),
       }),
       false,
+    ),
+    selfReadGuide: forOwner(
+      tool({
+        description:
+          "Read the guides for the version of Chloe you run on: what you can be given and how. Connections (Gmail, " +
+          "Calendar, Drive, sending mail), channels (Telegram, Slack, WhatsApp, email, a chat box on a website), " +
+          "tools like reading web pages, jobs and their schedules, settings. With no page, the list of guides and " +
+          "what each covers. Read them before saying something cannot be done, and before changing yourself.",
+        inputSchema: z.object({ page: z.string().optional().describe('A guide\'s name from the list, like "connections".') }),
+        execute: ({ page }) => (page ? readGuide(page) : listGuides()),
+      }),
+      true,
     ),
   });
 }
