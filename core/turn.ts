@@ -460,6 +460,8 @@ export interface LoopStep {
   dropped?: string;
   wants?: string[];
   tool?: string;
+  /** Set on a call to a tool that only touches the agent itself (`own`). */
+  own?: boolean;
   args?: unknown;
   result?: unknown;
   failed?: boolean;
@@ -582,7 +584,7 @@ export async function loop(options: {
       step.toolCalls.push({ type: "tool-call", toolCallId: call.id, toolName: call.function.name, input: args });
       step.toolResults.push({ type: "tool-result", toolCallId: call.id, toolName: call.function.name, input: args, output });
       calls.push({ toolName: call.function.name, input: args, output, ...(refused && { refused }) });
-      options.onStep?.({ step: steps, at, tool: call.function.name, args, result: clip(output), ...(failed && { failed }), ...(refused && { refused }) });
+      options.onStep?.({ step: steps, at, tool: call.function.name, args, result: clip(output), ...(one?.own && { own: true }), ...(failed && { failed }), ...(refused && { refused }) });
       // Fixed by somebody signing in, which the runtime starts, so the model is
       // not asked again: it would only try to get round it.
       if (signIn) {

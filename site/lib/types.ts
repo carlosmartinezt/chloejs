@@ -70,6 +70,8 @@ export interface Step {
   wants?: string[];
   cost?: number;
   tool?: string;
+  /** Set on a tool call that only touched the agent itself: its folder, memory, runs, skills or the guides. */
+  own?: boolean;
   args?: unknown;
   result?: unknown;
   /** Set on a job's lines. */

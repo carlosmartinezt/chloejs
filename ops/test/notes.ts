@@ -125,6 +125,11 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   answers.push("Noted.");
   await turn({ agent: keeper, prompt: "and now?", source: "test", without: ["memoryListFiles"] });
   is("and without the tool, without them", lastAsked[0]?.content.includes("The folders in your memory"), false);
+
+  answers.push({ tool_calls: [{ id: "1", type: "function", function: { name: "memoryListFiles", arguments: "{}" } }] }, "Found them.");
+  const looked = await turn({ agent: keeper, prompt: "look", source: "test" });
+  const called = (JSON.parse(row(looked.runId).trace) as { tool?: string; own?: boolean }[]).find((one) => one.tool);
+  is("a call to a tool that touches only the agent is marked own, so the page does not show it as what it is doing", [called?.tool, called?.own], ["memoryListFiles", true]);
 }
 
 {
@@ -136,7 +141,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   const { jobsOf, loadAll, markdownJob } = await import("#chloe/load/load");
   const { setAgentDirs } = await import("#chloe/core/paths");
   const { change, makeRepo, markSeen, undo } = await import("#chloe/services/historyService");
-  const { whyNot, writeOwn } = await import("#chloe/services/ownFilesService");
+  const { whyNot, changeOwnFiles } = await import("#chloe/services/selfService");
   const { runScripts } = await import("#chloe/services/scriptsService");
   const { agentChanges } = await import("#chloe/serve/changes");
   const { open, tree } = await import("#chloe/serve/files");
@@ -245,7 +250,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   is("nor anything outside its folder", await Promise.resolve().then(() => may("../other/x.md")).catch(failed), `Path is outside ${folder}: ../other/x.md`);
 
   const wrote = (path: string, content: string, message = "a change worth making") =>
-    writeOwn(home, rules, [{ path, content }], message).then((done) => done.commit ?? "not committed", failed);
+    changeOwnFiles(home, rules, [{ path, content }], message).then((done) => done.commit ?? "not committed", failed);
   is(
     "a job that would not load is refused",
     await wrote("jobs/weekly.md", "---\ncron: every monday\n---\nLook back."),
@@ -295,7 +300,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   // A change made during a run belongs to that run.
   const improve = codeJob("improve", async ({ step }) =>
     step("rewrite the skill", () =>
-      writeOwn(home, rules, [{ path: "skills/deploys.md", content: "---\nname: deploys\ndescription: how\n---\nShip it small." }], "the skill says how to ship"),
+      changeOwnFiles(home, rules, [{ path: "skills/deploys.md", content: "---\nname: deploys\ndescription: how\n---\nShip it small." }], "the skill says how to ship"),
     ).then(() => "ok"),
   );
   const improved = await work({ agent: keeper, job: improve });
@@ -382,7 +387,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   const { rm, symlink } = await import("node:fs/promises");
   const { fileURLToPath } = await import("node:url");
   const { loadAgain, ownFileRules, checksDone } = await import("#chloe/load/load");
-  const { whyNot, writeOwn } = await import("#chloe/services/ownFilesService");
+  const { whyNot, changeOwnFiles } = await import("#chloe/services/selfService");
 
   // Outside the runtime's folder, whose files are never imported afresh, with
   // the package linked in the way a project installs it. A repository of its own.
@@ -413,7 +418,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   is("but never its evals", whyNot(home, code!, "evals/hello.json"), "evals/ is how your runs are marked");
 
   const wrote = (path: string, content: string) =>
-    writeOwn(home, code!, [{ path, content }], "a change worth making").then((done) => done.commit ?? "not committed", (error: Error) => error.message);
+    changeOwnFiles(home, code!, [{ path, content }], "a change worth making").then((done) => done.commit ?? "not committed", (error: Error) => error.message);
   const job = (cron: string) =>
     `import { defineJob } from "@chloejs/core";\nexport default defineJob({ id: "hello", description: "Says hello.", cron: "${cron}", run: async () => "Hello." });\n`;
 
@@ -445,7 +450,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
 
   // A change that only loads with two files changed together.
   const together = (files: { path: string; content: string }[]) =>
-    writeOwn(home, code!, files, "hello reads its words from a file of its own").then((done) => done.commit, (error: Error) => error.message);
+    changeOwnFiles(home, code!, files, "hello reads its words from a file of its own").then((done) => done.commit, (error: Error) => error.message);
   const greetingFile = { path: "jobs/lib/words.ts", content: 'export const greeting = "Hello again.";\n' };
   const using = {
     path: "jobs/hello.ts",

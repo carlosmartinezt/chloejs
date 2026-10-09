@@ -216,7 +216,8 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
 
   // What it is doing while it is doing it. A turn writes its trace step by
   // step, so the run it is in the middle of says which tool it just reached
-  // for. Nothing here makes it happen, it only watches.
+  // for. A tool that only touched the agent itself is not named: it is still
+  // thinking. Nothing here makes it happen, it only watches.
   useEffect(() => {
     if (!waiting) return void setDoing("");
     let live = true;
@@ -230,7 +231,7 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
         if (!id) return;
         const run = await api.run(id);
         const last = [...run.trace].reverse().find((step) => step.tool ?? step.name);
-        if (live) setDoing(last?.tool ?? last?.name ?? "");
+        if (live) setDoing(last && !last.own ? (last.tool ?? last.name ?? "") : "");
       } catch {
         // The turn can finish between the two reads, which is not a problem.
       }

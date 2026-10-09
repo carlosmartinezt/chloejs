@@ -309,23 +309,23 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   insert.run("r-eval", "reader", at(7), at(8), "eval", "", null, "x", null, "turn", null, "[]", 0, 0);
   insert.run("r-other", "someone-else", at(9), at(9), "schedule", "", null, "theirs", null, "job", "morning", "[]", 0, 0);
 
-  const { listOwnRuns, readOwnRun } = await import("#chloe/services/ownRunsService");
+  const { ownRuns, ownRun } = await import("#chloe/services/selfService");
   // The turns above are runs of this agent too, and newer.
-  const listed = listOwnRuns("reader").runs.filter((one) => String(one.id).startsWith("r-"));
+  const listed = ownRuns("reader").runs.filter((one) => String(one.id).startsWith("r-"));
   is("its runs are listed newest first, its own only and no eval's", listed.map((one) => one.id), ["r-failed", "r-chat", "r-job"]);
   is("as facts, without anything said in them", Object.keys(listed[1]).sort(), ["cost", "finished", "id", "job", "source", "started", "steps"]);
   is("a failed one says so", listed[0].failed, true);
-  is("one job's, or the conversations", [listOwnRuns("reader", { job: "morning" }).runs.length, listOwnRuns("reader", { job: "chat" }).runs.map((one) => one.id).filter((id) => String(id).startsWith("r-"))], [2, ["r-chat"]]);
-  const job = readOwnRun("reader", "r-job");
+  is("one job's, or the conversations", [ownRuns("reader", { job: "morning" }).runs.length, ownRuns("reader", { job: "chat" }).runs.map((one) => one.id).filter((id) => String(id).startsWith("r-"))], [2, ["r-chat"]]);
+  const job = ownRun("reader", "r-job");
   is("a job's run shows its steps, with long results cut short", [job.steps.length, String((job.steps[0] as { result?: unknown }).result).endsWith("...[3000 characters]")], [2, true]);
   is("and what it answered", job.reply, "Sent the facts.");
-  const chat = readOwnRun("reader", "r-chat");
+  const chat = ownRun("reader", "r-chat");
   is("a conversation's shows what was asked, not the channel's wrapping", chat.asked, "what is new?");
   is("and what it said on the way and each call, the reply once", chat.steps, [{ said: "Let me look." }, { tool: "webReadPage", args: { url: "https://example.com" }, result: "A page." }]);
-  is("a failed run says why", readOwnRun("reader", "r-failed").error, "Feed down.");
+  is("a failed run says why", ownRun("reader", "r-failed").error, "Feed down.");
   const refused = (id: string) => {
     try {
-      readOwnRun("reader", id);
+      ownRun("reader", id);
       return "";
     } catch (error) {
       return (error as Error).message;
@@ -334,8 +334,8 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("another agent's run is not there", refused("r-other").startsWith("You have no run"), true);
   is("nor an eval's", refused("r-eval").startsWith("You have no run"), true);
 
-  const { readOwn } = await import("#chloe/services/ownFilesService");
-  const own = await readOwn(agent, undefined, "instructions.md");
+  const { ownFile } = await import("#chloe/services/selfService");
+  const own = await ownFile(agent, undefined, "instructions.md");
   is("with selfImprovement: false it reads its files and is told it cannot change them", [own.content, own.canWrite, own.why?.includes("selfImprovement")], ["Be brief.", false, true]);
 
   const written: string[] = [];

@@ -130,13 +130,13 @@ import { db, sent } from "./shared.ts";
 {
   about("the guides an agent reads to learn what it could be given");
 
-  const { listGuides, readGuide } = await import("#chloe/services/guidesService");
-  const all = listGuides();
+  const { guides, guide } = await import("#chloe/services/selfService");
+  const all = guides();
   is("every guide is listed, with what it covers", all.some((one) => one.page === "connections" && one.about.length > 0), true);
-  is("one is read whole by its name", readGuide("connections").includes("Google"), true);
+  is("one is read whole by its name", guide("connections").includes("Google"), true);
   let refused = "";
   try {
-    readGuide("../package");
+    guide("../package");
   } catch (error) {
     refused = (error as Error).message;
   }

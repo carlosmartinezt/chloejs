@@ -1,6 +1,6 @@
 {
   "name": "@chloejs/core",
-  "version": "0.34.0",
+  "version": "0.34.1",
   "type": "module",
   "description": "TypeScript AI agent runtime. Write your agents in code and choose how predictable they are: deterministic steps where they can be, an LLM only where a step needs judgement, all on your machine.",
   "exports": {

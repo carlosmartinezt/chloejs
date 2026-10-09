@@ -1,28 +1,33 @@
-// An agent's own folder, as the agent itself may see and change it: its
-// instructions, skills and jobs, and whatever other text its definition lets
-// it write.
+// What an agent may see and change of itself: its own folder, its own runs,
+// and the guides for the version of chloe it runs on.
 //
-// Reading is anything in the folder except its memory, which has tools of its
-// own. Writing is narrower, and every rule is here in code rather than in a
+// Its folder is anything except its memory, which has tools of its own.
+// Changing it is narrower, and every rule is here in code rather than in a
 // prompt: only the file endings its definition lists, code only when it says
 // `code`, never a path its definition keeps back, and never a file somebody
-// else is in the middle of changing. A write is a commit of that one file
-// under the agent's name, so every change can be read and undone. A code file
-// is loaded first, as the next reload would load it, and put back when it
-// does not load.
+// else is in the middle of changing. A change is one commit under the agent's
+// name, so it can be read and undone. Code is loaded first, as the next reload
+// would load it, and put back when it does not load.
+//
+// Its runs are its own and never an eval's. The guides are docs/ in a clone
+// and dist/docs/ in the package, the same place relative to this file in both.
 import { execFile } from "node:child_process";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, extname, join, relative } from "node:path";
+import { basename, dirname, extname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { confine, unreachable } from "#chloe/core/confine";
+import { db } from "#chloe/core/db";
+import { settingsAndBody } from "#chloe/core/markdown";
 import { ROOT } from "#chloe/core/paths";
 import { checkFirst, loadAgain, markdownJobProblem, type Agent, type Home, type OwnFileRules } from "#chloe/load/load";
 import { parse } from "#chloe/timer/cron";
-import { settingsAndBody } from "#chloe/core/markdown";
 import { readFiles } from "./filesService.ts";
 import { commitPaths, noteCommit, uncommitted } from "./historyService.ts";
+
+// Its folder.
 
 /** Folders of code. Written only with `code`, and then only the endings `files` lists. */
 const CODE_FOLDERS = ["tools", "services", "channels", "scripts"];
@@ -67,7 +72,7 @@ export function whyNot(agent: Home, rules: OwnFileRules | undefined, path: strin
 }
 
 /** Every file in the agent's folder outside its memory, and whether it may write each one. */
-export async function listOwn(agent: Home, rules: OwnFileRules | undefined) {
+export async function ownFiles(agent: Home, rules: OwnFileRules | undefined) {
   const files: { path: string; canWrite: boolean; why?: string }[] = [];
   const walk = async (dir: string, depth: number): Promise<void> => {
     for (const entry of (await readdir(join(agent.folder, dir), { withFileTypes: true }).catch(() => [])).sort((a, b) =>
@@ -88,7 +93,7 @@ export async function listOwn(agent: Home, rules: OwnFileRules | undefined) {
 }
 
 /** One file in the agent's folder, and whether it may write it. */
-export async function readOwn(agent: Home, rules: OwnFileRules | undefined, path: string) {
+export async function ownFile(agent: Home, rules: OwnFileRules | undefined, path: string) {
   const at = within(agent, path);
   if (inMemory(agent, at)) throw new Error(`${path} is in your memory: read it with memoryReadFile.`);
   const resolved = confine(agent.folder, at);
@@ -109,7 +114,7 @@ export async function readOwn(agent: Home, rules: OwnFileRules | undefined, path
  * JSON that does not parse. With a code file among them they are all written,
  * the agent is loaded once, and they are all put back when it would not load.
  */
-export async function writeOwn(agent: Home, rules: OwnFileRules, files: { path: string; content: string }[], message: string) {
+export async function changeOwnFiles(agent: Home, rules: OwnFileRules, files: { path: string; content: string }[], message: string) {
   if (files.length === 0) throw new Error("Say at least one file to write.");
   if (message.trim().length < 10) throw new Error("Say what changed and why, as a commit message.");
   const checked: Written[] = [];
@@ -249,4 +254,147 @@ async function typeProblems(folder: string): Promise<string> {
     .filter((line) => line.startsWith(mine))
     .slice(0, 20)
     .join("\n");
+}
+
+// Its runs.
+
+/** How much of one step's result, one call's arguments or a reply is shown. */
+const CLIPPED = 1500;
+
+/** The most steps one run shows, from the start. */
+const MOST_STEPS = 60;
+
+interface Row {
+  id: string;
+  job: string | null;
+  source: string;
+  kind: string;
+  started: string;
+  finished: string | null;
+  model: string;
+  prompt: string;
+  asked: string | null;
+  reply: string | null;
+  error: string | null;
+  summary: string | null;
+  steps: number;
+  cost: number;
+  trace: string;
+  parked: string | null;
+}
+
+function clip(value: unknown): unknown {
+  if (value === undefined || value === null) return value;
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return text.length > CLIPPED ? `${text.slice(0, CLIPPED)}...[${text.length} characters]` : value;
+}
+
+/**
+ * The agent's runs, newest first: the facts of each and none of its words, so
+ * nothing in the list came from outside. `job` keeps to one job, "chat" to
+ * conversations.
+ */
+export function ownRuns(agent: string, options: { job?: string; limit?: number } = {}) {
+  const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
+  const where = options.job === "chat" ? "and job is null" : options.job ? "and job = ?" : "";
+  const rows = db
+    .prepare(
+      `select id, job, source, started, finished, cost, steps, error is not null as failed, parked is not null as waiting
+       from runs where agent = ? and source != 'eval' ${where} order by started desc limit ?`,
+    )
+    .all(...[agent, ...(options.job && options.job !== "chat" ? [options.job] : []), limit]) as Record<string, unknown>[];
+  return {
+    runs: rows.map((one) => ({
+      id: one.id,
+      job: one.job ?? "chat",
+      source: one.source,
+      started: one.started,
+      finished: one.finished,
+      cost: one.cost,
+      steps: one.steps,
+      ...(one.failed ? { failed: true } : {}),
+      ...(one.waiting ? { waiting: true } : {}),
+    })),
+  };
+}
+
+/**
+ * One of the agent's runs in full: what started it, what it answered or why
+ * it failed, and its steps in order, each cut to a length a model can read.
+ */
+export function ownRun(agent: string, id: string) {
+  const row = db.prepare("select * from runs where id = ? and agent = ? and source != 'eval'").get(id.trim(), agent) as Row | undefined;
+  if (!row) throw new Error(`You have no run ${JSON.stringify(id)}. selfListRuns lists them.`);
+  const trace = JSON.parse(row.trace || "[]") as Record<string, unknown>[];
+  const steps = (row.kind === "job" ? trace.map(jobStep) : trace.map(turnStep)).filter((one) => one !== undefined);
+  return {
+    id: row.id,
+    job: row.job ?? "chat",
+    source: row.source,
+    started: row.started,
+    finished: row.finished,
+    model: row.model,
+    cost: row.cost,
+    // A job's prompt is its own words, which selfReadFile shows; a conversation's is what was said.
+    ...(row.job ? {} : { asked: clip(row.asked ?? row.prompt) }),
+    ...(row.reply ? { reply: clip(row.reply) } : {}),
+    ...(row.summary && row.summary !== row.reply ? { summary: row.summary } : {}),
+    ...(row.error ? { error: clip(row.error) } : {}),
+    ...(row.parked ? { waiting: true } : {}),
+    steps: steps.slice(0, MOST_STEPS),
+    ...(steps.length > MOST_STEPS ? { stepsLeftOut: steps.length - MOST_STEPS } : {}),
+  };
+}
+
+/** A line of a job's record: a step, a model step, a question to a person or an agent step. */
+function jobStep(line: Record<string, unknown>) {
+  const calls = line.calls as { toolName: string; input: unknown; output: unknown; refused?: boolean }[] | undefined;
+  return {
+    step: line.name,
+    kind: line.kind,
+    ms: line.ms,
+    ...(line.cost ? { cost: line.cost } : {}),
+    ...(line.question ? { question: line.question } : {}),
+    ...(line.reply ? { answered: clip(line.reply) } : {}),
+    ...(line.result !== undefined ? { result: clip(line.result) } : {}),
+    ...(calls?.length ? { calls: calls.map((one) => ({ tool: one.toolName, args: clip(one.input), result: clip(one.output), ...(one.refused && { refused: true }) })) } : {}),
+    ...(line.failed ? { failed: line.failed } : {}),
+  };
+}
+
+/** A line of a conversation's record: what the model said, or one tool it called. */
+function turnStep(line: Record<string, unknown>) {
+  if (line.tool) {
+    return { tool: line.tool, args: clip(line.args), result: clip(line.result), ...(line.failed ? { failed: true } : {}), ...(line.refused ? { refused: true } : {}) };
+  }
+  if (line.carried) return { note: line.carried };
+  // What it said with no call after it is the reply, shown once as `reply`.
+  const said = typeof line.say === "string" && (line.wants as unknown[] | undefined)?.length ? line.say.trim() : "";
+  return said ? { said: clip(said) } : undefined;
+}
+
+// The guides.
+
+const GUIDES = fileURLToPath(new URL("../docs", import.meta.url));
+
+/** Every guide, by the name guide() takes, with the one line that says what it covers. */
+export function guides(): { page: string; about: string }[] {
+  if (!existsSync(GUIDES)) return [];
+  return readdirSync(GUIDES)
+    .filter((file) => file.endsWith(".md") && file !== "README.md")
+    .sort()
+    .map((file) => {
+      const text = readFileSync(join(GUIDES, file), "utf8");
+      // The built page says it as "> ...", the source as "summary: ...".
+      const about = /^(?:> |summary: )(.+)$/m.exec(text)?.[1] ?? "";
+      return { page: basename(file, ".md"), about };
+    });
+}
+
+/** One guide, whole, by its name from guides(), like "connections". */
+export function guide(page: string): string {
+  const name = basename(page.replace(/\.md$/, ""));
+  const path = join(GUIDES, `${name}.md`);
+  if (!existsSync(path)) throw new Error(`There is no guide called ${page}. The guides are: ${guides().map((one) => one.page).join(", ")}.`);
+  return readFileSync(path, "utf8");
 }

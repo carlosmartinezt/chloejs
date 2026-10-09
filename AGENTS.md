@@ -183,7 +183,7 @@ keeps a path back and turns code off, with a warning as it loads unless it
 says `code: false`, because code an agent writes is code it then runs as
 itself and could change that path. `selfWriteFile` takes every file one
 change needs and commits them as one. With code among them,
-`loadsOrPutBack()` in `services/ownFilesService.ts` writes them all, loads the
+`loadsOrPutBack()` in `services/selfService.ts` writes them all, loads the
 agent once with `loadAgain()` as the next reload would, type checks when the
 project has TypeScript, and puts every file back with the reason when any of
 that fails or a job would run more than once an hour. `checkFirst()` in `load/load.ts` holds
