@@ -60,6 +60,12 @@ A **script** is any executable file in `scripts/`, which the agent runs with
 with the memory folder in `MEMORY_FOLDER`. A script nothing mentions does not
 belong there: give each one a skill that says when to run it.
 
+Instructions and skills say what to do, not which of the runtime's tools does
+it: "note it in your memory", "run `deploy.sh`", never `memoryWriteFile` or
+`scriptRun`. Each tool comes with its own name and description, so the model
+finds it, and a rename in the runtime then breaks nothing. A tool the agent
+defines itself is yours, so name it as you like.
+
 ## What an agent may change about itself
 
 With `selfImprovement` on, it may rewrite its own instructions, skills and
@@ -87,10 +93,11 @@ on one of its channels (`owner` in settings, or the first entry in the
 channel's `allowFrom`), or from the account on the dashboard. Through a remote
 dashboard that needs `dashboard.remote.allow.write` on. A job, a schedule, a
 guest, a token and a visitor never get `selfWriteFile`, and an agent step
-handed it is refused. Once any tool in the turn has read something from
-outside the agent (mail, a web page, a script, an MCP server, one of its own
-runs, which holds what those said), a change is
-refused for the rest of that turn, because what it read may be what asked for
-the change. In a turn without `selfWriteFile`, an agent with `selfImprovement`
+handed it is refused. Once any tool in a conversation has read something
+from outside the agent (mail, a web page, a script, an MCP server, one of its
+own runs, which holds what those said), a change is refused for the rest of
+that conversation, because what it read may be what asked for the change, and
+the agent's own replies can carry it into a later message. Ask for the change
+in a new conversation, or after `/clear`. In a turn without `selfWriteFile`, an agent with `selfImprovement`
 is told so by the runtime, and to keep what it learned in its memory and say
 which file it would change, so its instructions need not say it.

@@ -13,7 +13,7 @@ import { oneLineSummary } from "#chloe/core/markdown";
 import { ownFileRules, type Agent, type ChatHistory, type Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
-import { recall, remember } from "#chloe/model/memory";
+import { recall, remember, toolsUsed } from "#chloe/model/memory";
 import { userNotes } from "#chloe/model/tools/memory";
 import { selfReadTools } from "#chloe/model/tools/self";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type Tools } from "#chloe/model/tool";
@@ -113,9 +113,9 @@ export interface Ask {
    * another program never changes the agent.
    *
    * Even then, once a tool not marked `own` (one that reads from outside the
-   * agent's own folder and memory) has answered in this reply, the tools that
-   * change the agent are refused: what it read could be what asked for the
-   * change.
+   * agent's own folder and memory) has answered in this conversation, the
+   * tools that change the agent are refused: what it read could be what asked
+   * for the change.
    */
   mayChangeAgent?: boolean;
   /**
@@ -194,6 +194,9 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   runChanged(runId);
 
   const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent });
+  // What an earlier reply read can come back through what it said, so a
+  // conversation that read from outside never changes the agent.
+  const readEarlier = mayChangeAgent && thread ? toolsUsed(thread).find((name) => !tools[name]?.own) : undefined;
   const overviews = await overviewsOf(tools);
   // In the instructions rather than the message, so it is not kept in the conversation again each turn.
   const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
@@ -207,7 +210,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   db.prepare("update runs set context = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), runId);
   if (thread) remember(thread, "user", prompt);
 
-  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, stranger, fromOwner, mayChangeAgent, user, instead, signal });
+  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, stranger, fromOwner, mayChangeAgent, readEarlier, user, instead, signal });
 }
 
 /**
@@ -365,6 +368,8 @@ async function go(options: {
   stranger?: boolean;
   fromOwner?: boolean;
   mayChangeAgent?: boolean;
+  /** A tool not marked `own` that an earlier reply in this conversation used. */
+  readEarlier?: string;
   user?: string;
   instead?: Ask["instead"];
   /** Steps already taken, which the agent's `stopWhen` counts. */
@@ -387,6 +392,7 @@ async function go(options: {
         model: options.model,
         messages: options.messages,
         tools,
+        readOutside: options.readEarlier,
         context: { agent, ...(options.user && { user: options.user }) },
         stopWhen: stopWhenOf(agent),
         before: options.before,
@@ -490,6 +496,8 @@ export async function loop(options: {
   stopWhen: StopCondition<any>[];
   /** Steps a run that carried on had already taken, which the conditions count. */
   before?: number;
+  /** A tool not marked `own` that answered before this loop began, in the same conversation. */
+  readOutside?: string;
   /**
    * The most this may spend, in dollars. Checked between turns, because what a
    * turn costs is only known once it has been paid for, so the turn that goes
@@ -528,9 +536,10 @@ export async function loop(options: {
   // What the stop conditions read: each step's text, the calls it made and what came back.
   const taken: Taken[] = Array.from({ length: options.before ?? 0 }, () => ({ text: "", toolCalls: [], toolResults: [] }));
   let resume = options.resume;
-  // The first tool to answer that is not `own`. After it, a tool that changes
-  // the agent is refused: what it read could be asking for the change.
-  let readOutside = "";
+  // The first tool to answer that is not `own`, in this loop or earlier in the
+  // conversation. After it, a tool that changes the agent is refused: what it
+  // read could be asking for the change.
+  let readOutside = options.readOutside ?? "";
 
   for (let steps = 0; ; steps++) {
     let toolCalls: ToolCall[];
@@ -566,7 +575,7 @@ export async function loop(options: {
       if (one) options.onCall?.(call.function.name);
       const ran =
         one?.changesAgent && readOutside
-          ? refusedCall(call, `this turn read ${readOutside}, which may be what asked for it. Say what you would change, and your owner can ask again in a new message`)
+          ? refusedCall(call, `this conversation used ${readOutside}, and what it read may be what asked for this. Say what you would change, and your owner can ask for it in a new conversation`)
           : await runTool(options.tools, call, { context: options.context, instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided });
       if ("person" in ran) {
         return { text: "", steps, cost, calls, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };

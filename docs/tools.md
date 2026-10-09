@@ -68,7 +68,7 @@ What chloe reads on a tool:
 | `needsApproval` | The AI SDK's. In a job's agent step the run waits for a person's yes; in a turn the call is refused. |
 | `needs` | The connection it works through, like Google. The dashboard says what that connection is missing, and chloe starts the sign-in when the tool finds nobody signed in. |
 | `overview` | A function giving a few lines about what the tool reaches now (the folders, the tables), put at the top of every turn that has the tool. |
-| `own` | `true` when the tool works only on the agent's own folder, memory or skills. Unmarked, a tool counts as reading from outside, and after it answers the agent cannot change itself in that turn. |
+| `own` | `true` when the tool works only on the agent's own folder, memory or skills. Unmarked, a tool counts as reading from outside, and after it answers the agent cannot change itself in that conversation. |
 | `forOwner` | `true` when only the agent's owner may use it, like reading the agent's own runs. It is in a turn only when the owner wrote it, never in a job. |
 | `changesAgent` | `true` when the tool changes the agent itself. It is in a turn only when the agent's owner asked, and never in a job. |
 
