@@ -15,16 +15,9 @@
    an agent's. Amber appears in one place only, a job that has stopped and is
    waiting on a person.
 */
-/* The two faces, served by the runtime itself so no visit is seen by anyone
-   else. Latin only, both variable, with their license (SIL Open Font License)
-   beside them in fonts/. A letter outside latin comes from the fallbacks below. */
-@font-face {
-  font-family: "Instrument Sans";
-  font-style: normal;
-  font-weight: 400 700;
-  font-display: swap;
-  src: url("./fonts/InstrumentSans.woff2") format("woff2");
-}
+/* The code face, served by the runtime itself so no visit is seen by anyone
+   else. Latin only, variable, with its license (SIL Open Font License) beside
+   it in fonts/. The text face is the one the system already has. */
 @font-face {
   font-family: "Google Sans Code";
   font-style: normal;
@@ -34,7 +27,7 @@
 }
 /* The two faces, whichever look is on. */
 :root {
-  --sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sans: -apple-system-body, ui-sans-serif, -apple-system, system-ui, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
   --mono: "Google Sans Code", ui-monospace, SFMono-Regular, Menlo, monospace;
   /* How tall the bar is. Everything that fills the rest of the window measures
      down from this, so it is said once. */
