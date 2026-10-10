@@ -456,9 +456,11 @@ function sayWhatNext({ port, moved }: { port: number; moved: boolean }): void {
   // build what somebody asked for, and the guides it needs are already here.
   if (nobodyHere) {
     console.log("Read the guides above before writing any code: they are for this version.");
-    console.log("To show the person the page: start npx chloe in the background, leave it running, and give them the link it prints.");
-    console.log("Tell them that is what you started, that the link signs them in once within the hour, and that npx chloe link prints another.");
-    console.log("A subscription is fine while they build and try agents: say so only if they ask to run agents on their own for real.");
+    console.log("Then start npx chloe in the background and leave it running. It prints a link that signs the person in (npx chloe link prints another).");
+    console.log("When you are done, tell them this and nothing more, with that whole link, #in= and all:");
+    console.log('  "I\'ve installed Chloe and written <agent id>. It\'s running at <link>. Open it and it will walk you through what\'s left.');
+    console.log('  The link works once, within the hour: npx chloe link prints another."');
+    console.log("The page says what each connection is missing and how to set it up, so do not explain it. Link a guide only as https://chloejs.org/docs/<name>.");
   }
 }
 

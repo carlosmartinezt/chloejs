@@ -24,9 +24,18 @@ research): it becomes its folder and the name its runs are kept under. Run
 `npx chloe` only after the install, because without the package it fetches an
 unrelated one.
 
-To show the person their agents, start `npx chloe` in the background, leave it
-running, and give them the link it prints. It opens the page signed in, with no
-password to set. `npx chloe link` prints another.
+Once the agent is written, start `npx chloe` in the background and leave it
+running. It prints a link that opens the page signed in (`npx chloe link`
+prints another). Then tell the person this and nothing more, with that whole
+link, `#in=` and all:
+
+> I've installed Chloe and written `<agent id>`. It's running at `<link>`.
+> Open it and it will walk you through what's left. The link works once,
+> within the hour: `npx chloe link` prints another.
+
+The page says what each connection is missing and how to set it up, so do not
+explain it. Link a guide only as `https://chloejs.org/docs/<name>`, never as a
+path inside `node_modules`.
 
 Then, and in any project that already has a `chloe.config.ts`, read this before
 writing code:
