@@ -426,3 +426,43 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   is("a second claim on it is refused, saying why", second.startsWith(`Port ${port} on 127.0.0.1 is taken, most likely by chloe already running.`), true);
   server.close();
 }
+
+{
+  about("npx chloe --remote: HTTPS on the same port, plain HTTP only from this machine");
+
+  const { claimPort, serve } = await import("#chloe/serve/http");
+  const { certificate } = await import("#chloe/serve/certificate");
+  const { from } = await import("#chloe/serve/login");
+  const { request } = await import("node:https");
+  const made = certificate();
+  is("the certificate is kept, not made again on every start", certificate().fingerprint, made.fingerprint);
+
+  const held = await claimPort("127.0.0.1", 0);
+  const port = (held.address() as { port: number }).port;
+  serve({
+    host: "127.0.0.1",
+    port,
+    agents: () => new Map(),
+    clock: { running: () => [] } as unknown as import("#chloe/core/clock").Clock,
+    channels: () => [],
+    heldPort: held,
+    certificate: made,
+  });
+
+  const secure = (path: string) =>
+    new Promise<number>((done, fail) => {
+      request({ host: "127.0.0.1", port, path, ca: made.cert, checkServerIdentity: () => undefined }, (response) => {
+        response.resume();
+        done(response.statusCode ?? 0);
+      })
+        .on("error", fail)
+        .end();
+    });
+  is("the page answers over HTTPS, with that certificate", await secure("/api/health"), 401);
+  is("and plain HTTP from this machine still answers, for the commands", (await fetch(`http://127.0.0.1:${port}/api/health`)).status, 401);
+
+  const over = (headers: Record<string, string>) =>
+    from({ headers, socket: { remoteAddress: "198.51.100.4", encrypted: true } } as unknown as import("node:http").IncomingMessage);
+  is("over chloe's own HTTPS a forwarded address is the caller's own, so it is ignored", over({ "x-forwarded-for": "1.2.3.4", "cf-connecting-ip": "1.2.3.4" }), "198.51.100.4");
+  held.close();
+}

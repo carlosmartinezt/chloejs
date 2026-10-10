@@ -65,10 +65,18 @@ curl -s localhost:3067/api/agents -H "authorization: Bearer $token"
 
 ## From another machine
 
-chloe listens on loopback only, and sends nothing anywhere you did not name: no
-copy of your runs, agents or memories goes to any other dashboard. To reach the
-dashboard from somewhere else, use what you already use for your servers:
+chloe listens on loopback only unless you say otherwise, and sends nothing
+anywhere you did not name: no copy of your runs, agents or memories goes to any
+other dashboard. To reach the dashboard from somewhere else:
 
+- **`npx chloe --remote`**, for a server you reach over SSH. chloe listens
+  on every address and serves the page over HTTPS, with a certificate it
+  makes itself and keeps in the state folder, and prints a link at the address
+  your SSH session came in on. The browser says the connection is not private
+  once, because nobody else signed that certificate: the fingerprint it shows
+  is the one chloe printed. Plain HTTP answers only on the machine itself.
+  This puts the page on the internet, guarded by the link and the password,
+  and a firewall that closes the port keeps it from opening.
 - **An SSH tunnel.** `ssh -L 3067:127.0.0.1:3067 you@yourbox`, then
   `127.0.0.1:3067` in your browser. Nothing is opened.
 - **A private network** of your own, such as Tailscale or WireGuard, with a

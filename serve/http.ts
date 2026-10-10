@@ -9,7 +9,9 @@
 // documented, and a documented route that does not exist is worse than either.
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createServer as createPortHolder, type Server as PortHolder } from "node:net";
+import { createServer as createSecureServer } from "node:https";
+import { createServer as createPortHolder, type Server as PortHolder, type Socket } from "node:net";
+import { networkInterfaces } from "node:os";
 
 import { z } from "zod";
 
@@ -37,6 +39,7 @@ import {
   memorySave,
   memoryTree,
 } from "./memory.ts";
+import type { Certificate } from "./certificate.ts";
 import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound, Refused } from "./errors.ts";
 import { finish as finishSignIn, signInState } from "#chloe/connections/google/googleService";
@@ -61,6 +64,21 @@ export function ownAddress(): string {
   const { host, port } = settings.serve;
   const reach = host === "0.0.0.0" || host === "::" || host === "" ? "127.0.0.1" : host;
   return `http://${reach.includes(":") ? `[${reach}]` : reach}:${port}`;
+}
+
+/**
+ * The address another computer opens the page at under `npx chloe --remote`:
+ * the one this SSH session came in on, which the person's own computer can
+ * reach, or else this machine's first address that is not loopback.
+ */
+export function remoteAddress(): string {
+  const reach =
+    process.env.SSH_CONNECTION?.split(" ")[2] ||
+    Object.values(networkInterfaces())
+      .flat()
+      .find((one) => one && !one.internal && one.family === "IPv4")?.address ||
+    "127.0.0.1";
+  return `https://${reach.includes(":") ? `[${reach}]` : reach}:${settings.serve.port}`;
 }
 
 export interface Context {
@@ -1188,7 +1206,9 @@ export function serve(options: {
   channels: () => ChannelRoute[];
   /** The port already held by `claimPort`, which the server takes over in place of opening its own. */
   heldPort?: PortHolder;
-}) {
+  /** Serve the page over HTTPS with this, to every address, as `npx chloe --remote` does. Needs `heldPort`. */
+  certificate?: Certificate;
+}): PortHolder {
   const context: Context = {
     agents: options.agents,
     agent(name) {
@@ -1201,7 +1221,7 @@ export function serve(options: {
     json,
   };
 
-  const server = createServer(async (request, response) => {
+  const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     let url: URL;
     let path: string;
     try {
@@ -1225,13 +1245,42 @@ export function serve(options: {
       console.error(`${request.method} ${path}:`, error);
       json(response, { error: error instanceof Error ? error.message : String(error) }, 500);
     }
-  });
+  };
 
+  if (options.certificate && options.heldPort) return bothWays(options.heldPort, handle, options.certificate);
+  const server = createServer(handle);
   // The port this copy opened first thing, now handed to the server, so it is
   // never free in between for a second copy to take.
   if (options.heldPort) server.listen(options.heldPort);
   else server.listen(options.port, options.host);
   return server;
+}
+
+/**
+ * One port answering two ways, told apart by the first byte a caller sends.
+ * HTTPS goes to the page from anywhere. Plain HTTP is answered only from this
+ * machine, which is what `npx chloe agent` and `npx chloe link` call, and from
+ * anywhere else is sent on to the same address over HTTPS.
+ */
+function bothWays(port: PortHolder, handle: (request: IncomingMessage, response: ServerResponse) => Promise<void>, certificate: Certificate): PortHolder {
+  const secure = createSecureServer({ key: certificate.key, cert: certificate.cert }, handle);
+  const plain = createServer(handle);
+  const elsewhere = createServer((request, response) => {
+    response.writeHead(301, { location: `https://${request.headers.host ?? "localhost"}${request.url ?? "/"}` }).end();
+  });
+  port.on("connection", (socket: Socket) => {
+    const gone = () => socket.destroy();
+    socket.on("error", gone);
+    socket.once("readable", () => {
+      const first = socket.read(1) as Buffer | null;
+      if (!first) return gone();
+      socket.unshift(first);
+      socket.off("error", gone);
+      const loopback = /^(127\.|::1$|::ffff:127\.)/.test(socket.remoteAddress ?? "");
+      (first[0] === 0x16 ? secure : loopback ? plain : elsewhere).emit("connection", socket);
+    });
+  });
+  return port;
 }
 
 /**

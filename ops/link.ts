@@ -8,7 +8,7 @@
 import { existsSync } from "node:fs";
 
 import { CONFIG, loadSettings } from "#chloe/load/load";
-import { ownAddress } from "#chloe/serve/http";
+import { ownAddress, remoteAddress } from "#chloe/serve/http";
 import { makeLink } from "#chloe/serve/login";
 
 // Read from the same settings the server read, so the link has its port.
@@ -17,6 +17,7 @@ const address = ownAddress();
 
 console.log(makeLink(address));
 console.log("It signs one browser in, once, within the hour.");
+if (process.env.SSH_CONNECTION) console.log(`From your own computer, while npx chloe --remote runs: ${makeLink(remoteAddress())}`);
 
 // The link is good either way; it only opens anything while the server runs.
 try {

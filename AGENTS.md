@@ -163,7 +163,10 @@ data, or even that it ran, anywhere else, however optional.
 
 **Nothing here needs a way in until the owner opens one.** The one port binds
 loopback (`serve.host` moves it, for a container behind a proxy, and nothing
-else should). Telegram, Slack and email work because chloe calls out to them.
+else should). `npx chloe --remote` is the one exception, for a server reached
+over SSH: HTTPS on every address with a certificate chloe makes
+(`serve/certificate.ts`), and plain HTTP from loopback only (`bothWays()` in
+`serve/http.ts`). Telegram, Slack and email work because chloe calls out to them.
 A channel that can only be pushed to, which is what WhatsApp is, answers on its
 own route, which the owner's own web server passes on. Reaching the dashboard
 from elsewhere is the owner's tunnel, private network or web server, never a

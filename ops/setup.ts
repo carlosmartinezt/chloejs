@@ -492,8 +492,10 @@ async function theRepository(): Promise<void> {
 function sayWhatNext(moved: boolean): void {
   section("Done");
   if (wrote.length) console.log(`Written:\n${columns(wrote)}\n`);
+  // Over SSH the page is opened on another computer, which loopback cannot reach.
+  const start = process.env.SSH_CONNECTION ? "npx chloe --remote" : "npx chloe";
   console.log("Start chloe, and leave it running:\n");
-  console.log(`    ${dim("$")} ${bold(cyan("npx chloe"))}\n`);
+  console.log(`    ${dim("$")} ${bold(cyan(start))}\n`);
   console.log(
     agentWritten
       ? `It prints a link to the page. Open it to talk to ${STARTER_AGENT}, your first agent, and ask it to change\nitself: its words, its jobs, its code.`
@@ -520,7 +522,7 @@ function sayWhatNext(moved: boolean): void {
       console.log(`Setup wrote a first agent, agents/${STARTER_AGENT}. Make it the one they asked for, and as it has not run yet,`);
       console.log("give it an id that says what it does (postie for mail): its folder, its id and its line in chloe.config.ts.");
     }
-    console.log("Then start npx chloe in the background and leave it running. It prints a link that signs the person in (npx chloe link prints another).");
+    console.log(`Then start ${start} in the background and leave it running. It prints a link that signs the person in (npx chloe link prints another).`);
     console.log("When you are done, tell them this and nothing more, with that whole link, #in= and all:");
     console.log('  "I\'ve installed Chloe and written <agent id>. It\'s running at <link>. Open it and it will walk you through what\'s left.');
     console.log('  The link works once, within the hour: npx chloe link prints another."');

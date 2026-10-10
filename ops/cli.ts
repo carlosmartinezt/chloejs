@@ -15,6 +15,8 @@ ${bold("Starting out")}
   npx chloe setup --yes          the same, taking every default
   npx chloe                      run it: every agent, every cron line, one page,
                                  and a link that opens the page signed in
+  npx chloe --remote             the same on a server you reach over SSH, so the
+                                 page opens on your own computer
 
 ${bold("Every day")}${dim("  (these talk to a running chloe, so leave npx chloe going)")}
   npx chloe agent                pick an agent and talk to it
@@ -43,7 +45,7 @@ if (word === "help" || word === "--help" || word === "-h") {
   process.exit(0);
 }
 
-if (word && !WORDS.includes(word)) {
+if (word && word !== "--remote" && !WORDS.includes(word)) {
   process.stderr.write(`chloe: there is no "${word}".\n\n${WHAT}`);
   process.exit(1);
 }
@@ -67,8 +69,8 @@ if (!findConfig()) {
 
 if (word === "setup") {
   await import("#chloe/ops/setup");
-} else if (!word) {
-  // The server is what `npx chloe` on its own means, and it takes no arguments.
+} else if (!word || word === "--remote") {
+  // The server is what `npx chloe` on its own means, and --remote is all it takes.
   await import("#chloe/server");
 } else if (word === "install") {
   const { spawnSync } = await import("node:child_process");

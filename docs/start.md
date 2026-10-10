@@ -87,8 +87,8 @@ a service: a systemd user unit on Linux, a launchd agent on a Mac.
 `npx chloe` prints a link as it starts, `http://127.0.0.1:3067/#in=...`. Open it
 in a browser on the same machine and you are in, with nothing to set: it signs
 that browser in for a week, works once, and only within the hour.
-`npx chloe link` prints another. From another machine, use
-`ssh -L 3067:127.0.0.1:3067 you@box` and open the link there, or see
+`npx chloe link` prints another. On a server you reach over SSH, start it with
+`npx chloe --remote` instead, and the link opens on your own computer: see
 [From another machine](/docs/the-page#from-another-machine).
 
 `npx chloe install` writes one service per machine, so on a machine already

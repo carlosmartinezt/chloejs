@@ -17,6 +17,7 @@
 import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import crypto from "node:crypto";
 import type { IncomingMessage } from "node:http";
+import type { TLSSocket } from "node:tls";
 
 import { STATE } from "#chloe/core/paths";
 import { settings } from "#chloe/core/settings";
@@ -389,8 +390,11 @@ function countFailure(from: string): void {
  *
  * All of this is only as good as the proxy in front, which is the point of
  * binding loopback: nothing else can reach this port to set these headers.
+ * Over chloe's own HTTPS (`npx chloe --remote`) nothing is in front, so the
+ * headers are the caller's own and only the socket is read.
  */
 export function from(request: IncomingMessage): string {
+  if (ownHttps(request)) return request.socket.remoteAddress || "unknown";
   const head = (name: string): string[] => {
     const value = request.headers[name];
     return (Array.isArray(value) ? value[0] : value)?.split(",").map((one) => one.trim()).filter(Boolean) ?? [];
@@ -400,9 +404,13 @@ export function from(request: IncomingMessage): string {
   return cloudflare || forwarded || request.socket.remoteAddress || "unknown";
 }
 
-/** True when the proxy in front is speaking HTTPS, so the cookie can be Secure. */
+/** True when the page is reached over HTTPS, chloe's own or the proxy's in front, so the cookie can be Secure. */
 export function overHttps(request: IncomingMessage): boolean {
-  return request.headers["x-forwarded-proto"] === "https";
+  return ownHttps(request) || request.headers["x-forwarded-proto"] === "https";
+}
+
+function ownHttps(request: IncomingMessage): boolean {
+  return (request.socket as TLSSocket).encrypted === true;
 }
 
 function cookies(header: string | undefined): Record<string, string> {

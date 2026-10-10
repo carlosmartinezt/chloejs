@@ -19,7 +19,8 @@ import { sdkModel } from "#chloe/model/key";
 import { neededBy } from "#chloe/model/tool";
 import { run } from "#chloe/services/runService";
 import { learnModels, runnable } from "#chloe/model/model";
-import { claimPort, ownAddress, serve as listen } from "#chloe/serve/http";
+import { certificate } from "#chloe/serve/certificate";
+import { claimPort, ownAddress, remoteAddress, serve as listen } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
 import { hasPassword, makeLink } from "#chloe/serve/login";
 import { alertsSay } from "#chloe/core/alerts";
@@ -40,8 +41,13 @@ import { alertsSay } from "#chloe/core/alerts";
  * If you pass them and there is a `chloe.config.ts`, it throws an error. After
  * you edit that script or its `.env`, restart it: `node --watch` does that for
  * you.
+ *
+ * `remote: true` is `npx chloe --remote`, for a server reached over SSH: it
+ * listens on every address and serves the page over HTTPS, with a certificate
+ * it makes and keeps in the state folder, so the browser warns once. Plain
+ * HTTP still answers on loopback, for the commands that talk to it.
  */
-export async function startChloe(given?: Config): Promise<void> {
+export async function startChloe(given?: Config, options: { remote?: boolean } = {}): Promise<void> {
   if (given && existsSync(CONFIG)) {
     throw new Error(`startChloe was given agents and settings, but ${CONFIG} holds this project's. Put them there, or run it from a folder without one.`);
   }
@@ -49,7 +55,8 @@ export async function startChloe(given?: Config): Promise<void> {
   let agents: Map<string, Agent> = await loadAll(given);
   // First, while nothing has started: a copy that cannot have the port is a
   // second one, and must not touch the first one's runs on its way out.
-  const heldPort = await claimPort(settings.serve.host, settings.serve.port);
+  const heldPort = await claimPort(options.remote ? "0.0.0.0" : settings.serve.host, settings.serve.port);
+  const remote = options.remote ? certificate() : undefined;
   // What each route can run, and what a call on a provider's own key costs.
   // Not waited for: until it answers, such a call is recorded at no cost.
   void learnModels();
@@ -108,6 +115,7 @@ export async function startChloe(given?: Config): Promise<void> {
     clock,
     channels: () => [...running.values()].flatMap((one) => one.routes ?? []),
     heldPort,
+    certificate: remote,
   });
 
   const outside = await connected();
@@ -168,12 +176,21 @@ export async function startChloe(given?: Config): Promise<void> {
 
     // With no password, the link is the way in, so it is printed where whoever
     // started this will look for it.
+    const address = remote ? remoteAddress() : ownAddress();
     if (hasPassword()) {
-      lines.push(row("Page", ownAddress()));
+      lines.push(row("Page", address));
       lines.push(under("Sign in with the password, or a link from npx chloe link. Forgot it? npx chloe account"));
     } else {
-      lines.push(row("Page", makeLink(ownAddress())));
+      lines.push(row("Page", makeLink(address)));
       lines.push(under("Opens the page signed in, in one browser, within the hour. Another: npx chloe link"));
+    }
+    if (remote) {
+      lines.push(under("The browser will say the connection is not private, because the certificate is this chloe's own."));
+      lines.push(under(`Go on past it. Its fingerprint is ${remote.fingerprint}`));
+      lines.push(under(`If the page does not open, a firewall is closing port ${settings.serve.port}.`));
+    } else if (process.env.SSH_CONNECTION) {
+      lines.push(under("You are on this machine over SSH, so the link opens only here. To open the page on your own"));
+      lines.push(under(`computer, start chloe with: npx chloe --remote`));
     }
     lines.push(row("Alerts", alertsSay()));
 

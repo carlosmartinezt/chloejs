@@ -4,4 +4,4 @@
 // ever run and never imported by the project it loads.
 import { startChloe } from "#chloe/serve/start";
 
-await startChloe();
+await startChloe(undefined, { remote: process.argv.includes("--remote") });
