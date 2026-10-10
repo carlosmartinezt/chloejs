@@ -667,7 +667,7 @@ no groups, because the API carries none, and a reply outside 24 hours of the
 last message that person sent is refused by WhatsApp itself, which is what a job
 that stops to ask somebody runs into.
 
-**Email is a conversation per address, through Gmail or a mailbox of the owner's own.**
+**Email is a conversation per address, through Gmail, a mailbox with an app password, or a mailbox of the owner's own.**
 With `mailbox: "gmail"`, `emailChannel` uses the account Google is signed in to
 (`connections.google.account`, the same sign-in as the mail tools): it makes
 each conversation's address by tagging that account (`you+<8 letters>@gmail.com`),
@@ -677,8 +677,14 @@ to, what was added since, the recipients of each, and the whole message only for
 one addressed to an open tag). Where it is up to is kept in `email_mailbox` and
 moved only after everything new was dealt with. The channel names Google as its
 `needs`, the way a tool does, so `neededBy()` puts it on the Connections page
-and a pasted code finishes its sign-in, with no Gmail tool beside it. Any
-other service is a `Mailbox` the owner writes and hands in as `mailbox`: it
+and a pasted code finishes its sign-in, with no Gmail tool beside it. With
+`mailbox: "password"` it is the same, on the mailbox in `agents.<id>.email`
+(an address and an app password): `connections/mail/mailbox.ts` reads it with
+IMAP and sends with SMTP, written on node's own TLS, keeps one reading
+connection open between asks, peeks so nothing is marked read, and keeps where
+it is up to as `<UIDVALIDITY>:<next UID>`. It never sends the password over a
+connection that is not TLS. Both are an `Inbox` (`core/mail.ts`), and a
+test hands in its own. Any other service is a `Mailbox` the owner writes and hands in as `mailbox`: it
 makes an address for a person, sends from it, and hands over what arrives
 (`receive`), and the channel makes every check itself whichever mailbox it is.
 `mailbox` is required, so which account mail goes out from is never a

@@ -41,7 +41,7 @@ import { about, is } from "#chloe/ops/check";
   {
     const { settings, unclaimed } = await import("@chloejs/core");
     const before = settings.agents;
-    settings.agents = { tempo: { telegram: "t", slack: { bot_token: "", app_token: "" }, whatsapp: { phone_number_id: "", token: "", app_secret: "" } } };
+    settings.agents = { tempo: { telegram: "t", slack: { bot_token: "", app_token: "" }, whatsapp: { phone_number_id: "", token: "", app_secret: "" }, email: { address: "", password: "", imap: "", smtp: "" } } };
     is("an entry for an agent that exists is claimed", unclaimed(["tempo"]), []);
     is("one left behind by a rename is not", unclaimed(["growth"]), ["tempo"]);
     settings.agents = before;
@@ -82,7 +82,7 @@ import { about, is } from "#chloe/ops/check";
     said({ modle: {} }).startsWith("settings.modle is not a setting. Under settings there is model,"), true);
   is("a misspelt key under an agent names the agent, not a star",
     said({ agents: { tempo: { telegarm: "t" } } }),
-    "agents.tempo.telegarm is not a setting. Under agents.tempo there is telegram, slack, whatsapp.");
+    "agents.tempo.telegarm is not a setting. Under agents.tempo there is telegram, slack, whatsapp, email.");
   is("a switch given a word is refused", said({ connections: { resend: { alerts: "yes" } } }), "connections.resend.alerts is true or false.");
   is("a list given a word is refused", said({ model: { models: "a,b" } }), "model.models is a list of words.");
   is("a group given a word is refused", said({ model: "claude" }), "model holds more settings, so it is an object.");

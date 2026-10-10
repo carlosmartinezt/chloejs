@@ -33,14 +33,14 @@ export function certificate(): Certificate {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  const made = make();
+  const made = selfSigned();
   mkdirSync(STATE, { recursive: true });
   writeFileSync(file, made.key + made.cert, { mode: 0o600 });
   return made;
 }
 
 /** A self-signed certificate for "chloe", on a new P-256 key, good for a year from now. */
-function make(): Certificate {
+export function selfSigned(): Certificate {
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   const now = new Date();
   const algorithm = seq(oid("1.2.840.10045.4.3.2")); // ECDSA with SHA-256

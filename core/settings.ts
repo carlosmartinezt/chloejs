@@ -75,6 +75,29 @@ export interface AgentSettings {
      */
     app_secret: string;
   };
+  /**
+   * The mailbox an email channel signs in to with `mailbox: "password"`.
+   * Default: all "".
+   */
+  email: {
+    /** The mailbox's address, which mail goes out from, like "shop@fastmail.com". */
+    address: string;
+    /**
+     * Its password: an app password, which Gmail (with 2-Step Verification),
+     * iCloud and Fastmail make in their account settings for a mail program.
+     */
+    password: string;
+    /**
+     * The server mail is read from, "host:port", from the provider's help on
+     * IMAP. Default: "", which is the provider's own for Gmail, iCloud and Fastmail.
+     */
+    imap: string;
+    /**
+     * The server mail is sent through, "host:port", from the provider's help
+     * on SMTP. Default: "", which is the provider's own for Gmail, iCloud and Fastmail.
+     */
+    smtp: string;
+  };
 }
 
 /**
@@ -396,6 +419,7 @@ const AGENT_DEFAULTS: AgentSettings = {
   telegram: "",
   slack: { bot_token: "", app_token: "" },
   whatsapp: { phone_number_id: "", token: "", app_secret: "" },
+  email: { address: "", password: "", imap: "", smtp: "" },
 };
 
 /**

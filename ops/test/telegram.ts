@@ -32,7 +32,7 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
     // own entry, by the name it has when the channel starts.
     const { settings } = await import("@chloejs/core");
     const before = settings.agents;
-    settings.agents = { first: { telegram: "first-bot", slack: { bot_token: "", app_token: "" }, whatsapp: { phone_number_id: "", token: "", app_secret: "" } } };
+    settings.agents = { first: { telegram: "first-bot", slack: { bot_token: "", app_token: "" }, whatsapp: { phone_number_id: "", token: "", app_secret: "" }, email: { address: "", password: "", imap: "", smtp: "" } } };
     const said: string[] = [];
     const log = console.error;
     console.error = (line: string) => void said.push(line);

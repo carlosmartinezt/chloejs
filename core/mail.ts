@@ -11,6 +11,31 @@
 import { createHash, createPublicKey, verify, type KeyObject } from "node:crypto";
 import { Resolver } from "node:dns/promises";
 
+/** What has arrived since a point in a mailbox, and the point to ask from next time. */
+export interface Since {
+  added: { id: string; threadId?: string }[];
+  history: string;
+}
+
+/**
+ * A mailbox the email channel asks what is new every few seconds: Gmail, or one
+ * signed in to with an address and a password. A test hands in its own.
+ */
+export interface Inbox {
+  /** The address mail goes out from. Each conversation's address is this one with a tag. */
+  account(): string;
+  /** Where the mailbox is now. Asking from here later gives what arrived in between. */
+  now(): Promise<string>;
+  /** What arrived since `history`, or "gone" when that point can no longer be asked from. */
+  since(history: string): Promise<Since | "gone">;
+  /** Who a message was sent to: its To and Cc lines, as written. */
+  recipients(id: string): Promise<string>;
+  /** The whole message, as it arrived, one character per byte (latin1). */
+  raw(id: string): Promise<string>;
+  /** Sends one message (the URL-safe base64 `rawMail()` writes), in a thread when the mailbox has them. */
+  send(raw: string, threadId?: string): Promise<void>;
+}
+
 /** One header as it was written: its name, and its value with any folding kept. */
 export interface Header {
   name: string;

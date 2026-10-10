@@ -2,7 +2,7 @@
 title: Email
 order: 6.04
 under: channels
-summary: Conversations by email, from an address made for each one, through Gmail or a mailbox of your own: setting it up, which replies it takes, and every option.
+summary: Conversations by email, from an address made for each one, through Gmail, a mailbox with an app password, or a mailbox of your own: setting it up, which replies it takes, and every option.
 ---
 
 The agent writes to a person from an address made for that conversation, and
@@ -20,14 +20,14 @@ conversation starts in one of three ways:
 
 `mailbox` says which, and is required:
 
-| | `mailbox: "gmail"` | a mailbox of your own |
-|---|---|---|
-| The mail goes through | your Gmail or Google Workspace account | whatever service you write it for |
-| From | the agent's `label`, then the account in `connections.google.account`: `Shop <you@gmail.com>` | what your `send` does |
-| Replies go to | the account with a tag, `you+k7mp2xqa@gmail.com`, set as Reply-To. Gmail delivers it to the same inbox. | the address your `address` made |
-| How chloe receives | asks Gmail what is new every 15 seconds | your `receive` |
-| What chloe reads | only mail to one of its tagged addresses | only mail to an address it made |
-| What you set | the Google connection, below | the `Mailbox`, below |
+| | `mailbox: "gmail"` | `mailbox: "password"` | a mailbox of your own |
+|---|---|---|---|
+| The mail goes through | your Gmail or Google Workspace account | any mailbox an app password opens: Gmail, iCloud, Fastmail | whatever service you write it for |
+| From | the agent's `label`, then the account in `connections.google.account`: `Shop <you@gmail.com>` | the agent's `label`, then `agents.<id>.email.address` | what your `send` does |
+| Replies go to | the account with a tag, `you+k7mp2xqa@gmail.com`, set as Reply-To. Gmail delivers it to the same inbox. | the address with a tag, the same way | the address your `address` made |
+| How chloe receives | asks Gmail what is new every 15 seconds | asks the mailbox's IMAP server (the one mail programs read from) every 15 seconds | your `receive` |
+| What chloe reads | only mail to one of its tagged addresses | only mail to one of its tagged addresses, and nothing is marked read | only mail to an address it made |
+| What you set | the Google connection, below | an address and an app password, below | the `Mailbox`, below |
 
 With Google Workspace, the From address is on your own domain.
 
@@ -49,8 +49,33 @@ With Google Workspace, the From address is on your own domain.
 | Option | Default | What it controls |
 |---|---|---|
 | `allowFrom` | required | The addresses it may write to and hear from. Nobody else is ever sent anything. |
-| `mailbox` | required | `"gmail"`, or a `Mailbox` of your own. |
+| `mailbox` | required | `"gmail"`, `"password"`, or a `Mailbox` of your own. |
 | `name` | `"email"` | Only when an agent has two. The first half of `email:<address>`. |
+
+## Setting it up with an app password
+
+No Google app and no sign-in page: an address and a password, like a mail
+program on a phone. The provider must deliver mail sent to `you+tag@` to
+`you@`. Gmail and Fastmail say so; iCloud does it without saying. Yahoo does
+not, and Outlook.com no longer takes passwords from mail programs.
+
+1. Make an app password in the provider's account settings: Gmail's needs
+   2-Step Verification on first, iCloud's is under Sign-In and Security at
+   account.apple.com, Fastmail's is under Privacy and Security.
+2. Put it in `.env`, as `CHLOE_AGENTS_<ID>_EMAIL_PASSWORD`.
+3. In `chloe.config.ts`:
+   `agents: { <id>: { email: { address: "you@fastmail.com", password: process.env.CHLOE_AGENTS_<ID>_EMAIL_PASSWORD } } }`.
+4. Add the channel: `emailChannel({ mailbox: "password", allowFrom: ["someone@example.com"] })`.
+
+For Gmail, iCloud and Fastmail addresses chloe knows the servers. For any
+other provider, add `imap` and `smtp` beside the password, each `"host:port"`
+from the provider's help page: `imap: "imap.example.com:993"`,
+`smtp: "smtp.example.com:587"`. The reading server is always TLS. A sending
+server on 465 is TLS from the start; on any other port it must offer STARTTLS,
+or nothing is sent, so the password never crosses in the clear.
+
+Mail the agent sends is not copied to the Sent folder, except on Gmail, which
+does that itself.
 
 ## A mailbox of your own
 

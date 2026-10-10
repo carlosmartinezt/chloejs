@@ -225,6 +225,7 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   const outgoing: { raw: string; threadId?: string }[] = [];
   let gone = false;
   const box = {
+    account: () => "owner@gmail.com",
     now: async () => String(history),
     since: async (from: string) => {
       if (gone) return "gone" as const;
@@ -297,4 +298,178 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
 
   viaGmail.stop();
   settings.connections.google.account = accountWas;
+
+  about("email through a mailbox with a password");
+  const { createServer: tcpServer } = await import("node:net");
+  const { createServer: tlsServer, TLSSocket } = await import("node:tls");
+  const { selfSigned } = await import("#chloe/serve/certificate");
+  const { passwordMailbox } = await import("#chloe/connections/mail/mailbox");
+  const pem = selfSigned();
+  const trust = { ca: pem.cert, checkServerIdentity: () => undefined };
+  const portOf = (server: import("node:net").Server) => new Promise<number>((done) => server.listen(0, "127.0.0.1", () => done((server.address() as import("node:net").AddressInfo).port)));
+
+  // A stand-in reading server: INBOX, numbered from 1, and every part asked for written down.
+  const inbox: { uid: number; raw: string }[] = [];
+  let validity = 7;
+  let nextUid = 1;
+  const parts: string[] = [];
+  const imapSaid: string[] = [];
+  const imapServer = tlsServer({ key: pem.key, cert: pem.cert }, (socket) => {
+    socket.setEncoding("latin1");
+    socket.write("* OK stand-in ready\r\n");
+    let held = "";
+    socket.on("data", (chunk: string) => {
+      held += chunk;
+      for (let at = held.indexOf("\r\n"); at >= 0; at = held.indexOf("\r\n")) {
+        const line = held.slice(0, at);
+        held = held.slice(at + 2);
+        const [tag, verb, ...rest] = line.split(" ");
+        const args = rest.join(" ");
+        imapSaid.push(`${verb} ${verb === "LOGIN" ? "..." : args}`);
+        if (verb === "LOGIN") socket.write(args === '"pw@chloejs.test" "app-pass"' ? `${tag} OK signed in\r\n` : `${tag} NO [AUTHENTICATIONFAILED] Invalid credentials\r\n`);
+        else if (verb === "SELECT") socket.write(`* ${inbox.length} EXISTS\r\n* OK [UIDVALIDITY ${validity}]\r\n* OK [UIDNEXT ${nextUid}]\r\n${tag} OK [READ-WRITE] done\r\n`);
+        else if (verb === "UID" && rest[0] === "SEARCH") {
+          const from = Number(rest[2].split(":")[0]);
+          const found = inbox.filter((one) => one.uid >= from).map((one) => one.uid);
+          // As a real server does, "n:*" holds the last message even when it is before n.
+          if (!found.length && inbox.length) found.push(inbox[inbox.length - 1].uid);
+          socket.write(`* SEARCH ${found.join(" ")}\r\n${tag} OK done\r\n`);
+        } else if (verb === "UID" && rest[0] === "FETCH") {
+          const one = inbox.find((m) => m.uid === Number(rest[1]));
+          const part = args.match(/BODY\.PEEK\[([^\]]*)\]/)![1];
+          parts.push(`${rest[1]}:${part || "whole"}`);
+          if (!one) {
+            socket.write(`${tag} OK nothing\r\n`);
+            continue;
+          }
+          const head = one.raw.slice(0, one.raw.indexOf("\r\n\r\n") + 2);
+          const body = part ? head.split(/\r\n(?![ \t])/).filter((h) => /^(to|cc):/i.test(h)).join("\r\n") + "\r\n\r\n" : one.raw;
+          socket.write(`* 1 FETCH (UID ${one.uid} BODY[${part}] {${Buffer.byteLength(body, "latin1")}}\r\n${body})\r\n${tag} OK done\r\n`);
+        } else if (verb === "LOGOUT") socket.end(`* BYE\r\n${tag} OK bye\r\n`);
+        else socket.write(`${tag} BAD what\r\n`);
+      }
+    });
+    socket.on("error", () => {});
+  });
+  const imapPort = await portOf(imapServer);
+
+  // A stand-in sending server, plain until STARTTLS as on port 587, writing down each message whole.
+  const delivered: { from: string; to: string[]; data: string; signedIn: boolean }[] = [];
+  let offersTls = true;
+  const smtpServer = tcpServer((raw) => {
+    let socket: import("node:net").Socket = raw;
+    let held = "";
+    let mail = { from: "", to: [] as string[], data: "", signedIn: false };
+    let inData = false;
+    const onData = (chunk: Buffer) => {
+      held += chunk.toString("latin1");
+      for (let at = held.indexOf("\r\n"); at >= 0; at = held.indexOf("\r\n")) {
+        const line = held.slice(0, at);
+        held = held.slice(at + 2);
+        if (inData) {
+          if (line === ".") {
+            inData = false;
+            delivered.push(mail);
+            mail = { from: "", to: [], data: "", signedIn: mail.signedIn };
+            socket.write("250 queued\r\n");
+          } else mail.data += `${line.startsWith("..") ? line.slice(1) : line}\r\n`;
+          continue;
+        }
+        if (/^EHLO/.test(line)) socket.write(`250-stand-in\r\n${offersTls && !(socket instanceof TLSSocket) ? "250-STARTTLS\r\n" : ""}250 AUTH PLAIN\r\n`);
+        else if (line === "STARTTLS") {
+          socket.write("220 go ahead\r\n");
+          socket.removeListener("data", onData);
+          socket = new TLSSocket(socket, { isServer: true, key: pem.key, cert: pem.cert });
+          socket.on("data", onData);
+          socket.on("error", () => {});
+        } else if (line.startsWith("AUTH PLAIN ")) {
+          mail.signedIn = Buffer.from(line.slice(11), "base64").toString() === "\0pw@chloejs.test\0app-pass";
+          socket.write(mail.signedIn ? "235 ok\r\n" : "535 no\r\n");
+        } else if (line.startsWith("MAIL FROM:")) socket.write(((mail.from = line.slice(11, -1)), "250 ok\r\n"));
+        else if (line.startsWith("RCPT TO:")) socket.write((mail.to.push(line.slice(9, -1)), "250 ok\r\n"));
+        else if (line === "DATA") socket.write(((inData = true), "354 go\r\n"));
+        else if (line === "QUIT") socket.end("221 bye\r\n");
+        else socket.write("500 what\r\n");
+      }
+    };
+    socket.on("data", onData);
+    socket.on("error", () => {});
+    socket.write("220 stand-in\r\n");
+  });
+  const smtpPort = await portOf(smtpServer);
+
+  const signIn = { address: "PW@chloejs.test", password: "app-pass", imap: `127.0.0.1:${imapPort}`, smtp: `127.0.0.1:${smtpPort}`, tls: trust };
+  const viaPassword = listen({
+    agentId: "pw",
+    channel: "email",
+    mailbox: "password",
+    gmail: passwordMailbox(signIn),
+    every: 30,
+    allowFrom: ["Jenny@Example.com"],
+    bound: bind(agent, "email", { tools: [own.webReadPage] }),
+    lookUp: dns,
+    agent: () => agent,
+  });
+  const pwUpTo = () => (db.prepare("select history from email_mailbox where agent = 'pw'").get() as { history: string } | undefined)?.history;
+  inbox.push({ uid: nextUid++, raw: "From: a@b.com\r\nTo: pw@chloejs.test\r\n\r\nold mail\r\n" });
+  await until(() => pwUpTo() !== undefined);
+  is("on its first look it only notes where INBOX is: its numbering, and the number the next message gets", pwUpTo(), "7:2");
+  is("it signs in once and keeps the connection", imapSaid.filter((one) => one.startsWith("LOGIN")).length, 1);
+
+  const pwOpened = await openEmail("pw", "jenny@example.com", "Courts", "Which day suits you?");
+  is("a conversation's address is the mailbox with a tag", /^pw\+[a-km-np-z2-9]{8}@chloejs\.test$/.test(pwOpened.address), true);
+  const firstOut = delivered[0];
+  is(
+    "the first mail goes out by SMTP, after STARTTLS and signing in, to her alone, under the agent's name, with a Date and a Message-ID",
+    [
+      firstOut?.signedIn,
+      firstOut?.from,
+      firstOut?.to,
+      firstOut?.data.includes('From: "Chloe" <pw@chloejs.test>'),
+      firstOut?.data.includes(`Reply-To: ${pwOpened.address}`),
+      /^Date: .+\r\nMessage-ID: <[^>]+@chloejs\.test>\r\n/.test(firstOut?.data ?? ""),
+    ],
+    [true, "pw@chloejs.test", ["jenny@example.com"], true, true, true],
+  );
+
+  db.prepare("update email_addresses set agent = 'pw', used = ?, closed = null, last_id = null where address = ?").run(new Date().toISOString(), ADDRESS);
+  answers.push("Saturday, then.");
+  inbox.push({ uid: nextUid++, raw: "From: a@b.com\r\nTo: someone@else.com\r\n\r\nnot for the agent\r\n" });
+  inbox.push({ uid: nextUid++, raw: SIGNED.relaxed });
+  await until(() => delivered.length > 1);
+  is("only the To and Cc of what is new are read, and only mail to one of its addresses is fetched whole", parts, ["2:HEADER.FIELDS (TO CC)", "3:HEADER.FIELDS (TO CC)", "3:whole"]);
+  is("every fetch is a peek, so nothing is marked read", imapSaid.filter((one) => one.startsWith("UID FETCH")).every((one) => one.includes("BODY.PEEK[")), true);
+  is(
+    "a signed reply to one of its addresses is answered by SMTP, threaded under hers",
+    [delivered[1]?.to, delivered[1]?.data.includes("In-Reply-To: <abc@example.com>"), delivered[1]?.data.includes(`Reply-To: ${ADDRESS}`)],
+    [["jenny@example.com"], true, true],
+  );
+  await until(() => pwUpTo() === "7:4");
+  is("and where it is up to moves on once that is done", pwUpTo(), "7:4");
+
+  const pwNotes: string[] = [];
+  const pwWarn = console.warn;
+  console.warn = (...line: unknown[]) => void pwNotes.push(line.join(" "));
+  validity = 8;
+  await until(() => pwNotes.some((one) => one.includes("starts from now")));
+  console.warn = pwWarn;
+  is("a mailbox numbered again is said, and it starts from now", [pwNotes.some((one) => one.includes("starts from now")), pwUpTo()], [true, "8:4"]);
+  viaPassword.stop();
+
+  let wrong = "";
+  await passwordMailbox({ ...signIn, password: "nope" }).now().catch((error) => (wrong = (error as Error).message));
+  is("a wrong password says so", wrong.includes("could not sign in to 127.0.0.1 as pw@chloejs.test: [AUTHENTICATIONFAILED] Invalid credentials"), true);
+
+  offersTls = false;
+  const before = delivered.length;
+  let clear = "";
+  await passwordMailbox(signIn).send(Buffer.from("To: jenny@example.com\r\n\r\nhi\r\n").toString("base64url")).catch((error) => (clear = (error as Error).message));
+  is("a sending server that will not start TLS is never sent the password", [clear.includes("does not offer STARTTLS"), delivered.length], [true, before]);
+
+  is("Gmail, iCloud and Fastmail need no servers written", passwordMailbox({ address: "a@icloud.com", password: "x" }).account(), "a@icloud.com");
+  let unknown = "";
+  await passwordMailbox({ address: "a@nowhere.test", password: "x" }).now().catch((error) => (unknown = (error as Error).message));
+  is("any other provider is asked for its reading server", unknown.includes('set imap, like "imap.nowhere.test:993"'), true);
+  imapServer.close();
+  smtpServer.close();
 }

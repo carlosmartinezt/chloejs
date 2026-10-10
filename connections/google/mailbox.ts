@@ -6,29 +6,12 @@
 // addressed to one of the channel's own addresses, so the rest of the mailbox
 // is never read. Every call goes through `googleApi()`, which holds the
 // sign-in.
+import type { Inbox, Since } from "#chloe/core/mail";
+import { settings } from "#chloe/core/settings";
+
 import { googleApi } from "./googleService.ts";
 
 const MAILBOX = "https://gmail.googleapis.com/gmail/v1/users/me";
-
-/** What has arrived since a point in the mailbox, and the point to ask from next time. */
-export interface Since {
-  added: { id: string; threadId?: string }[];
-  history: string;
-}
-
-/** What the email channel needs from Gmail. A test hands in its own. */
-export interface Gmail {
-  /** Where the mailbox is now. Asking from here later gives what arrived in between. */
-  now(): Promise<string>;
-  /** What arrived since `history`, or "gone" when that point is too old to ask from. */
-  since(history: string): Promise<Since | "gone">;
-  /** Who a message was sent to: its To and Cc lines, as written. */
-  recipients(id: string): Promise<string>;
-  /** The whole message, as it arrived. */
-  raw(id: string): Promise<string>;
-  /** Sends one message (the URL-safe base64 `rawMail()` writes), in a thread when one is named. */
-  send(raw: string, threadId?: string): Promise<void>;
-}
 
 interface Header {
   name?: string;
@@ -36,7 +19,15 @@ interface Header {
 }
 
 /** The signed-in account's mailbox, through Google's own web addresses. */
-export const gmailMailbox: Gmail = {
+export const gmailMailbox: Inbox = {
+  account() {
+    const said = settings.connections.google.account.trim().toLowerCase();
+    if (!said.includes("@")) {
+      throw new Error(`An email channel on Gmail sends from the account Google is signed in to, and there is none. Put it in settings as connections: { google: { account: "you@gmail.com" } }.`);
+    }
+    return said;
+  },
+
   async now() {
     const profile = await googleApi<{ historyId?: string }>(`${MAILBOX}/profile`);
     if (!profile.historyId) throw new Error("Gmail did not say where the mailbox is up to.");

@@ -20,6 +20,13 @@
 //   looks only at what is addressed to one of its own tagged addresses; the
 //   rest of the mailbox is never read.
 //
+//   A mailbox signed in to with a password: `emailChannel({ allowFrom,
+//   mailbox: "password" })` signs in to `agents.<id>.email` in settings, an
+//   address and an app password, reads it with IMAP and sends with SMTP
+//   (connections/mail/mailbox.ts). Everything else is as on Gmail: the tagged
+//   addresses, asking what is new, and reading only what is addressed to a tag.
+//   The provider must deliver `you+tag@` to `you@`: Gmail, iCloud and Fastmail do.
+//
 //   A mailbox of your own making: `mailbox` is an object that makes an
 //   address for a conversation, sends from it, and hands over what arrives
 //   (`Mailbox`), for mail that goes through a service of your choosing.
@@ -54,13 +61,14 @@ import { randomInt, randomUUID } from "node:crypto";
 
 import { google } from "#chloe/connections/google/connection";
 import { rawMail } from "#chloe/connections/google/gmailService";
-import { gmailMailbox, type Gmail } from "#chloe/connections/google/mailbox";
+import { gmailMailbox } from "#chloe/connections/google/mailbox";
+import { passwordMailbox } from "#chloe/connections/mail/mailbox";
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
 import { reachBy, unreach } from "#chloe/model/ask";
 import { remember } from "#chloe/model/memory";
 import { db } from "#chloe/core/db";
-import { addresses, readEmail, signedBy, whenSent, type Email, type LookUp } from "#chloe/core/mail";
-import { settings } from "#chloe/core/settings";
+import { addresses, readEmail, signedBy, whenSent, type Email, type Inbox, type LookUp } from "#chloe/core/mail";
+import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { markdownToHtml, markdownToText } from "#chloe/services/emailService";
 import { type Bound, defineChannel, receive, rulesOf, type Shared } from "./shared.ts";
 
@@ -80,7 +88,7 @@ db.exec(`
   )
 `);
 
-// Where each channel on Gmail is up to in its mailbox, so a restart asks from
+// Where each channel on Gmail or a password is up to in its mailbox, so a restart asks from
 // there and misses nothing that arrived while it was down.
 db.exec(`
   create table if not exists email_mailbox (
@@ -91,7 +99,7 @@ db.exec(`
   )
 `);
 
-/** How often a channel on Gmail asks what is new. */
+/** How often a channel on Gmail or a password asks what is new. */
 const EVERY = 15_000;
 
 /** How long an address stays open with nothing sent or received on it. */
@@ -164,12 +172,15 @@ export interface EmailOptions extends Shared {
    *
    * - "gmail": the Gmail account Google is signed in to
    *   (`connections.google.account` in settings).
+   * - "password": the mailbox in `agents.<id>.email` in settings, an address
+   *   and an app password, on any provider that delivers `you+tag@` to
+   *   `you@` (Gmail, iCloud, Fastmail).
    * - A `Mailbox`: one of your own making, for another mail service.
    */
-  mailbox: "gmail" | Mailbox;
-  /** Stands in for Gmail. Only the tests set it. */
-  gmail?: Gmail;
-  /** How often Gmail is asked for new mail, in milliseconds. Default: 15000. Only the tests change it. */
+  mailbox: "gmail" | "password" | Mailbox;
+  /** Stands in for Gmail or the password mailbox. Only the tests set it. */
+  gmail?: Inbox;
+  /** How often the mailbox is asked for new mail, in milliseconds. Default: 15000. Only the tests change it. */
   every?: number;
   /** How DNS is asked for the key that checks a DKIM signature. Only the tests change it. */
   lookUp?: LookUp;
@@ -246,15 +257,6 @@ export function quoted(mail: Email): { text: string; html: string } {
   };
 }
 
-/** The Gmail account the channel sends from, which is the one Google is signed in to. */
-function account(): string {
-  const said = settings.connections.google.account.trim().toLowerCase();
-  if (!said.includes("@")) {
-    throw new Error(`An email channel on Gmail sends from the account Google is signed in to, and there is none. Put it in settings as connections: { google: { account: "you@gmail.com" } }.`);
-  }
-  return said;
-}
-
 /** Letters a tag is made of: no l, o, 0 or 1, which read as each other. */
 const LETTERS = "abcdefghijkmnpqrstuvwxyz23456789";
 
@@ -298,12 +300,25 @@ export function emailChannel(options: EmailOptions): Channel {
   // Ignored, it would hand every tool to a turn that was meant to have fewer.
   if ("withoutTools" in options) throw new Error("emailChannel's withoutTools is gone: name the tools its turns may have instead, like tools: [tools.readPage].");
   const channel = defineChannel("email", options, ({ agent, agentId, name, bound }) => {
-    if (options.mailbox !== "gmail" && typeof options.mailbox?.receive !== "function") {
+    if (options.mailbox !== "gmail" && options.mailbox !== "password" && typeof options.mailbox?.receive !== "function") {
       console.error(
         `email: ${agentId} is on email with no mailbox. Put it on Gmail, emailChannel({ mailbox: "gmail", ... }), which uses ` +
-          `the Google sign-in the mail tools use, or give it a mailbox of your own.`,
+          `the Google sign-in the mail tools use, on a mailbox with an app password, emailChannel({ mailbox: "password", ... }), ` +
+          `or give it a mailbox of your own.`,
       );
       return { stop: () => {} };
+    }
+    if (options.mailbox === "password" && !options.gmail) {
+      const held = settings.agents[agentId]?.email;
+      if (!held?.address.includes("@") || !held.password) {
+        console.error(
+          `email: ${agentId} is on a mailbox with a password, and has no address or password. Put the address ` +
+            `in chloe.config.ts's settings as \`agents: { ${agentId}: { email: { address: "you@example.com" } } }\`, and the app password ` +
+            `${whereKeyGoes(["agents", agentId, "email", "password"])}.`,
+        );
+        return { stop: () => {} };
+      }
+      return listen({ ...options, gmail: passwordMailbox(held), agentId, channel: name, agent, bound });
     }
     return listen({ ...options, agentId, channel: name, agent, bound });
   }, { hidden: ["lookUp", "gmail", "every"] });
@@ -316,7 +331,7 @@ export function emailChannel(options: EmailOptions): Channel {
 /** Answers on email until stopped. Separate from the channel so the tests can point it somewhere else. */
 export function listen(options: EmailOptions & { agentId: string; channel: string; agent: () => Agent | undefined; bound?: Bound }): Running {
   const { agentId, channel } = options;
-  const own = options.mailbox === "gmail" ? undefined : options.mailbox;
+  const own = typeof options.mailbox === "object" ? options.mailbox : undefined;
   const gmail = own ? undefined : (options.gmail ?? gmailMailbox);
   const allowed = options.allowFrom.map(lower);
   const rules = rulesOf(options, allowed);
@@ -332,7 +347,7 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
     if (gmail) {
       const references = answering ? `${answering.references} ${answering.messageId}`.trim() : "";
       const raw = rawMail({
-        from: `"${label}" <${account()}>`,
+        from: `"${label}" <${gmail.account()}>`,
         to: [row.person],
         replyTo: [row.address],
         subject,
@@ -361,7 +376,7 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
   const start: Starter = async (to, subject, text) => {
     const person = lower(to);
     if (!allowed.includes(person)) throw new Error(`${to} is not somebody ${agentId} may email. It may email: ${allowed.join(", ")}.`);
-    const address = gmail ? tagged(account()) : await own!.address(person);
+    const address = gmail ? tagged(gmail.account()) : await own!.address(person);
     const thread = `${agentId}/${channel}-${randomUUID()}`;
     const at = new Date().toISOString();
     const row: Row = { address: lower(address), agent: agentId, channel, person, thread, subject, made: at, used: at, closed: null, last_id: null, refs: null };
@@ -444,19 +459,19 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
   }
 
   /**
-   * Asks Gmail what arrived since last time, and takes what is addressed to one
+   * Asks the mailbox what arrived since last time, and takes what is addressed to one
    * of this channel's open addresses. Where it is up to is written down only
    * after everything new was dealt with, so a restart in the middle asks again
    * and a reply cut off halfway is answered then.
    */
-  async function check(box: Gmail): Promise<void> {
+  async function check(box: Inbox): Promise<void> {
     const kept = db.prepare("select history from email_mailbox where agent = ? and channel = ?").get(agentId, channel) as { history: string } | undefined;
     const keep = (history: string) =>
       db.prepare("insert into email_mailbox (agent, channel, history) values (?, ?, ?) on conflict (agent, channel) do update set history = excluded.history").run(agentId, channel, history);
     if (!kept) return void keep(await box.now());
     const found = await box.since(kept.history);
     if (found === "gone") {
-      console.warn(`email: ${agentId} was away from Gmail too long to ask what it missed, and starts from now.`);
+      console.warn(`email: ${agentId} can no longer ask its mailbox what it missed (away too long, or the mailbox was numbered again), and starts from now.`);
       return void keep(await box.now());
     }
     const open = new Set(
@@ -486,7 +501,7 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
         } catch (error) {
           const why = (error as Error).message;
           // Said once, not every few seconds: a sign-in to do stays true until somebody does it.
-          if (why !== said) console.error(`email: ${agentId} could not read Gmail: ${why}`);
+          if (why !== said) console.error(`email: ${agentId} could not read ${options.mailbox === "gmail" ? "Gmail" : "its mailbox"}: ${why}`);
           said = why;
           wait = Math.min(5 * 60_000, wait * 2);
         }
