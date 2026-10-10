@@ -16,8 +16,9 @@ npm install @chloejs/core
 npx chloe setup
 ```
 
-Setup asks a model and writes the config, with no agent yet: you, or your
-coding agent, write that. See [Start](/docs/start).
+Setup asks for a model and writes the config, with a first agent that has only
+instructions: ask it to change itself, or have your coding agent make it into
+what you want. See [Start](/docs/start).
 
 ## The agent
 

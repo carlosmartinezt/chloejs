@@ -3,12 +3,13 @@
 //   npx chloe setup
 //   npx chloe setup --yes            takes every default and asks nothing
 //
-// It writes the files a project needs, puts the server on a free port, and asks
-// which model to use and checks that model actually answers. It writes no
-// agent: the person's coding agent writes the first one, for what they want,
-// from the guides in the package, which setup's last lines point it to. Every answer has a default, so holding Enter
-// through it works. It sets no password: the server prints a link that opens
-// the page signed in, and a password is for later, if ever.
+// It writes the files a project needs, with a first agent that has nothing but
+// instructions, so there is something to talk to on the page that changes
+// itself when asked. It installs TypeScript, puts the server on a free port,
+// and asks which model to use and checks that model actually answers. Every
+// answer has a default, so holding Enter through it works. It sets no
+// password: the server prints a link that opens the page signed in, and a
+// password is for later, if ever.
 //
 // With nothing on stdin, which is how a script or a coding agent runs it, it
 // behaves as --yes.
@@ -27,12 +28,16 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { firstCommit, hasGit, hasGitName, repositoryOf } from "./git.ts";
-import { DEV_PACKAGES, GUIDES, modelLine, STARTER_MODEL_LINE, starterFiles, withSetting } from "./starter.ts";
+import { DEV_PACKAGES, GUIDES, modelLine, STARTER_AGENT, STARTER_MODEL_LINE, starterFiles, withSetting } from "./starter.ts";
 import { ask, askHidden, pick, takeDefaults, yes } from "./terminal.ts";
 import type { Provider } from "#chloe/core/settings";
+import { bold, cyan, dim, green, red, yellow } from "#chloe/core/style";
 
 /** The folder being set up: where the person ran the command. */
 const HERE = process.cwd();
+
+/** The guides on the site, which a person is sent to. A coding agent is sent to `GUIDES`, the copy for this version. */
+const SITE_GUIDES = "https://chloejs.org/docs";
 
 /** Free models, and every provider through one key. Written only if they ask for it. */
 const OPENROUTER = "https://openrouter.ai/api/v1/chat/completions";
@@ -52,9 +57,18 @@ const wrote: [string, string][] = [];
 /** Whether this run wrote chloe.config.ts, and so may choose what it says. */
 let configWritten = false;
 
+/** Whether this run wrote the first agent, which the last lines then name. */
+let agentWritten = false;
+
 /** Every file this wrote or changed, in the order it happened. */
 function written(path: string, what: string): void {
   wrote.push([path, what]);
+}
+
+/** A heading between the parts of setup, so each question stands apart from what came before it. */
+function section(title: string): void {
+  const width = Math.min(process.stdout.columns || 64, 64);
+  console.log(`\n${dim("──")} ${bold(title)} ${dim("─".repeat(Math.max(2, width - title.length - 4)))}\n`);
 }
 
 /** Two columns, the first as wide as its widest line. */
@@ -86,20 +100,21 @@ const given = (() => {
 
 if (given.yes || nobodyHere) takeDefaults();
 
-console.log(`Setting chloe up in ${HERE}.\n`);
-if (nobodyHere) console.log("Nobody is at a keyboard here, so every question takes its default.\n");
+// What is done before the first question is said in lines indented under this one.
+console.log(`\n${bold(`Setting chloe up in ${HERE}`)}`);
+if (nobodyHere) console.log("  Nobody is at a keyboard here, so every question takes its default.");
 
 // One line and not a stack: whatever went wrong, the person reading it is
 // setting up a project and every step above this one already happened.
 try {
   await theProject();
   await theFiles();
-  const port = await thePort();
+  const moved = await thePort();
   await theModel();
   await theRepository();
-  sayWhatNext(port);
+  sayWhatNext(moved);
 } catch (error) {
-  console.error(`\n${error instanceof Error ? error.message : String(error)}`);
+  console.error(`\n${red(error instanceof Error ? error.message : String(error))}`);
   if (wrote.length) console.error(`\nWhat was written before that:\n${columns(wrote)}`);
   console.error("\nRun npx chloe setup again: it leaves what is already there alone.");
   process.exit(1);
@@ -124,28 +139,58 @@ async function theProject(): Promise<void> {
   }
 
   if (!existsSync(join(HERE, "node_modules/@chloejs/core"))) {
-    console.log("@chloejs/core is not installed here, and your agent files import it.");
-    if (await yes("Run npm install @chloejs/core? (Y/n)", true)) {
-      const done = spawnSync("npm", ["install", "@chloejs/core"], { cwd: HERE, stdio: "inherit" });
-      if (done.status !== 0) {
-        console.error("That did not work. Install it yourself, then run this again.");
-        process.exit(1);
-      }
+    const failed = install(["@chloejs/core"], "which your agent files import");
+    if (failed) {
+      console.error(`Run ${failed} yourself, then this again.`);
+      process.exit(1);
     }
   }
 
-  // Without these an editor underlines process in chloe.config.ts, and an
-  // agent's own change to its code is not type checked.
+  // Chloe runs without these, because node strips the types itself. Without
+  // them an editor underlines process in chloe.config.ts, and an agent's own
+  // change to its code is not type checked before it goes live.
   const missing = DEV_PACKAGES.filter((one) => !existsSync(join(HERE, "node_modules", one)));
-  if (missing.length && (await yes(`Run npm install --save-dev ${missing.join(" ")}, so your editor and tsc can read the TypeScript? (Y/n)`, true))) {
-    const done = spawnSync("npm", ["install", "--save-dev", ...missing], { cwd: HERE, stdio: "inherit" });
-    if (done.status !== 0) console.log(`That did not work. Chloe runs without them: npm install --save-dev ${missing.join(" ")} when you can.`);
+  if (missing.length) {
+    const failed = install(missing, "so your editor and chloe can check the code", true);
+    if (failed) console.log(yellow(`  Chloe runs without them. Run ${failed} when you can.`));
   }
 }
 
-/** chloe.config.ts with no agents, and the files beside it. A config already here is somebody's own and is left alone. */
+/** Which program installs packages here: the one whose lockfile is in the folder, or npm. */
+function installer(): string {
+  const locks: Record<string, string> = { "pnpm-lock.yaml": "pnpm", "yarn.lock": "yarn", "bun.lock": "bun", "bun.lockb": "bun" };
+  return Object.entries(locks).find(([file]) => existsSync(join(HERE, file)))?.[1] ?? "npm";
+}
+
+/**
+ * Installs packages with the project's own installer, said in one line rather
+ * than in the installer's words, which are shown only when it fails. `why` is
+ * what they are for.
+ *
+ * Returns "" when it worked, or the command that failed, for the person to run.
+ */
+function install(packages: string[], why: string, dev = false): string {
+  const using = installer();
+  const command = [using, using === "npm" ? "install" : "add", ...(dev ? ["-D"] : []), ...packages];
+  process.stdout.write(`  Installing ${packages.join(" and ")}, ${why}... `);
+  const done = spawnSync(using, command.slice(1), { cwd: HERE, encoding: "utf8" });
+  if (done.status === 0) {
+    console.log(green("done"));
+    return "";
+  }
+  console.log(red("that did not work:"));
+  const said = (done.stderr || done.error?.message || "no reason given").trim().split("\n").slice(-5);
+  for (const one of said) console.log(dim(`    ${one}`));
+  return command.join(" ");
+}
+
+/**
+ * chloe.config.ts with the first agent, and the files beside it. A config
+ * already here is somebody's own and is left alone, and so no agent is written
+ * for it to list.
+ */
 async function theFiles(): Promise<void> {
-  if (existsSync(join(HERE, "chloe.config.ts"))) console.log("chloe.config.ts is already here, so this leaves it alone.\n");
+  if (existsSync(join(HERE, "chloe.config.ts"))) console.log("  chloe.config.ts is already here, so this leaves it alone.");
 
   for (const file of starterFiles()) {
     const path = join(HERE, file.path);
@@ -160,11 +205,12 @@ async function theFiles(): Promise<void> {
       written(file.path, `${lines.join(", ")} added`);
       continue;
     }
-    if (existsSync(path)) continue;
+    if (existsSync(path) || (file.withConfig && !configWritten)) continue;
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, file.body);
     written(file.path, "written");
     if (file.path === "chloe.config.ts") configWritten = true;
+    if (file.withConfig) agentWritten = true;
   }
 }
 
@@ -183,20 +229,20 @@ function taken(host: string, port: number): Promise<boolean> {
  * this run wrote: one that was here already says what it wants, and a copy of
  * this project that is running holds its own port.
  *
- * Returns the port, and whether it is the default.
+ * Returns whether the default was taken.
  */
-async function thePort(): Promise<{ port: number; moved: boolean }> {
+async function thePort(): Promise<boolean> {
   const { settings } = await import("#chloe/core/settings");
   const { host, port } = settings.serve;
-  if (!configWritten || !(await taken(host, port))) return { port, moved: false };
+  if (!configWritten || !(await taken(host, port))) return false;
   for (let next = port + 1; next < port + 100; next++) {
     if (await taken(host, next)) continue;
     inSettings(`serve: { port: ${next} },`);
-    console.log(`Port ${port} is taken here, most likely by another chloe, so this one listens on ${next}.\n`);
-    return { port: next, moved: true };
+    console.log(`  Port ${port} is taken, most likely by another chloe, so this one will use ${next}.`);
+    return true;
   }
-  console.log(`Ports ${port} to ${port + 99} are all taken here. Set serve.port in chloe.config.ts to a free one before npx chloe.\n`);
-  return { port, moved: true };
+  console.log(yellow(`  Ports ${port} to ${port + 99} are all taken here. Set serve.port in chloe.config.ts to a free one before npx chloe.`));
+  return true;
 }
 
 /**
@@ -216,7 +262,8 @@ async function theModel(): Promise<string> {
     return name ? [{ provider, name }] : [];
   });
 
-  const choice = await pick("\nA model, which your agents ask. This can wait.", [
+  section("Model");
+  const choice = await pick("How should your agents reach a model? You can set this up later.", [
     ...(runnable("claude") ? [{ key: "claude" as const, what: "your Claude subscription, through the claude command on this box" }] : []),
     ...(runnable("codex") ? [{ key: "codex" as const, what: "your ChatGPT plan, through the codex command on this box" }] : []),
     ...(runnable("opencode") ? [{ key: "opencode" as const, what: "whatever opencode is signed in to on this box" }] : []),
@@ -356,7 +403,7 @@ async function settle(model: Record<string, string>, key?: string, named = "CHLO
 
   process.stdout.write(`\nAsking ${asking} one thing to make sure it answers... `);
   const trouble = await tryIt(asking);
-  console.log(trouble || "it answered, and it can call a tool.");
+  console.log(trouble ? red(trouble) : green("it answered, and it can call a tool."));
   if (trouble) console.log(`Fix that whenever you like: model in chloe.config.ts and ${named} in .env are all of it.`);
   return asking;
 }
@@ -418,44 +465,66 @@ function inSettings(line: string): void {
  */
 async function theRepository(): Promise<void> {
   if (!hasGit()) {
-    console.log("\ngit is not installed. Every change an agent makes to itself is a git commit you can read and undo, so");
+    section("Git");
+    console.log(yellow("git is not installed."), "Every change an agent makes to itself is a git commit you can read and undo, so");
     console.log("without git it cannot change itself. Install it (https://git-scm.com/downloads), then run npx chloe setup again.");
     return;
   }
-  if (!repositoryOf(HERE)) {
-    if (!(await yes("\nMake this folder a git repository, so every change an agent makes to itself can be read and undone? (Y/n)", true))) {
+  const inOne = Boolean(repositoryOf(HERE));
+  const named = hasGitName(HERE);
+  if (inOne && named && !agentWritten) return;
+
+  section("Git");
+  if (!inOne) {
+    if (!(await yes("Make this folder a git repository, so every change an agent makes to itself can be read and undone?", true))) {
       console.log("  Left as it is. An agent cannot change itself until it is one: git init, then commit what is here.");
       return;
     }
     firstCommit(HERE);
     written(".git", "a repository, with what is here as its first commit");
+  } else if (agentWritten) {
+    // An agent may not change a file nobody has committed, and this repository is somebody's own.
+    console.log("This folder is already in a git repository of yours, so setup committed nothing. Commit what it wrote,");
+    console.log("and the agent can change itself.");
   }
-  if (!hasGitName(HERE)) {
-    console.log("\ngit has no name to commit under here, which what you change in an agent's memory by hand is committed under:");
-    console.log('  git config --global user.name "Your Name"');
-    console.log("  git config --global user.email you@example.com");
+  if (!named) {
+    console.log(`${inOne && !agentWritten ? "" : "\n"}git has no name set here. What you change by hand in an agent's memory is committed under it, so set one:`);
+    console.log(`  ${cyan('git config --global user.name "Your Name"')}`);
+    console.log(`  ${cyan("git config --global user.email you@example.com")}`);
   }
 }
 
-function sayWhatNext({ port, moved }: { port: number; moved: boolean }): void {
-  if (wrote.length) console.log(`\nWritten:\n${columns(wrote)}`);
+function sayWhatNext(moved: boolean): void {
+  section("Done");
+  if (wrote.length) console.log(`Written:\n${columns(wrote)}\n`);
+  console.log("Start chloe, and leave it running:\n");
+  console.log(`    ${dim("$")} ${bold(cyan("npx chloe"))}\n`);
   console.log(
-    `\nTry these:\n${columns([
-      ["npx chloe", "the server: every cron line, the page, the API, and a link that opens the page signed in"],
-      // A machine runs one chloe service, and install points it at the folder
-      // it is run from, so here it would move the other copy's.
-      ...(moved ? [] : ([["npx chloe install", "keep it running after you close this terminal"]] as [string, string][])),
-    ])}`,
+    agentWritten
+      ? `It prints a link to the page. Open it to talk to ${STARTER_AGENT}, your first agent, and ask it to change\nitself: its words, its jobs, its code.`
+      : "It prints a link to the page, where you can talk to your agents.",
   );
-  if (moved) console.log("\nnpx chloe install is left out: a machine runs one chloe service, most likely the one already running, and install would point it here instead.");
-  console.log("\nThere is no agent yet. Ask your coding agent, here in this folder, for the first one and what it should do,");
-  console.log('like "an agent that tells me every morning at 7 what is most urgent in my mail". Then talk to it on the page');
-  console.log(`(http://127.0.0.1:${port}) and ask it to change itself: its words, its jobs, its code.`);
-  console.log(`\nThe guides, for this version: ${GUIDES}`);
+  if (!nobodyHere) {
+    console.log('\nYour coding agent can write agents too: ask it, in this folder, for "an agent that tells me every');
+    console.log('morning at 7 what is most urgent in my mail".');
+  }
+  // A machine runs one chloe service, and install points it at the folder it
+  // is run from, so here it would move the other copy's.
+  if (moved) {
+    console.log("\nAnother chloe probably runs on this computer already. npx chloe install keeps one chloe running per");
+    console.log("computer, so running it here would replace that one.");
+  } else {
+    console.log(`\nTo keep it running after you close this terminal: ${cyan("npx chloe install")}`);
+  }
+  console.log(`\nGuides: ${SITE_GUIDES}`);
   // Whoever ran this without a keyboard is most likely a coding agent, about to
   // build what somebody asked for, and the guides it needs are already here.
   if (nobodyHere) {
-    console.log("Read the guides above before writing any code: they are for this version.");
+    console.log(`\nThe guides for this version are in ${GUIDES}. Read them before writing any code.`);
+    if (agentWritten) {
+      console.log(`Setup wrote a first agent, agents/${STARTER_AGENT}. Make it the one they asked for, and as it has not run yet,`);
+      console.log("give it an id that says what it does (postie for mail): its folder, its id and its line in chloe.config.ts.");
+    }
     console.log("Then start npx chloe in the background and leave it running. It prints a link that signs the person in (npx chloe link prints another).");
     console.log("When you are done, tell them this and nothing more, with that whole link, #in= and all:");
     console.log('  "I\'ve installed Chloe and written <agent id>. It\'s running at <link>. Open it and it will walk you through what\'s left.');

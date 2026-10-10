@@ -12,14 +12,14 @@ npm install @chloejs/core
 npx chloe setup
 ```
 
-Setup asks three things, each with a default, so holding Enter works. Running it
+Setup asks two things, each with a default, so holding Enter works. Running it
 again leaves what is already there alone. `--yes` takes every default. With no
-keyboard, which is how a coding agent runs it, it takes the defaults. It writes
-no agent: that is for your coding agent, below.
+keyboard, which is how a coding agent runs it, it takes the defaults.
 
-It writes the files below. If port 3067 is taken, most likely by another chloe,
-it puts this one on the next free port, as `serve: { port }` in
-`chloe.config.ts`.
+It writes the files below, with a first agent, and installs `typescript` and
+`@types/node` with the package manager your project already uses. If port 3067
+is taken, most likely by another chloe, it puts this one on the next free port,
+as `serve: { port }` in `chloe.config.ts`.
 
 1. **Which model.** It finds the `claude` and `codex` commands and any Anthropic,
    OpenAI or gateway key in your environment, takes one you paste, or offers a
@@ -29,17 +29,22 @@ it puts this one on the next free port, as `serve: { port }` in
    what is there, under your git name, or "npx chloe setup" when git has none.
    Every change an agent makes to itself is a commit you can read and undo, and
    it may not change a file nobody has committed, so without one it cannot
-   change itself. In a repository of your own it commits nothing. It never
-   installs git.
+   change itself. In a repository of your own it commits nothing, so commit
+   what it wrote before the first agent changes itself. It never installs git.
 
 ## The first agent
 
-Ask your coding agent, in the project's folder, for what you want done, like
+Setup writes one, `agents/assistant`, with instructions and nothing else. Run
+`npx chloe`, open the link it prints, and tell it what you want done: it changes
+itself to do it, its words, its jobs and its code, and each change is a commit
+you can read and undo on the dashboard. See
+[What an agent may change about itself](/docs/prompts#what-an-agent-may-change-about-itself).
+
+Or ask your coding agent, in the project's folder, for what you want done, like
 "an agent that tells me every morning at 7 what is most urgent in my mail". It
 reads these guides, which ship in the package for the version installed, and
-it writes the agent and lists it in `chloe.config.ts`. From then on, ask the
-agent itself on the dashboard to change: its words, its jobs, its code. See
-[What an agent may change about itself](/docs/prompts#what-an-agent-may-change-about-itself).
+makes the first agent into that one, or writes another and lists it in
+`chloe.config.ts`.
 
 There is no password to set. The dashboard opens with a link, and a password is
 for later, if you want one.
@@ -48,9 +53,10 @@ for later, if you want one.
 
 | File | What it is |
 |---|---|
-| `chloe.config.ts` | The list of agents, empty, and every [setting](/docs/settings). An agent not on it does not run. |
+| `chloe.config.ts` | The list of agents, with the first one on it, and every [setting](/docs/settings). An agent not on it does not run. |
+| `agents/assistant/` | The first agent: `agent.ts`, which says what it is, and `instructions.md`, its words. Only a config setup writes gets one, because that config is what lists it. |
 | `.env` | Every password, key and token, mode 600, never committed. |
-| `tsconfig.json` | How your editor and `tsc` read the project's TypeScript. Node runs it as it is, so nothing is compiled. Setup also offers to install `typescript` and `@types/node`. |
+| `tsconfig.json` | How your editor and `tsc` read the project's TypeScript. Node runs it as it is, so nothing is compiled. Setup also installs `typescript` and `@types/node`: chloe runs without them, but then an agent's change to its own code is not type checked before it goes live. |
 
 It also adds `"type": "module"` to `package.json`, and `node_modules`, `data`
 and `.env` to `.gitignore`.

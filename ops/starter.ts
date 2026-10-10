@@ -1,6 +1,7 @@
 // The files a new project starts with, as text, for `npx chloe setup` to write:
-// the config with no agents, tsconfig.json and .gitignore. The first agent is
-// written by the person's coding agent, from the guides, for what they asked for.
+// the config, a first agent with nothing but instructions, tsconfig.json and
+// .gitignore. The agent is there to be talked to on the page and asked to
+// change itself into whatever its owner wants.
 //
 // They are text here rather than files on disk because the published package is
 // dist/ and a .ts file here would be compiled with the runtime.
@@ -11,12 +12,19 @@ export interface Starter {
   body: string;
   /** Each line the file does not have is added to it, rather than the file written only when it is not there (a .gitignore). */
   add?: "lines";
+  /** Written only when the config is, because that config is what lists it (the first agent's files). */
+  withConfig?: true;
 }
+
+/** The first agent's id, which is its folder and what its runs are kept under. */
+export const STARTER_AGENT = "assistant";
 
 /** Every file a new project starts with. */
 export function starterFiles(): Starter[] {
   return [
     { path: "chloe.config.ts", body: CONFIG },
+    { path: `agents/${STARTER_AGENT}/agent.ts`, body: AGENT, withConfig: true },
+    { path: `agents/${STARTER_AGENT}/instructions.md`, body: INSTRUCTIONS, withConfig: true },
     { path: "tsconfig.json", body: TSCONFIG },
     { path: ".gitignore", body: IGNORE, add: "lines" },
   ];
@@ -63,12 +71,38 @@ export function withSetting(config: string, line: string): string | null {
 const CONFIG = `// The agents this project runs, and its settings. A key goes in .env, read here as process.env.NAME.
 import { defineConfig } from "@chloejs/core";
 
+import ${STARTER_AGENT} from "./agents/${STARTER_AGENT}/agent.ts";
+
 export default defineConfig({
-  agents: [],
+  agents: [${STARTER_AGENT}],
   settings: {
     ${STARTER_MODEL_LINE}
   },
 });
+`;
+
+const AGENT = `// Your first agent. Talk to it on the page and ask it to change: its
+// instructions, its jobs, its code. Each change it makes is a commit you can
+// read and undo there.
+import { defineAgent, prompt } from "@chloejs/core";
+
+export default defineAgent({
+  id: "${STARTER_AGENT}",
+  description: "Just set up. Tell it what you want done, and it changes itself to do it.",
+  instructions: prompt("instructions.md"),
+});
+`;
+
+const INSTRUCTIONS = `You were set up a moment ago, and you do nothing yet: you have no jobs and no
+tools of your own.
+
+When your owner says what they want done, read the guides, then change yourself
+to do it: these instructions, a job, a tool, whatever it takes. Make one small
+change at a time, and say what you changed.
+
+Once you know what you are for, rewrite these instructions to say so.
+
+Keep replies short.
 `;
 
 // What the editor and tsc read the project's TypeScript with. Node runs it

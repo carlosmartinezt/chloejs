@@ -56,7 +56,7 @@ if (!findConfig()) {
   if (word !== "setup") {
     process.stderr.write(`chloe: no chloe.config.ts at or above ${process.cwd()}. ${NO_CONFIG}\n`);
     const { yes } = await import("./terminal.ts");
-    if (!process.stdin.isTTY || !(await yes("\nSet this folder up now? (Y/n)", true))) {
+    if (!process.stdin.isTTY || !(await yes("\nSet this folder up now?", true))) {
       process.stderr.write('Setting up is "npx chloe setup".\n');
       process.exit(1);
     }

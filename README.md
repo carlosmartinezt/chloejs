@@ -18,9 +18,9 @@ npx chloe setup       # the files, a model, a free port: it asks, and checks
 npx chloe             # the agents, the cron lines, one port, and a link that opens the page
 ```
 
-`setup` writes `chloe.config.ts` and one agent with two jobs, asks which model to
-use and makes one call to be sure it answers, then runs the job that asks no
-model, so the first thing you see is a finished run. Run it again later and it
+`setup` writes `chloe.config.ts` and a first agent, with instructions and
+nothing else, which changes itself when you ask it to on the page. It asks which
+model to use and makes one call to be sure it answers. Run it again later and it
 leaves what is already there alone.
 
 There is no password to set: `npx chloe` prints a link that opens the page
@@ -28,8 +28,8 @@ signed in, once, within the hour, and `npx chloe link` prints another. A
 password is for later, if you want one.
 
 For a coding agent: `npx chloe setup` asks nothing when there is no keyboard,
-taking every default, and writes no agent: the first one is the coding agent's
-to write. Its last lines send the agent to the guides in
+taking every default. Its last lines tell the agent to make the first agent into
+what the person asked for, from the guides in
 `node_modules/@chloejs/core/dist/docs/`, for the version installed, and `npx
 skills add carlosmartinezt/chloejs` gets it that far before anything is.
 

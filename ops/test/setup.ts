@@ -2,13 +2,13 @@
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { about, is } from "#chloe/ops/check";
 
 {
   about("the files npx chloe setup writes");
 
-  const { GUIDES, modelLine, STARTER_MODEL_LINE, starterFiles, withSetting } = await import("#chloe/ops/starter");
+  const { GUIDES, modelLine, STARTER_AGENT, STARTER_MODEL_LINE, starterFiles, withSetting } = await import("#chloe/ops/starter");
   const { ROOT } = await import("@chloejs/core");
 
   const { findConfig } = await import("#chloe/core/find");
@@ -17,8 +17,13 @@ import { about, is } from "#chloe/ops/check";
 
   const files = starterFiles();
   const config = files.find((one) => one.path === "chloe.config.ts")!.body;
-  is("setup writes no agent", files.map((one) => one.path), ["chloe.config.ts", "tsconfig.json", ".gitignore"]);
-  is("and chloe.config.ts lists none", config.includes("agents: [],"), true);
+  is(
+    "setup writes a first agent beside the config",
+    files.map((one) => one.path),
+    ["chloe.config.ts", `agents/${STARTER_AGENT}/agent.ts`, `agents/${STARTER_AGENT}/instructions.md`, "tsconfig.json", ".gitignore"],
+  );
+  is("only with a config it writes, which lists it", files.filter((one) => one.withConfig).length, 2);
+  is("and chloe.config.ts does", config.includes(`agents: [${STARTER_AGENT}],`), true);
   is("it has the line setup puts the chosen model in", config.includes(STARTER_MODEL_LINE), true);
   is("the guides setup points to are where the build writes them", GUIDES, "node_modules/@chloejs/core/dist/docs/README.md");
   is(
@@ -44,12 +49,20 @@ import { about, is } from "#chloe/ops/check";
 
   // Written inside the repo rather than in tmp, because the config imports
   // "@chloejs/core" and a package can only import itself from inside itself.
-  // The config is text here, so this is what catches a renamed export.
+  // The files are text here, so this is what catches a renamed export.
   await mkdir(join(ROOT, "data"), { recursive: true });
   const folder = await mkdtemp(join(ROOT, "data", "starter-"));
-  await writeFile(join(folder, "chloe.config.ts"), config);
+  for (const file of files) {
+    await mkdir(dirname(join(folder, file.path)), { recursive: true });
+    await writeFile(join(folder, file.path), file.body);
+  }
   const declared = (await import(pathToFileURL(join(folder, "chloe.config.ts")).href)).default;
-  is("the config it writes loads, with no agents", declared.agents, []);
+  is("the config it writes loads, with the first agent", declared.agents.map((one: { id: string }) => one.id), [STARTER_AGENT]);
+  const { resolveAgent } = await import("#chloe/load/load");
+  // The model is setup's to write into the settings, which this config has not been given.
+  const agent = await resolveAgent({ ...declared.agents[0], model: "m" });
+  is("and the agent loads, with its instructions read from its folder", agent.instructions.startsWith("You were set up"), true);
+  is("and may change itself", Boolean(agent.tools?.selfWriteFile), true);
   await rm(folder, { recursive: true, force: true });
 }
 

@@ -58,15 +58,19 @@ like `const BACKUPS = "/home/you/backups"` in the job that uses it.
 Setting chloe up is `npm install @chloejs/core` and then `npx chloe setup`,
 always the two together: in a folder without the package, `npx chloe` fetches
 an unrelated npm package that has the name. Setup asks, writes the files,
-checks that the model it was given actually answers, and runs a job. With no
-keyboard, which is how a coding agent runs it, or with `--yes`, every question
-takes its default. A config it writes gets the next free port when 3067 is
-taken, because two copies on one machine is how somebody tries chloe beside
-one already running. It sets no password: the server prints a link as it
-starts, which works once and only within the hour, so the one a coding agent
-reads and passes on is dead once used, where a password would not be.
-It writes no agent: the person's coding agent writes the first one from the
-guides, which setup's last lines point to. It writes no `AGENTS.md` or
+installs TypeScript with the project's own package manager, and checks that
+the model it was given actually answers. With no keyboard, which is how a
+coding agent runs it, or with `--yes`, every question takes its default. A
+config it writes gets the next free port when 3067 is taken, because two
+copies on one machine is how somebody tries chloe beside one already running.
+It sets no password: the server prints a link as it starts, which works once
+and only within the hour, so the one a coding agent reads and passes on is
+dead once used, where a password would not be. It writes one agent,
+`agents/assistant`, with instructions and nothing else, so there is something
+to talk to on the page as soon as chloe runs, and it changes itself into what
+its owner asks for. Setup's last lines tell a coding agent to make it into
+what the person asked for, from the guides. A config that was already there
+gets no agent, because nothing would list it. It writes no `AGENTS.md` or
 `CLAUDE.md`: those are the project's own. `ops/setup.ts` is that,
 `ops/starter.ts` is the files it writes, and neither is imported by the service.
 

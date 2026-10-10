@@ -4,9 +4,10 @@
 // Used by `npx chloe account` and `npx chloe setup`, which are the two commands
 // a person runs by hand and the only two that ask anything.
 //
-// Nothing here imports the rest of the runtime as it loads, because setup runs
-// before there is a chloe.config.ts to find, and every file that reads a
-// setting needs one.
+// Nothing here imports a file that reads a setting as it loads, because setup
+// runs before there is a chloe.config.ts to find, and reading a setting needs
+// one.
+import { cyan, dim } from "#chloe/core/style";
 
 /**
  * Whatever was typed past the end of the line just read, kept for the next
@@ -120,11 +121,11 @@ export function askHidden(question: string): Promise<string> {
 
 /**
  * A yes or a no, asked again until it is one of them. Enter takes `unsaid`,
- * which is why the question says which that is.
+ * and the question ends saying which that is, as (Y/n) or (y/N).
  */
 export async function yes(question: string, unsaid: boolean): Promise<boolean> {
   for (;;) {
-    const said = (await line(`${question} `, false)).trim().toLowerCase();
+    const said = (await line(`${question} ${dim(unsaid ? "(Y/n)" : "(y/N)")} `, false)).trim().toLowerCase();
     if (!said) return unsaid;
     if (["y", "yes"].includes(said)) return true;
     if (["n", "no"].includes(said)) return false;
@@ -137,10 +138,12 @@ export async function yes(question: string, unsaid: boolean): Promise<boolean> {
  * chosen entry's key, and Enter takes the first.
  */
 export async function pick<K extends string>(question: string, options: { key: K; what: string }[]): Promise<K> {
-  console.log(question);
-  options.forEach((one, at) => console.log(`  ${at + 1}  ${one.what}`));
+  const width = String(options.length).length;
+  console.log(`${question}\n`);
+  options.forEach((one, at) => console.log(`  ${cyan(String(at + 1).padStart(width))}  ${one.what}`));
+  console.log();
   for (;;) {
-    const said = (await line(`Which? (1-${options.length}) `, false)).trim();
+    const said = (await line(`Which? ${dim(`(1-${options.length})`)} `, false)).trim();
     if (!said) return options[0].key;
     const at = Number(said);
     if (Number.isInteger(at) && at >= 1 && at <= options.length) return options[at - 1].key;

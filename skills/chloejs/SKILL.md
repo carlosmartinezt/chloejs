@@ -17,10 +17,12 @@ npm install @chloejs/core
 ```
 
 That runs the copy just installed and downloads nothing. Setup asks nothing
-when there is no keyboard: it takes every default, writes the config with no agents, picks a free port and checks the model answers. The
-first agent is yours to write, for what the person asked, from the guides
-below. Give it an id that says what it does (`postie` for mail, `scout` for
-research): it becomes its folder and the name its runs are kept under. Run
+when there is no keyboard: it takes every default, writes the config and a
+first agent, `agents/assistant`, picks a free port and checks the model
+answers. Make that agent the one the person asked for, from the guides below.
+It has not run yet, so give it an id that says what it does (`postie` for mail,
+`scout` for research): its folder, its `id` and its line in `chloe.config.ts`.
+The id is the name its runs are kept under, so it stays once it has run. Run
 `npx chloe` only after the install, because without the package it fetches an
 unrelated one.
 
