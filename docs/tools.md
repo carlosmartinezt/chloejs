@@ -23,7 +23,7 @@ Import a set as a whole and bind each tool you want:
 | Set | Tools | Bound to | The model chooses |
 |---|---|---|---|
 | `fs` | `listFiles`, `readFile`, `searchFiles`, `writeFile`, `editFile` | `root`, one folder, and `what`, its name in words. Writes take `commit: true` to commit each one. | A path inside that folder. |
-| `web` | `readPage()` | nothing | Which public page to read. |
+| `web` | `readPage()`, `search()` | nothing. A search goes to Brave Search when `connections.brave.api_key` is set, and to DuckDuckGo when it is not. See [Connections](/docs/connections#brave-search). | Which public page to read; what to search for. |
 | `gmail` | `readEmail`, `replyEmail`, `sendEmail` | A Gmail search, or the From and To of what it sends. See [Connections](/docs/connections#the-google-tools). | How far back and how many; which listed message to answer. |
 | `calendar` | `listEvents`, `addEvent` | Which calendars. | The dates, and what an event says. |
 | `drive` | `searchFiles`, `readFile` | A Drive search, like one folder. | Words to look for; which listed file to read. |

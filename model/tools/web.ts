@@ -1,10 +1,13 @@
-// The tool over services/webService.ts: reading one public web page.
+// The tools over services/webService.ts and services/searchService.ts:
+// reading one public web page, and searching the web.
 //
 //   import * as web from "@chloejs/core/tools/web";
-//   tools: { webReadPage: web.readPage() }
+//   tools: { webReadPage: web.readPage(), webSearch: web.search() }
 import { tool } from "ai";
 import { z } from "zod";
 
+import { brave } from "#chloe/connections/brave/connection";
+import * as searchService from "#chloe/services/searchService";
 import * as webService from "#chloe/services/webService";
 
 /**
@@ -36,4 +39,34 @@ export function readPage() {
     }),
     execute: ({ url, from }) => webService.readPage(url, from ?? 0),
   });
+}
+
+/**
+ * Makes a tool that lets the model search the web, and get back up to 20
+ * results, each a title, an address and a line from the page. It reads a
+ * result with `readPage`.
+ *
+ * The query goes to Brave Search when `connections.brave.api_key` is set, and
+ * to DuckDuckGo's results page when it is not. DuckDuckGo needs no key but can
+ * refuse a machine that searches often, and then the tool says so.
+ *
+ * Takes no options.
+ *
+ * ```ts
+ * tools: { webReadPage: web.readPage(), webSearch: web.search() }
+ * ```
+ */
+export function search() {
+  const search = tool({
+    description:
+      "Search the web. Gives back results, each a title, a url and a line from the page: to read one, pass " +
+      "its url exactly as it came back. A line from a page is not the page, so read it " +
+      "before saying what it says.",
+    inputSchema: z.object({
+      query: z.string().min(1),
+      count: z.number().int().min(1).max(20).optional().describe("How many results, 10 if not said."),
+    }),
+    execute: ({ query, count }) => searchService.searchWeb(query, count),
+  });
+  return Object.assign(search, { needs: brave });
 }

@@ -1,7 +1,7 @@
 ---
 title: Connections
 order: 6.5
-summary: Signing in to Google, sending mail through Resend, which address each kind of mail comes from, a service's MCP server, and an account chloe does not ship.
+summary: Signing in to Google, sending mail through Resend, searching through Brave, which address each kind of mail comes from, a service's MCP server, and an account chloe does not ship.
 ---
 
 A connection is an outside account that tools work through. A tool says which
@@ -13,6 +13,7 @@ when chloe starts, say what each connection is still missing.
 |---|---|---|
 | [Google](#google) | Gmail, Calendar and Drive tools, and the email channel on Gmail | a Google app of your own, the account, and one sign-in |
 | [Resend](#resend) | sending mail from your own domain, and chloe's alerts | an API key |
+| [Brave Search](#brave-search) | `web.search`, which uses DuckDuckGo without it | an API key, if you want one |
 | [An MCP server](#mcp-servers) | a service's own tools, like GitHub's | its address and key, on one agent |
 
 ## Google
@@ -118,6 +119,23 @@ Then bind `resend.sendEmail()` from `@chloejs/core/tools/resend`.
 | `connections.resend.alerts` | on | Mail you when somebody signs in from an address this copy has not seen, when one is locked out for guessing, and when a job starts failing or works again. |
 | `connections.resend.email_to` | none | Where alerts go, one address or several split by commas. |
 | `connections.resend.email_from` | none | The alerts' From line, like `"Chloe <info@example.com>"`. |
+
+## Brave Search
+
+`web.search()` sends what the model searches for to Brave Search when there is
+a key, and to DuckDuckGo's results page when there is not. DuckDuckGo needs
+nothing set up, but it is a page for people rather than a service for programs,
+and it can stop answering a machine that searches often: the tool then says so
+rather than finding nothing. For an agent that searches every day, get a key
+at brave.com/search/api, put it in `.env` as
+`CHLOE_CONNECTIONS_BRAVE_API_KEY`, and in the config as
+`connections: { brave: { api_key: process.env.CHLOE_CONNECTIONS_BRAVE_API_KEY } }`.
+
+| Setting | Default | What it controls |
+|---|---|---|
+| `connections.brave.api_key` | none | The key. Without one, searches go to DuckDuckGo. |
+
+A job searches without a model with `searchWeb()` from `@chloejs/core/services`.
 
 ## Which address mail comes from
 

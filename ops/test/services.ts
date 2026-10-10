@@ -93,6 +93,22 @@ import { db, sent } from "./shared.ts";
 }
 
 {
+  about("searching the web");
+
+  const { duckDuckGoResults } = await import("#chloe/services/searchService");
+  const page =
+    '<div class="result results_links results_links_deep result--ad "><a class="result__a" href="https://ads.example/">Buy</a></div>' +
+    '<div class="result results_links results_links_deep web-result "><h2 class="result__title">' +
+    '<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fai%2Devents%3Fcity%3Dnyc&amp;rut=abc">AI &amp; <b>events</b></a></h2>' +
+    '<a class="result__snippet" href="//duckduckgo.com/l/?uddg=x">The best <b>AI</b> events\n in NYC</a></div>';
+  is(
+    "a result is its own address, its title and its line as plain text, and an ad is left out",
+    duckDuckGoResults(page),
+    [{ title: "AI & events", url: "https://example.com/ai-events?city=nyc", snippet: "The best AI events in NYC" }],
+  );
+}
+
+{
   about("a copy of the agents' database");
 
   const { copyDatabase } = await import("@chloejs/core");

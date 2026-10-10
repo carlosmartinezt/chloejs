@@ -238,6 +238,16 @@ export interface Settings {
        */
       email_from: string;
     };
+    /** Brave Search, where `web.search` sends a query. */
+    brave: {
+      /**
+       * Your Brave Search API key. It is a secret: put it in `.env`.
+       * Default: "" (none, so `web.search` asks DuckDuckGo's results page
+       * instead, which needs no key but can refuse a machine that searches
+       * often).
+       */
+      api_key: string;
+    };
     /**
      * Your Google sign-in. The Gmail, Calendar and Drive tools use it, and so
      * do `email.provider: "gmail"` and the email channel with
@@ -372,6 +382,7 @@ export const DEFAULTS: Settings = {
   email: { provider: "resend" },
   connections: {
     resend: { api_key: "", alerts: true, email_to: "", email_from: "" },
+    brave: { api_key: "" },
     google: { account: "", client: "", callback: "", GA_KEY_FILE: "" },
   },
   agents: {},
@@ -438,7 +449,7 @@ export function nameInEnv(path: string[]): string {
  * from your config with `process.env`. "agents" means the channel tokens of
  * every agent.
  */
-export const KEYS = ["model.key", "model.keys", "connections.resend.api_key", "connections.google.client", "agents"];
+export const KEYS = ["model.key", "model.keys", "connections.resend.api_key", "connections.brave.api_key", "connections.google.client", "agents"];
 
 
 /**
