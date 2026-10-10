@@ -354,7 +354,7 @@ export async function viaOpencode({ model, messages, tools, signal }: Ask): Prom
     const { files, notes } = attached(messages);
     await call(live, "POST", `/api/session/${session}/prompt`, { text: [transcript, ...notes].join("\n\n"), ...(files.length && { files }) }, signal);
     const read = await readAnswer(events(stream), session, (path, body) => call(live, "POST", `/api/session/${session}${path}`, body, signal, [404]));
-    return { text: read.said.join("\n\n"), toolCalls: handed(read.calls, tools), cost: read.cost ?? 0, tokensIn: read.tokensIn, tokensOut: read.tokensOut };
+    return { text: read.said.join("\n\n"), toolCalls: handed(read.calls, tools), cost: read.cost, tokensIn: read.tokensIn, tokensOut: read.tokensOut };
   } finally {
     quit.abort();
     if (server) await stop(server, session);
