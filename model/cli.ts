@@ -97,6 +97,13 @@ function parsedArguments(raw: string): unknown {
 export function asText({ messages, tools, native }: { messages: Message[]; tools?: ToolSpec[]; native?: string }): {
   system: string;
   transcript: string;
+  /**
+   * The transcript cut at each message, joined back it is the same text. A
+   * part never changes once written, the break before it starting the next
+   * one, so a route that sends one block per part sends the same blocks a step
+   * later with more after them, and the provider's cache can match them.
+   */
+  parts: string[];
 } {
   const system = [
     ...messages.filter((m) => m.role === "system").map((m) => m.content),
@@ -104,14 +111,13 @@ export function asText({ messages, tools, native }: { messages: Message[]; tools
     ...(tools?.length && native ? [named(native, tools[0].name)] : []),
   ].join("\n\n");
   let names = new Map<string, string>();
-  const transcript = messages
+  const parts = messages
     .filter((m) => m.role !== "system")
-    .map((m) => {
+    .map((m, i) => {
       if (m.role === "assistant") names = new Map((m.tool_calls ?? []).map((c) => [c.id, c.function.name]));
-      return render(m, names, native);
-    })
-    .join("\n\n");
-  return { system, transcript };
+      return (i ? "\n\n" : "") + render(m, names, native);
+    });
+  return { system, transcript: parts.join(""), parts };
 }
 
 /**

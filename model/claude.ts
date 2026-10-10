@@ -68,10 +68,10 @@ function isLimit(answer: CliAnswer): boolean {
 }
 
 export async function viaClaude({ model, messages, tools, signal }: Ask): Promise<Answer> {
-  const { system, transcript } = asText({ messages, tools, native: PREFIX });
+  const { system, parts } = asText({ messages, tools, native: PREFIX });
   const folder = tools?.length ? await mkdtemp(join(tmpdir(), "chloe-claude-")) : "";
   try {
-    return await asked({ model, system, transcript, messages, tools, signal, folder });
+    return await asked({ model, system, parts, messages, tools, signal, folder });
   } finally {
     if (folder) await rm(folder, { recursive: true, force: true });
   }
@@ -145,7 +145,7 @@ export async function claudeModels(): Promise<string[]> {
   return [];
 }
 
-async function asked({ model, system, transcript, messages, tools, signal, folder }: Ask & { system: string; transcript: string; folder: string }): Promise<Answer> {
+async function asked({ model, system, parts, messages, tools, signal, folder }: Ask & { system: string; parts: string[]; folder: string }): Promise<Answer> {
   const args = [
     "-p",
     "--output-format",
@@ -173,29 +173,28 @@ async function asked({ model, system, transcript, messages, tools, signal, folde
     args.push("--mcp-config", servers, "--allowedTools", ...tools.map((one) => `${PREFIX}${one.name}`), "--max-turns", "1");
   }
 
-  // Files cannot go in plain text, so a turn with any is sent as one message
-  // of blocks instead, which the CLI only takes as stream-json. Its last line
-  // is the same answer the plain call prints.
+  // One message of blocks, one block per message of the conversation, which
+  // the CLI only takes as stream-json. The CLI caches up to the end of what it
+  // is sent, and the next step finds that entry only at a block's edge: sent
+  // as one block, the whole conversation was written to the cache again on
+  // every step and never read back. Files go after it. The answer's record,
+  // where a tool call is, comes as stream-json too.
   const files = messages.flatMap((m) => m.attachments ?? []);
-  const input = files.length
-    ? JSON.stringify({
-        type: "user",
-        message: {
-          role: "user",
-          content: [
-            { type: "text", text: transcript },
-            ...files.map((f) => ({
-              type: f.mediaType.startsWith("image/") ? "image" : "document",
-              source: { type: "base64", media_type: f.mediaType, data: f.data },
-            })),
-          ],
-        },
-      }) + "\n"
-    : transcript;
-  // The record of each answer, which is where a tool call is, comes only as stream-json.
-  const streamed = files.length > 0 || Boolean(tools?.length);
-  if (streamed) args.splice(args.indexOf("--output-format"), 2, "--output-format", "stream-json", "--verbose");
-  if (files.length) args.push("--input-format", "stream-json");
+  const input =
+    JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          ...parts.filter((part) => part.trim()).map((text) => ({ type: "text", text })),
+          ...files.map((f) => ({
+            type: f.mediaType.startsWith("image/") ? "image" : "document",
+            source: { type: "base64", media_type: f.mediaType, data: f.data },
+          })),
+        ],
+      },
+    }) + "\n";
+  args.splice(args.indexOf("--output-format"), 2, "--output-format", "stream-json", "--verbose", "--input-format", "stream-json");
 
   const cli = settings.model.program.claude;
   const { code, out, err } = await invoke(cli, args, input, {
@@ -206,22 +205,12 @@ async function asked({ model, system, transcript, messages, tools, signal, folde
     // call on the route that says it is a subscription.
     env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: MOST, ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined },
   });
-  let answer: CliAnswer | undefined;
-  let read: ReturnType<typeof readStream> | undefined;
-  if (streamed) {
-    read = readStream(out, tools?.map((one) => one.name));
-    answer = read.answer;
-    if (!answer && code === 0) throw new Error(`Model call refused: claude did not end with a result: ${out.slice(0, 500)}`);
-  } else {
-    try {
-      answer = JSON.parse(out) as CliAnswer;
-    } catch {
-      if (code === 0) throw new Error(`Model call refused: claude did not answer with JSON: ${out.slice(0, 500)}`);
-    }
-  }
+  const read = readStream(out, tools?.map((one) => one.name));
+  const answer = read.answer;
+  if (!answer && code === 0) throw new Error(`Model call refused: claude did not end with a result: ${out.slice(0, 500)}`);
   // Stopped after one answer because it asked for tools, which is the point of
   // that limit, and not a failure.
-  const asking = Boolean(read?.calls.length) && answer?.subtype === "error_max_turns";
+  const asking = Boolean(read.calls.length) && answer?.subtype === "error_max_turns";
   if (answer && isLimit(answer)) {
     const said = answer.result?.trim() ? ` It says: ${answer.result.trim()}` : "";
     throw new UsageLimit(`I have hit the usage limit on the Claude plan, so I cannot answer until it resets.${said}`);
@@ -239,8 +228,8 @@ async function asked({ model, system, transcript, messages, tools, signal, folde
   return {
     // With tools the words are those of the answer itself, never the result
     // line, which on a stop for tools is empty.
-    text: read && tools?.length ? read.said : (answer.result ?? ""),
-    toolCalls: read?.calls ?? [],
+    text: tools?.length ? read.said : (answer.result ?? ""),
+    toolCalls: read.calls,
     // What it would have cost on the API. A subscription is not billed per
     // call, so this prices the run rather than charging it.
     cost: answer.total_cost_usd,

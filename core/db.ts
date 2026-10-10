@@ -165,7 +165,7 @@ db.exec("create table if not exists seen (agent text primary key, at text not nu
  * are left to GET /api/runs/:id.
  */
 export const RUN_COLUMNS =
-  "id, agent, started, finished, source, job, model, steps, cost, unpriced, error, reply, summary, archived, substr(coalesce(asked, prompt), 1, 200) as asked, held is not null as trial";
+  "id, agent, started, finished, source, job, model, steps, cost, unpriced, error, reply, summary, archived, thread, substr(coalesce(asked, prompt), 1, 200) as asked, held is not null as trial";
 
 /** One commit a run made: in the agent's memory, or in the repo its own folder is in. */
 export interface RunCommit {

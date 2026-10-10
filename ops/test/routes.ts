@@ -127,6 +127,11 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   });
   is("where the route lists tools longer, a past call has the listed name", listed.transcript.includes("(called mcp__chloe__memoryListFiles with {})"), true);
   is("and the instructions say a short name is the listed one", listed.system.includes("it is the one listed as `mcp__chloe__memoryListFiles`"), true);
+  // The claude route sends a part a block, and the cache matches a block only if it is the same one.
+  const before = asText({ messages: [{ role: "user", content: "look" }, { role: "assistant", content: "seen" }] });
+  const after = asText({ messages: [{ role: "user", content: "look" }, { role: "assistant", content: "seen" }, { role: "user", content: "again" }] });
+  is("the parts joined are the transcript", after.parts.join(""), after.transcript);
+  is("a message added leaves every part before it as it was", after.parts.slice(0, 2), before.parts);
   is("a route that lists them as they are says nothing extra", asText({ native: "", tools: memoryListFiles, messages: [{ role: "system", content: "x" }] }).system, "x");
   is(
     "results of several calls say which call each answers",
@@ -341,7 +346,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     settings.model.preferredRoute = ["claude", "codex", "opencode", "gateway"];
 
     // The claude command would bill one of these over the subscription.
-    const keyless = await fake("claude-keyless", 'cat >/dev/null; printf \'{"result":"[%s%s]","is_error":false}\' "$ANTHROPIC_API_KEY" "$ANTHROPIC_AUTH_TOKEN"');
+    const keyless = await fake("claude-keyless", 'cat >/dev/null; printf \'{"type":"result","result":"[%s%s]","is_error":false}\' "$ANTHROPIC_API_KEY" "$ANTHROPIC_AUTH_TOKEN"');
     pin(keyless, anyCli, opencodeCli);
     process.env.ANTHROPIC_API_KEY = "sk-ant-in-env";
     process.env.ANTHROPIC_AUTH_TOKEN = "token-in-env";
@@ -354,7 +359,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
 
     // A model now and then loops on its own tool syntax until the most an
     // answer may be, which by default takes ten minutes.
-    const capped = await fake("claude-capped", 'cat >/dev/null; printf \'{"result":"%s","is_error":false}\' "$CLAUDE_CODE_MAX_OUTPUT_TOKENS"');
+    const capped = await fake("claude-capped", 'cat >/dev/null; printf \'{"type":"result","result":"%s","is_error":false}\' "$CLAUDE_CODE_MAX_OUTPUT_TOKENS"');
     pin(capped, anyCli, opencodeCli);
     const { viaClaude } = await import("#chloe/model/claude");
     const said = await viaClaude({ model: "anthropic/claude-sonnet-5", messages: [{ role: "user", content: "hi" }] } as any);
@@ -371,7 +376,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     await writeFile(join(bin, "record.jsonl"), `${record}\n`);
     const toolCli = await fake(
       "claude-tools",
-      `cat >/dev/null; case "$*" in *--mcp-config*--max-turns\\ 1*) cat "${join(bin, "record.jsonl")}" ;; *) printf '{"result":"no tools","is_error":false}' ;; esac`,
+      `cat >/dev/null; case "$*" in *--mcp-config*--max-turns\\ 1*) cat "${join(bin, "record.jsonl")}" ;; *) printf '{"type":"result","result":"no tools","is_error":false}' ;; esac`,
     );
     pin(toolCli, anyCli, opencodeCli);
     const tools = [{ name: "gmailReadEmail", description: "Read mail.", parameters: { type: "object", properties: { days: { type: "number" } } } }];

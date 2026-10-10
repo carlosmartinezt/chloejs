@@ -49,6 +49,8 @@ export interface RunRow {
   archived?: string | null;
   /** 1 for a trial run, which sent nothing. */
   trial?: number;
+  /** The conversation it was a turn of, or null for a job. */
+  thread?: string | null;
 }
 
 /**

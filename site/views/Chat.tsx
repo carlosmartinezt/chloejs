@@ -109,12 +109,14 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
   const [trouble, setTrouble] = useState("");
   // The conversations waiting on an answer. Each one is its own, so another
   // conversation opened meanwhile is not shown as thinking, and can be spoken to.
-  const [waitingOn, setWaitingOn] = useState<ReadonlySet<string>>(new Set());
+  // Each with when it was asked, for the clock beside "Thinking".
+  const [waitingOn, setWaitingOn] = useState<ReadonlyMap<string, number>>(new Map());
   const [loading, setLoading] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; one: Thread } | null>(null);
   const [naming, setNaming] = useState("");
   const [archived, setArchived] = useState(false);
-  const [doing, setDoing] = useState("");
+  const [doing, setDoing] = useState<string[]>([]);
+  const [now, setNow] = useState(Date.now());
   const [summary, setSummary] = useState<AgentSummary | null>(null);
   const [offered, setOffered] = useState<string[]>([]);
   const [picking, setPicking] = useState<{ x: number; y: number } | null>(null);
@@ -153,7 +155,16 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
 
   // A pick for this conversation beats what the agent runs on otherwise.
   const waiting = waitingOn.has(thread);
+  const since = waitingOn.get(thread);
   const open = useRef(thread);
+  // The conversations this page is waiting on an answer from.
+  const asking = useRef(new Set<string>());
+  const done = (one: string) =>
+    setWaitingOn((all) => {
+      const left = new Map(all);
+      left.delete(one);
+      return left;
+    });
   open.current = thread;
   const picked = summary?.chosen.find((one) => one.scope === `chat:${thread}`)?.model;
   const model = picked ?? summary?.model ?? "";
@@ -211,6 +222,12 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
       (said) => live && setLines(said),
       () => live && setLines([]),
     ).finally(() => live && setLoading(false));
+    // A turn still going, asked before a reload or from another window, is
+    // shown as thinking from when it started.
+    api.runs(10, agent).then((runs) => {
+      const going = runs.find((run) => !run.finished && run.thread === thread);
+      if (live && going) setWaitingOn((all) => (all.has(thread) ? all : new Map(all).set(thread, Date.parse(going.started))));
+    }, () => {});
     return () => {
       live = false;
     };
@@ -221,23 +238,29 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
   }, [lines, waiting]);
 
   // What it is doing while it is doing it. A turn writes its trace step by
-  // step, so the run it is in the middle of says which tool it just reached
-  // for. A tool that only touched the agent itself is not named: it is still
-  // thinking. Nothing here makes it happen, it only watches.
+  // step, so the run it is in the middle of says which tools it has reached
+  // for. Nothing here makes it happen, it only watches. A turn this page did
+  // not ask for has no answer coming back to wait on, so when its run
+  // finishes, the conversation is read again instead.
   useEffect(() => {
-    if (!waiting) return void setDoing("");
+    if (!waiting) return void setDoing([]);
     let live = true;
     let id: string | undefined;
     async function look() {
       try {
         if (!id) {
           const lately = await api.runs(5, agent);
-          id = lately.find((run) => !run.finished && run.source === "chat")?.id;
+          id = lately.find((run) => !run.finished && run.thread === thread)?.id;
         }
         if (!id) return;
         const run = await api.run(id);
-        const last = [...run.trace].reverse().find((step) => step.tool ?? step.name);
-        if (live) setDoing(last && !last.own ? (last.tool ?? last.name ?? "") : "");
+        const used = run.trace.map((step) => step.tool ?? step.name).filter((name): name is string => Boolean(name));
+        if (live) setDoing(used);
+        if (live && run.finished && !asking.current.has(thread)) {
+          done(thread);
+          api.said(thread).then((said) => open.current === thread && setLines(said), () => {});
+          api.threads(agent).then(setThreads, () => {});
+        }
       } catch {
         // The turn can finish between the two reads, which is not a problem.
       }
@@ -248,7 +271,13 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
       live = false;
       clearInterval(timer);
     };
-  }, [waiting, agent]);
+  }, [waiting, agent, thread]);
+
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [waiting]);
 
   /** Pasted, dropped or picked: pictures are held to go with the next message, anything else is said no to. */
   async function hold(files: FileList | File[]) {
@@ -282,7 +311,8 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
       { role: "user", content: asked, at: new Date().toISOString(), pictures: sending.length ? sending.map((one) => one.url) : undefined },
     ]);
     const to = thread;
-    setWaitingOn((all) => new Set(all).add(to));
+    setWaitingOn((all) => new Map(all).set(to, Date.now()));
+    asking.current.add(to);
     // An answer to a conversation no longer open is not shown here: opening it
     // again reads it back with the answer in it.
     const here = (line: Line) => open.current === to && setLines((said) => [...said, line]);
@@ -298,11 +328,8 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
     } catch (error) {
       here({ role: "assistant", content: (error as Error).message, failed: true });
     } finally {
-      setWaitingOn((all) => {
-        const left = new Set(all);
-        left.delete(to);
-        return left;
-      });
+      asking.current.delete(to);
+      done(to);
     }
   }
 
@@ -514,7 +541,8 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
                   <i />
                 </span>
                 Thinking
-                {doing && <span className="num doing">{doing}</span>}
+                {since !== undefined && <span className="num">{lasted(now - since)}</span>}
+                {doing.length > 0 && <span className="num doing">{used(doing)}</span>}
               </p>
             )}
             <div ref={foot} />
@@ -602,4 +630,21 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
       </div>
     </div>
   );
+}
+
+/** How long it has been thinking: "8s", "1m 05s". */
+function lasted(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+/** The tools reached for so far, in order, a run of the same one said once with how many times. The last few only. */
+function used(names: string[]): string {
+  const runs: { name: string; times: number }[] = [];
+  for (const name of names) {
+    const last = runs.at(-1);
+    if (last?.name === name) last.times++;
+    else runs.push({ name, times: 1 });
+  }
+  return runs.slice(-4).map(({ name, times }) => (times > 1 ? `${name} ×${times}` : name)).join(", ");
 }
