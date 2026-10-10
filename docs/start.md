@@ -5,7 +5,8 @@ summary: Install, run setup, and what each file it writes is for.
 ---
 
 Node 22.18 or newer. Node runs your TypeScript as it is, so there is no build
-step.
+step. `command not found: npx` means Node is not installed: on a Mac, take the
+installer from [nodejs.org](https://nodejs.org).
 
 ```sh
 npm install @chloejs/core
