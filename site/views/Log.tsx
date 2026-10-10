@@ -2,7 +2,7 @@ import { type CSSProperties, Fragment, type PointerEvent, type ReactNode, useEff
 
 import type { AgentSummary, Run, RunRow, Step, Visitor } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
-import { ago, clock, dayOf, kindOf, labelOf, many, money, text, when } from "../lib/format.ts";
+import { ago, clock, dayOf, kindOf, labelOf, many, spent, text, when } from "../lib/format.ts";
 import { gist } from "./Chat.tsx";
 import { ChangeCard } from "./components/Changes.tsx";
 import { rich } from "./components/Markdown.tsx";
@@ -58,7 +58,7 @@ export function LogTable({
             <td className="right num">{run.steps}</td>
             <td className="right num">
               {/* A job with no model step in it costs nothing, and that is worth seeing. */}
-              {run.cost ? money(run.cost) : <span className="free">free</span>}
+              {run.cost || run.unpriced ? spent(run.cost, run.unpriced) : <span className="free">free</span>}
             </td>
             <td className="right num">
               {run.error ? (
@@ -305,7 +305,7 @@ export function Log({
                           {answered(run)}
                         </span>
                       </span>
-                      <span className="num dim">{run.cost ? money(run.cost) : "free"}</span>
+                      <span className="num dim">{spent(run.cost, run.unpriced)}</span>
                       <span className="num dim">{clock(run.started).slice(0, 5)}</span>
                     </button>
                     <button
@@ -390,7 +390,7 @@ function RunTip({ run, top, left }: { run: RunRow; top: number; left: number }) 
     ...(run.job ? [["job", run.job] as [string, string]] : []),
     ...(run.model ? [["model", run.model] as [string, string]] : []),
     ["steps", String(run.steps)],
-    ["cost", run.cost ? money(run.cost) : "free"],
+    ["cost", spent(run.cost, run.unpriced)],
     ["state", run.error ? "failed" : run.finished ? "finished" : "running"],
     ...(run.archived ? [["archived", when(run.archived)] as [string, string]] : []),
   ];
@@ -478,7 +478,7 @@ function RunDetail({ id, agents }: { id: string; agents: AgentSummary[] }) {
           <p className="when num">
             {when(run.started)}
             {lasted && `, took ${lasted}`}
-            {`, ${run.cost ? money(run.cost) : "free"}`}
+            {`, ${spent(run.cost, run.unpriced)}`}
           </p>
         </div>
       </div>
@@ -572,7 +572,7 @@ function RunThread({ run }: { run: Run }) {
         <div key={at} className="msg them model">
           <div className="who">{`${model} on ${step.name}`}</div>
           <Answer value={step.result} />
-          <Meta words={saidBy(`answered${step.ms ? ` in ${took(step.ms)}` : ""}`, step.at, money(step.cost))} />
+          <Meta words={saidBy(`answered${step.ms ? ` in ${took(step.ms)}` : ""}`, step.at, spent(step.cost, step.unpriced))} />
         </div>,
       );
       return;
@@ -598,7 +598,7 @@ function RunThread({ run }: { run: Run }) {
       show(
         <div className="msg them" key={at}>
           <div className="said">{rich(step.say)}</div>
-          <Meta words={saidBy(agent, step.at, money(step.cost))} />
+          <Meta words={saidBy(agent, step.at, spent(step.cost, step.unpriced))} />
         </div>,
       );
     }
@@ -866,7 +866,7 @@ function Context({ value }: { value: unknown }) {
 
 /** A tool call or a job step, folded to one line. A failed one opens itself. */
 function Card({ name, step, body }: { name: string; step: Step; body?: ReactNode }) {
-  const facts = [clock(step.at), step.ms ? took(step.ms) : "", step.cost ? money(step.cost) : "", step.note ?? ""].filter(Boolean);
+  const facts = [clock(step.at), step.ms ? took(step.ms) : "", step.cost || step.unpriced ? spent(step.cost, step.unpriced) : "", step.note ?? ""].filter(Boolean);
   const gist =
     typeof step.failed === "string" ? step.failed : body && Array.isArray(step.result) ? many(step.result.length, "message") : brief(step.result);
   const script = scriptRun(step.result);

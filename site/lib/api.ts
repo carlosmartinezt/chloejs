@@ -165,7 +165,7 @@ export const api = {
   forget: (thread: string) => call<unknown>(`/threads/${encodeURIComponent(thread)}/forget`, {}),
   /** Pictures go with this turn only: the runtime keeps the line saying they were attached, never the picture. */
   say: (agent: string, prompt: string, thread: string, images: Picture[] = []) =>
-    call<{ runId: string; text: string; cost: number }>(`/agents/${agent}/chat`, images.length ? { prompt, thread, images } : { prompt, thread }),
+    call<{ runId: string; text: string; cost: number; unpriced?: number }>(`/agents/${agent}/chat`, images.length ? { prompt, thread, images } : { prompt, thread }),
 
   /** What .env sets, by name. A value goes in and never comes back out. */
   keys: () => call<Key[]>("/keys"),

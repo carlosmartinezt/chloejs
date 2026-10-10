@@ -285,6 +285,7 @@ interface Row {
   summary: string | null;
   steps: number;
   cost: number;
+  unpriced: number;
   trace: string;
   parked: string | null;
 }
@@ -305,7 +306,7 @@ export function ownRuns(agent: string, options: { job?: string; limit?: number }
   const where = options.job === "chat" ? "and job is null" : options.job ? "and job = ?" : "";
   const rows = db
     .prepare(
-      `select id, job, source, started, finished, cost, steps, error is not null as failed, parked is not null as waiting
+      `select id, job, source, started, finished, cost, unpriced, steps, error is not null as failed, parked is not null as waiting
        from runs where agent = ? and source != 'eval' ${where} order by started desc limit ?`,
     )
     .all(...[agent, ...(options.job && options.job !== "chat" ? [options.job] : []), limit]) as Record<string, unknown>[];
@@ -317,6 +318,7 @@ export function ownRuns(agent: string, options: { job?: string; limit?: number }
       started: one.started,
       finished: one.finished,
       cost: one.cost,
+      ...(one.unpriced ? { unpriced: one.unpriced } : {}),
       steps: one.steps,
       ...(one.failed ? { failed: true } : {}),
       ...(one.waiting ? { waiting: true } : {}),
@@ -341,6 +343,7 @@ export function ownRun(agent: string, id: string) {
     finished: row.finished,
     model: row.model,
     cost: row.cost,
+    ...(row.unpriced ? { unpriced: row.unpriced } : {}),
     // A job's prompt is its own words, which selfReadFile shows; a conversation's is what was said.
     ...(row.job ? {} : { asked: clip(row.asked ?? row.prompt) }),
     ...(row.reply ? { reply: clip(row.reply) } : {}),
@@ -360,6 +363,7 @@ function jobStep(line: Record<string, unknown>) {
     kind: line.kind,
     ms: line.ms,
     ...(line.cost ? { cost: line.cost } : {}),
+    ...(line.unpriced ? { unpriced: line.unpriced } : {}),
     ...(line.question ? { question: line.question } : {}),
     ...(line.reply ? { answered: clip(line.reply) } : {}),
     ...(line.result !== undefined ? { result: clip(line.result) } : {}),

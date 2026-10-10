@@ -414,6 +414,8 @@ export interface Handled {
   steps: number;
   /** What the run cost, in US dollars. 0 when nothing ran. */
   cost: number;
+  /** How many of the run's model answers came with no price. Set only when some did: the run then cost at least `cost`. */
+  unpriced?: number;
   /** The id of the job that handled the message, if a job did. */
   job?: string;
   /**
@@ -726,7 +728,7 @@ async function started(agent: Agent, message: Incoming, job: Job, text: string):
       return { text, steps: 0, cost: 0, job: job.id };
     }
     const reply = replyOf(result, job);
-    return { text: reply, runId: result.runId, steps: result.steps, cost: result.cost, job: job.id };
+    return { text: reply, runId: result.runId, steps: result.steps, cost: result.cost, ...(result.unpriced ? { unpriced: result.unpriced } : {}), job: job.id };
   } catch (error) {
     // What was sent did not fit the job, which is worth saying where it was
     // sent: it is the message that has to change.
@@ -770,7 +772,7 @@ async function handedTo(agent: Agent, message: Incoming, id: string): Promise<Ha
     }
     const reply = replyOf(result, job);
     if (result.runId) kept(message, reply);
-    return { text: reply, runId: result.runId, steps: result.steps, cost: result.cost, job: job.id };
+    return { text: reply, runId: result.runId, steps: result.steps, cost: result.cost, ...(result.unpriced ? { unpriced: result.unpriced } : {}), job: job.id };
   } catch (error) {
     console.error(`${agent.id}/${job.id}: failed`, error);
     return wrong;
@@ -783,7 +785,7 @@ async function answered(agent: Agent, message: Incoming, runId: string, job: str
     // Still parked means the answer did not fit, and the job has already asked again.
     const reply = result.parked ? "" : result.reply || result.summary || result.text || "Done.";
     kept(message, reply);
-    return { text: reply, runId: result.runId, steps: result.steps, cost: result.cost, job };
+    return { text: reply, runId: result.runId, steps: result.steps, cost: result.cost, ...(result.unpriced ? { unpriced: result.unpriced } : {}), job };
   } catch (error) {
     console.error(`${message.channel}: answering a waiting job failed`, error);
     return { text: "I could not carry that job on. It is in the logs on the box.", steps: 0, cost: 0 };
@@ -850,7 +852,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
       signal: message.signal,
     });
     await sending;
-    return { text: result.text || "(no reply)", runId: result.runId, steps: result.steps, cost: result.cost };
+    return { text: result.text || "(no reply)", runId: result.runId, steps: result.steps, cost: result.cost, ...(result.unpriced ? { unpriced: result.unpriced } : {}) };
   } catch (error) {
     console.error(`${message.channel}: turn failed`, error);
     if (error instanceof UsageLimit) return { text: error.message, steps: 0, cost: 0 };

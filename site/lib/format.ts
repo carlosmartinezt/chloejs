@@ -3,6 +3,9 @@
 import type { ParkedRun, RunRow } from "./types.ts";
 
 export const money = (n: number | null | undefined) => `$${Number(n ?? 0).toFixed(4)}`;
+/** What a run or a step spent: "free", "$0.0004", or "unknown" and "at least $0.0004" when some of its answers came with no price. */
+export const spent = (cost: number | null | undefined, unpriced?: number | boolean) =>
+  unpriced ? (cost ? `at least ${money(cost)}` : "unknown") : cost ? money(cost) : "free";
 
 /** How long ago, for a page somebody reads in the morning. */
 export const ago = (iso: string | null): string => {

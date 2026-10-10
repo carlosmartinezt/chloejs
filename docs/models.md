@@ -96,8 +96,8 @@ off, so every tool call is chloe's and is written down.
 
 A run on the claude route shows what it would have cost on the API, as a price,
 not a charge. opencode names the price its own list gives the model: a charge
-on an account that pays per call, only a price on a plan. codex names no price,
-so its runs cost 0 in the record.
+on an account that pays per call, only a price on a plan. codex names no price, so what its runs cost is unknown, and a
+`budget` or a web chat's dollar limit cannot be kept on it.
 
 ## Picking one from a chat
 

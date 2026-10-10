@@ -25,6 +25,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 
 import { bold, dim } from "#chloe/core/style";
+import { spentText } from "#chloe/core/turn";
 import { CONFIG, loadSettings } from "#chloe/load/load";
 import { ownAddress } from "#chloe/serve/http";
 import { ownCookie } from "#chloe/serve/login";
@@ -40,6 +41,7 @@ interface Result {
   text: string;
   steps: number;
   cost: number;
+  unpriced?: number;
 }
 
 interface Listed {
@@ -68,6 +70,7 @@ interface Step {
   kind: "step" | "model" | "ask" | "wait";
   ms: number;
   cost: number;
+  unpriced?: number;
 }
 
 /** One line of a conversation's record: what the model said, or one tool it ran. */
@@ -77,6 +80,7 @@ interface Line {
   dropped?: string;
   wants?: string[];
   cost?: number;
+  unpriced?: boolean;
   tool?: string;
   args?: unknown;
   result?: unknown;
@@ -93,6 +97,7 @@ interface Run {
   job?: string | null;
   steps?: number;
   cost?: number;
+  unpriced?: number;
   error?: string | null;
   reply?: string | null;
   parked?: string | null;
@@ -138,7 +143,7 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
 
 function show(result: Result): void {
   console.log(`\n${result.text.trim()}\n`);
-  console.log(dim(`(${result.steps} step${result.steps === 1 ? "" : "s"}, $${result.cost.toFixed(4)})\n`));
+  console.log(dim(`(${result.steps} step${result.steps === 1 ? "" : "s"}, ${spentText(result.cost, result.unpriced)})\n`));
 }
 
 /**
@@ -279,7 +284,7 @@ if (job) {
       else console.log(`\n${(run.reply ?? "").trim()}\n`);
       const seconds = (Date.parse(run.finished) - Date.parse(run.started)) / 1000;
       console.log(
-        dim(`(${run.steps ?? 0} steps, ${seconds.toFixed(1)}s, $${(run.cost ?? 0).toFixed(4)}, run ${runId})\n`),
+        dim(`(${run.steps ?? 0} steps, ${seconds.toFixed(1)}s, ${spentText(run.cost ?? 0, run.unpriced)}, run ${runId})\n`),
       );
       process.exit(run.error ? 1 : 0);
     }
@@ -290,10 +295,11 @@ if (job) {
 
 /** A line of a run as it happens: a code step with its time, a tool and what it was given, or what the model said. */
 function traced(step: Step | Line): string {
-  const price = (cost?: number) => (cost && cost > 0 ? `  $${cost.toFixed(4)}` : "");
+  const price = (cost?: number, unpriced?: number | boolean) =>
+    unpriced ? `  ${spentText(cost ?? 0, Number(unpriced))}` : cost && cost > 0 ? `  $${cost.toFixed(4)}` : "";
   if ("seq" in step) {
     const kind = step.kind === "step" ? "" : `  ${step.kind}`;
-    return `${step.name}${dim(`  ${(step.ms / 1000).toFixed(1)}s${price(step.cost)}${kind}`)}`;
+    return `${step.name}${dim(`  ${(step.ms / 1000).toFixed(1)}s${price(step.cost, step.unpriced)}${kind}`)}`;
   }
   if (step.tool) {
     const args = JSON.stringify(step.args ?? {});
@@ -302,7 +308,7 @@ function traced(step: Step | Line): string {
   }
   const words = (step.say ?? "").trim().split("\n")[0] || "(asked for tools)";
   const aside = step.dropped ? `  set aside ${step.dropped.length} characters it wrote as if its tools had answered` : "";
-  return `${words.length > 120 ? `${words.slice(0, 120)}...` : words}${dim(`${price(step.cost)}${aside}`)}`;
+  return `${words.length > 120 ? `${words.slice(0, 120)}...` : words}${dim(`${price(step.cost, step.unpriced)}${aside}`)}`;
 }
 
 // Piped in, or a question on the command line: one turn and out, so it can be

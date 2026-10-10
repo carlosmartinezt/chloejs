@@ -93,6 +93,13 @@ interface Price {
 
 /** Each model's price from the gateway's list, kept since it last answered, by its name as `spelling` writes it. */
 let prices = new Map<string, Price>();
+/** The fetch of that list while it is in flight, which a call waits for before it is priced. */
+let fetching: Promise<unknown> = Promise.resolve();
+
+/** Says the price list is being fetched, so calls that finish meanwhile wait for it rather than go unpriced. */
+export function fetchingPrices(fetch: Promise<unknown>): void {
+  fetching = fetch;
+}
 
 /**
  * A model's name with the difference between the gateway's and a provider's
@@ -106,16 +113,17 @@ export function spelling(name: string): string {
 /**
  * Keeps the prices from the gateway's list of models, which is what a call on
  * a provider's own key is charged at, since that provider says tokens and not
- * dollars. A model missing from the list costs 0 in the record.
+ * dollars. A model missing from the list has no price, and its calls are
+ * recorded as unknown.
  */
 export function learnPrices(list: { id?: string; pricing?: Price }[]): void {
   prices = new Map(list.flatMap((one) => (one.id && one.pricing ? [[spelling(one.id), one.pricing]] : [])));
 }
 
-/** What a call on a provider's own key cost, in dollars, or 0 when the gateway's list has no price for it. */
-export function priced(model: string, usage: LanguageModelUsage): number {
+/** What a call on a provider's own key cost, in dollars, or undefined when the gateway's list has no price for it. */
+export function priced(model: string, usage: LanguageModelUsage): number | undefined {
   const price = prices.get(spelling(model));
-  if (!price) return 0;
+  if (!price) return undefined;
   const per = (one: string | undefined, fallback = 0) => (one === undefined ? fallback : Number(one) || 0);
   const input = per(price.input);
   const { noCacheTokens, cacheReadTokens = 0, cacheWriteTokens = 0 } = usage.inputTokenDetails;
@@ -134,13 +142,14 @@ export function priced(model: string, usage: LanguageModelUsage): number {
  * picked out of the answer here because the SDK only reads tokens.
  */
 function gateway(apiKey: string): (id: string) => LanguageModel {
-  const costOf = (body: unknown) => {
+  const costOf = (body: unknown): number | undefined => {
     const usage = (body as { usage?: { cost?: number; cost_details?: { upstream_inference_cost?: number } } })?.usage;
     // The gateway reports cost 0 for a user's own provider key and puts the
-    // real number in upstream_inference_cost.
-    return usage?.cost || usage?.cost_details?.upstream_inference_cost || 0;
+    // real number in upstream_inference_cost. No cost at all is not 0.
+    const said = usage?.cost || usage?.cost_details?.upstream_inference_cost || usage?.cost;
+    return typeof said === "number" ? said : undefined;
   };
-  let streamed = 0;
+  let streamed: number | undefined;
   return createOpenAICompatible({
     name: "gateway",
     baseURL: settings.model.gatewayUrl.replace(/\/chat\/completions\/?$/, ""),
@@ -149,7 +158,10 @@ function gateway(apiKey: string): (id: string) => LanguageModel {
     metadataExtractor: {
       extractMetadata: async ({ parsedBody }) => ({ gateway: { cost: costOf(parsedBody) } }),
       createStreamExtractor: () => ({
-        processChunk: (chunk) => void (streamed = costOf(chunk) || streamed),
+        processChunk: (chunk) => {
+          const said = costOf(chunk);
+          if (said !== undefined && (said > 0 || streamed === undefined)) streamed = said;
+        },
         buildMetadata: () => ({ gateway: { cost: streamed } }),
       }),
     },
@@ -244,12 +256,15 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal, 
       function: { name: call.toolName, arguments: typeof call.input === "string" ? call.input : JSON.stringify(call.input ?? {}) },
     }));
     // The gateway says what a call cost, ours and the AI SDK's own alike. A
-    // provider says tokens, which are priced from the gateway's list.
+    // provider says tokens, which are priced from the gateway's list. A
+    // gateway that said 0 and a model the list has no price for differ: the
+    // first is free, the second is unknown.
     const said = Number(result.providerMetadata?.gateway?.cost);
+    if (!(said > 0)) await fetching;
     return {
       text: result.text,
       toolCalls,
-      cost: said > 0 ? said : route === "gateway" ? 0 : priced(model, result.usage),
+      cost: said > 0 ? said : (priced(model, result.usage) ?? (said === 0 ? 0 : undefined)),
       tokensIn: result.usage.inputTokens ?? 0,
       tokensOut: result.usage.outputTokens ?? 0,
     };

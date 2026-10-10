@@ -122,15 +122,19 @@ function tooMany(what: string, most: number, within: number): boolean {
   return over;
 }
 
-/** What web turns of one agent have come to over the last 24 hours, for one visitor or for everybody. */
-export function spent(agent: string, visitor?: string): { visitors: number; messages: number; dollars: number } {
+/**
+ * What web turns of one agent have come to over the last 24 hours, for one
+ * visitor or for everybody. `unpriced` counts the answers that came with no
+ * price: above 0, they spent at least `dollars`.
+ */
+export function spent(agent: string, visitor?: string): { visitors: number; messages: number; dollars: number; unpriced: number } {
   const since = new Date(Date.now() - DAY).toISOString();
   const row = db
     .prepare(
-      `select count(distinct owner) as visitors, count(*) as messages, coalesce(sum(cost), 0) as dollars
+      `select count(distinct owner) as visitors, count(*) as messages, coalesce(sum(cost), 0) as dollars, coalesce(sum(unpriced), 0) as unpriced
        from runs where agent = ? and source = 'web' and started >= ?${visitor ? " and owner = ?" : ""}`,
     )
-    .get(agent, since, ...(visitor ? [`web:${visitor}`] : [])) as { visitors: number; messages: number; dollars: number };
+    .get(agent, since, ...(visitor ? [`web:${visitor}`] : [])) as { visitors: number; messages: number; dollars: number; unpriced: number };
   return row;
 }
 
@@ -287,7 +291,14 @@ export async function webTurn(at: At): Promise<void> {
   if (theirs.messages >= web.limits.perVisitor.messages || theirs.dollars >= web.limits.perVisitor.dollars) {
     throw new Refused("That is as much as this chat can answer for you today. Come back tomorrow.", 429);
   }
-  if (spent(agent.id).dollars >= web.limits.perDay.dollars) throw new Refused("This chat has answered all it can for today. Come back tomorrow.", 429);
+  const day = spent(agent.id);
+  // An answer with no price means the dollar limits cannot be kept, so the
+  // chat stops rather than spend without counting.
+  if (day.unpriced > 0) {
+    console.error(`${agent.id}: the web chat is refusing visitors: ${day.unpriced} of its answers in the last 24 hours came with no price, so its dollar limits cannot be kept.`);
+    throw new Refused("This chat has answered all it can for today. Come back tomorrow.", 429);
+  }
+  if (day.dollars >= web.limits.perDay.dollars) throw new Refused("This chat has answered all it can for today. Come back tomorrow.", 429);
 
   response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", "x-accel-buffering": "no" });
   const event = (name: string, data: object): void => {

@@ -63,7 +63,7 @@ else stays in your file.
 | `tools` | required | Everything it may call. Nothing else is reachable from inside the step. |
 | `output` | its words, as a string | The shape of its final answer, as for a model step. |
 | `stopWhen` | 10 steps | When it must stop, as the AI SDK's: `isStepCount(8)`, `hasToolCall("done")`, or a list. |
-| `budget` | none | Dollars it may spend. Checked between turns, so the turn that crosses it is paid for and nothing after. |
+| `budget` | none | Dollars it may spend. Checked between turns, so the turn that crosses it is paid for and nothing after. An answer with no price ends the step too, since what it spent can no longer be counted. |
 | `toolApproval` | every call allowed | Asked before each call, with the input the model wrote. Below. |
 | `instructions` | none | What it should know before it starts. |
 | `model` | the job's | A model for this one step. |

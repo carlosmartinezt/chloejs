@@ -84,8 +84,9 @@ export interface WebOptions {
  * What visitors may spend, counted over the last 24 hours. Once a limit is
  * reached, new messages are refused with a polite note.
  *
- * The dollar limits use the cost recorded for each run. A model whose runs
- * record no cost is never stopped by a dollar limit.
+ * The dollar limits use the cost recorded for each run. An answer whose model
+ * named no price means they cannot be kept, so every visitor is refused until
+ * that answer is 24 hours old.
  */
 export interface WebLimits {
   /** For each visitor: the most messages, and the most dollars. Default: 30 messages and $0.50. */

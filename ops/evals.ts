@@ -18,6 +18,7 @@ import { basename, join } from "node:path";
 
 import { learnModels, loadAll, type Agent, turn, type TurnResult, settings } from "@chloejs/core";
 import { settingsAndBody } from "#chloe/core/markdown";
+import { spentText } from "#chloe/core/turn";
 import { calls, type ExpectedCalls as Facts, expectations, type ExpectedOutcome as Judged } from "@chloejs/core/scorers";
 
 /** One morning, one nightly run, one anything: a case in an eval file. */
@@ -167,7 +168,7 @@ async function runFile(loaded: Agent, file: string): Promise<{ passed: number; f
     const ok = fact.score >= PASS.calls && judged.score >= PASS.expectations;
     ok ? passed++ : failed++;
 
-    console.log(`  ${ok ? "✓" : "✗"} ${one.name}  calls ${fact.score.toFixed(2)}  expectations ${judged.score.toFixed(2)}  $${result.cost.toFixed(4)}`);
+    console.log(`  ${ok ? "✓" : "✗"} ${one.name}  calls ${fact.score.toFixed(2)}  expectations ${judged.score.toFixed(2)}  ${spentText(result.cost, result.unpriced)}`);
     if (!ok) {
       if (fact.score < PASS.calls) console.log(`      calls: ${fact.reason}`);
       if (judged.score < PASS.expectations) console.log(`      expectations: ${judged.reason}`);

@@ -22,8 +22,8 @@ import { z } from "zod";
 
 // A stand-in gateway, up before anything reads AI_GATEWAY_URL. An answer is
 // either what the model said, or a whole message when a case needs it to ask
-// for a tool.
-type Said = string | { content?: string; tool_calls?: unknown[] };
+// for a tool. Every answer costs $0.0002, unless it says `unpriced`.
+type Said = string | { content?: string; tool_calls?: unknown[]; unpriced?: true };
 export const answers: Said[] = [];
 export let asked = 0;
 /** Counts the calls from zero again. `asked` cannot be assigned from another file. */
@@ -49,8 +49,8 @@ export const gateway = createServer((request, response) => {
       lastTools = (sent.tools ?? []).map((one) => one.function?.name ?? "");
     }
     const next = naming ? `"Late orders."` : (answers.shift() ?? "{}");
-    const usage = { cost: 0.0002, prompt_tokens: 10, completion_tokens: 10 };
-    const message = typeof next === "string" ? { content: next } : next;
+    const { unpriced, ...message } = typeof next === "string" ? { content: next } : next;
+    const usage = { ...(!unpriced && { cost: 0.0002 }), prompt_tokens: 10, completion_tokens: 10 };
     if ((sent as { stream?: boolean }).stream) {
       // Streamed, the words come in two pieces, so a case can see that they came as they were written.
       const words = message.content ?? "";

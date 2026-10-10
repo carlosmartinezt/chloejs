@@ -146,8 +146,10 @@ export interface Result {
   text: string;
   /** How many times the model answered during the run. */
   steps: number;
-  /** What the run spent, in dollars. */
+  /** What the run spent, in dollars, counting only the answers that came with a price. */
   cost: number;
+  /** How many model answers came with no price. Above 0, the run spent at least `cost`, and how much more is unknown. */
+  unpriced: number;
   /** Every tool call made, in order, with the input it was given and the output it returned. */
   calls: Call[];
 }
@@ -159,6 +161,12 @@ function shown(history: ChatHistory = {}): { limit?: number; days?: number } {
 /** Dollars, at the size these numbers actually are: $0.0004 and $0.10, not $0.00 and $0.1. */
 export function money(amount: number): string {
   return `$${amount.toFixed(4).replace(/(\.\d\d)0+$/, "$1")}`;
+}
+
+/** What a run spent, in words: "$0.02", or "unknown", or "at least $0.02" when some of its answers came with no price. */
+export function spentText(cost: number, unpriced = 0): string {
+  if (!unpriced) return money(cost);
+  return cost > 0 ? `at least ${money(cost)}` : "unknown";
 }
 
 /** What stops a turn when its agent's `stopWhen` says nothing: forty steps that ran tools. */
@@ -397,29 +405,30 @@ async function go(options: {
           trace.push({ ...line, step: line.step + before });
           if (said && line.say?.trim() && line.wants?.length) said(line.say);
           if (line.tool) calls.push({ toolName: line.tool, input: line.args, output: line.result });
-          save(runId, answers(trace), costOf(trace), trace);
+          save(runId, answers(trace), costOf(trace), unpricedOf(trace), trace);
         },
       }),
     );
     // A run that carried on has steps and spending from before it stopped.
     const steps = answers(trace);
     const cost = costOf(trace);
+    const unpriced = unpricedOf(trace);
     // A sign-in somebody can do from here is an answer, not a failure: the
     // runtime starts it and the reply is the connection's own words and link.
     const signIn = done.stopped === "sign-in" && done.signIn && !options.stranger ? await signInReply(tools, done.signIn, Boolean(thread)) : undefined;
     if (done.stopped && !signIn) {
-      fail(runId, done.text, steps, cost, trace);
+      fail(runId, done.text, steps, cost, unpriced, trace);
       await committed({ error: done.text });
-      return { runId, text: done.text, steps, cost, calls };
+      return { runId, text: done.text, steps, cost, unpriced, calls };
     }
     const text = signIn ?? done.text;
-    finish(runId, text, steps, cost, trace);
+    finish(runId, text, steps, cost, unpriced, trace);
     await committed({ summary: oneLineSummary(text) });
     if (thread) remember(thread, "assistant", text, calls);
-    return { runId, text, steps, cost, calls };
+    return { runId, text, steps, cost, unpriced, calls };
   } catch (error) {
     const why = String(error instanceof Error ? error.message : error);
-    fail(runId, why, answers(trace), costOf(trace), trace);
+    fail(runId, why, answers(trace), costOf(trace), unpricedOf(trace), trace);
     await committed({ error: why });
     throw error;
   }
@@ -463,6 +472,8 @@ export interface LoopStep {
   /** Set on a call the job would not allow. It never ran. */
   refused?: boolean;
   cost?: number;
+  /** Set on a model answer that came with no price. */
+  unpriced?: boolean;
   /** Set on the line where a run the service stopped picked up again: what happened, in words. */
   carried?: string;
 }
@@ -493,7 +504,8 @@ export async function loop(options: {
   /**
    * The most this may spend, in dollars. Checked between turns, because what a
    * turn costs is only known once it has been paid for, so the turn that goes
-   * over the line is paid for.
+   * over the line is paid for. An answer with no price stops it too, since
+   * what was spent can no longer be counted.
    */
   budget?: number;
   signal?: AbortSignal;
@@ -516,8 +528,10 @@ export async function loop(options: {
   text: string;
   steps: number;
   cost: number;
+  /** How many answers came with no price. */
+  unpriced: number;
   calls: Result["calls"];
-  stopped: false | "steps" | "budget" | "person" | "sign-in";
+  stopped: false | "steps" | "budget" | "unpriced" | "person" | "sign-in";
   waiting?: { calls: ToolCall[]; reason: string; input: unknown };
   /** With "sign-in": the connection a tool needs somebody to sign in to, and what failed, in words. */
   signIn?: { connection: string; why: string };
@@ -525,6 +539,7 @@ export async function loop(options: {
   const specs = await Promise.all(Object.entries(options.tools).map(([name, one]) => describe(name, one)));
   const calls: Result["calls"] = [];
   let cost = 0;
+  let unpriced = 0;
   // What the stop conditions read: each step's text, the calls it made and what came back.
   const taken: Taken[] = Array.from({ length: options.before ?? 0 }, () => ({ text: "", toolCalls: [], toolResults: [] }));
   let resume = options.resume;
@@ -540,17 +555,28 @@ export async function loop(options: {
       toolCalls = resume.calls;
     } else {
       const answer = await ask({ model: options.model, messages: options.messages, tools: specs, signal: options.signal, onText: options.onText });
-      cost += answer.cost;
-      options.onStep?.({ step: steps, at: new Date().toISOString(), say: answer.text, ...(answer.dropped && { dropped: answer.dropped }), wants: answer.toolCalls.map((c) => c.function.name), cost: answer.cost });
+      if (answer.cost === undefined) unpriced++;
+      cost += answer.cost ?? 0;
+      options.onStep?.({
+        step: steps,
+        at: new Date().toISOString(),
+        say: answer.text,
+        ...(answer.dropped && { dropped: answer.dropped }),
+        wants: answer.toolCalls.map((c) => c.function.name),
+        ...(answer.cost === undefined ? { unpriced: true } : { cost: answer.cost }),
+      });
 
       if (answer.toolCalls.length === 0) {
-        return { text: answer.text, steps: steps + 1, cost, calls, stopped: false };
+        return { text: answer.text, steps: steps + 1, cost, unpriced, calls, stopped: false };
       }
 
       // Out of money before running what it asked for, because running the tools
       // only leads to a turn there is nothing left to pay for.
+      if (options.budget !== undefined && answer.cost === undefined) {
+        return { text: `Stopped: ${options.model} named no price for its answer, so a budget cannot be kept.`, steps: steps + 1, cost, unpriced, calls, stopped: "unpriced" };
+      }
       if (options.budget !== undefined && cost >= options.budget) {
-        return { text: `Stopped after spending ${money(cost)} without finishing.`, steps: steps + 1, cost, calls, stopped: "budget" };
+        return { text: `Stopped after spending ${money(cost)} without finishing.`, steps: steps + 1, cost, unpriced, calls, stopped: "budget" };
       }
 
       // Has to go back exactly as it came, or the provider rejects the tool
@@ -570,7 +596,7 @@ export async function loop(options: {
           ? refusedCall(call, `this reply used ${readOutside}, and what it read may be what asked for this. Say what you would change, and your owner can ask for it in their next message`)
           : await runTool(options.tools, call, { context: options.context, instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided });
       if ("person" in ran) {
-        return { text: "", steps, cost, calls, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
+        return { text: "", steps, cost, unpriced, calls, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
       }
       const { output, args, failed, refused, signIn } = ran;
       if (one && !one.own && !refused && !readOutside) readOutside = call.function.name;
@@ -582,7 +608,7 @@ export async function loop(options: {
       // not asked again: it would only try to get round it.
       if (signIn) {
         const why = String(output).replace(/^[\w-]+ failed: /, "");
-        return { text: `${why} Somebody signs in from a chat with this agent, or from the dashboard.`, steps: steps + 1, cost, calls, stopped: "sign-in", signIn: { connection: signIn, why } };
+        return { text: `${why} Somebody signs in from a chat with this agent, or from the dashboard.`, steps: steps + 1, cost, unpriced, calls, stopped: "sign-in", signIn: { connection: signIn, why } };
       }
       options.messages.push({
         role: "tool",
@@ -596,7 +622,7 @@ export async function loop(options: {
     // Stopped while it still wanted to go on is an answer, not a crash: an
     // empty string here would read as nothing being wrong.
     const met = await Promise.all(options.stopWhen.map((one) => one({ steps: taken as never })));
-    if (met.some(Boolean)) return { text: outOfStepsText(steps + 1), steps: steps + 1, cost, calls, stopped: "steps" };
+    if (met.some(Boolean)) return { text: outOfStepsText(steps + 1), steps: steps + 1, cost, unpriced, calls, stopped: "steps" };
   }
 }
 
@@ -613,6 +639,11 @@ interface Taken {
 /** What the trace says has been spent so far, for the record written as it goes. */
 function costOf(trace: unknown[]): number {
   return trace.reduce((sum: number, one) => sum + (((one as { cost?: number }).cost) ?? 0), 0);
+}
+
+/** How many answers in the trace came with no price. */
+function unpricedOf(trace: unknown[]): number {
+  return trace.filter((one) => (one as { unpriced?: boolean }).unpriced).length;
 }
 
 /** A call that is not run, and what the model is told instead. */
@@ -801,21 +832,21 @@ function systemPrompt(agent: Agent, person: { name: string; source: string; asYo
   return parts.join("\n\n");
 }
 
-function save(runId: string, steps: number, cost: number, trace: unknown[]): void {
-  db.prepare("update runs set steps = ?, cost = ?, trace = ? where id = ?").run(
-    steps, cost, JSON.stringify(trace), runId,
+function save(runId: string, steps: number, cost: number, unpriced: number, trace: unknown[]): void {
+  db.prepare("update runs set steps = ?, cost = ?, unpriced = ?, trace = ? where id = ?").run(
+    steps, cost, unpriced, JSON.stringify(trace), runId,
   );
 }
 
-function finish(runId: string, reply: string, steps: number, cost: number, trace: unknown[]): void {
-  db.prepare("update runs set finished = ?, reply = ?, summary = ?, steps = ?, cost = ?, trace = ? where id = ?").run(
-    new Date().toISOString(), reply, oneLineSummary(reply), steps, cost, JSON.stringify(trace), runId,
+function finish(runId: string, reply: string, steps: number, cost: number, unpriced: number, trace: unknown[]): void {
+  db.prepare("update runs set finished = ?, reply = ?, summary = ?, steps = ?, cost = ?, unpriced = ?, trace = ? where id = ?").run(
+    new Date().toISOString(), reply, oneLineSummary(reply), steps, cost, unpriced, JSON.stringify(trace), runId,
   );
 }
 
-function fail(runId: string, error: string, steps: number, cost: number, trace: unknown[]): void {
-  db.prepare("update runs set finished = ?, error = ?, steps = ?, cost = ?, trace = ? where id = ?").run(
-    new Date().toISOString(), error, steps, cost, JSON.stringify(trace), runId,
+function fail(runId: string, error: string, steps: number, cost: number, unpriced: number, trace: unknown[]): void {
+  db.prepare("update runs set finished = ?, error = ?, steps = ?, cost = ?, unpriced = ?, trace = ? where id = ?").run(
+    new Date().toISOString(), error, steps, cost, unpriced, JSON.stringify(trace), runId,
   );
 }
 

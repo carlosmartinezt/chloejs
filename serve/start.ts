@@ -58,7 +58,8 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
   const heldPort = await claimPort(options.remote ? "0.0.0.0" : settings.serve.host, settings.serve.port);
   const remote = options.remote ? certificate() : undefined;
   // What each route can run, and what a call on a provider's own key costs.
-  // Not waited for: until it answers, such a call is recorded at no cost.
+  // Not waited for here: a call on a provider's own key that finishes first
+  // waits for the prices instead.
   void learnModels();
 
   // The last resort: a throw nobody held must not take down every job and

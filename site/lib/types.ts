@@ -41,6 +41,8 @@ export interface RunRow {
   reply?: string | null;
   steps: number;
   cost: number;
+  /** How many of its model answers came with no price. Above 0, it spent at least `cost`. */
+  unpriced?: number;
   error: string | null;
   summary?: string | null;
   /** When it was archived, or null. An archived run is left out of the log unless asked for. */
@@ -69,6 +71,8 @@ export interface Step {
   /** Set on a prompt run's model line: the tools it asked for by name. */
   wants?: string[];
   cost?: number;
+  /** A prompt run's model line: true when the answer came with no price. A job's line: how many of its answers did. */
+  unpriced?: boolean | number;
   tool?: string;
   /** Set on a tool call that only touched the agent itself: its folder, memory, runs, skills or the guides. */
   own?: boolean;

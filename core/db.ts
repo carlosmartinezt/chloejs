@@ -115,6 +115,9 @@ if (added("runs", "asked", "text")) {
 // The conversation a turn was in, so forgetting it can blank its runs too.
 // Null for a job, and for a turn from before this column.
 added("runs", "thread", "text");
+// How many model answers in the run came with no price. `cost` sums only the
+// ones that had one, so a run with any of these spent at least `cost`.
+added("runs", "unpriced", "integer not null default 0");
 db.exec("create index if not exists runs_parked on runs (parked) where parked is not null");
 
 // What a person calls a conversation, when they archived it, and whose it is:
@@ -158,7 +161,7 @@ db.exec("create table if not exists seen (agent text primary key, at text not nu
  * state and the prompt are left to GET /api/runs/:id.
  */
 export const RUN_COLUMNS =
-  "id, agent, started, finished, source, job, model, steps, cost, error, reply, summary, archived, substr(coalesce(asked, prompt), 1, 200) as asked";
+  "id, agent, started, finished, source, job, model, steps, cost, unpriced, error, reply, summary, archived, substr(coalesce(asked, prompt), 1, 200) as asked";
 
 /** One commit a run made: in the agent's memory, or in the repo its own folder is in. */
 export interface RunCommit {

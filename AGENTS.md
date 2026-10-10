@@ -756,8 +756,9 @@ takes their message as a turn, `/clear` or an answer to a job that asked them,
 never a command, a model pick or a sign-in, and their turn gets the tools the
 channel names and none of the agent's others. Each turn is refused once the
 visitor or the day is over the channel's `limits`, which are sums over the run
-record, so a model whose calls cost nothing in the record has no limit worth
-the name. Only the site's own server gets a visitor a pass, with a token made
+record. An answer with no price is counted in `runs.unpriced`, never as $0, and
+while one is in the last 24 hours every visitor is refused, because the limits
+can no longer be kept. Only the site's own server gets a visitor a pass, with a token made
 for that one agent (`makeToken(name, agent)`, which reaches that agent's routes
 and nothing else), and says who the visitor is. The page holds the pass, signed
 with `web-pass.key` in the state folder, and never a token. Each turn notes the

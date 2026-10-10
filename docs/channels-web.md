@@ -44,7 +44,7 @@ npx chloe tokens make "shop site" --agent shop
 | `tools` | none | The only tools a visitor's turn has. No memory, skills or self tools unless named, and naming the memory or self tools is refused. |
 | `job` | none | A job every visitor's message goes to, instead of a turn. |
 | `greeting` | none | What the box shows before anybody has written. |
-| `limits` | 30 messages and $0.50 per visitor, $5 for everybody, per 24 hours | `{ perVisitor: { messages, dollars }, perDay: { dollars } }`. A turn past one is refused politely. |
+| `limits` | 30 messages and $0.50 per visitor, $5 for everybody, per 24 hours | `{ perVisitor: { messages, dollars }, perDay: { dollars } }`. A turn past one is refused politely. An answer whose model named no price stops the chat until it is 24 hours old, because the dollar limits can no longer be kept. |
 | `model` | the agent's | The model visitors' turns use. |
 | `pictures` | off | Whether a visitor may send pictures. |
 | `chatHistory` | `{ messages: 10 }` | As on [every channel](/docs/channels#options-they-share). |

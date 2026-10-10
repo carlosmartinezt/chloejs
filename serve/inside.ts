@@ -11,7 +11,7 @@ import { providerOf, routeFor, type Route } from "#chloe/model/model";
 import { descriptionOf, neededBy } from "#chloe/model/tool";
 import type { Agent } from "#chloe/load/load";
 import { webOf } from "#chloe/channels/web";
-import { money } from "#chloe/core/turn";
+import { money, spentText } from "#chloe/core/turn";
 import { BadRequest, NotFound } from "./errors.ts";
 import { spent } from "./web.ts";
 
@@ -162,7 +162,9 @@ export function channelsOf(agent: Agent): Way[] {
           does:
             `A chat box on a web page, for anybody who visits ${web.origins.join(" or ")}. ` +
             `The last 24 hours: ${day.visitors} ${day.visitors === 1 ? "visitor" : "visitors"}, ${day.messages} ${day.messages === 1 ? "message" : "messages"}, ` +
-            `${money(day.dollars)} of the ${money(web.limits.perDay.dollars)} it may spend.`,
+            (day.unpriced
+              ? `${spentText(day.dollars, day.unpriced)} spent, because ${day.unpriced} ${day.unpriced === 1 ? "answer" : "answers"} came with no price, so it refuses visitors until those are a day old.`
+              : `${money(day.dollars)} of the ${money(web.limits.perDay.dollars)} it may spend.`),
           needs: "",
           ready: null,
           settings: how,

@@ -3,7 +3,7 @@
 // get out of step with the folder.
 import type { Agent, Job } from "#chloe/load/load";
 import { due, parse } from "#chloe/timer/cron";
-import { carryOn, turn } from "#chloe/core/turn";
+import { carryOn, spentText, turn } from "#chloe/core/turn";
 import { modelFor } from "#chloe/model/choices";
 import { sweep, waitingFor, work, WrongArgs } from "#chloe/core/steps";
 import { jobEnded } from "#chloe/core/alerts";
@@ -19,6 +19,7 @@ export interface Fired {
   reply?: string;
   steps: number;
   cost: number;
+  unpriced?: number;
   parked?: boolean;
 }
 
@@ -120,7 +121,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
       const result = await run();
       const seconds = Math.round((Date.now() - began) / 1000);
       const how = "parked" in result && result.parked ? "waiting on an answer" : "done";
-      console.log(`${key}: ${how} in ${seconds}s, ${result.steps} steps, $${result.cost.toFixed(4)}`);
+      console.log(`${key}: ${how} in ${seconds}s, ${result.steps} steps, ${spentText(result.cost, result.unpriced)}`);
       return result;
     } catch (error) {
       if (error instanceof WrongArgs) throw error;

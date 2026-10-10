@@ -54,6 +54,8 @@ export interface Line {
   ms: number;
   /** What the step spent on models, in dollars. 0 for a step that asked no model. */
   cost: number;
+  /** How many model answers in the step came with no price. Set only when there were some: the step then spent at least `cost`. */
+  unpriced?: number;
   /** What the step returned. Not set when the step failed. */
   result?: unknown;
   /**
@@ -102,6 +104,8 @@ interface AgentWait {
   steps: number;
   /** What it had spent, which its `budget` counts. */
   spent: number;
+  /** How many of its answers had come with no price. */
+  unpriced?: number;
   /** The calls it had made, for the line it writes when it finishes. */
   record: Call[];
   /** Which go it was on: the first, or the one after an answer that did not fit. */
@@ -452,8 +456,10 @@ export interface Result {
   reply?: string;
   /** How many steps the run has taken so far, counting any that failed. */
   steps: number;
-  /** What the run has spent so far, in dollars. */
+  /** What the run has spent so far, in dollars, counting only the answers that came with a price. */
   cost: number;
+  /** How many model answers came with no price. Above 0, the run spent at least `cost`. */
+  unpriced: number;
   /** `true` when the run is paused, waiting for a person's answer or in `work.wait()`. */
   parked: boolean;
 }
@@ -476,6 +482,7 @@ interface Ctx {
   lines: Line[];
   seq: number;
   cost: number;
+  unpriced: number;
   state: Data;
   /** What the run was started with. Checked once, then never changed. */
   args: Data;
@@ -549,6 +556,7 @@ export async function work(options: {
     lines: [],
     seq: 0,
     cost: 0,
+    unpriced: 0,
     state,
     args,
     input,
@@ -642,6 +650,7 @@ export async function resume(runId: string, agents: Map<string, Agent>, signal?:
     lines: JSON.parse(row.trace) as Line[],
     seq: 0,
     cost: row.cost,
+    unpriced: row.unpriced ?? 0,
     state: row.state ? (JSON.parse(row.state) as Data) : starting(job),
     parked: JSON.parse(row.parked) as Parked,
     owner: row.owner ?? whoOwns(agent.id),
@@ -685,19 +694,19 @@ async function drive(ctx: Ctx): Promise<Result> {
     const { words, summary } = said(ctx.job, value);
     finish(ctx, reply, summary);
     await committed({ summary });
-    return { runId: ctx.runId, text: reply, summary, reply: words ?? summary ?? undefined, steps: ctx.lines.length, cost: ctx.cost, parked: false };
+    return { runId: ctx.runId, text: reply, summary, reply: words ?? summary ?? undefined, steps: ctx.lines.length, cost: ctx.cost, unpriced: ctx.unpriced, parked: false };
   } catch (error) {
     if (error instanceof Waiting) {
       save(ctx);
       await committed({ summary: error.message });
-      return { runId: ctx.runId, text: error.message, steps: ctx.lines.length, cost: ctx.cost, parked: true };
+      return { runId: ctx.runId, text: error.message, steps: ctx.lines.length, cost: ctx.cost, unpriced: ctx.unpriced, parked: true };
     }
     ctx.parked = undefined;
     const why = error instanceof Error ? error.message : String(error);
     fail(ctx, why);
     await committed({ error: why });
     if (error instanceof Unanswered || error instanceof Changed) {
-      return { runId: ctx.runId, text: why, steps: ctx.lines.length, cost: ctx.cost, parked: false };
+      return { runId: ctx.runId, text: why, steps: ctx.lines.length, cost: ctx.cost, unpriced: ctx.unpriced, parked: false };
     }
     throw error;
   }
@@ -718,7 +727,7 @@ async function once<T>(
   ctx: Ctx,
   name: string,
   kind: Line["kind"],
-  fn: (charge: (amount: number) => number, calls: Call[]) => Promise<{ value: T; note?: string; prompt?: string }>,
+  fn: (charge: (amount: number | undefined) => number, calls: Call[]) => Promise<{ value: T; note?: string; prompt?: string }>,
 ): Promise<T> {
   const seen = ctx.lines[ctx.seq];
   if (seen) {
@@ -740,12 +749,19 @@ async function once<T>(
   // An agent step that waited on a person carries on with what it had spent and called.
   const carried = ctx.parked?.seq === ctx.seq ? ctx.parked.agent : undefined;
   let spent = carried?.spent ?? 0;
+  let unpriced = carried?.unpriced ?? 0;
   /**
    * Charged to the run the moment it is spent, not when the step returns, so a
    * step that fails, or a run cut off part way through one, is still charged
-   * for what it used. Returns this step's total.
+   * for what it used. An answer with no price is counted as one. Returns this
+   * step's total.
    */
-  const charge = (amount: number): number => {
+  const charge = (amount: number | undefined): number => {
+    if (amount === undefined) {
+      ctx.unpriced++;
+      unpriced++;
+      return spent;
+    }
     ctx.cost += amount;
     return (spent += amount);
   };
@@ -769,6 +785,7 @@ async function once<T>(
       at: new Date().toISOString(),
       ms: Date.now() - began,
       cost: spent,
+      ...(unpriced > 0 && { unpriced }),
       result: value,
       note,
       prompt,
@@ -790,6 +807,7 @@ async function once<T>(
       at: new Date().toISOString(),
       ms: Date.now() - began,
       cost: spent,
+      ...(unpriced > 0 && { unpriced }),
       calls: calls.length > 0 ? calls : undefined,
       failed: error instanceof Error ? error.message : String(error),
     });
@@ -914,6 +932,7 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
     const said = options.stopWhen ?? AGENT_STOP_WHEN;
     const stopWhen = Array.isArray(said) ? said : [said];
     let spent = carried?.spent ?? 0;
+    let unpriced = carried?.unpriced ?? 0;
     let complaint = carried?.complaint ?? "";
     // A call that waited for a person, and what they said, when this is the run carrying on.
     let resume: { calls: ToolCall[]; decided: Decided } | undefined;
@@ -953,7 +972,8 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
         // Each turn and each call as it happens, rather than at the end, so a
         // step that fails half way through still says what it spent and ran.
         onStep: (line) => {
-          if (line.cost) spent = charge(line.cost);
+          if (line.unpriced) unpriced++;
+          if (line.cost || line.unpriced) spent = charge(line.cost);
           if (line.tool) calls.push({ toolName: line.tool, input: line.args, output: line.result, ...(line.refused && { refused: true }) });
         },
       });
@@ -961,10 +981,16 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
       resume = undefined;
 
       if (done.stopped === "person" && done.waiting) {
-        await waitFor(ctx, name, done.waiting, { messages, calls: done.waiting.calls, steps: before + done.steps, spent, record: [...calls], attempt, complaint });
+        await waitFor(ctx, name, done.waiting, { messages, calls: done.waiting.calls, steps: before + done.steps, spent, unpriced, record: [...calls], attempt, complaint });
       }
       before = 0;
       if (done.stopped === "budget") throw tooDear();
+      if (done.stopped === "unpriced") {
+        throw new Error(
+          `The agent step ${JSON.stringify(name)} has a budget, and ${using} named no price for an answer, so what it ` +
+            `spent cannot be counted. Use a model whose price is known, or leave budget out.`,
+        );
+      }
       // A job has nobody to send a link to, so it ends saying what is needed.
       if (done.stopped === "sign-in") throw new Error(done.text);
       if (done.stopped === "steps") {
@@ -1383,6 +1409,7 @@ interface Row {
   job: string;
   model: string;
   cost: number;
+  unpriced?: number;
   trace: string;
   state?: string;
   args?: string;
@@ -1392,9 +1419,10 @@ interface Row {
 }
 
 function save(ctx: Ctx): void {
-  db.prepare("update runs set steps = ?, cost = ?, trace = ?, state = ?, parked = ?, model = ? where id = ?").run(
+  db.prepare("update runs set steps = ?, cost = ?, unpriced = ?, trace = ?, state = ?, parked = ?, model = ? where id = ?").run(
     ctx.lines.length,
     ctx.cost,
+    ctx.unpriced,
     JSON.stringify(ctx.lines),
     JSON.stringify(ctx.state),
     ctx.parked ? JSON.stringify(ctx.parked) : null,

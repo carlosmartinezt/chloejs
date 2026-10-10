@@ -140,9 +140,9 @@ export async function viaCodex({ model, messages, tools, signal }: Ask): Promise
     }
     const { text, tokensIn, tokensOut } = readCodex(out);
     const { said, calls, dropped } = tools?.length ? readReply(text, tools) : { said: text, calls: [] };
-    // A plan is not billed per call and the CLI names no price, so a run on
-    // this route costs 0 in the record.
-    return { text: said, toolCalls: calls, ...(dropped && { dropped }), cost: 0, tokensIn, tokensOut };
+    // A plan is not billed per call and the CLI names no price, so what a run
+    // on this route cost is unknown.
+    return { text: said, toolCalls: calls, ...(dropped && { dropped }), tokensIn, tokensOut };
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

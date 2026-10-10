@@ -209,9 +209,9 @@ about("an agent written with the AI SDK's own model and tools");
   learnPrices([{ id: "standin/pal-1.5", pricing: { input: "0.000001", output: "0.000002", input_cache_read: "0.0000001" } }]);
   const usage = (inputTokens: number, cacheReadTokens: number, outputTokens: number) =>
     ({ inputTokens, outputTokens, inputTokenDetails: { noCacheTokens: inputTokens - cacheReadTokens, cacheReadTokens, cacheWriteTokens: 0 }, outputTokenDetails: {} }) as never;
-  is("a call is priced from the gateway's list, which writes a dot where the provider writes a dash", priced("standin/pal-1-5", usage(1000, 0, 500)).toFixed(6), "0.002000");
-  is("with what came from the cache at its own price", priced("standin/pal-1-5", usage(1000, 800, 0)).toFixed(6), "0.000280");
-  is("and a model the list does not have costs nothing", priced("standin/unlisted", usage(1000, 0, 500)), 0);
+  is("a call is priced from the gateway's list, which writes a dot where the provider writes a dash", priced("standin/pal-1-5", usage(1000, 0, 500))!.toFixed(6), "0.002000");
+  is("with what came from the cache at its own price", priced("standin/pal-1-5", usage(1000, 800, 0))!.toFixed(6), "0.000280");
+  is("and a model the list does not have has no price, which is not free", priced("standin/unlisted", usage(1000, 0, 500)), undefined);
   learnPrices([]);
 
   const asking = defineAgent({
@@ -309,6 +309,7 @@ about("an agent step kept inside its budget");
   is("with the calls that spent the money", line.calls?.map((one) => one.toolName), ["wander"]);
   is("and why it stopped", line.failed?.includes("budget"), true);
 
+
   // The second go at the shape is another turn, so it is the budget's business
   // too: a step with nothing left does not get one.
   answers.length = 0;
@@ -324,6 +325,20 @@ about("an agent step kept inside its budget");
   const noRetry = await work({ agent: agentFor(once), job: once }).then(() => "", (error: Error) => error.message);
   is("with nothing left, it does not pay for another go at the shape", noRetry.includes("spent $0.0002 of its $0.0002 budget"), true);
   is("and it stopped after the one turn it could afford", asked, 3);
+
+  // An answer with no price cannot be counted against a budget, so the step
+  // stops there rather than spend on without a limit.
+  answers.length = 0;
+  answers.push({ content: "", tool_calls: [asking], unpriced: true }, "Found it.");
+  const blind = codeJob("blind", async (work) =>
+    work.agent("go round", { prompt: "Find something.", tools: { wander }, budget: 0.01, stopWhen: isStepCount(9) }),
+  );
+  const unknown = await work({ agent: agentFor(blind), job: blind }).then(() => "finished", (error: Error) => error.message);
+  is("an answer with no price stops a step with a budget", unknown.includes("named no price"), true);
+  const run = db.prepare("select cost, unpriced, trace from runs where job = 'blind'").get() as { cost: number; unpriced: number; trace: string };
+  is("and the run says it had one, rather than costing nothing", [run.cost, run.unpriced], [0, 1]);
+  is("and so does its line", (JSON.parse(run.trace) as { unpriced?: number }[])[0].unpriced, 1);
+  answers.length = 0;
   answers.length = 0;
 }
 

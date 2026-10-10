@@ -7,7 +7,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { about, is } from "#chloe/ops/check";
-import { agentFor, answers, asked, codeJob, lastAsked, lastTools, row } from "./shared.ts";
+import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from "./shared.ts";
 
 {
   about("the web channel");
@@ -210,6 +210,11 @@ import { agentFor, answers, asked, codeJob, lastAsked, lastTools, row } from "./
   is("and one over it is told, politely", [over.status, (over.body as { error: string }).error.includes("Come back tomorrow")], [429, true]);
   make({ limits: { perDay: { dollars: 0.0001 } } });
   is("everybody together has a limit too", (await turn((await passFor()).pass, "hello")).status, 429);
+  make();
+  answers.push({ content: "Priced at nothing known.", unpriced: true });
+  is("an answer with no price is still given", (await turn((await passFor()).pass, "one")).status, 200);
+  is("but then the dollar limits cannot be kept, so the chat stops", (await turn((await passFor()).pass, "two")).status, 429);
+  (await import("#chloe/core/db")).db.prepare("update runs set unpriced = 0 where agent = 'test'").run();
 
   // What the site knows about somebody, it says, and the agent is told.
   make();

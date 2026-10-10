@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { AgentSummary, Picture, Said, Thread } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
-import { ago, labelOf, many, money, threadName, when } from "../lib/format.ts";
+import { ago, labelOf, many, money, spent, threadName, when } from "../lib/format.ts";
 import * as Icons from "./components/Icons.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { Trail } from "./components/Link.tsx";
@@ -14,6 +14,7 @@ import { Collapse } from "./components/Collapse.tsx";
 
 interface Line extends Said {
   cost?: number;
+  unpriced?: number;
   failed?: boolean;
   /** Pictures sent with it, as addresses for this page. Gone on a reload, as they are on the runtime. */
   pictures?: string[];
@@ -278,7 +279,7 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
     setWaiting(true);
     try {
       const answer = await api.say(agent, asked, thread, sending.map(({ name, mediaType, data }) => ({ name, mediaType, data })));
-      setLines((said) => [...said, { role: "assistant", content: answer.text, cost: answer.cost, at: new Date().toISOString() }]);
+      setLines((said) => [...said, { role: "assistant", content: answer.text, cost: answer.cost, unpriced: answer.unpriced, at: new Date().toISOString() }]);
       // A conversation started here only exists once something is in it, so
       // this is where it turns up in the list beside, and in the address.
       api.threads(agent).then(setThreads, () => {});
@@ -487,7 +488,7 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
                     <Markdown text={line.content} />
                   </div>
                   <div className="meta num">
-                    {[labelOf(agent), line.at && when(line.at), line.cost !== undefined && money(line.cost)].filter(Boolean).join(", ")}
+                    {[labelOf(agent), line.at && when(line.at), line.cost !== undefined && (line.unpriced ? spent(line.cost, line.unpriced) : money(line.cost))].filter(Boolean).join(", ")}
                   </div>
                 </div>
               ),

@@ -243,7 +243,7 @@ async function asked({ model, system, transcript, messages, tools, signal, folde
     toolCalls: read?.calls ?? [],
     // What it would have cost on the API. A subscription is not billed per
     // call, so this prices the run rather than charging it.
-    cost: answer.total_cost_usd ?? 0,
+    cost: answer.total_cost_usd,
     tokensIn: answer.usage?.input_tokens ?? 0,
     tokensOut: answer.usage?.output_tokens ?? 0,
   };

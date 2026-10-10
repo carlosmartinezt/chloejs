@@ -29,7 +29,7 @@ import { ROUTES, settings } from "#chloe/core/settings";
 
 import { claudeModels, viaClaude } from "./claude.ts";
 import { codexModels, viaCodex } from "./codex.ts";
-import { anyOwnKey, anySdkModel, learnPrices, ownKey, sdkModel, spelling, viaKey } from "./key.ts";
+import { anyOwnKey, anySdkModel, fetchingPrices, learnPrices, ownKey, sdkModel, spelling, viaKey } from "./key.ts";
 import { forgetOpencodeModels, opencodeModels, viaOpencode } from "./opencode.ts";
 
 export type { Route } from "#chloe/core/settings";
@@ -203,23 +203,36 @@ export async function learnModels(): Promise<void> {
   fromCli = { claude, codex };
 }
 
-async function learnGateway(): Promise<void> {
+/** A second try at the gateway's list, when the last one failed. */
+let retry: NodeJS.Timeout | undefined;
+
+function learnGateway(): Promise<void> {
+  const learning = askGateway();
+  fetchingPrices(learning);
+  return learning;
+}
+
+async function askGateway(): Promise<void> {
   const key = gatewayKey();
   if (!key && !anyOwnKey()) fromGateway = [];
   if (!key && !anySdkModel() && !anyOwnKey()) return;
+  clearTimeout(retry);
   try {
     const response = await fetch(settings.model.gatewayUrl.replace(/\/chat\/completions\/?$/, "/models"), {
       headers: key ? { authorization: `Bearer ${key}` } : {},
       signal: AbortSignal.timeout(20_000),
     });
-    if (!response.ok) return;
+    if (!response.ok) throw new Error(`the gateway's list of models answered ${response.status}`);
     const body = (await response.json()) as { data?: { id?: string; pricing?: Record<string, string> }[] };
     learnPrices(body.data ?? []);
     if (!key && !anyOwnKey()) return;
     fromGateway = (body.data ?? []).map((one) => one.id).filter((id): id is string => typeof id === "string" && id.includes("/"));
   } catch {
     // A gateway that cannot be reached is not an error here: it only means the
-    // list somebody picks from is shorter until the next reload.
+    // list somebody picks from is shorter, and calls on a provider's own key
+    // go unpriced, until it answers. Asked again in a minute.
+    retry = setTimeout(() => void learnGateway(), 60_000);
+    retry.unref();
   }
 }
 
@@ -286,8 +299,12 @@ export interface Answer {
   toolCalls: ToolCall[];
   /** What a CLI model wrote after its requests as if they had run. Never acted on. */
   dropped?: string;
-  /** Dollars: what the gateway says, or a provider's tokens at the gateway's list price, or 0 when neither is known. */
-  cost: number;
+  /**
+   * Dollars: what the route says, or a provider's tokens at the gateway's list
+   * price. Left out when neither is known, which is not the same as free: a
+   * `budget` or a dollar limit cannot be kept on an answer with no price.
+   */
+  cost?: number;
   tokensIn: number;
   tokensOut: number;
 }
