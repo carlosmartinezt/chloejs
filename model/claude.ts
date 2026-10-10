@@ -15,18 +15,14 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { settings } from "#chloe/core/settings";
 
-import { asText, invoke } from "./cli.ts";
+import { asText, invoke, TOOL_SERVER } from "./cli.ts";
 import { type Answer, type Ask, type ToolCall, UsageLimit } from "./model.ts";
 
 /** What the CLI calls a tool from the server it is handed, which is named "chloe". */
 const PREFIX = "mcp__chloe__";
-
-/** The server, beside this file: the .ts in a clone, the .js in an install, where Node strips no types. */
-const SERVER = fileURLToPath(new URL(`./toolServer.${import.meta.url.endsWith(".ts") ? "ts" : "js"}`, import.meta.url));
 
 /**
  * The CLI names a model without a provider in front of it, and writes a version
@@ -173,7 +169,7 @@ async function asked({ model, system, transcript, messages, tools, signal, folde
     const specs = join(folder, "tools.json");
     const servers = join(folder, "servers.json");
     await writeFile(specs, JSON.stringify(tools));
-    await writeFile(servers, JSON.stringify({ mcpServers: { chloe: { type: "stdio", command: process.execPath, args: [SERVER, specs] } } }));
+    await writeFile(servers, JSON.stringify({ mcpServers: { chloe: { type: "stdio", command: process.execPath, args: [TOOL_SERVER, specs] } } }));
     args.push("--mcp-config", servers, "--allowedTools", ...tools.map((one) => `${PREFIX}${one.name}`), "--max-turns", "1");
   }
 

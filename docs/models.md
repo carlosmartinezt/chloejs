@@ -81,20 +81,23 @@ one before it asks for one.
 
 ### What the command routes do
 
-Each one runs the command once per step, with the command's own tools, settings
-and MCP servers switched off, so every tool call is chloe's and is written
-down.
+Each one runs the command once per step, with the command's own tools switched
+off, so every tool call is chloe's and is written down.
 
 - **claude** hands the tools over as real tools. It is never given
   `ANTHROPIC_API_KEY`, so a key in `.env` cannot quietly pay for a subscription
   run.
-- **codex** and **opencode** describe the tools in the prompt and read the calls
-  back from the reply, which is a little less reliable and costs about 500
-  tokens a step. codex adds about 7,000 tokens of its own instructions to every
-  call.
+- **opencode** hands the tools over as real tools too. For each step it starts
+  an opencode server of its own, reachable from this machine only, and closes it
+  after. It needs opencode 2 or later, and adds a second or two to each step.
+- **codex** describes the tools in the prompt and reads the calls back from the
+  reply, which is a little less reliable and costs about 500 tokens a step. It
+  adds about 7,000 tokens of its own instructions to every call.
 
 A run on the claude route shows what it would have cost on the API, as a price,
-not a charge. codex names no price, so its runs cost 0 in the record.
+not a charge. opencode names the price its own list gives the model: a charge
+on an account that pays per call, only a price on a plan. codex names no price,
+so its runs cost 0 in the record.
 
 ## Picking one from a chat
 

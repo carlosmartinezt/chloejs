@@ -5,13 +5,18 @@
 // route that uses it, because chloe runs the tools itself, checks each one
 // against its schema and writes every call down. A model that quietly read a
 // file would leave nothing in the run record, which is the one thing this repo
-// will not give up. So the tools are described in the prompt and asked for as
-// JSON, and this file is how. The claude route does not: its tools are real
-// tool calls through `toolServer.ts`, and only the transcript is written here.
+// will not give up. The claude and opencode routes hand the tools over as real
+// ones, through `toolServer.ts`, and only the transcript is written here. The
+// codex route describes them in the prompt and has them asked for as JSON, and
+// the rest of this file is how.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 import type { Message, ToolCall, ToolSpec } from "./model.ts";
+
+/** The tool server beside this file: the .ts in a clone, the .js in an install, where Node strips no types. */
+export const TOOL_SERVER = fileURLToPath(new URL(`./toolServer.${import.meta.url.endsWith(".ts") ? "ts" : "js"}`, import.meta.url));
 
 /** What the model is told about tools it cannot call itself. */
 export function protocol(tools: ToolSpec[]): string {

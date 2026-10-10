@@ -437,13 +437,16 @@ the CLI's environment, because the CLI would bill it ahead of the subscription.
 Nothing about a model's name decides which account pays for it.
 
 Each CLI route is one file the shape of `model/claude.ts` with the CLI's own
-tools switched off, and `model/cli.ts` is what they share. The claude route
-hands a turn's tools over as real ones, through `model/toolServer.ts`, a
-server that runs nothing, and stops the CLI after the model's first answer, so
-every call is read from the CLI's record as data. Codex and opencode still
-describe the tools in words and read requests back out of the reply, which is a
-guess, and what it misses reaches the person as words: move them over when
-their CLIs can be tried. A CLI that carries one
+tools switched off, and `model/cli.ts` is what they share. The claude and
+opencode routes hand a turn's tools over as real ones, through
+`model/toolServer.ts`, a server that runs nothing, and stop after the model's
+first answer, so every call is read as data: claude's from the CLI's record,
+opencode's from the events of a server of its own that the route starts for the
+call, where each tool asks first and chloe always says no. `opencode run` cannot
+be used for this: it asks the model before the tool server has connected, and
+carries on after a refusal. Codex still describes the tools in words and reads
+requests back out of the reply, which is a guess, and what it misses reaches
+the person as words: move it over when its CLI can be tried. A CLI that carries one
 provider says so in its own `cliModel`; opencode carries whatever it is signed in
 to, so `opencodeModels()` asks it rather than the runtime deciding, once per
 process because `routeFor` cannot wait two seconds.

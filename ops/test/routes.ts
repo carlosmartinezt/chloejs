@@ -1,6 +1,6 @@
 // Which route a model goes by, and reading a reply from a CLI.
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { about, failed, is } from "#chloe/ops/check";
@@ -218,13 +218,15 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   const { models, routeFor, runnable } = await import("#chloe/model/model");
   const { codexModel, readCodex } = await import("#chloe/model/codex");
   const { cliModel } = await import("#chloe/model/claude");
-  const { forgetOpencodeModels, readOpencode } = await import("#chloe/model/opencode");
+  const { forgetOpencodeModels, viaOpencode } = await import("#chloe/model/opencode");
   const { settings } = await import("@chloejs/core");
   const before = structuredClone(settings.model);
 
   // Every CLI is a stand-in, so what is on the path decides nothing here. The
-  // opencode one answers `models` with two lines, which is how it says what it
-  // can carry, and is never the real program: that would ask somebody's account.
+  // opencode one is opencodeStandIn.ts beside this file, which answers `models`
+  // with two lines, which is how it says what it can carry, and `serve` as
+  // opencode 2 does. It is never the real program: that would ask somebody's
+  // account.
   const bin = await mkdtemp(join(tmpdir(), "chloe-bin-"));
   const fake = async (name: string, body: string) => {
     const path = join(bin, name);
@@ -232,7 +234,8 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     return path;
   };
   const anyCli = await fake("any", "exit 0");
-  const opencodeCli = await fake("opencode", 'if [ "$1" = "models" ]; then printf "deepseek/deepseek-v4-pro\\nopenai/gpt-5.5\\n"; fi');
+  const standInLog = join(bin, "opencode.log");
+  const opencodeCli = await fake("opencode", `exec "${process.execPath}" "${join(import.meta.dirname, "opencodeStandIn.ts")}" "${standInLog}" "$@"`);
 
   const pin = (claude: string, codex: string, opencode: string) => {
     Object.assign(settings.model.program, { claude, codex, opencode });
@@ -450,44 +453,61 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     }
     is("and a failed turn is the error, in its words", failed, "Model call refused: codex: The model is not supported");
 
-    is(
-      "opencode's lines are read for the words, the cost and the tokens",
-      readOpencode(
-        [
-          '{"type":"step_start"}',
-          '{"type":"text","part":{"type":"text","text":"Five."}}',
-          '{"type":"step_finish","part":{"tokens":{"input":58,"output":5},"cost":0.004}}',
-        ].join("\n"),
-      ),
-      { text: "Five.", cost: 0.004, tokensIn: 58, tokensOut: 5 },
+    // The opencode route starts a server of opencode's own for each call and
+    // talks to it. The stand-in answers as opencode 2 does, with what the
+    // model's name asks for, and writes down everything it was sent.
+    const logged = async () => (await readFile(standInLog, "utf8")).split("\n").filter(Boolean).map((line): Record<string, any> => JSON.parse(line));
+    const { UsageLimit } = await import("#chloe/model/model");
+    const mail = [{ name: "gmailReadEmail", description: "Read mail.", parameters: { type: "object", properties: { days: { type: "number" } } } }];
+    pin(anyCli, anyCli, opencodeCli);
+    await writeFile(standInLog, "");
+    const opened = await viaOpencode({ model: "opencode-go/calls", messages: [{ role: "system", content: "Be brief." }, { role: "user", content: "mail?" }], tools: mail } as any);
+    const sent = await logged();
+    is("on the opencode route a call is read from opencode's events", opened.toolCalls.map((c) => [c.function.name, c.function.arguments]), [["gmailReadEmail", '{"days":7}']]);
+    is("as a tool it was handed, once, and a tool of opencode's own does not count", opened.toolCalls.length, 1);
+    is("the words are its own session's", opened.text, "Looking.");
+    is("and so are the cost and the tokens", [opened.cost, opened.tokensIn, opened.tokensOut], [0.002, 50, 7]);
+    const written = sent.find((one) => one.what === "config");
+    is("every tool of opencode's own is refused, and each of chloe's asked about", written?.config?.agents?.chloe?.permissions, [
+      { action: "*", resource: "*", effect: "deny" },
+      { action: "chloe_*", resource: "*", effect: "ask" },
+    ]);
+    is("its instructions are the request's, and no session title is asked for", [written?.config?.agents?.chloe?.system.startsWith("Be brief."), written?.config?.agents?.title], [true, { disabled: true }]);
+    is("it runs in a folder of its own, PWD and all", written?.pwd.includes("chloe-opencode-"), true);
+    is("the tool server it is given lists the tools, each offered as itself", [sent.find((one) => one.what === "listed")?.tools, written?.config?.mcp?.servers?.chloe?.codemode], [["gmailReadEmail"], false]);
+    const prompt = sent.find((one) => one.path?.endsWith("/prompt"));
+    is("the prompt waits until opencode has the tools", prompt?.listed, true);
+    is("and is the conversation", prompt?.body?.text.includes("mail?"), true);
+    is("each ask is refused with no message, which ends the answer", sent.filter((one) => one.path?.includes("/permission/")).map((one) => one.body), [{ decision: "reject" }, { decision: "reject" }]);
+    is("on the password made for the call", sent.some((one) => one.what === "refused"), false);
+    is("and then the session and the server are gone", [sent.some((one) => one.method === "DELETE"), sent.at(-1)?.what], [true, "stopped"]);
+
+    await writeFile(standInLog, "");
+    const plain = await viaOpencode({ model: "opencode-go/words", messages: [{ role: "user", content: "2+3?" }] } as any);
+    is("with no tools the answer is its words, its cost and its tokens", [plain.text, plain.toolCalls, plain.cost, plain.tokensIn, plain.tokensOut], ["Five.", [], 0.004, 58, 5]);
+    is("and no tool server is started", (await logged()).some((one) => one.what === "listed"), false);
+
+    await writeFile(standInLog, "");
+    const stray = await viaOpencode({ model: "opencode-go/stray", messages: [{ role: "user", content: "ls?" }], tools: mail } as any);
+    is("a call that fails before it is asked about stops opencode before it asks the model again", [stray.text, stray.toolCalls], ["Hm.", []]);
+    is("by stopping the session", (await logged()).some((one) => one.path?.endsWith("/interrupt")), true);
+
+    const limited = await viaOpencode({ model: "opencode-go/limit", messages: [{ role: "user", content: "hi" }] } as any).then(
+      () => undefined,
+      (error: Error) => error,
     );
-    let wrongAgent = "";
-    try {
-      readOpencode('{"type":"tool","part":{"type":"tool"}}\n{"type":"step_finish","part":{}}');
-    } catch (error) {
-      wrongAgent = (error as Error).message;
-    }
-    // An --agent it does not know is passed over in silence, so a tool call is
-    // the only sign that its own tools were in force.
-    is("a tool call of its own is refused rather than used", wrongAgent.includes("was not in force"), true);
-    let broke = "";
-    try {
-      readOpencode('{"type":"error","error":{"name":"UnknownError","data":{"message":"no model"}}}');
-    } catch (error) {
-      broke = (error as Error).message;
-    }
-    is("and an error line is the error, in its words", broke, "Model call refused: opencode: no model");
-    try {
-      readOpencode('{"type":"error","error":{"type":"unknown","message":"Agent not found: \\"chloe\\""}}');
-    } catch (error) {
-      broke = (error as Error).message;
-    }
-    is("opencode 2's error line too", broke, 'Model call refused: opencode: Agent not found: "chloe"');
-    is(
-      "and its words without step_finish, which opencode 2 often exits before printing, are the answer at no cost",
-      readOpencode('{"type":"step_start"}\n{"type":"text","part":{"type":"text","text":"Five."}}'),
-      { text: "Five.", cost: 0, tokensIn: 0, tokensOut: 0 },
+    is("a usage limit is said as one", [limited instanceof UsageLimit, limited?.message.endsWith("It says: You have hit your usage limit")], [true, true]);
+    const unavailable = await viaOpencode({ model: "opencode-go/missing", messages: [{ role: "user", content: "hi" }] } as any).then(
+      () => "",
+      (error: Error) => error.message,
     );
+    is("and any other failure in opencode's words", unavailable, "Model call refused: opencode: Model unavailable: opencode-go/missing");
+    pin(anyCli, anyCli, "/nowhere/opencode");
+    const absent = await viaOpencode({ model: "opencode-go/words", messages: [{ role: "user", content: "hi" }] } as any).then(
+      () => "",
+      (error: Error) => error.message,
+    );
+    is("a program that is not there says so", absent.startsWith("The opencode route needs"), true);
 
     // What is on offer is what this box can run: a route with no program is left out.
     Object.assign(settings.model, { preferredRoute: ["claude", "codex", "opencode", "gateway"], key: "", models: ["openai/gpt-6-luna", "anthropic/claude-sonnet-5", "openai/gpt-6-luna"] });

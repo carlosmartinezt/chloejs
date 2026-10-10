@@ -1,11 +1,13 @@
-// The tools of one turn, offered to the Claude Code CLI as an MCP server it
-// starts itself, so the model asks for a tool the way it was trained to, as a
-// real tool call, rather than writing the request as text to be read back.
+// The tools of one turn, offered to the claude or opencode command as an MCP
+// server it starts itself, so the model asks for a tool the way it was trained
+// to, as a real tool call, rather than writing the request as text to be read
+// back.
 //
-// It runs nothing. A call is answered with a line saying so, the CLI stops
-// after the model's first answer (--max-turns 1), and the route reads the calls
-// out of the CLI's own record of that answer. The tools run in chloe, checked
-// and written down, as on every other route.
+// It runs nothing. Each route stops its command after the model's first answer
+// and reads the calls out of the command's own record of it: claude's with
+// --max-turns 1, where a call reaches this server and is answered with a line
+// saying so, and opencode's by refusing each call before it gets here. The
+// tools run in chloe, checked and written down, as on every other route.
 //
 // Run as its own process, with the path of a JSON file of tool specs:
 // `node toolServer.js tools.json`. It imports nothing, because it is started
