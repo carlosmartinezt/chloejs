@@ -178,6 +178,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
     ["user", "new topic"],
   ]);
   const system = lastAsked.find((m) => m.role === "system")?.content ?? "";
+  is("a turn is told its name first, which is its label or else its id", system.startsWith("Your name is test."), true);
   is("a turn on a channel is told who it is talking to, and to say you", system.includes('You are talking with Me on test, directly. Write to them as "you"'), true);
   is("and not that its lines on the way are sent, when they are not", system.includes("sent to them straight away"), false);
 

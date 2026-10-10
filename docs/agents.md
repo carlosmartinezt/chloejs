@@ -18,7 +18,7 @@ tool or channel exists only because it names it.
 | `id` | required | What its runs and memory are filed under. Do not change it once it has run. |
 | `description` | required | One line, shown wherever agents are listed. |
 | `instructions` | required | What it is told on every turn: `prompt("instructions.md")` for a file in its folder, or the words themselves. |
-| `label` | the `id` | What the dashboard calls it, and the name its emails are sent under. Free to change. |
+| `label` | the `id` | Its name: what the dashboard calls it, what it is told it is called on every turn, and the name its emails are sent under. Free to change. |
 | `model` | `model.defaultModel` in settings | The model it asks, like `"anthropic/claude-sonnet-5"`. A job or a step can name its own. See [Models](/docs/models). |
 | `tools` | none | What a model may call, keyed by the name it sees. See [Tools](/docs/tools). |
 | `jobs` | none | Its jobs: each one imported, or `markdownJob("jobs/<id>.md")` for a prompt. See [A job is a workflow](/docs/jobs). |

@@ -781,7 +781,8 @@ async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
 }
 
 function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = "", cannot = "", runsOn = ""): string {
-  const parts = [agent.instructions];
+  // Without its own name, the only name a model is shown is Chloe's, and it answers to that.
+  const parts = [`Your name is ${agent.label ?? agent.id}.`, agent.instructions];
   if (person) parts.push(talkingWith(person));
   if (runsOn) parts.push(runsOn);
   if (cannot) parts.push(cannot);

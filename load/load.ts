@@ -71,9 +71,9 @@ export interface AgentConfig {
    */
   id: string;
   /**
-   * The name the dashboard shows for the agent, like `"C.C."`. The email
-   * channel also sends mail under this name. You can change it at any time.
-   * Default: the `id`.
+   * The agent's name, like `"C.C."`. The dashboard shows it, the agent is
+   * told it is its name at the top of every turn, and the email channel sends
+   * mail under it. You can change it at any time. Default: the `id`.
    */
   label?: string;
   /**
