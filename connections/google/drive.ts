@@ -47,7 +47,7 @@ export function searchFiles({ search = "", what = "Drive" }: Options = {}) {
     }),
     execute: async ({ text, limit }) => await searchDriveFiles({ search, text, limit }),
   });
-  return Object.assign(find, { needs: google });
+  return Object.assign(find, { needs: google, onlyReads: true });
 }
 
 /**
@@ -68,5 +68,5 @@ export function readFile({ search = "", what = "Drive" }: Options = {}) {
     }),
     execute: async ({ fileId }) => await readDriveFile({ search, what, fileId }),
   });
-  return Object.assign(read, { needs: google });
+  return Object.assign(read, { needs: google, onlyReads: true });
 }

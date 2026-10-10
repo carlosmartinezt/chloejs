@@ -15,6 +15,7 @@
 // The sign-in itself is googleService.ts, and every call out goes through
 // `googleApi()` there, so one file holds it, renews it and explains it and this
 // one only reads mail.
+import { holdBack } from "#chloe/core/current";
 import type { EmailProvider } from "#chloe/services/emailService";
 
 import { explain, googleApi, marked } from "./googleService.ts";
@@ -345,7 +346,8 @@ export function rawMail({
  * - `replyTo`: where replies go. If not set, replies go to the sender.
  * - `from`: the From line. If not set, the signed-in account.
  *
- * Returns `{ id }`, the id Gmail gave the sent email.
+ * Returns `{ id }`, the id Gmail gave the sent email. In a trial run nothing
+ * is sent, the run's record keeps the email, and `id` is "".
  *
  * Throws if `from`, `to`, `replyTo` or `subject` has a line break in it, and
  * nothing is sent. Throws `NeedsSignIn` when someone has to sign in to Google,
@@ -372,6 +374,7 @@ export async function sendGmail({
   from?: string;
 }): Promise<{ id: string }> {
   const raw = rawMail({ from, to, replyTo, subject, text, html });
+  if (holdBack({ kind: "email", to: to.join(", "), subject, text })) return { id: "" };
   const sent = await googleApi<{ id?: string }>(`${MAILBOX}/messages/send`, { method: "POST", body: { raw } });
   return { id: sent.id ?? "" };
 }
@@ -441,7 +444,9 @@ export function replyTo(headers: Record<string, string>): { to: string; subject:
  *
  * It goes out as the signed-in person, in the original thread, with the
  * `In-Reply-To` and `References` headers set, so it reads in both mailboxes as
- * the reply it is rather than as a new message with a similar subject.
+ * the reply it is rather than as a new message with a similar subject. In a
+ * trial run nothing is sent: the run's record keeps the reply, and the result
+ * says `sent: false, held: true`.
  */
 export async function replyGmail({
   search,
@@ -460,7 +465,7 @@ export async function replyGmail({
   /** Plain text. */
   body: string;
   html?: string;
-}): Promise<{ sent: true; to: string; subject: string; id: string }> {
+}): Promise<{ sent: boolean; held?: true; to: string; subject: string; id: string }> {
   const { allowed } = await mayReach({ search, days, limit }, messageId);
   if (!allowed) {
     throw new Error(
@@ -480,6 +485,7 @@ export async function replyGmail({
     reply_to: header(headers, "Reply-To"),
     subject: header(headers, "Subject"),
   });
+  if (holdBack({ kind: "email", to, subject, text: body })) return { sent: false, held: true, to, subject, id: "" };
   const original = header(headers, "Message-ID");
   const references = [header(headers, "References"), original].filter(Boolean).join(" ");
   const raw = rawMail({ to: [to], subject, text: body, html, inReplyTo: original || undefined, references: references || undefined });

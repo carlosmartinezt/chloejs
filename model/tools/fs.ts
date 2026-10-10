@@ -54,7 +54,7 @@ export function listFiles({ root, what }: Folder) {
       "```\n" + tree.join("\n") + "\n```"
     );
   };
-  return Object.assign(list, { overview });
+  return Object.assign(list, { overview, onlyReads: true });
 }
 
 /**
@@ -67,7 +67,7 @@ export function listFiles({ root, what }: Folder) {
  * (about 10,000 tokens).
  */
 export function readFile({ root, what, limit = 40_000 }: Folder & { limit?: number }) {
-  return tool({
+  return Object.assign(tool({
     description:
       `Read one file from ${what}, or part of it. Read before answering, and read before writing: guessing ` +
       `from memory is how you end up confidently wrong. A long file comes back cut, saying how many lines it ` +
@@ -78,7 +78,7 @@ export function readFile({ root, what, limit = 40_000 }: Folder & { limit?: numb
       lines: z.number().int().min(1).optional().describe("How many lines to read from there."),
     }),
     execute: ({ path, from, lines }) => files.readFiles(root, path, { from, lines, limit }),
-  });
+  }), { onlyReads: true });
 }
 
 /**
@@ -91,7 +91,7 @@ export function readFile({ root, what, limit = 40_000 }: Folder & { limit?: numb
  * (80 when `around` is 0).
  */
 export function searchFiles({ root, what, around = 2 }: Folder & { around?: number }) {
-  return tool({
+  return Object.assign(tool({
     description:
       `Search ${what} for text, and return each match with the lines around it and their line numbers. ` +
       `Search before answering anything you are not certain of. Often the lines around a match are enough; ` +
@@ -101,7 +101,7 @@ export function searchFiles({ root, what, around = 2 }: Folder & { around?: numb
       folder: z.string().optional().describe("Narrow to one folder. Omit to search everything."),
     }),
     execute: ({ query, folder }) => files.searchFiles(root, query, folder, { around }),
-  });
+  }), { onlyReads: true });
 }
 
 /**

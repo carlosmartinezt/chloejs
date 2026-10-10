@@ -82,13 +82,14 @@ Give each script a skill that says when to run it.
 | `selfReadFile` | turns its owner wrote | Reads any of them, several in one call. |
 | `selfListRuns` | turns its owner wrote | Lists its own runs, newest first: the job or chat, where it came from, when, the cost, and whether it failed. |
 | `selfReadRun` | turns its owner wrote | Reads one run: what started it, the answer or the error, and each step on the way. |
+| `selfTryJob` | turns its owner wrote | Runs one of its jobs as a [trial](/docs/jobs#a-trial-run), as its files are now: it reads for real, sends nothing, and answers with every message and email it would have sent. |
 | `selfReadGuide` | turns its owner wrote | Reads these guides, several in one call, for the version installed, so it can say what it could be given (Gmail, a channel, web pages) and how. Its files and the list of guides are in its instructions in those turns, and an agent that may change itself is told to read what a change needs at once and never to ask for a secret in a chat. |
 
 The owner is `owner` in settings, the first entry in a channel's `allowFrom`,
 or the account on the dashboard. A job, a token and a visitor never
-get the four self tools, because a run holds what other people said. Reading
-a run counts as reading from outside, so a change after it in the same
-conversation is refused.
+get the self tools, because a run holds what other people said. Reading
+a run, or trying a job, counts as reading from outside, so a change after it in
+the same conversation is refused.
 
 ## On a channel that names its tools
 

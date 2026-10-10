@@ -118,6 +118,9 @@ added("runs", "thread", "text");
 // How many model answers in the run came with no price. `cost` sums only the
 // ones that had one, so a run with any of these spent at least `cost`.
 added("runs", "unpriced", "integer not null default 0");
+// What a trial run would have sent and did not, as JSON, or null for a run
+// that was not a trial. A trial that held nothing back is '[]'.
+added("runs", "held", "text");
 db.exec("create index if not exists runs_parked on runs (parked) where parked is not null");
 
 // What a person calls a conversation, when they archived it, and whose it is:
@@ -157,11 +160,12 @@ db.exec("create table if not exists seen (agent text primary key, at text not nu
 
 /**
  * The columns a run is listed by: GET /api/runs and an agent's log. `asked`
- * is the start of what the person wrote, enough for a line; the trace, the
- * state and the prompt are left to GET /api/runs/:id.
+ * is the start of what the person wrote, enough for a line, and `trial` is 1
+ * for a trial run; the trace, the state, the prompt and what a trial held back
+ * are left to GET /api/runs/:id.
  */
 export const RUN_COLUMNS =
-  "id, agent, started, finished, source, job, model, steps, cost, unpriced, error, reply, summary, archived, substr(coalesce(asked, prompt), 1, 200) as asked";
+  "id, agent, started, finished, source, job, model, steps, cost, unpriced, error, reply, summary, archived, substr(coalesce(asked, prompt), 1, 200) as asked, held is not null as trial";
 
 /** One commit a run made: in the agent's memory, or in the repo its own folder is in. */
 export interface RunCommit {

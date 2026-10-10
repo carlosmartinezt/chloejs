@@ -20,7 +20,7 @@ import { isStepCount, Output as Outputs, type InferGenerateOutput, type OutputIn
 import { z } from "zod";
 
 import { deliver, owner as whoOwns } from "#chloe/model/ask";
-import { duringRun } from "#chloe/core/current";
+import { duringRun, inTrial } from "#chloe/core/current";
 import { db } from "#chloe/core/db";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { oneLineSummary } from "#chloe/core/markdown";
@@ -470,6 +470,8 @@ const WAIT = "2h";
 
 /** Not an error: the job stopped on purpose and is waiting for somebody, or for a time. */
 class Waiting extends Error {}
+/** A trial run reached a question for a person, which is where a trial ends. Not an error either. */
+class TrialEnds extends Waiting {}
 /** Nobody answered, and the ask had nothing to carry on with. */
 class Unanswered extends Error {}
 /** The file changed under a run that was already part way through. */
@@ -495,6 +497,8 @@ interface Ctx {
   /** The step running right now, while one is. A job pauses between steps, not inside one. */
   inside?: string;
   signal?: AbortSignal;
+  /** A trial run: it sends nothing, waits for nothing, and ends at a question. */
+  trial?: boolean;
 }
 
 /**
@@ -522,8 +526,19 @@ export async function work(options: {
   input?: unknown;
   /** Stops the run's model calls when it is aborted. The job sees it as `work.signal`. Default: none. */
   signal?: AbortSignal;
+  /**
+   * Runs it as a trial. It reads for real, but what chloe would send to a
+   * person (a message through a channel with `deliver`, an email with
+   * `deliverEmail`, Gmail or an email channel) is written into the run's
+   * record instead, and nothing goes. A `work.ask` ends the run there, its
+   * question held back the same way, and a `work.wait` does not wait. Code
+   * that sends with its own `fetch` is not held back. A run started inside a
+   * trial is a trial too. Default: false.
+   */
+  trial?: boolean;
 }): Promise<Result> {
   const { agent, job } = options;
+  const trial = Boolean(options.trial) || inTrial();
   if (!job.run) throw new Error(`${agent.id}/${job.id} is a prompt, not code.`);
 
   // Before the run exists, so a caller that sent the wrong thing is told so
@@ -535,8 +550,8 @@ export async function work(options: {
   const owner = whoOwns(agent.id);
   const state = starting(job);
   db.prepare(
-    `insert into runs (id, agent, started, source, job, model, prompt, kind, owner, state, args, input)
-     values (?, ?, ?, ?, ?, 'code', '', 'job', ?, ?, ?, ?)`,
+    `insert into runs (id, agent, started, source, job, model, prompt, kind, owner, state, args, input, held)
+     values (?, ?, ?, ?, ?, 'code', '', 'job', ?, ?, ?, ?, ?)`,
   ).run(
     runId,
     agent.id,
@@ -547,6 +562,7 @@ export async function work(options: {
     JSON.stringify(state),
     JSON.stringify(args),
     JSON.stringify(input),
+    trial ? "[]" : null,
   );
 
   return drive({
@@ -563,6 +579,7 @@ export async function work(options: {
     owner,
     model: "code",
     signal: options.signal,
+    trial,
   });
 }
 
@@ -696,6 +713,12 @@ async function drive(ctx: Ctx): Promise<Result> {
     await committed({ summary });
     return { runId: ctx.runId, text: reply, summary, reply: words ?? summary ?? undefined, steps: ctx.lines.length, cost: ctx.cost, unpriced: ctx.unpriced, parked: false };
   } catch (error) {
+    if (error instanceof TrialEnds) {
+      ctx.parked = undefined;
+      finish(ctx, error.message, error.message);
+      await committed({ summary: error.message });
+      return { runId: ctx.runId, text: error.message, summary: error.message, steps: ctx.lines.length, cost: ctx.cost, unpriced: ctx.unpriced, parked: false };
+    }
     if (error instanceof Waiting) {
       save(ctx);
       await committed({ summary: error.message });
@@ -1025,6 +1048,7 @@ async function waitFor(ctx: Ctx, name: string, waiting: { calls: ToolCall[]; rea
     `${ctx.agent.label ?? ctx.agent.id} wants to use ${tool} in ${JSON.stringify(name)}` +
     `${waiting.reason ? `, which needs a yes: ${waiting.reason}` : ""}.\n` +
     `${input.length > 1500 ? `${input.slice(0, 1500)}…` : input}\nShould it go ahead?`;
+  if (ctx.trial) await endTrial(ctx, ctx.owner, question, z.boolean());
   ctx.parked = {
     seq: ctx.seq,
     name,
@@ -1115,6 +1139,7 @@ async function askStep<S extends z.ZodType>(ctx: Ctx, name: string, options: Ask
     throw new Waiting(`waiting on ${who}`);
   }
 
+  if (ctx.trial) await endTrial(ctx, who, options.question, options.answer);
   ctx.parked = {
     seq: ctx.seq,
     name,
@@ -1168,11 +1193,28 @@ async function waitStep(ctx: Ctx, name: string, length: string): Promise<void> {
     return;
   }
   if (waiting) throw new Waiting(`waiting until ${waiting.expires}`);
+  if (ctx.trial) {
+    ctx.lines.push({ seq: ctx.seq, name, kind: "wait", at: new Date().toISOString(), ms: 0, cost: 0, note: `a trial does not wait ${length}` });
+    ctx.seq++;
+    save(ctx);
+    return;
+  }
 
   const until = new Date(Date.now() + minutes(length) * 60_000).toISOString();
   ctx.parked = { seq: ctx.seq, name, who: "", question: "", asked: new Date().toISOString(), expires: until, wait: true };
   save(ctx);
   throw new Waiting(`waiting until ${until}`);
+}
+
+/**
+ * Where a trial run ends: the question it would have sent, held back by
+ * `deliver` like any other message, and the run finished saying who it would
+ * have asked.
+ */
+async function endTrial(ctx: Ctx, who: string, question: string, answer: z.ZodType): Promise<never> {
+  if (!who) throw new Error("This would ask the run's owner, and it has none. Give the agent a channel with a chat in it.");
+  await deliver(who, `${question}\n${hint(answer)}`, ctx.agent.id, choices(answer));
+  throw new TrialEnds(`A trial ends at a question for a person. It would ask ${who}: ${question}`);
 }
 
 /** Write the answer down as the ask's result and carry on past it. */

@@ -80,7 +80,7 @@ export async function ownFiles(agent: Home, rules: OwnFileRules | undefined, mos
     )) {
       if (files.length >= most) return;
       const at = dir ? `${dir}/${entry.name}` : entry.name;
-      if (entry.name.startsWith(".") || JUNK.includes(entry.name) || unreachable(entry.name) || inMemory(agent, at)) continue;
+      if (entry.name.startsWith(".") || JUNK.includes(entry.name) || unreachable(entry.name, join(agent.folder, at)) || inMemory(agent, at)) continue;
       if (entry.isDirectory()) {
         if (depth < 6) await walk(at, depth + 1);
       } else {
@@ -288,6 +288,7 @@ interface Row {
   unpriced: number;
   trace: string;
   parked: string | null;
+  held: string | null;
 }
 
 function clip(value: unknown): unknown {
@@ -306,7 +307,8 @@ export function ownRuns(agent: string, options: { job?: string; limit?: number }
   const where = options.job === "chat" ? "and job is null" : options.job ? "and job = ?" : "";
   const rows = db
     .prepare(
-      `select id, job, source, started, finished, cost, unpriced, steps, error is not null as failed, parked is not null as waiting
+      `select id, job, source, started, finished, cost, unpriced, steps, error is not null as failed, parked is not null as waiting,
+       held is not null as trial
        from runs where agent = ? and source != 'eval' ${where} order by started desc limit ?`,
     )
     .all(...[agent, ...(options.job && options.job !== "chat" ? [options.job] : []), limit]) as Record<string, unknown>[];
@@ -322,6 +324,7 @@ export function ownRuns(agent: string, options: { job?: string; limit?: number }
       steps: one.steps,
       ...(one.failed ? { failed: true } : {}),
       ...(one.waiting ? { waiting: true } : {}),
+      ...(one.trial ? { trial: true } : {}),
     })),
   };
 }
@@ -350,6 +353,8 @@ export function ownRun(agent: string, id: string) {
     ...(row.summary && row.summary !== row.reply ? { summary: row.summary } : {}),
     ...(row.error ? { error: clip(row.error) } : {}),
     ...(row.parked ? { waiting: true } : {}),
+    // A trial run, and everything it would have sent and did not.
+    ...(row.held ? { trial: true, held: JSON.parse(row.held) as unknown[] } : {}),
     steps: steps.slice(0, MOST_STEPS),
     ...(steps.length > MOST_STEPS ? { stepsLeftOut: steps.length - MOST_STEPS } : {}),
   };

@@ -692,3 +692,98 @@ about("a model step that never fits");
   is("and the run was charged for both", [run.cost, line.cost], [0.0004, 0.0004]);
   is("with the step it stopped on named", [line.kind, line.failed?.slice(0, 14)], ["model", "The model step"]);
 }
+
+about("a trial run reads for real and sends nothing");
+{
+  const { deliver } = await import("@chloejs/core");
+  const { deliverEmail } = await import("@chloejs/core/services");
+  const { jobTurned } = await import("#chloe/core/alerts");
+  const before = sent.length;
+  let read = 0;
+  const morning = codeJob("trial-morning", async (work) => {
+    const facts = await work.step("read", () => (read++, "three new orders"));
+    await work.step("tell", () => deliver("test:somebody", `Today: ${facts}.`, "test"));
+    return work.step("mail", () => deliverEmail({ from: "a@example.com", to: ["b@example.com"], tag: "shop" }, "Orders", facts));
+  });
+  const tried = await work({ agent: agentFor(morning), job: morning, trial: true });
+  const held = JSON.parse(row(tried.runId).held) as { kind: string; to: string; subject?: string; text: string }[];
+  is("it read", read, 1);
+  is("and sent nothing", sent.length, before);
+  is(
+    "what it would have sent is in its record, in order",
+    held.map(({ kind, to, subject, text }) => ({ kind, to, subject, text })),
+    [
+      { kind: "message", to: "test:somebody", subject: undefined, text: "Today: three new orders." },
+      { kind: "email", to: "b@example.com", subject: "[shop] Orders", text: "three new orders" },
+    ],
+  );
+  is("and the job is told an email was held, not sent", JSON.parse(tried.text), { sent: false, held: true, subject: "[shop] Orders" });
+
+  const real = await work({ agent: agentFor(morning), job: morning });
+  is("the same job run for real sends", sent.slice(before), ["somebody: Today: three new orders."]);
+  is("and is no trial", row(real.runId).held, null);
+
+  const quiet = codeJob("trial-quiet", async (work) => work.step("look", () => "nothing to say"));
+  const nothing = await work({ agent: agentFor(quiet), job: quiet, trial: true });
+  is("a trial that held nothing back is still marked one", row(nothing.runId).held, "[]");
+
+  const asking = codeJob("trial-asking", async (work) => {
+    await work.step("tell", () => deliver("test:somebody", "Before the question.", "test"));
+    const go = await work.ask("go ahead", { question: "Buy them?", answer: z.boolean() });
+    await work.step("buy", () => (go ? "bought" : "left"));
+    return "done";
+  });
+  const stopped = await work({ agent: agentFor(asking), job: asking, trial: true });
+  const ended = row(stopped.runId);
+  is("a question ends the trial, not parked", [stopped.parked, ended.parked, Boolean(ended.finished), ended.error], [false, null, true, null]);
+  is("saying who it would have asked", stopped.text, "A trial ends at a question for a person. It would ask test:somebody: Buy them?");
+  is("with the question held back after what came before", (JSON.parse(ended.held) as { text: string }[]).map((one) => one.text), ["Before the question.", "Buy them?\n(yes or no)"]);
+  is("and nothing was sent or asked", [sent.length - before, waitingOn("test:somebody", "test")?.job === "trial-asking"], [1, false]);
+
+  const waiting = codeJob("trial-waiting", async (work) => {
+    await work.wait("a while", "2d");
+    return work.step("after", () => "went on");
+  });
+  const waited = await work({ agent: agentFor(waiting), job: waiting, trial: true });
+  is("a wait does not wait in a trial", [waited.parked, waited.text], [false, "went on"]);
+
+  const inner = codeJob("trial-inner", async (work) => work.step("tell", () => deliver("test:somebody", "From inside.", "test")));
+  const outer = codeJob("trial-outer", async (w) => w.step("start another", async () => (await work({ agent: agentFor(inner), job: inner })).runId));
+  const nested = await work({ agent: agentFor(outer), job: outer, trial: true });
+  is("a run started inside a trial is a trial too", [row(nested.text).held !== null, sent.length - before], [true, 1]);
+
+  let broken = false;
+  const failing = codeJob("trial-failing", async (work) => work.step("maybe break", () => {
+    if (broken) throw new Error("broken on purpose");
+    return "fine";
+  }));
+  // Apart by a few milliseconds, because the alert reads the runs in the order they finished.
+  const apart = () => new Promise((done) => setTimeout(done, 5));
+  await work({ agent: agentFor(failing), job: failing });
+  await apart();
+  broken = true;
+  const since = new Date().toISOString();
+  await work({ agent: agentFor(failing), job: failing, trial: true }).catch(() => undefined);
+  is("a trial that fails sends no alert", jobTurned("test", "trial-failing", since), null);
+  await apart();
+  await work({ agent: agentFor(failing), job: failing }).catch(() => undefined);
+  is("where the same failure run for real does", jobTurned("test", "trial-failing", since)?.subject, "test/trial-failing is failing");
+
+  // A tool says it only reads, or a trial holds it back: nothing to remember when writing one.
+  const called: string[] = [];
+  const lookUp = Object.assign(tool({ description: "Look something up.", inputSchema: z.object({}), execute: () => (called.push("lookUp"), "two orders") }), { onlyReads: true });
+  const order = tool({ description: "Place an order.", inputSchema: z.object({ what: z.string() }), execute: () => (called.push("order"), "ordered") });
+  answers.push(
+    { content: "", tool_calls: [{ id: "1", type: "function", function: { name: "lookUp", arguments: "{}" } }] },
+    { content: "", tool_calls: [{ id: "2", type: "function", function: { name: "order", arguments: '{"what":"paper"}' } }] },
+    "Ordered paper.",
+  );
+  const buying = codeJob("trial-buying", async (work) => work.agent("buy", { prompt: "Buy what is short.", tools: { lookUp, order }, stopWhen: isStepCount(4) }));
+  const bought = await work({ agent: agentFor(buying), job: buying, trial: true });
+  is("in a trial a tool that only reads runs, and one that does more is not called", called, ["lookUp"]);
+  is(
+    "the call it held back is in the record",
+    (JSON.parse(row(bought.runId).held) as { kind: string; to: string; text: string }[]).map(({ kind, to, text }) => ({ kind, to, text })),
+    [{ kind: "tool", to: "order", text: '{"what":"paper"}' }],
+  );
+}

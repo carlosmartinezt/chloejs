@@ -47,6 +47,8 @@ export interface RunRow {
   summary?: string | null;
   /** When it was archived, or null. An archived run is left out of the log unless asked for. */
   archived?: string | null;
+  /** 1 for a trial run, which sent nothing. */
+  trial?: number;
 }
 
 /**
@@ -111,6 +113,31 @@ export interface Run extends RunRow {
   parked?: string | null;
   /** The commits the run made, in its agent's memory or in its own folder. */
   commits?: RunCommit[];
+  /** For a trial run, what it would have sent and did not, as JSON: a list of `Held`. Null for any other run. */
+  held?: string | null;
+}
+
+/** Something a trial run would have sent. */
+export interface Held {
+  kind: "message" | "email" | "tool";
+  /** An address like "telegram:12345", or email addresses. */
+  to: string;
+  subject?: string;
+  text: string;
+  at: string;
+}
+
+/** What a trial answers with when it ends. */
+export interface Trial {
+  run: string;
+  job: string;
+  answer?: string;
+  error?: string;
+  held: Held[];
+  note?: string;
+  steps: number;
+  cost: number;
+  unpriced?: number;
 }
 
 /** Where an agent's changes are: its memory, or its own folder of instructions, skills and jobs. */

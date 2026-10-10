@@ -9,6 +9,7 @@
 // person, so the day there are two, an ask goes to the right one without any
 // of this changing.
 
+import { holdBack } from "#chloe/core/current";
 import { settings } from "#chloe/core/settings";
 
 /**
@@ -75,7 +76,8 @@ export function canReach(address: string, agent = ""): boolean {
  * channel running for that agent. Pass `choices` to show the possible answers
  * as buttons, where the channel can.
  *
- * Throws if no running channel can reach the address.
+ * Throws if no running channel can reach the address. In a trial run it
+ * sends nothing, and the run's record keeps what it would have sent.
  */
 export async function deliver(address: string, text: string, agent = "", choices?: string[]): Promise<void> {
   const { channel, to } = split(address);
@@ -86,6 +88,7 @@ export async function deliver(address: string, text: string, agent = "", choices
       `Nothing here can reach ${JSON.stringify(channel)}. Registered: ${[...ways.keys()].join(", ") || "none"}.`,
     );
   }
+  if (holdBack({ kind: "message", to: address, text })) return;
   await send(to, text, choices);
 }
 

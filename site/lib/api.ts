@@ -23,6 +23,7 @@ import type {
   Thread,
   Way,
   Token,
+  Trial,
   Picture,
   Visitor,
 } from "./types.ts";
@@ -138,6 +139,8 @@ export const api = {
   /** Pick up a job's prompt the service stopped in the middle of, in the same run. */
   carryOn: (id: string) => call<{ carrying: string }>(`/runs/${id}/carry-on`, {}),
   fire: (agent: string, job: string) => call<unknown>(`/agents/${agent}/job/${job}`, {}),
+  /** Runs a job as a trial and answers when it ends, with what it held back. */
+  tryOut: (agent: string, job: string) => call<Trial>(`/agents/${agent}/trial/${job}`, {}),
   files: (agent: string) => call<Entry[]>(`/agents/${agent}/files`),
   /** `path` is the file the words are in, when they are in one and not written into the agent's definition. */
   instructions: (agent: string) => call<{ text: string; path?: string }>(`/agents/${agent}/instructions`),

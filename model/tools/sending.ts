@@ -46,7 +46,8 @@ export function sendingTool(provider: SendingProvider, { when, keep, ...sender }
     }),
     execute: async ({ subject, body }, { context }) => {
       const sent = await deliverEmail(sender, subject, body, provider);
-      if (!keep) return sent;
+      // Held back in a trial run: nothing went, so there is no copy to keep.
+      if (!keep || !sent.sent) return sent;
       return { ...sent, copy: await keepCopy(agentOf(context), keep, sender.to, sent.subject, body) };
     },
   });

@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { isStepCount, tool, type StopCondition, type ToolApprovalConfiguration } from "ai";
 import { z } from "zod";
 
-import { duringRun } from "#chloe/core/current";
+import { duringRun, holdBack, inTrial } from "#chloe/core/current";
 import { CUT_OFF, db } from "#chloe/core/db";
 import { oneLineSummary } from "#chloe/core/markdown";
 import { ownFileRules, type Agent, type ChatHistory, type Skill } from "#chloe/load/load";
@@ -14,7 +14,7 @@ import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
 import { userNotes } from "#chloe/model/tools/memory";
-import { selfReadTools } from "#chloe/model/tools/self";
+import { selfReadTools, selfTrialTools } from "#chloe/model/tools/self";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { guides, ownFiles } from "#chloe/services/selfService";
@@ -102,7 +102,8 @@ export interface Ask {
    * Set when the agent's owner wrote this message. Only then does the model
    * get the tools only the owner may use (tools marked `forOwner`), and the
    * tools that read the agent's own files and past runs (`selfListFiles`,
-   * `selfReadFile`, `selfListRuns`, `selfReadRun`). Off by default.
+   * `selfReadFile`, `selfListRuns`, `selfReadRun`) and try one of its jobs
+   * (`selfTryJob`). Off by default.
    */
   fromOwner?: boolean;
   /**
@@ -132,6 +133,14 @@ export interface Ask {
   instead?: (name: string, args: unknown) => Promise<unknown> | unknown;
   /** Stops the reply when it is aborted, for example when the person who asked has gone. Default: none. */
   signal?: AbortSignal;
+  /**
+   * Runs it as a trial: what its tools would send to a person through chloe
+   * (a channel, an email) is written into the run's record instead, and
+   * nothing goes. A tool from an MCP server, or one that sends with its own
+   * `fetch`, is not held back. A turn started inside a trial is a trial too.
+   * Default: false.
+   */
+  trial?: boolean;
 }
 
 /** What `turn()` returns: the final answer, and every tool call made on the way. */
@@ -191,14 +200,14 @@ function stopWhenOf(agent: Agent): StopCondition<any>[] {
  * the run: the model is told what went wrong. Throws when asking the model
  * fails.
  */
-export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, stranger, fromOwner, mayChangeAgent, user, instead, signal }: Ask): Promise<Result> {
+export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, stranger, fromOwner, mayChangeAgent, user, instead, signal, trial }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? modelFor(agent);
 
   const started = new Date().toISOString();
   db.prepare(
-    "insert into runs (id, agent, started, source, job, model, prompt, asked, kind, owner, thread) values (?, ?, ?, ?, ?, ?, ?, ?, 'turn', ?, ?)",
-  ).run(runId, agent.id, started, source, job ?? null, using, prompt, asked ?? null, owner ?? null, thread ?? null);
+    "insert into runs (id, agent, started, source, job, model, prompt, asked, kind, owner, thread, held) values (?, ?, ?, ?, ?, ?, ?, ?, 'turn', ?, ?, ?)",
+  ).run(runId, agent.id, started, source, job ?? null, using, prompt, asked ?? null, owner ?? null, thread ?? null, trial || inTrial() ? "[]" : null);
 
   const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent });
   const overviews = await overviewsOf(tools);
@@ -701,6 +710,12 @@ async function runTool(
     }
   }
 
+  // Held back by default: a tool that forgot to say it only reads is written
+  // down rather than let through.
+  if (!how.instead && !one.own && !one.onlyReads && holdBack({ kind: "tool", to: name, text: JSON.stringify(checked.value) })) {
+    return { output: `This is a trial run: ${name} was written down and not called. Carry on as if it had worked.`, args: checked.value };
+  }
+
   try {
     const output = how.instead ? await how.instead(name, checked.value) : await run(one, checked.value, call.id, how.context);
     return { output: output ?? { ok: true }, args: checked.value };
@@ -745,12 +760,12 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
  * The tools a turn of this agent has: its own and `skillRead`, less any its
  * channel leaves out, less those for its owner unless the owner wrote, and
  * less those that change it unless the owner may. A turn its owner wrote also
- * has the tools that read its own folder and runs.
+ * has the tools that read its own folder and runs, and selfTryJob.
  */
 function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean } = {}): Tools {
   const owner = Boolean(who.fromOwner || who.mayChangeAgent);
   const tools: Tools = {
-    ...(owner ? selfReadTools(ownFileRules(agent.features))(agent) : {}),
+    ...(owner ? { ...selfReadTools(ownFileRules(agent.features))(agent), ...selfTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
     skillRead: skillTool(agent.skills),
   };

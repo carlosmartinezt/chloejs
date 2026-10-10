@@ -97,11 +97,12 @@ export function lockedOut(address: string): void {
  * the job's own run history, so a job that fails every hour sends one mail and
  * not twenty-four, and a restart in between changes nothing. `since` is when
  * the run began: a run that left no finished row (it is waiting on a person,
- * or never started) says nothing.
+ * or never started) says nothing, and neither does a trial run, which is left
+ * out of the history it reads.
  */
 export function jobTurned(agent: string, job: string, since: string): { subject: string; body: string } | null {
   const [now, before] = db
-    .prepare("select finished, error from runs where agent = ? and job = ? and finished is not null order by finished desc limit 2")
+    .prepare("select finished, error from runs where agent = ? and job = ? and finished is not null and held is null order by finished desc limit 2")
     .all(agent, job) as { finished: string; error: string | null }[];
   if (!now || now.finished < since || Boolean(now.error) === Boolean(before?.error)) return null;
   if (now.error) {

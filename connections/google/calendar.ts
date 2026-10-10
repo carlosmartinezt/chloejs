@@ -51,7 +51,7 @@ export function listEvents({ calendars = ["primary"], what = "the calendar", day
     execute: async ({ from, days: ahead, limit }) =>
       await listCalendarEvents({ calendars, from: from ? new Date(from) : new Date(), days: ahead ?? days, limit }),
   });
-  return Object.assign(list, { needs: google });
+  return Object.assign(list, { needs: google, onlyReads: true });
 }
 
 /**

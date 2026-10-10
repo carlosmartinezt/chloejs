@@ -48,10 +48,12 @@ adds, and the ones an agent has with no feature, are on
 | `selfImprovement` | on | `selfWriteFile`, to change its own folder: instructions, skills, jobs, and its code. `false` turns it off, `{ code: false }` keeps it to plain text, `{ files: ["md"] }` narrows it, `{ except: ["PERMISSIONS.md"] }` keeps a file read only and turns code off. Never evals or memory, and a job it changes must still load and run at most once an hour. Every write is a commit you can undo from the dashboard, and what you changed by hand in a file it writes is committed first, under your own git name. It writes only when its owner asks, and not once a tool in the same conversation read from outside ([what an agent may change](/docs/prompts#what-an-agent-may-change-about-itself)). |
 | `runScripts` | off | `scriptRun`, to run a file in its own `scripts/` folder. The agent is refused as it loads if that folder is empty. |
 
-Every agent also has five tools that need no feature, in turns its owner wrote
+Every agent also has six tools that need no feature, in turns its owner wrote
 and no others: `selfListFiles` and `selfReadFile` read its own folder (never
 its memory), `selfListRuns` and `selfReadRun` read its own runs, so you can
 ask "how do you send the morning facts?" or "what did you send me yesterday?",
+`selfTryJob` runs one of its jobs as a [trial](/docs/jobs#a-trial-run), which
+sends nothing and answers with what it would have sent,
 and `selfReadGuide` reads these guides, so it can tell you what it could be given.
 Those turns also list its files and these guides in its instructions, so it
 reads what a change needs in one call and writes it in the next.

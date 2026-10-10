@@ -63,6 +63,38 @@ A second run of the same job is skipped, not queued, and a job waiting on
 somebody does not start again. A job that takes longer than its own interval
 runs less often than its cron line says.
 
+## A trial run
+
+Any job can run as a trial, to see what it would do without anybody hearing
+from it: the Try button on the dashboard's Jobs page,
+`POST /api/agents/<agent>/trial/<id>`, or the agent itself, in a turn its owner
+wrote, with `selfTryJob`. It runs the job as its files are now, under the same
+guard as any other run of it.
+
+It reads for real: mail, web pages, files, models. Anything else is written
+into the run instead, and nothing goes:
+
+- **Every tool call a model makes**, unless the tool says it only reads
+  (`onlyReads`) or works only on the agent's own folder and memory (`own`). A
+  tool that says neither is held back, so a new tool needs no code for trials,
+  and one that forgot to say it only reads is held rather than let through. A
+  tool from an MCP server runs when the server marks it read only.
+- **What a code step sends through chloe**: a message to an address
+  (`deliver`), an email (`deliverEmail`, Gmail's send and reply, an email
+  channel's new conversation).
+
+A `work.ask` ends the trial there, its question held back the same way, and a
+`work.wait` does not wait. A run started inside a trial is a trial too.
+
+A code step runs for real, so what it does by itself is done: a file it
+writes, a request it makes with its own `fetch`, a service of your own it
+calls. Send through chloe's services, or through a tool in an agent step.
+
+The run is kept and marked a trial, with everything it held back listed under
+it on the dashboard. One that held nothing back says so, which is how a job
+meant to send that sends nothing shows. A trial never counts towards a job's
+alerts.
+
 ## When it runs
 
 `cron` is a cron line, and `every` from `@chloejs/core/timer` writes one in

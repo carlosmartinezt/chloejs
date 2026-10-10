@@ -26,7 +26,7 @@ import * as webService from "#chloe/services/webService";
  * ```
  */
 export function readPage() {
-  return tool({
+  return Object.assign(tool({
     description:
       "Read a public web page as plain text. Links come back as `[text](url)`: to follow one, pass that url " +
       "exactly as it came back, never one you rebuilt by hand, because one changed character can make a site " +
@@ -38,7 +38,7 @@ export function readPage() {
       from: z.number().int().min(0).optional().describe("Where to start, from the last slice's `next`."),
     }),
     execute: ({ url, from }) => webService.readPage(url, from ?? 0),
-  });
+  }), { onlyReads: true });
 }
 
 /**
@@ -68,5 +68,5 @@ export function search() {
     }),
     execute: ({ query, count }) => searchService.searchWeb(query, count),
   });
-  return Object.assign(search, { needs: brave });
+  return Object.assign(search, { needs: brave, onlyReads: true });
 }

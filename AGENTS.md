@@ -527,6 +527,22 @@ step with no tools (that is a model step in disguise), a budget that is not an
 amount above zero, and an `ask` from inside any step, because a job pauses
 between steps and not inside one.
 
+**A trial holds back every tool call that is not `own` or `onlyReads`**, in
+`runTool()` in `core/turn.ts`, so a new tool needs nothing for trials and one
+that forgot to say it only reads is held, not let through. Mark a tool
+`onlyReads` only when it sends nothing and changes nothing outside the agent.
+Code steps call services directly, so **a service that sends to a person also
+calls `holdBack()` first.** A trial run
+(`trial` on `work()` and `turn()`; `tryJob()` in `core/clock.ts`, which the
+`selfTryJob` tool and `POST /api/agents/:id/trial/:job` call) is a run whose
+`held` column is not null, and `holdBack()` in `core/current.ts` is how a send
+finds out: in a trial it writes down what would have gone and returns true,
+and the caller sends nothing. `deliver`, `deliverEmail`, `sendGmail`,
+`replyGmail` and an email channel's new conversation call it, and an `ask`
+ends a trial (`endTrial()` in `core/steps.ts`). A new way to send that does
+not call it is a trial that sends. Trying a job counts as reading from
+outside, because the job reads mail and pages.
+
 **A parked run holds its job, and expires.** While a job waits on somebody
 it does not start a second run, because that would ask the same
 question twice. `within:` is how long it waits, `otherwise:` is what to carry
@@ -875,10 +891,13 @@ inside one is not enough: an agent's default memory is inside the repo its
 definition is in, and asked from there git answers for that repo. A "commit all"
 would stage every file in it and push would send them off the box.
 
-**`confine()`'s never list (`.git`, `.ssh`, `secrets`, `node_modules`) is left
-out of a listing, not just refused on open.** An agent's state folder is exactly
-where its credentials live, and the first `secrets/` a tree met used to stop the
-whole listing.
+**`confine()`'s never list (`.git`, `.ssh`, `secrets`, `node_modules`, any
+`.env`) is left out of a listing, not just refused on open.** An agent's state
+folder is exactly where its credentials live, and the first `secrets/` a tree
+met used to stop the whole listing. `confine()` also refuses chloe's state
+folder from any folder that holds it: an agent defined in `chloe.config.ts`
+lives in the project folder, and without that any token read `.env` and
+`data/login.json`, whose secret signs every session.
 
 **`from()` in `login.ts` trusts only what a caller cannot write.**
 `x-forwarded-for` is appended to by every hop, so the front of it is whatever

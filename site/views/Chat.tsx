@@ -107,7 +107,9 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
   const [prompt, setPrompt] = useState("");
   const [pictures, setPictures] = useState<Held[]>([]);
   const [trouble, setTrouble] = useState("");
-  const [waiting, setWaiting] = useState(false);
+  // The conversations waiting on an answer. Each one is its own, so another
+  // conversation opened meanwhile is not shown as thinking, and can be spoken to.
+  const [waitingOn, setWaitingOn] = useState<ReadonlySet<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; one: Thread } | null>(null);
   const [naming, setNaming] = useState("");
@@ -150,6 +152,9 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
   }, [agent, owner]);
 
   // A pick for this conversation beats what the agent runs on otherwise.
+  const waiting = waitingOn.has(thread);
+  const open = useRef(thread);
+  open.current = thread;
   const picked = summary?.chosen.find((one) => one.scope === `chat:${thread}`)?.model;
   const model = picked ?? summary?.model ?? "";
 
@@ -276,20 +281,28 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
       ...said,
       { role: "user", content: asked, at: new Date().toISOString(), pictures: sending.length ? sending.map((one) => one.url) : undefined },
     ]);
-    setWaiting(true);
+    const to = thread;
+    setWaitingOn((all) => new Set(all).add(to));
+    // An answer to a conversation no longer open is not shown here: opening it
+    // again reads it back with the answer in it.
+    const here = (line: Line) => open.current === to && setLines((said) => [...said, line]);
     try {
-      const answer = await api.say(agent, asked, thread, sending.map(({ name, mediaType, data }) => ({ name, mediaType, data })));
-      setLines((said) => [...said, { role: "assistant", content: answer.text, cost: answer.cost, unpriced: answer.unpriced, at: new Date().toISOString() }]);
+      const answer = await api.say(agent, asked, to, sending.map(({ name, mediaType, data }) => ({ name, mediaType, data })));
+      here({ role: "assistant", content: answer.text, cost: answer.cost, unpriced: answer.unpriced, at: new Date().toISOString() });
       // A conversation started here only exists once something is in it, so
       // this is where it turns up in the list beside, and in the address.
       api.threads(agent).then(setThreads, () => {});
       // /model typed in the box picks one too.
       if (/^\/models?\b/i.test(asked)) api.agent(agent).then(setSummary, () => {});
-      if (!asked) window.history.replaceState(null, "", href({ at: "chat", agent, thread }));
+      if (!asked && open.current === to) window.history.replaceState(null, "", href({ at: "chat", agent, thread: to }));
     } catch (error) {
-      setLines((said) => [...said, { role: "assistant", content: (error as Error).message, failed: true }]);
+      here({ role: "assistant", content: (error as Error).message, failed: true });
     } finally {
-      setWaiting(false);
+      setWaitingOn((all) => {
+        const left = new Set(all);
+        left.delete(to);
+        return left;
+      });
     }
   }
 

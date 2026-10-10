@@ -8,6 +8,7 @@
 // The tools a model reaches are gmail.sendEmail and resend.sendEmail, which call
 // this. A job calls this directly, from a step.
 
+import { holdBack } from "#chloe/core/current";
 import { settings } from "#chloe/core/settings";
 
 import { gmailProvider } from "#chloe/connections/google/gmailService";
@@ -97,6 +98,9 @@ export type SendingProvider = Exclude<typeof settings.email.provider, "none">;
  * you pass `provider`. The subject is only written to the log, and the result
  * still says `sent: true`.
  *
+ * In a trial run nothing is sent either: the run's record keeps the email,
+ * and the result is `{ sent: false, held: true, subject }`.
+ *
  * Throws if `to` is empty, or if the provider fails (for example: there is no
  * Resend key, or nobody has signed in to Google).
  */
@@ -105,13 +109,14 @@ export async function deliverEmail(
   subject: string,
   body: string,
   provider?: SendingProvider,
-): Promise<{ sent: true; id?: string; subject: string }> {
+): Promise<{ sent: boolean; held?: true; id?: string; subject: string }> {
   // Refuse rather than send nowhere.
   if (to.length === 0) throw new Error("Nobody to send to. Give the sender at least one address in to.");
   const tagged = tag && !subject.startsWith(`[${tag}]`) ? `[${tag}] ${subject}` : subject;
   const chosen = settings.email.provider === "none" ? "none" : (provider ?? settings.email.provider);
   const carrier = providers[chosen];
   if (!carrier) throw new Error(`No email provider called "${chosen}". It is one of: ${Object.keys(providers).join(", ")}.`);
+  if (holdBack({ kind: "email", to: to.join(", "), subject: tagged, text: body })) return { sent: false, held: true, subject: tagged };
   const { id } = await carrier.send({
     from,
     to,

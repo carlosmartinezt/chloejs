@@ -80,7 +80,7 @@ export function readEmail({
         ? await readOneEmailMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
         : await readEmailMessages({ search, days: back ?? days, limit: limit ?? 10 }),
   });
-  return Object.assign(read, { needs: google });
+  return Object.assign(read, { needs: google, onlyReads: true });
 }
 
 /** The options for `gmail.replyEmail`: the same as `gmail.readEmail`, plus these. */
@@ -161,7 +161,8 @@ export function replyEmail({
         body: markdown ? markdownToText(body) : body,
         html: markdown ? markdownToHtml(body) : undefined,
       });
-      if (!keep) return sent;
+      // Held back in a trial run: nothing went, so there is no copy to keep.
+      if (!keep || !sent.sent) return sent;
       const at = new Date().toISOString();
       const slug = sent.subject.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
       // Quoted, because the subject is the sender's words: a value that

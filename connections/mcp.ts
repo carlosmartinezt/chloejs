@@ -149,7 +149,8 @@ export function mcpConnection(options: McpOptions): McpConnection {
             }
           },
         });
-        out[toolName(options.name, one.name)] = Object.assign(made, { needs: connection });
+        // A server's own word that a tool only reads is taken: what it runs is the server's anyway.
+        out[toolName(options.name, one.name)] = Object.assign(made, { needs: connection, onlyReads: one.annotations?.readOnlyHint === true });
       }
       return out;
     },

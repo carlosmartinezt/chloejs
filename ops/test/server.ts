@@ -377,6 +377,8 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   is("and nothing was started", fired.length, 3);
 
   is("a job that agent does not have is still a 404", (await start("").then(() => fetch(`${at}/api/agents/test/job/nope`, { method: "POST", headers: { authorization: `Bearer ${secret}` } }))).status, 404);
+  const trial = await fetch(`${at}/api/agents/test/trial/reading?customer=x`, { method: "POST", headers: { authorization: `Bearer ${secret}` } });
+  is("a token may not start a trial: that is the account's", [trial.status === 401 || trial.status === 403, fired.length], [true, 3]);
 
   server.close();
 }

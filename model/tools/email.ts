@@ -41,6 +41,8 @@ export function startConversation({ when, channel = "email", keep }: { when: str
     execute: async ({ to, subject, text }, { context }) => {
       const agent = agentOf(context);
       const started = await openEmail(agent.id, to, subject, text, channel);
+      // Held back in a trial run: nothing went and no conversation was made.
+      if (!started.thread) return { sent: false, held: true, to, subject };
       const sent = { sent: true, to, subject, conversation: started.thread };
       if (!keep) return sent;
       return { ...sent, copy: await keepCopy(agent, keep, [to], subject, text) };

@@ -510,8 +510,9 @@ export interface Features {
    * output, one of its past runs).
    *
    * Every agent can already read its own files and past runs
-   * (`selfListFiles`, `selfReadFile`, `selfListRuns`, `selfReadRun`) in
-   * replies to its owner. It does not need this setting for that.
+   * (`selfListFiles`, `selfReadFile`, `selfListRuns`, `selfReadRun`) and try
+   * one of its jobs (`selfTryJob`) in replies to its owner. It does not need
+   * this setting for that.
    */
   selfImprovement?: false | SelfImprovement;
   /**

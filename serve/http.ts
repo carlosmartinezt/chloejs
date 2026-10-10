@@ -19,7 +19,7 @@ import { db, RUN_COLUMNS } from "#chloe/core/db";
 import { readEnvFile, writeEnv } from "#chloe/core/env";
 import { settings } from "#chloe/core/settings";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
-import type { Clock } from "#chloe/core/clock";
+import { tryJob, type Clock } from "#chloe/core/clock";
 import { choices, choose, modelFor, type Scope } from "#chloe/model/choices";
 import { forget } from "#chloe/model/memory";
 import { models } from "#chloe/model/model";
@@ -790,6 +790,24 @@ export const routes: Route[] = [
 
       void context.clock.fire(agent, job, sent, channelOf(request));
       json(response, { started: `${agent.id}/${job.id}`, log: `/api/agents/${agent.id}/log` });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/trial/:job",
+    does: "Run one of that agent's jobs as a trial, as its files are now, and answer when it ends: it reads for real, and every message and email it would have sent is held back and listed instead. A question for a person ends it.",
+    takes: 'whatever the job declares, as JSON or as a query string: {"text": "..."}',
+    handle: async ({ request, response, context, params, url }) => {
+      const agent = context.agent(params.id);
+      const sent = {
+        ...Object.fromEntries(url.searchParams),
+        ...(await body(request, z.record(z.string(), z.unknown()))),
+      };
+      try {
+        json(response, await tryJob(agent, params.job, { input: sent, source: channelOf(request), through: context.clock }));
+      } catch (error) {
+        throw new BadRequest((error as Error).message);
+      }
     },
   },
 

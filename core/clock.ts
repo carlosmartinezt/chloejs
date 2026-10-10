@@ -1,7 +1,9 @@
 // The clock: anything due this minute runs. What is due comes from the files on disk, so
 // an edited or deleted job takes effect on the next tick with no table to
 // get out of step with the folder.
-import type { Agent, Job } from "#chloe/load/load";
+import { checksDone, loadAgain, type Agent, type Job } from "#chloe/load/load";
+import type { Held } from "#chloe/core/current";
+import { db } from "#chloe/core/db";
 import { due, parse } from "#chloe/timer/cron";
 import { carryOn, spentText, turn } from "#chloe/core/turn";
 import { modelFor } from "#chloe/model/choices";
@@ -60,6 +62,12 @@ export interface Clock {
    * was: `stopped` in core/turn.ts says which can, before anything starts.
    */
   carryOn(agent: Agent, job: Job, runId: string): Promise<Fired | NotRun>;
+  /**
+   * Run one now as a trial, under the same guard as `fire`: it reads for
+   * real and sends nothing to anybody. `tryJob` is the way in that loads the
+   * job as its files are now and reads back what the trial held.
+   */
+  trial(agent: Agent, job: Job, input?: unknown, channel?: string): Promise<Fired | NotRun>;
   running(): string[];
 }
 
@@ -94,11 +102,7 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
    * the clock has nobody to tell.
    */
   async function fire(agent: Agent, job: Job, input?: unknown, channel = "unknown", conversation?: string): Promise<Fired | NotRun> {
-    return guarded(agent, job, conversation, () =>
-      job.run
-        ? work({ agent, job, source: channel, input })
-        : turn({ agent, prompt: job.prompt, model: modelFor(agent, job), source: channel, job: job.id }),
-    );
+    return guarded(agent, job, conversation, () => start(agent, job, input, channel));
   }
 
   async function guarded(agent: Agent, job: Job, conversation: string | undefined, run: () => Promise<Fired>): Promise<Fired | NotRun> {
@@ -161,7 +165,107 @@ export function startClock(agents: () => Map<string, Agent>): Clock {
     stop: () => clearInterval(timer),
     fire,
     carryOn: (agent, job, runId) => guarded(agent, job, undefined, () => carryOn({ agent, runId })),
+    trial: (agent, job, input, channel = "unknown") => guarded(agent, job, undefined, () => start(agent, job, input, channel, true)),
     running: () => [...busy],
   };
   return current;
+}
+
+/** One run of a job, code or prompt. A prompt job takes no input. */
+function start(agent: Agent, job: Job, input: unknown, channel: string, trial = false): Promise<Fired> {
+  return job.run
+    ? work({ agent, job, source: channel, input, trial })
+    : turn({ agent, prompt: job.prompt, model: modelFor(agent, job), source: channel, job: job.id, trial });
+}
+
+/** What a trial run came to, read back from its record. */
+export interface Trial {
+  /** The run's id, which the dashboard and `selfReadRun` open. */
+  run: string;
+  job: string;
+  /** What the job answered, cut short when long. For a trial that reached a question, who it would have asked and what. */
+  answer?: string;
+  /** Why it failed, when it did. */
+  error?: string;
+  /** Everything it would have sent, in order. */
+  held: Held[];
+  /** Said when it held nothing back, because a job meant to send that sent nothing is the thing to notice. */
+  note?: string;
+  steps: number;
+  cost: number;
+  unpriced?: number;
+}
+
+/** Longer than this, a trial's answer is cut short: the run itself keeps all of it. */
+const ANSWER = 4000;
+
+/**
+ * Runs one of an agent's jobs as a trial, as its files are now: the agent is
+ * loaded afresh (after any check of a change it is making), so a job changed a
+ * moment ago is the one that runs. It goes through the clock's guard, so it
+ * never overlaps another run of that job. Returns how it ended and what it
+ * held back.
+ *
+ * Throws when the agent has no such job, when the job is running or waiting on
+ * somebody, when the input does not fit its `args` (`WrongArgs`), and when no
+ * clock is running in this process.
+ */
+export async function tryJob(
+  home: { id: string; folder: string },
+  jobId: string,
+  { input, source = "unknown", through = current }: { input?: unknown; source?: string; through?: Clock } = {},
+): Promise<Trial> {
+  if (!through) throw new Error("A trial runs through the clock, and none is running in this process.");
+  await checksDone();
+  const agent = await loadAgain(home);
+  const job = agent.jobs.find((one) => one.id === jobId);
+  if (!job) {
+    throw new Error(`${agent.id} has no job called ${JSON.stringify(jobId)}. Its jobs: ${agent.jobs.map((one) => one.id).join(", ") || "none"}.`);
+  }
+  const since = new Date().toISOString();
+  const result = await through.trial(agent, job, input, source);
+  if (!ran(result) && result.skipped) {
+    throw new Error(
+      result.skipped === "busy"
+        ? `${job.id} is running now, and two runs of one job never overlap. Try it again when that run is done.`
+        : `${job.id} is waiting on somebody's answer, and does not start again until it has one.`,
+    );
+  }
+  // A run that failed hands back only why, so its record is found by when it began.
+  const runId = ran(result)
+    ? result.runId
+    : (db.prepare("select id from runs where agent = ? and job = ? and held is not null and started >= ? order by started desc limit 1").get(agent.id, job.id, since) as
+        | { id: string }
+        | undefined)?.id;
+  if (!runId) throw new Error(`The trial of ${job.id} did not start: ${(result as NotRun).failed ?? "no reason was given"}.`);
+  return trialOf(runId);
+}
+
+/** A trial run as its record has it. */
+function trialOf(runId: string): Trial {
+  const row = db.prepare("select id, job, reply, error, held, steps, cost, unpriced from runs where id = ?").get(runId) as {
+    id: string;
+    job: string;
+    reply: string | null;
+    error: string | null;
+    held: string;
+    steps: number;
+    cost: number;
+    unpriced: number;
+  };
+  const held = JSON.parse(row.held) as Held[];
+  const cut = (text: string) => (text.length > ANSWER ? `${text.slice(0, ANSWER)}...[${text.length} characters]` : text);
+  return {
+    run: row.id,
+    job: row.job,
+    ...(row.reply ? { answer: cut(row.reply) } : {}),
+    ...(row.error ? { error: cut(row.error) } : {}),
+    held,
+    ...(held.length === 0
+      ? { note: "It held nothing back, so run for real it sends nothing through chloe. Anything sent by its own fetch or by an MCP server's tool is never held back." }
+      : {}),
+    steps: row.steps,
+    cost: row.cost,
+    ...(row.unpriced ? { unpriced: row.unpriced } : {}),
+  };
 }

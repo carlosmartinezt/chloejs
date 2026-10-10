@@ -1,6 +1,6 @@
 import { type CSSProperties, Fragment, type PointerEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
-import type { AgentSummary, Run, RunRow, Step, Visitor } from "../lib/types.ts";
+import type { AgentSummary, Held, Run, RunRow, Step, Visitor } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
 import { ago, clock, dayOf, kindOf, labelOf, many, spent, text, when } from "../lib/format.ts";
 import { gist } from "./Chat.tsx";
@@ -54,7 +54,7 @@ export function LogTable({
               </td>
             )}
             <td className="num dim">{run.source}</td>
-            <td className="num dim">{run.job ?? ""}</td>
+            <td className="num dim">{run.job ?? ""}{run.trial ? ", trial" : ""}</td>
             <td className="right num">{run.steps}</td>
             <td className="right num">
               {/* A job with no model step in it costs nothing, and that is worth seeing. */}
@@ -301,7 +301,7 @@ export function Log({
                         <span className={run.archived ? "headline dim" : "headline"}>{headline(run)}</span>
                         <span className="about">
                           <span className="agent">{labelOf(run.agent)}</span>
-                          {[run.source, run.job].filter(Boolean).map((one) => `, ${one}`)}
+                          {[run.source, run.job, run.trial && "trial"].filter(Boolean).map((one) => `, ${one}`)}
                           {answered(run)}
                         </span>
                       </span>
@@ -485,6 +485,7 @@ function RunDetail({ id, agents }: { id: string; agents: AgentSummary[] }) {
 
       {run.job && <JobLine run={run} job={agents.find((one) => one.id === run.agent)?.jobs.find((one) => one.id === run.job)} />}
       <RunThread run={run} />
+      {run.held && <HeldBack held={JSON.parse(run.held) as Held[]} />}
       {run.carryOn && <CarryOn id={id} why={run.carryOn} started={() => setRun({ ...run, carryOn: false, finished: null, error: null })} />}
 
       {run.commits && run.commits.length > 0 && (
@@ -507,6 +508,18 @@ function RunDetail({ id, agents }: { id: string; agents: AgentSummary[] }) {
         </details>
       )}
     </>
+  );
+}
+
+/** What a trial run would have sent, each in full. A trial that held nothing back says so, because a job meant to send that sends nothing is the thing to see. */
+function HeldBack({ held }: { held: Held[] }) {
+  return (
+    <div className="thread run-thread">
+      <p className="event num">{held.length ? "A trial: it sent nothing, and held back" : "A trial, and it held nothing back: run for real, it sends nothing"}</p>
+      {held.map((one, at) => (
+        <Them key={at} who={one.kind === "tool" ? `A call to ${one.to}` : `${one.kind === "email" ? "An email" : "A message"} to ${one.to}`} words={one.subject ? `**${one.subject}**\n\n${one.text}` : one.text} meta={saidBy("held back", one.at)} />
+      ))}
+    </div>
   );
 }
 

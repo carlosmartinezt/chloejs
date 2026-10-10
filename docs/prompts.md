@@ -88,15 +88,16 @@ the same reason, an agent with `except` (files it may never change) writes no
 code, and says so with a warning as it loads until it says `code: false`.
 
 Any agent can read its own folder and runs when its owner asks
-(`selfListFiles`, `selfReadFile`, `selfListRuns`, `selfReadRun`), and the
-guides for the version installed (`selfReadGuide`). It changes
+(`selfListFiles`, `selfReadFile`, `selfListRuns`, `selfReadRun`), the
+guides for the version installed (`selfReadGuide`), and try one of its jobs
+(`selfTryJob`, a [trial](/docs/jobs#a-trial-run) that sends nothing). It changes
 itself only when its owner asks: a message from the agent's owner
 on one of its channels (`owner` in settings, or the first entry in the
 channel's `allowFrom`), or from the account on the dashboard. A job, a
 schedule, a token and a visitor never get `selfWriteFile`, and an agent step
 handed it is refused. Once any tool in a reply has read something from
 outside the agent (mail, a web page, a script, an MCP server, one of its own
-runs, which holds what those said), a change is refused for the rest of that
+runs, which holds what those said, or a trial of one of its jobs), a change is refused for the rest of that
 reply, because what it read may be what asked for the change. The owner's
 next message may ask for it, and every change is a commit that can be read and
 undone. In a turn without `selfWriteFile`, an agent that may change itself

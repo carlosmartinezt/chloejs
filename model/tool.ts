@@ -42,6 +42,15 @@ export type ChloeTool = Tool & {
    */
   own?: boolean;
   /**
+   * Set to `true` when the tool only reads: it sends nothing and changes
+   * nothing outside the agent. Off by default.
+   *
+   * In a trial run a call to a tool without it, and not `own`, is written
+   * into the run's record and not made, so a tool that forgets to say it
+   * only reads is held back rather than let through.
+   */
+  onlyReads?: boolean;
+  /**
    * Set to `true` to give this tool to the model only when the agent's owner
    * sent the message. Off by default.
    *

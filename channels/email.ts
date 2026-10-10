@@ -66,6 +66,7 @@ import { passwordMailbox } from "#chloe/connections/mail/mailbox";
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
 import { reachBy, unreach } from "#chloe/model/ask";
 import { remember } from "#chloe/model/memory";
+import { holdBack } from "#chloe/core/current";
 import { db } from "#chloe/core/db";
 import { addresses, readEmail, signedBy, whenSent, type Email, type Inbox, type LookUp } from "#chloe/core/mail";
 import { settings, whereKeyGoes } from "#chloe/core/settings";
@@ -224,7 +225,8 @@ const starters = new Map<string, Starter>();
  * - `channel`: the email channel's name. Default: "email".
  *
  * Throws when `to` is not in `allowFrom`, or when the channel is not running
- * in this process.
+ * in this process. In a trial run nothing is sent and no conversation is
+ * made: the run's record keeps the email, and `address` and `thread` are "".
  */
 export async function openEmail(agent: string, to: string, subject: string, text: string, channel = "email"): Promise<Started> {
   const start = starters.get(`${agent}/${channel}`);
@@ -376,6 +378,7 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
   const start: Starter = async (to, subject, text) => {
     const person = lower(to);
     if (!allowed.includes(person)) throw new Error(`${to} is not somebody ${agentId} may email. It may email: ${allowed.join(", ")}.`);
+    if (holdBack({ kind: "email", to: person, subject, text })) return { address: "", thread: "" };
     const address = gmail ? tagged(gmail.account()) : await own!.address(person);
     const thread = `${agentId}/${channel}-${randomUUID()}`;
     const at = new Date().toISOString();

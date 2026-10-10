@@ -343,6 +343,71 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
 }
 
 {
+  about("the owner's agent tries one of its jobs, as its files are now, and sends nothing");
+  const { turn } = await import("#chloe/core/turn");
+  const { startClock, tryJob } = await import("#chloe/core/clock");
+  const { loadAgain } = await import("#chloe/load/load");
+  const { realpathSync } = await import("node:fs");
+  const { mkdir, mkdtemp, rm, symlink, writeFile: put } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { fileURLToPath } = await import("node:url");
+  const { sent } = await import("./shared.ts");
+
+  // Outside the runtime's folder, so its files are imported afresh, with the
+  // package linked the way a project installs it.
+  const folder = realpathSync(await mkdtemp(join(tmpdir(), "trier-")));
+  await mkdir(join(folder, "node_modules/@chloejs"), { recursive: true });
+  await mkdir(join(folder, "jobs"));
+  await symlink(fileURLToPath(new URL("../..", import.meta.url)), join(folder, "node_modules/@chloejs/core"));
+  const memory = await mkdtemp(join(tmpdir(), "trier-memory-"));
+  await put(
+    join(folder, "agent.ts"),
+    `import { defineAgent } from "@chloejs/core";\nimport tell from "./jobs/tell.ts";\n` +
+      `export default defineAgent({ id: "trier", description: "", instructions: "Be brief.", model: "anthropic/claude-haiku-4.5", ` +
+      `memory: { folder: ${JSON.stringify(memory)} }, jobs: [tell] });\n`,
+  );
+  const job = (words: string) =>
+    `import { defineJob, deliver } from "@chloejs/core";\n` +
+    `export default defineJob({ id: "tell", description: "The owner knows.", run: (work) => work.step("tell", () => deliver("test:somebody", ${JSON.stringify(words)}, "trier")) });\n`;
+  await put(join(folder, "jobs/tell.ts"), job("The first words."));
+  const home = { id: "trier", folder, memory: { folder: memory } };
+  const loaded = await loadAgain(home);
+
+  const clock = startClock(() => new Map());
+  const before = sent.length;
+  await put(join(folder, "jobs/tell.ts"), job("The words as changed."));
+  const tried = await tryJob(loaded, "tell", { through: clock, source: "agent" });
+  is("it runs the job as its files are now, not as it was loaded", tried.held.map((one) => one.text), ["The words as changed."]);
+  is("to whom", tried.held[0].to, "test:somebody");
+  is("and nothing was sent", sent.length, before);
+  is("the run is marked a trial and kept", [row(tried.run).held !== null, row(tried.run).source], [true, "agent"]);
+  const missing = await tryJob(loaded, "nope", { through: clock }).then(() => "", (error: Error) => error.message);
+  is("a job it does not have is refused, with the ones it has", missing, 'trier has no job called "nope". Its jobs: tell.');
+
+  answers.push("Hi.");
+  await turn({ agent: loaded, prompt: "hi", source: "test", fromOwner: true });
+  is("every owner's turn has it", lastTools.includes("selfTryJob"), true);
+  answers.push("Hi.");
+  await turn({ agent: loaded, prompt: "hi", source: "schedule", job: "nightly" });
+  is("a turn its owner did not write does not", lastTools.includes("selfTryJob"), false);
+
+  const written: string[] = [];
+  const writer = { ...loaded, tools: { selfWriteFile: Object.assign(tool({ description: "Change a file.", inputSchema: z.object({}), execute: async () => (written.push("x"), "Written.") }), { own: true, forOwner: true, changesAgent: true }) } };
+  const call = (id: string, name: string, args: unknown) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+  answers.push({ content: "", tool_calls: [call("t", "selfTryJob", { job: "tell" }), call("w", "selfWriteFile", {})] }, "It would say: The words as changed.");
+  const reply = await turn({ agent: writer, prompt: "change it and try it", source: "test", mayChangeAgent: true });
+  const answered = reply.calls[0].output as { held: { text: string }[] };
+  is("the tool answers with what it held back", answered.held.map((one) => one.text), ["The words as changed."]);
+  is("and what it read came from outside, so no change follows it", [written.length, String(reply.calls[1].output).includes("this reply used selfTryJob")], [0, true]);
+  is("still nothing sent", sent.length, before);
+
+  clock.stop();
+  await rm(folder, { recursive: true, force: true });
+  await rm(memory, { recursive: true, force: true });
+}
+
+{
   about("a sign-in is the runtime's to run, never the model's");
 
   const { NeedsSignIn } = await import("#chloe/connections/connection");

@@ -11,6 +11,9 @@ returned, how long it took and what it cost. A step that asked a model is a line
 with a price on it, so a job that grew a second model call shows a second line
 and a bigger number. A run that is waiting shows who was asked and until when.
 
+A [trial run](/docs/jobs#a-trial-run) is marked a trial, and lists every
+message and email it would have sent and did not.
+
 A prompt job that chloe stopped in the middle offers to carry on from there
 (`POST /api/runs/<id>/carry-on`): the model is handed what it had done, and told
 which call never finished.

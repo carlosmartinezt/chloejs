@@ -69,10 +69,11 @@ What chloe reads on a tool:
 | `needs` | The connection it works through, like Google. The dashboard says what that connection is missing, and chloe starts the sign-in when the tool finds nobody signed in. |
 | `overview` | A function giving a few lines about what the tool reaches now (the folders, the tables), put at the top of every turn that has the tool. |
 | `own` | `true` when the tool works only on the agent's own folder, memory or skills. Unmarked, a tool counts as reading from outside, and after it answers the agent cannot change itself in that reply. |
+| `onlyReads` | `true` when the tool sends nothing and changes nothing outside the agent. Unmarked, and not `own`, a call to it in a trial run is written down and not made. |
 | `forOwner` | `true` when only the agent's owner may use it, like reading the agent's own runs. It is in a turn only when the owner wrote it, never in a job. |
 | `changesAgent` | `true` when the tool changes the agent itself. It is in a turn only when the agent's owner asked, and never in a job. |
 
-`needs`, `overview`, `own`, `forOwner` and `changesAgent` are not AI SDK fields, so add them after:
+`needs`, `overview`, `own`, `onlyReads`, `forOwner` and `changesAgent` are not AI SDK fields, so add them after:
 `Object.assign(tool({ ... }), { needs: crm })`.
 
 A tool's second argument holds `context`. `agentOf(context)` is the agent it

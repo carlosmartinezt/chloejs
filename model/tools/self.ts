@@ -1,12 +1,14 @@
 // The tools over services/selfService.ts: an agent reading its own folder, its
-// own runs and the guides, and changing its folder as far as its definition
-// allows. The five that read are the runtime's, added to every turn its owner
-// wrote (`forOwner` in model/tool.ts), like skillRead. selfWriteFile is in every
-// agent's tools unless `selfImprovement: false`, and in a turn only when the
-// owner asked and may change it (`changesAgent`).
+// own runs and the guides, trying one of its jobs, and changing its folder as
+// far as its definition allows. The five that read and selfTryJob are the
+// runtime's, added to every turn its owner wrote (`forOwner` in model/tool.ts),
+// like skillRead. selfWriteFile is in every agent's tools unless
+// `selfImprovement: false`, and in a turn only when the owner asked and may
+// change it (`changesAgent`).
 import { tool } from "ai";
 import { z } from "zod";
 
+import { tryJob } from "#chloe/core/clock";
 import type { Home, OwnFileRules } from "#chloe/load/load";
 import { changeOwnFiles, guide, ownFile, ownFiles, ownRun, ownRuns } from "#chloe/services/selfService";
 import type { ChloeTool, Tools } from "../tool.ts";
@@ -15,7 +17,8 @@ import type { ChloeTool, Tools } from "../tool.ts";
  * A tool only the owner's turns get. `own` says whether what it answers is the
  * agent's own, so reading it never stops the agent changing itself.
  */
-const forOwner = (one: ChloeTool, own = true): ChloeTool => Object.assign(one, { forOwner: true, own });
+// Each of these only reads: selfTryJob runs a trial, which holds back whatever goes out.
+const forOwner = (one: ChloeTool, own = true): ChloeTool => Object.assign(one, { forOwner: true, own, onlyReads: true });
 
 /** selfListFiles, selfReadFile, selfListRuns, selfReadRun and selfReadGuide. `rules` is what they say it may change, none without. */
 export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
@@ -44,7 +47,7 @@ export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
       tool({
         description:
           "List your own runs, newest first: which job (or chat), where it came from, when, what it cost, and " +
-          "whether it failed. Read one with selfReadRun to see what it did and said.",
+          "whether it failed or was a trial. Read one with selfReadRun to see what it did and said.",
         inputSchema: z.object({
           job: z.string().optional().describe('Only this job\'s runs, by its id, or "chat" for conversations.'),
           limit: z.number().int().min(1).max(100).optional().describe("How many. 20 when unsaid."),
@@ -81,6 +84,33 @@ export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * selfTryJob: one of the agent's jobs run as a trial, as its files are now.
+ * What it answers was read from outside (mail, the web), so it is not `own`,
+ * and nothing can change the agent after it in that conversation.
+ */
+export function selfTrialTools(agent: Home): Tools {
+  return {
+    selfTryJob: forOwner(
+      tool({
+        description:
+          "Run one of your jobs as a trial, as its files are now, and see what it would have sent. It reads for real " +
+          "(mail, web pages, files) and may write to your memory, but nothing it would send or change goes out: " +
+          "each message, email and call to a tool that does more than read is held back and listed here instead, " +
+          "and a question for a person ends the trial " +
+          "there. Use it after changing a job, and answer your owner with what it would have sent. What it read came " +
+          "from outside you, so nothing about you can change after it in this conversation: make the change first.",
+        inputSchema: z.object({
+          job: z.string().describe("The job's id."),
+          args: z.record(z.string(), z.unknown()).optional().describe("What to start it with, when the job takes args."),
+        }),
+        execute: ({ job, args }) => tryJob(agent, job, { input: args ?? {}, source: "agent" }),
+      }),
+      false,
+    ),
+  };
+}
 
 /** selfWriteFile, for the files `rules` lets it change. */
 export function selfWriteTools(rules: OwnFileRules): (agent: Home) => Tools {
