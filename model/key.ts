@@ -99,7 +99,7 @@ let prices = new Map<string, Price>();
  * spelling taken out: the gateway writes "claude-opus-5.5" where Anthropic
  * writes "claude-opus-5-5".
  */
-function spelling(name: string): string {
+export function spelling(name: string): string {
   return name.toLowerCase().replace(/\./g, "-");
 }
 

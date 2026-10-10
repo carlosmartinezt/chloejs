@@ -27,9 +27,9 @@ import { delimiter, join } from "node:path";
 import type { Agent } from "#chloe/load/load";
 import { ROUTES, settings } from "#chloe/core/settings";
 
-import { viaClaude } from "./claude.ts";
-import { viaCodex } from "./codex.ts";
-import { anyOwnKey, anySdkModel, learnPrices, ownKey, sdkModel, viaKey } from "./key.ts";
+import { claudeModels, viaClaude } from "./claude.ts";
+import { codexModels, viaCodex } from "./codex.ts";
+import { anyOwnKey, anySdkModel, learnPrices, ownKey, sdkModel, spelling, viaKey } from "./key.ts";
 import { forgetOpencodeModels, opencodeModels, viaOpencode } from "./opencode.ts";
 
 export type { Route } from "#chloe/core/settings";
@@ -126,50 +126,84 @@ function canRun(model: string): boolean {
   return carries(route, providerOf(model)) && runnable(route);
 }
 
-/**
- * The routes besides its own that are set up here and run one model, in
- * `model.preferredRoute`'s order. The gateway and opencode only for a model
- * on their own lists, because they would take any name and fail on it later.
- */
-function otherRoutes(model: string): Route[] {
-  if (sdkModel(model) || viaOf(model).via) return [];
-  const own = routeFor(model);
-  const provider = providerOf(model);
-  const lists = (route: Route) =>
-    route === "gateway" ? fromGateway.includes(model) : route === "opencode" ? opencodeModels().includes(model) : carries(route, provider);
-  return settings.model.preferredRoute.filter((route) => route !== own && runnable(route) && lists(route));
-}
-
 /** The gateway's own list, once it has answered. Empty until then, and it is only an offer. */
 let fromGateway: string[] = [];
 
+/** What the claude and codex commands said they run, when last asked. */
+let fromCli: Partial<Record<Route, string[]>> = {};
+
+/** A route's own list of models, or nothing for one that has none and runs whatever its provider has. */
+function listOf(route: Route): string[] | undefined {
+  const list = route === "gateway" ? fromGateway : route === "opencode" ? opencodeModels() : (fromCli[route] ?? []);
+  return list.length ? list : undefined;
+}
+
+/**
+ * How a route spells one model, or nothing when it does not run it. A route
+ * with a list runs only what is on it, matched without the gateway's dot for a
+ * dash, "claude-opus-5.5" for "claude-opus-5-5", and in its own spelling,
+ * because that is the name it is handed.
+ */
+function spelledBy(route: Route, model: string): string | undefined {
+  const list = listOf(route);
+  if (!list) return route !== "gateway" && route !== "opencode" && carries(route, providerOf(model)) ? model : undefined;
+  return list.find((one) => spelling(one) === spelling(model));
+}
+
+/**
+ * The same model on each route set up here besides its own, in
+ * `model.preferredRoute`'s order, as "<model> via <route>" in that route's
+ * spelling.
+ */
+function otherRoutes(model: string): Offered[] {
+  if (sdkModel(model) || viaOf(model).via) return [];
+  const own = routeFor(model);
+  return settings.model.preferredRoute.flatMap((route) => {
+    const named = route !== own && runnable(route) ? spelledBy(route, model) : undefined;
+    return named ? [{ model: `${named} via ${route}`, route }] : [];
+  });
+}
+
 /**
  * What to offer when nobody wrote a shortlist: everything each route this box has
- * says it can run. Hundreds, usually, which is why `model.models` exists to cut
- * it down. The direct route has no list of its own, so it offers the gateway's
- * for each provider it has a key for.
+ * says it can run, once each however many routes spell it. Hundreds, usually,
+ * which is why `model.models` exists to cut it down. The direct route has no
+ * list of its own, so it offers the gateway's for each provider it has a key for.
  */
 function shortlist(): string[] {
   if (settings.model.models.length) return settings.model.models;
   const listed = gatewayKey() ? fromGateway : fromGateway.filter((model) => ownKey(providerOf(model)));
-  return [...new Set([...listed, ...(runnable("opencode") ? opencodeModels() : [])])].sort();
+  const cli = (route: Route) => (runnable(route) ? (fromCli[route] ?? []) : []);
+  const all = [...cli("claude"), ...cli("codex"), ...(runnable("opencode") ? opencodeModels() : []), ...listed];
+  const seen = new Set<string>();
+  return all.filter((model) => !seen.has(spelling(model)) && seen.add(spelling(model))).sort();
 }
 
 /**
- * Fetches the gateway's list of models and their prices.
+ * Asks each route what it runs, and fetches the gateway's prices.
  *
- * The list is what people can pick a model from (with `/models` in a chat, or
- * on the dashboard) when `model.models` in settings is empty. The prices are
- * used to work out what a call on a provider's own key cost. The address is
- * `model.gatewayUrl` with `/chat/completions` at the end changed to `/models`.
+ * The lists are what people can pick a model from (with `/models` in a chat, or
+ * on the dashboard) when `model.models` in settings is empty: the claude and
+ * codex commands are asked, and the gateway at `model.gatewayUrl` with
+ * `/chat/completions` at the end changed to `/models`. The prices are used to
+ * work out what a call on a provider's own key cost.
  *
  * chloe's server calls this when it starts and each time it reloads the
  * config. Call it yourself only in a script that asks models without the
- * server. It never throws: if the gateway does not answer, the list stays
- * short until the next try.
+ * server. It never throws: a route that does not answer offers nothing of its
+ * own until the next try.
  */
 export async function learnModels(): Promise<void> {
   forgetOpencodeModels();
+  const [claude, codex] = await Promise.all([
+    runnable("claude") ? claudeModels() : [],
+    runnable("codex") ? codexModels() : [],
+    learnGateway(),
+  ]);
+  fromCli = { claude, codex };
+}
+
+async function learnGateway(): Promise<void> {
   const key = gatewayKey();
   if (!key && !anyOwnKey()) fromGateway = [];
   if (!key && !anySdkModel() && !anyOwnKey()) return;
@@ -208,10 +242,7 @@ export function models(agent?: Agent): Offered[] {
     if (out.some((one) => one.model === model)) continue;
     if (!canRun(model)) continue;
     out.push({ model, route: routeFor(model) });
-    for (const route of otherRoutes(model)) {
-      const named = `${model} via ${route}`;
-      if (!out.some((one) => one.model === named)) out.push({ model: named, route });
-    }
+    for (const other of otherRoutes(model)) if (!out.some((one) => one.model === other.model)) out.push(other);
   }
   return out;
 }

@@ -365,6 +365,9 @@ export function invoke(
     child.on("close", (code) =>
       done({ code: code ?? 0, out: Buffer.concat(out).toString("utf8"), err: Buffer.concat(err).toString("utf8") }),
     );
+    // A program that exits without reading its input closes the pipe under
+    // the write, and its exit says what happened.
+    child.stdin.on("error", () => {});
     child.stdin.end(input);
   });
 }

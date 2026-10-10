@@ -123,6 +123,32 @@ export function readStream(out: string, handed: string[] = []): { answer?: CliAn
   return { answer, said: said.join("\n\n"), calls };
 }
 
+/**
+ * The models the CLI says this subscription runs, "anthropic/claude-opus-5-5"
+ * and so on, from what it answers when it starts, which costs no call. Each
+ * name it resolves an alias to, once. Empty when the CLI is missing or fails.
+ */
+export async function claudeModels(): Promise<string[]> {
+  const cli = settings.model.program.claude;
+  const asking = JSON.stringify({ type: "control_request", request_id: "models", request: { subtype: "initialize" } }) + "\n";
+  const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--restricted", "--tools", "", "--strict-mcp-config", "--no-session-persistence"];
+  try {
+    const { out } = await invoke(cli, args, asking, {
+      signal: AbortSignal.timeout(20_000),
+      missing: "",
+      env: { ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined },
+    });
+    for (const line of out.split("\n")) {
+      if (!line.includes('"control_response"')) continue;
+      const models = (JSON.parse(line) as { response?: { response?: { models?: { resolvedModel?: string }[] } } }).response?.response?.models ?? [];
+      return [...new Set(models.flatMap((one) => (one.resolvedModel ? [`anthropic/${one.resolvedModel}`] : [])))];
+    }
+  } catch {
+    // Not there, or not signed in: the route is offered nothing of its own.
+  }
+  return [];
+}
+
 async function asked({ model, system, transcript, messages, tools, signal, folder }: Ask & { system: string; transcript: string; folder: string }): Promise<Answer> {
   const args = [
     "-p",

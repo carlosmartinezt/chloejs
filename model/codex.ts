@@ -65,6 +65,23 @@ export function readCodex(out: string): { text: string; tokensIn: number; tokens
   return { text, tokensIn: usage?.input_tokens ?? 0, tokensOut: usage?.output_tokens ?? 0 };
 }
 
+/**
+ * The models the CLI lists for this plan, "openai/gpt-6-luna" and so on, from
+ * its own catalogue, leaving out the ones it hides from its own picker. Empty
+ * when the CLI is missing or fails.
+ */
+export async function codexModels(): Promise<string[]> {
+  const cli = settings.model.program.codex;
+  try {
+    const { code, out } = await invoke(cli, ["debug", "models"], "", { signal: AbortSignal.timeout(20_000), missing: "" });
+    if (code !== 0) return [];
+    const { models = [] } = JSON.parse(out) as { models?: { slug?: string; visibility?: string }[] };
+    return models.flatMap((one) => (one.slug && one.visibility === "list" ? [`openai/${one.slug}`] : []));
+  } catch {
+    return [];
+  }
+}
+
 export async function viaCodex({ model, messages, tools, signal }: Ask): Promise<Answer> {
   const { system, transcript } = asText({ messages, tools });
   const folder = await mkdtemp(join(tmpdir(), "chloe-codex-"));

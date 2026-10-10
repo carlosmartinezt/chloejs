@@ -286,6 +286,35 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     is("a route it names is not offered again", models().filter((one) => one.model.includes("via claude via")), []);
     settings.model.models = ["openai/gpt-5.5"];
     is("opencode is offered for a model on its own list", models().map((one) => one.model), ["openai/gpt-5.5", "openai/gpt-5.5 via opencode"]);
+
+    // Each command says what it runs: claude when it starts, codex from its catalogue.
+    const listing = await fake(
+      "claude-listing",
+      `cat >/dev/null; echo '{"type":"control_response","response":{"response":{"models":[{"value":"opus","resolvedModel":"claude-opus-5-5"},{"value":"claude-opus-5-5","resolvedModel":"claude-opus-5-5"},{"value":"haiku","resolvedModel":"claude-haiku-5-5"}]}}}'`,
+    );
+    const catalogue = await fake("codex-listing", `echo '{"models":[{"slug":"gpt-6-luna","visibility":"list"},{"slug":"memory-dream","visibility":"hide"}]}'`);
+    const { learnModels } = await import("#chloe/model/model");
+    const { gatewayUrl } = settings.model;
+    Object.assign(settings.model, { models: [], keys: { anthropic: "", openai: "" }, gatewayUrl: "http://127.0.0.1:9/chat/completions" });
+    pin(listing, catalogue, opencodeCli);
+    await learnModels();
+    is(
+      "with no shortlist, each route offers what its command says it runs, the hidden left out",
+      models().map((one) => [one.model, one.route]),
+      [
+        ["anthropic/claude-haiku-5-5", "claude"],
+        ["anthropic/claude-opus-5-5", "claude"],
+        ["deepseek/deepseek-v4-pro", "opencode"],
+        ["openai/gpt-5.5", "codex"],
+        ["openai/gpt-5.5 via opencode", "opencode"],
+        ["openai/gpt-6-luna", "codex"],
+      ],
+    );
+    Object.assign(settings.model, { models: ["anthropic/claude-opus-5.5"], key: "k", preferredRoute: ["gateway", "claude"] });
+    is("another route is offered in its own spelling", models().map((one) => one.model), ["anthropic/claude-opus-5.5", "anthropic/claude-opus-5-5 via claude"]);
+    Object.assign(settings.model, { models: ["anthropic/claude-sonnet-5"], key: "", gatewayUrl, preferredRoute: ["direct", "claude", "codex", "opencode", "gateway"], keys: { anthropic: "a", openai: "" } });
+    pin(anyCli, anyCli, opencodeCli);
+    await learnModels();
     settings.model.models = [];
     pin("/nowhere/claude", "/nowhere/codex", "/nowhere/opencode");
     settings.model.preferredRoute = ["claude", "codex", "opencode", "direct", "gateway"];

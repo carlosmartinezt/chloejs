@@ -449,9 +449,10 @@ to, so `opencodeModels()` asks it rather than the runtime deciding, once per
 process because `routeFor` cannot wait two seconds.
 
 What somebody may pick from is `models()`. `model.models` is a shortlist, and
-empty means ask each route what it carries: `opencode models`, and the gateway's
-own `/models`, which `learnModels()` fetches at startup and on each reload and
-never from a request. Do not write a list of model names into this repo: it is
+empty means ask each route what it carries: what the claude command answers as
+it starts, `codex debug models`, `opencode models`, and the gateway's own
+`/models`. `learnModels()` asks at startup and on each reload and never from a
+request, except opencode, which `routeFor` needs and asks once per process. Do not write a list of model names into this repo: it is
 wrong the week after it ships.
 
 A model picked on the fly (`/models` in a chat, `POST /api/agents/<id>/model`)
