@@ -146,10 +146,13 @@ export function App() {
   const given: Given | null = me && !me.owner ? me.given : null;
   const ids = agents.length ? agents.map((one) => one.id) : Object.keys(given ?? {});
   const mayHere = !given || allowed(given, view);
-  const landAt = given && !mayHere ? landing(given, ids, here) : null;
+  // With one agent there is nothing to choose between, so the front page is its chat.
+  const only = view.at === "home" && agents.length === 1 && (!given || may(given, agents[0].id, "chat"));
+  const landAt: View | null = given && !mayHere ? landing(given, ids, here) : only ? { at: "chat", agent: agents[0].id } : null;
 
   // Somebody invited who is somewhere they were not given goes to the first
-  // place they were, in place of this one in the history.
+  // place they were, in place of this one in the history, and so does anybody
+  // on the front page of a copy with one agent.
   useEffect(() => {
     if (!landAt) return;
     window.history.replaceState(landAt, "", href(landAt));

@@ -276,7 +276,16 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     is("put first, anthropic goes to its own API", routeFor("anthropic/claude-sonnet-5"), "direct");
     is("and openai, with no key of its own, does not", routeFor("openai/gpt-6-luna"), "codex");
     settings.model.models = ["anthropic/claude-sonnet-5", "openai/gpt-6-luna"];
-    is("each is offered by the route it would go by", models().map((one) => [one.model, one.route]), [["anthropic/claude-sonnet-5", "direct"], ["openai/gpt-6-luna", "codex"]]);
+    is(
+      "each is offered by the route it would go by, then by each other route that runs it",
+      models().map((one) => [one.model, one.route]),
+      [["anthropic/claude-sonnet-5", "direct"], ["anthropic/claude-sonnet-5 via claude", "claude"], ["openai/gpt-6-luna", "codex"]],
+    );
+    is("a route named at the end is the one taken", routeFor("anthropic/claude-sonnet-5 via claude"), "claude");
+    is("even when it is not set up, so it says what is missing", routeFor("openai/gpt-6-luna via gateway"), "gateway");
+    is("a route it names is not offered again", models().filter((one) => one.model.includes("via claude via")), []);
+    settings.model.models = ["openai/gpt-5.5"];
+    is("opencode is offered for a model on its own list", models().map((one) => one.model), ["openai/gpt-5.5", "openai/gpt-5.5 via opencode"]);
     settings.model.models = [];
     pin("/nowhere/claude", "/nowhere/codex", "/nowhere/opencode");
     settings.model.preferredRoute = ["claude", "codex", "opencode", "direct", "gateway"];
@@ -439,6 +448,17 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
       broke = (error as Error).message;
     }
     is("and an error line is the error, in its words", broke, "Model call refused: opencode: no model");
+    try {
+      readOpencode('{"type":"error","error":{"type":"unknown","message":"Agent not found: \\"chloe\\""}}');
+    } catch (error) {
+      broke = (error as Error).message;
+    }
+    is("opencode 2's error line too", broke, 'Model call refused: opencode: Agent not found: "chloe"');
+    is(
+      "and its words without step_finish, which opencode 2 often exits before printing, are the answer at no cost",
+      readOpencode('{"type":"step_start"}\n{"type":"text","part":{"type":"text","text":"Five."}}'),
+      { text: "Five.", cost: 0, tokensIn: 0, tokensOut: 0 },
+    );
 
     // What is on offer is what this box can run: a route with no program is left out.
     Object.assign(settings.model, { preferredRoute: ["claude", "codex", "opencode", "gateway"], key: "", models: ["openai/gpt-6-luna", "anthropic/claude-sonnet-5", "openai/gpt-6-luna"] });
@@ -510,6 +530,9 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     is("default takes one back", (await from("/model default for everything"))?.text, "Everything test does is back on the default, anthropic/claude-haiku-4.5.");
     is("and says what a job is back on", (await from("/model default for nightly"))?.text, "nightly is back on the default, anthropic/claude-haiku-4.5.");
     is("a call with no conversation has nowhere to keep a pick", (await from("/model openai/gpt-6-luna", ""))?.text, "This call has no conversation to remember a pick for. Say for everything, or for a job.");
+    settings.model.models = ["openai/gpt-6-luna via gateway"];
+    is("a model on a route of its own is picked whole, with for", (await from("/model openai/gpt-6-luna via gateway for nightly"))?.text, "nightly now uses openai/gpt-6-luna via gateway.");
+    await from("/model default for nightly");
     choose("test", "chat:test/api-pick", "");
   } finally {
     settings.model.models = listBefore;

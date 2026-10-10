@@ -45,6 +45,12 @@ charges per call. To pay with a key instead, put `direct` first:
 `model: { preferredRoute: ["direct", "claude", "codex", "opencode", "gateway"] }`,
 which is what setup writes when you give it a key.
 
+One model can go by another route than the order says by naming it at the end:
+`"openai/gpt-5.5 via gateway"`. That works anywhere a model is named, in an
+agent, a job or a pick from a chat, and the route is used even when it is not
+set up, so the run fails saying what is missing rather than charging another
+account.
+
 A key is a secret, so it goes in `.env`, and the config hands it over:
 `model: { keys: { anthropic: process.env.ANTHROPIC_API_KEY } }`, or
 `model: { key: process.env.CHLOE_MODEL_KEY }` for a gateway.
@@ -92,7 +98,9 @@ not a charge. codex names no price, so its runs cost 0 in the record.
 
 ## Picking one from a chat
 
-`/models` lists what may be picked, with a button each on Telegram.
+`/models` lists what may be picked, with a button each on Telegram. A model
+that more than one route here can run is listed once for each, the others as
+`<name> via <route>`, and so it is on the dashboard.
 `/model <name>` picks one for that chat, `/model <name> for everything` for the
 agent, `/model <name> for <job>` for one job, and `/model default` takes a pick
 back, with the same `for`. The run record still says which model made each run.

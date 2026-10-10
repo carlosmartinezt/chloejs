@@ -18,7 +18,7 @@ export type Choice =
 
 /**
  * A menu at the pointer, for a right-click. It closes on the next click
- * anywhere, on Escape, on scroll, and when the window loses focus, because a
+ * anywhere, on Escape, on a scroll of the page, and when the window loses focus, because a
  * menu left open over a page that moved underneath it points at the wrong
  * thing.
  *
@@ -55,7 +55,8 @@ export function ContextMenu({
     const menu = ref.current;
     const away = (event: Event) => {
       if (event instanceof KeyboardEvent && event.key !== "Escape") return;
-      if (event.type === "mousedown" && menu?.contains(event.target as Node)) return;
+      // A long menu scrolls inside itself, and that moves nothing underneath it.
+      if ((event.type === "mousedown" || event.type === "scroll") && menu?.contains(event.target as Node)) return;
       close();
     };
     window.addEventListener("mousedown", away);

@@ -1,7 +1,8 @@
 // Asking a model, by one of five routes.
 //
 // A model is a string like "anthropic/claude-sonnet-5": a provider, then the
-// model's name. Which route it goes by is `routeFor()` below:
+// model's name. Which route it goes by is `routeFor()` below, unless the
+// string ends in one, "openai/gpt-5.5 via gateway":
 //
 //   claude    the Claude Code CLI, Anthropic models, on a Claude subscription.
 //   codex     the Codex CLI, OpenAI models, on a ChatGPT plan.
@@ -24,7 +25,7 @@ import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";
 
 import type { Agent } from "#chloe/load/load";
-import { settings } from "#chloe/core/settings";
+import { ROUTES, settings } from "#chloe/core/settings";
 
 import { viaClaude } from "./claude.ts";
 import { viaCodex } from "./codex.ts";
@@ -33,6 +34,17 @@ import { forgetOpencodeModels, opencodeModels, viaOpencode } from "./opencode.ts
 
 export type { Route } from "#chloe/core/settings";
 import type { Route } from "#chloe/core/settings";
+
+const VIA = new RegExp(` via (${ROUTES.join("|")})$`);
+
+/**
+ * A model's name without the route it may end in, and that route:
+ * "openai/gpt-5.5 via gateway" is "openai/gpt-5.5" and "gateway".
+ */
+export function viaOf(model: string): { name: string; via?: Route } {
+  const found = model.match(VIA);
+  return found ? { name: model.slice(0, found.index), via: found[1] as Route } : { name: model };
+}
 
 /** The provider in front of a model's name. A name with none is Anthropic's, the way the CLIs write it. */
 export function providerOf(model: string): string {
@@ -56,16 +68,20 @@ function carries(route: Route, provider: string): boolean {
 
 /**
  * The route a model goes by: "direct" when an agent's file gave it as an AI SDK
- * model, since the code said exactly how. Otherwise the first entry in
- * `model.preferredRoute` that can carry that provider and is set up here.
+ * model, since the code said exactly how. Then the route its name ends in, as
+ * "openai/gpt-5.5 via gateway", whether or not that route is set up, so a
+ * missing key is said rather than another account charged. Otherwise the first
+ * entry in `model.preferredRoute` that can carry that provider and is set up here.
  *
  * Nothing is left when a box has no credential at all, and then it is the
  * gateway, which says a key is missing rather than handing a model name to a CLI
  * that would refuse it for a second reason.
  */
 export function routeFor(model: string): Route {
-  if (sdkModel(model)) return "direct";
-  const provider = providerOf(model);
+  const { name, via } = viaOf(model);
+  if (sdkModel(name)) return "direct";
+  if (via) return via;
+  const provider = providerOf(name);
   return settings.model.preferredRoute.find((route) => carries(route, provider) && runnable(route)) ?? "gateway";
 }
 
@@ -105,9 +121,23 @@ export function runnable(route: Route): boolean {
 
 /** Whether this box can run one model: an AI SDK model always, a name when its route is set up for its provider. */
 function canRun(model: string): boolean {
-  if (sdkModel(model)) return true;
+  if (sdkModel(viaOf(model).name)) return true;
   const route = routeFor(model);
   return carries(route, providerOf(model)) && runnable(route);
+}
+
+/**
+ * The routes besides its own that are set up here and run one model, in
+ * `model.preferredRoute`'s order. The gateway and opencode only for a model
+ * on their own lists, because they would take any name and fail on it later.
+ */
+function otherRoutes(model: string): Route[] {
+  if (sdkModel(model) || viaOf(model).via) return [];
+  const own = routeFor(model);
+  const provider = providerOf(model);
+  const lists = (route: Route) =>
+    route === "gateway" ? fromGateway.includes(model) : route === "opencode" ? opencodeModels().includes(model) : carries(route, provider);
+  return settings.model.preferredRoute.filter((route) => route !== own && runnable(route) && lists(route));
 }
 
 /** The gateway's own list, once it has answered. Empty until then, and it is only an offer. */
@@ -159,7 +189,7 @@ export async function learnModels(): Promise<void> {
   }
 }
 
-/** One model somebody may pick, and the route it would go by here. */
+/** One model somebody may pick, and the route it would go by here. A route other than the one it would take is in its name. */
 export interface Offered {
   model: string;
   route: Route;
@@ -168,14 +198,20 @@ export interface Offered {
 /**
  * The models on offer: `model.models` in settings, plus what the agent and its
  * jobs already name, each with its route, and only those this box can run.
- * Order is the settings' order, then the agent's.
+ * Each is followed by the same model on every other route set up to run it,
+ * named "<model> via <route>". Order is the settings' order, then the agent's.
  */
 export function models(agent?: Agent): Offered[] {
   const named = [...shortlist(), ...(agent ? [agent.model, ...agent.jobs.flatMap((job) => (job.model ? [job.model] : []))] : [])];
   const out: Offered[] = [];
   for (const model of named) {
     if (out.some((one) => one.model === model)) continue;
-    if (canRun(model)) out.push({ model, route: routeFor(model) });
+    if (!canRun(model)) continue;
+    out.push({ model, route: routeFor(model) });
+    for (const route of otherRoutes(model)) {
+      const named = `${model} via ${route}`;
+      if (!out.some((one) => one.model === named)) out.push({ model: named, route });
+    }
   }
   return out;
 }
@@ -251,8 +287,9 @@ export interface Ask {
  */
 export function ask(request: Ask): Promise<Answer> {
   const route = routeFor(request.model);
-  if (route === "claude") return viaClaude(request);
-  if (route === "codex") return viaCodex(request);
-  if (route === "opencode") return viaOpencode(request);
-  return viaKey(request, route);
+  const named = { ...request, model: viaOf(request.model).name };
+  if (route === "claude") return viaClaude(named);
+  if (route === "codex") return viaCodex(named);
+  if (route === "opencode") return viaOpencode(named);
+  return viaKey(named, route);
 }

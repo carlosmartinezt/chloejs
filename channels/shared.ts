@@ -541,7 +541,7 @@ export function commands(agent: Agent): { command: string; description: string }
 
 /**
  * `/models` lists the models and what is chosen. `/model <name>` picks one
- * for this chat, `/model <name> for everything` for the whole agent, and
+ * for this chat, `/model <name> via <route>` the same on another route, `/model <name> for everything` for the whole agent, and
  * `/model <name> for <job>` for one job. `/model default` takes a pick back,
  * with the same `for`. `/model` alone lists too.
  */
@@ -550,7 +550,7 @@ function modelCommand(text: string): { pick?: string; target?: string } | undefi
   if (!asked) return undefined;
   const words = asked[1]?.trim();
   if (!words) return {};
-  const split = words.match(/^(\S+)(?:\s+for\s+(.+))?$/i);
+  const split = words.match(/^(\S+(?:\s+via\s+\S+)?)(?:\s+for\s+(.+))?$/i);
   if (!split) return { pick: words };
   return { pick: split[1], target: split[2]?.trim() };
 }

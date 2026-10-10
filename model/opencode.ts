@@ -57,7 +57,7 @@ interface Event {
     tokens?: { input?: number; output?: number };
     cost?: number;
   };
-  error?: { name?: string; data?: { message?: string } };
+  error?: { name?: string; message?: string; data?: { message?: string } };
 }
 
 /**
@@ -84,7 +84,7 @@ export function readOpencode(out: string): { text: string; cost: number; tokensI
       continue;
     }
     if (event.type === "error") {
-      const why = event.error?.data?.message ?? event.error?.name ?? "no reason given";
+      const why = event.error?.data?.message ?? event.error?.message ?? event.error?.name ?? "no reason given";
       throw new Error(`Model call refused: opencode: ${why.slice(0, 500)}`);
     }
     if (event.type === "tool") {
@@ -101,7 +101,9 @@ export function readOpencode(out: string): { text: string; cost: number; tokensI
       tokensOut += event.part?.tokens?.output ?? 0;
     }
   }
-  if (!answered) throw new Error(`Model call refused: opencode finished no step: ${out.slice(0, 500)}`);
+  // opencode 2 often exits before it prints step_finish, which carries the
+  // cost, so text without it is still the answer, recorded at no cost.
+  if (!answered && !said.length) throw new Error(`Model call refused: opencode finished no step: ${out.slice(0, 500)}`);
   return { text: said.join(""), cost, tokensIn, tokensOut };
 }
 
@@ -133,15 +135,6 @@ export async function viaOpencode({ model, messages, tools, signal }: Ask): Prom
         "run",
         "--format",
         "json",
-        // Said as well as being the working folder, because the CLI reads PWD
-        // rather than asking the system where it is, and a spawned process keeps
-        // its parent's PWD however its working folder was set. Without this it
-        // reads whatever project chloe itself was started in and the call fails
-        // with "Unexpected server error".
-        "--dir",
-        folder,
-        // No plugins of this box's, so the same prompt means the same thing anywhere.
-        "--pure",
         "--agent",
         AGENT,
         "--model",
@@ -153,6 +146,11 @@ export async function viaOpencode({ model, messages, tools, signal }: Ask): Prom
       {
         signal,
         cwd: folder,
+        // The CLI reads PWD rather than asking the system where it is, and a
+        // spawned process keeps its parent's PWD whatever its working folder.
+        // Without this it reads the project chloe was started in, and refuses
+        // with "Agent not found".
+        env: { PWD: folder },
         missing: `The opencode route needs ${JSON.stringify(cli)} on the path. Install opencode, or put it on the path.`,
       },
     );
@@ -182,14 +180,19 @@ let known: string[] | undefined;
 export function opencodeModels(): string[] {
   if (known) return known;
   const cli = settings.model.program.opencode;
-  const done = spawnSync(cli, ["models"], { encoding: "utf8", timeout: 20_000 });
-  known =
-    done.status === 0
-      ? done.stdout
-          .split("\n")
-          .map((line) => line.trim())
-          .filter((line) => /^[\w.-]+\/[\w.:-]+$/.test(line))
-      : [];
+  // Now and then it prints nothing and exits as if it had answered, so an
+  // empty list is asked for again before it is believed.
+  for (let tries = 0; tries < 3; tries++) {
+    const done = spawnSync(cli, ["models"], { encoding: "utf8", timeout: 20_000 });
+    if (done.status !== 0) break;
+    known = done.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /^[\w.-]+\/[\w.:-]+$/.test(line));
+    if (known.length) return known;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+  }
+  known = [];
   return known;
 }
 

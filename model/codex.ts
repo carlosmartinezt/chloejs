@@ -117,7 +117,8 @@ export async function viaCodex({ model, messages, tools, signal }: Ask): Promise
       cwd: folder,
       missing: `The codex route needs ${JSON.stringify(cli)} on the path. Install Codex, or put it on the path.`,
     });
-    if (code !== 0) {
+    // A turn that failed says why in its own lines, which readCodex reads out.
+    if (code !== 0 && !/"type":"(error|turn\.failed)"/.test(out)) {
       throw new Error(`Model call refused: codex exited ${code}: ${(err || out).slice(0, 500)}`);
     }
     const { text, tokensIn, tokensOut } = readCodex(out);
