@@ -26,7 +26,8 @@ import { run } from "./runService.ts";
  *
  * Returns `{ path, entries }`: the full path of the folder it listed, and the
  * names in it, sorted. A folder's name ends with `/`. Hidden names (starting
- * with `.`) are left out.
+ * with `.`), the folders no file tool may open and the state folder are left
+ * out.
  *
  * Throws if `path` is outside `root`, goes into `.git`, `.ssh`, `secrets` or
  * `node_modules`, or does not exist.
@@ -37,7 +38,7 @@ export async function listFiles(root: string, path?: string) {
   return {
     path: resolved,
     entries: entries
-      .filter((e) => !e.name.startsWith("."))
+      .filter((e) => !e.name.startsWith(".") && !unreachable(e.name, join(resolved, e.name)))
       .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
       .sort(),
   };
@@ -63,7 +64,7 @@ export async function folderTree(root: string, { depth = 2, most = 200 } = {}): 
   let more = false;
   const walk = async (dir: string, level: number): Promise<void> => {
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-    const folders = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && !unreachable(e.name)).map((e) => e.name).sort();
+    const folders = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && !unreachable(e.name, join(dir, e.name))).map((e) => e.name).sort();
     for (const name of folders) {
       if (lines.length >= most) {
         more = true;
@@ -201,8 +202,8 @@ async function filesUnder(target: string): Promise<string[]> {
   const files: string[] = [];
   const entries = await readdir(target, { withFileTypes: true }).catch(() => []);
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (unreachable(entry.name)) continue;
     const path = join(target, entry.name);
+    if (unreachable(entry.name, path)) continue;
     if (entry.isDirectory()) files.push(...(await filesUnder(path)));
     else if (entry.isFile() && (await stat(path)).size <= SEARCHED) files.push(path);
   }

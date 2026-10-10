@@ -79,3 +79,47 @@ import { answer } from "./shared.ts";
   is("a body whose characters straddle chunks comes back whole", (JSON.parse(pieces) as { value: { text: string } }).value.text, words);
   server.close();
 }
+
+{
+  about("a folder that holds the project's credentials and chloe's records");
+
+  // An agent defined in chloe.config.ts lives in the project folder, which
+  // holds .env and the state folder. Here the project is the state folder's parent.
+  const { mkdtemp, mkdir: makeDir, writeFile: put } = await import("node:fs/promises");
+  const { basename, dirname, join: joined } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { confine } = await import("#chloe/core/confine");
+  const { listFiles, searchFiles } = await import("#chloe/services/filesService");
+  const { STATE, MEMORIES } = await import("#chloe/core/paths");
+  const refused = (root: string, path: string) => {
+    try {
+      confine(root, path);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
+  const project = dirname(STATE);
+  const records = basename(STATE);
+  await put(joined(STATE, "records-under-test.json"), "{}");
+  is("the state folder is refused from the folder holding it", refused(project, `${records}/records-under-test.json`), true);
+  is("so is the folder itself", refused(project, records), true);
+  is("a memory inside the state folder still reads its own files", refused(MEMORIES, "notes.md"), false);
+  is("the state folder is left out of a listing", (await listFiles(project)).entries.includes(`${records}/`), false);
+
+  const elsewhere = await mkdtemp(joined(tmpdir(), "chloe-project-"));
+  await put(joined(elsewhere, ".env"), "CHLOE_KEY=never shown");
+  await put(joined(elsewhere, ".env.local"), "CHLOE_KEY=never shown");
+  await makeDir(joined(elsewhere, "skills"));
+  await put(joined(elsewhere, "skills", ".env"), "CHLOE_KEY=never shown");
+  is(".env is refused", refused(elsewhere, ".env"), true);
+  is("so is .env.local", refused(elsewhere, ".env.local"), true);
+  is("and one in a folder below", refused(elsewhere, "skills/.env"), true);
+  is("a file that only starts alike is not", refused(elsewhere, ".envelope"), false);
+  is(
+    "searching the folder never reads .env",
+    JSON.stringify(await searchFiles(elsewhere, "never shown")).includes("never shown"),
+    false,
+  );
+}
