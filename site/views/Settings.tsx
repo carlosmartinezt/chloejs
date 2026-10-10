@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useState } from "react";
 
 import { api, type Key } from "../lib/api.ts";
 import * as prefs from "../lib/prefs.ts";
+import { CodeEditor } from "./components/CodeEditor.tsx";
 
 /**
  * Account settings. How the page looks is this browser's alone: it is kept in
@@ -249,15 +250,14 @@ function Config() {
         does not.
       </p>
       <form onSubmit={save}>
-        <textarea
-          className="editor"
-          spellCheck={false}
-          value={text}
-          onChange={(event) => {
-            setText(event.target.value);
+        <CodeEditor
+          text={text}
+          language="chloe.config.ts"
+          onChange={(next) => {
+            setText(next);
             setDone(false);
           }}
-          aria-label="chloe.config.ts"
+          label="chloe.config.ts"
         />
         <button className="small" type="submit" disabled={busy || text === saved}>
           {busy ? "Checking" : "Save"}

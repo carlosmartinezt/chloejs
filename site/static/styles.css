@@ -672,6 +672,14 @@ pre.painted .comment { color: var(--dim); }
 pre.painted .string { color: var(--kind-words); }
 pre.painted .number { color: var(--kind-script); }
 pre.painted .keyword { color: var(--accent); }
+/* Code to write: a clear textarea over its painted copy, one grid cell, so both wrap alike. */
+.code-editor { display: grid; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); }
+.code-editor > pre, .code-editor > textarea { grid-area: 1 / 1; margin: 0; border: 0; border-radius: 5px;
+  padding: 16px 18px; font: 400 var(--size-small)/1.7 var(--mono); tab-size: 2; letter-spacing: normal;
+  white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; overflow: hidden; }
+.code-editor > pre { background: none; pointer-events: none; }
+.code-editor > textarea { resize: none; background: transparent; color: transparent; caret-color: var(--ink); }
+.code-editor > textarea::selection { background: var(--accent-soft); color: transparent; }
 /* The button to take a copy of a block sits in its corner, over the code. */
 .code { position: relative; }
 .code .copy { position: absolute; top: 5px; right: 5px; padding: 5px;
