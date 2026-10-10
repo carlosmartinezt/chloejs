@@ -17,6 +17,7 @@ import { userNotes } from "#chloe/model/tools/memory";
 import { selfReadTools } from "#chloe/model/tools/self";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
+import { guides, ownFiles } from "#chloe/services/selfService";
 import { NeedsSignIn } from "#chloe/connections/connection";
 
 /** The options for `turn()`: one message for an agent, and how to handle its reply. */
@@ -199,7 +200,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   // In the instructions rather than the message, so it is not kept in the conversation again each turn.
   const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools), whatYouRunOn(agent, tools)) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools), await whatYouRunOn(agent, tools)) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -753,22 +754,36 @@ function cannotChange(agent: Agent, tools: Tools): string {
   );
 }
 
+/** The most of its own files an agent is shown by name in its instructions. */
+const FILES_SHOWN = 100;
+
 /**
- * What an agent that may change itself is told in a turn its owner wrote: that
- * the guides say what it can be given, and that a secret never goes through a
- * chat. Empty for any other turn.
+ * What an agent that may change itself is told in a turn its owner wrote: its
+ * files, the guides and what each covers, to read what a change needs in one
+ * call and write it in one more, and that a secret never goes through a chat.
+ * Empty for any other turn.
  */
-function whatYouRunOn(agent: Agent, tools: Tools): string {
+async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
   if (!ownFileRules(agent.features) || !tools.selfReadGuide) return "";
+  const { files } = await ownFiles(agent, ownFileRules(agent.features), FILES_SHOWN + 1);
+  const shown = files.slice(0, FILES_SHOWN).map((one) => `- ${one.path}${one.canWrite ? "" : ` (not yours to write: ${one.why})`}`);
+  if (files.length > FILES_SHOWN) shown.push("- and more, which selfListFiles lists");
+  const changing = tools.selfWriteFile
+    ? "To change yourself, read every file and guide the change needs at once, with one selfReadFile and one " +
+      "selfReadGuide call in the same step, then write every file in one selfWriteFile call. Never read them one at " +
+      "a time. "
+    : "";
   return (
     "## What you run on\n\n" +
     "You run on Chloe, and you can be given more than you have now: Gmail, Calendar and Drive, sending mail, " +
     "Telegram, Slack, WhatsApp, email conversations, a chat box on a website, reading web pages, scripts, jobs on a " +
-    "schedule. When you are asked for something you cannot do yet, read the guides with selfReadGuide, then say " +
-    "what you would add to yourself and what your owner has to do for it. If you need to look something up on the " +
-    "web and have no tool for it, offer to add the web tools to yourself; the tools guide says how. Never ask for " +
-    "a key, password or secret in a chat: say which line goes in .env and let your owner put it there. A sign-in " +
-    "like Google's is done by Chloe itself, with a link, never by you."
+    "schedule. When you are asked for something you cannot do yet, read the guides it needs, then add it to " +
+    "yourself or say what your owner has to do for it. " +
+    changing +
+    "Never ask for a key, password or secret in a chat: say which line goes in .env and let your owner put it " +
+    "there. A sign-in like Google's is done by Chloe itself, with a link, never by you.\n\n" +
+    `### Your files\n\n${shown.join("\n") || "None yet."}\n\n` +
+    `### The guides\n\n${guides().map((one) => `- **${one.page}**: ${one.about}`).join("\n")}`
   );
 }
 

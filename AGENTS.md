@@ -186,7 +186,11 @@ its skills, its jobs, and its code (its tools, services, channels and scripts,
 keeps a path back and turns code off, with a warning as it loads unless it
 says `code: false`, because code an agent writes is code it then runs as
 itself and could change that path. `selfWriteFile` takes every file one
-change needs and commits them as one. With code among them,
+change needs and commits them as one, after committing what a person changed
+by hand in those files under the box's own git name. An owner's turn lists the
+agent's files and the guides in its instructions, and `selfReadFile` and
+`selfReadGuide` take several at once, so a change is one call to read and one
+to write. With code among them,
 `loadsOrPutBack()` in `services/selfService.ts` writes them all, loads the
 agent once with `loadAgain()` as the next reload would, type checks when the
 project has TypeScript, and puts every file back with the reason when any of

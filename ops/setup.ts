@@ -457,11 +457,10 @@ function inSettings(line: string): void {
 }
 
 /**
- * A git repository for the project, with what setup wrote committed, because
- * every change an agent makes to itself is a commit and a file nobody has
- * committed is one it may not change. A folder that is not one yet is made one,
- * if they say so; one that is somebody's own is never committed to, only said.
- * git is never installed from here.
+ * A git repository for the project, because every change an agent makes to
+ * itself is a commit. A folder that is not one yet is made one, with what is
+ * here as its first commit, if they say so; one that is somebody's own is
+ * never committed to. git is never installed from here.
  */
 async function theRepository(): Promise<void> {
   if (!hasGit()) {
@@ -472,7 +471,7 @@ async function theRepository(): Promise<void> {
   }
   const inOne = Boolean(repositoryOf(HERE));
   const named = hasGitName(HERE);
-  if (inOne && named && !agentWritten) return;
+  if (inOne && named) return;
 
   section("Git");
   if (!inOne) {
@@ -482,13 +481,9 @@ async function theRepository(): Promise<void> {
     }
     firstCommit(HERE);
     written(".git", "a repository, with what is here as its first commit");
-  } else if (agentWritten) {
-    // An agent may not change a file nobody has committed, and this repository is somebody's own.
-    console.log("This folder is already in a git repository of yours, so setup committed nothing. Commit what it wrote,");
-    console.log("and the agent can change itself.");
   }
   if (!named) {
-    console.log(`${inOne && !agentWritten ? "" : "\n"}git has no name set here. What you change by hand in an agent's memory is committed under it, so set one:`);
+    console.log(`${inOne ? "" : "\n"}git has no name set here. What you change by hand in an agent is committed under it, so set one:`);
     console.log(`  ${cyan('git config --global user.name "Your Name"')}`);
     console.log(`  ${cyan("git config --global user.email you@example.com")}`);
   }

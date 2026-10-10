@@ -8,7 +8,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import type { Home, OwnFileRules } from "#chloe/load/load";
-import { changeOwnFiles, guide, guides, ownFile, ownFiles, ownRun, ownRuns } from "#chloe/services/selfService";
+import { changeOwnFiles, guide, ownFile, ownFiles, ownRun, ownRuns } from "#chloe/services/selfService";
 import type { ChloeTool, Tools } from "../tool.ts";
 
 /**
@@ -32,10 +32,12 @@ export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
     selfReadFile: forOwner(
       tool({
         description:
-          "Read one file in your own folder, like instructions.md or jobs/morning-run.ts, to say how you do something " +
-          "or before you change it.",
-        inputSchema: z.object({ path: z.string().describe("A path inside your folder, from selfListFiles.") }),
-        execute: ({ path }) => ownFile(agent, rules, path),
+          "Read files in your own folder, like instructions.md and jobs/morning-run.ts, to say how you do something " +
+          "or before you change it. Give every file you need in one call.",
+        inputSchema: z.object({
+          paths: z.array(z.string()).min(1).max(30).describe("Paths inside your folder, from the list in your instructions."),
+        }),
+        execute: ({ paths }) => Promise.all(paths.map((path) => ownFile(agent, rules, path).catch((error: unknown) => ({ path, error: message(error) })))),
       }),
     ),
     selfListRuns: forOwner(
@@ -67,14 +69,18 @@ export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
         description:
           "Read the guides for the version of Chloe you run on: what you can be given and how. Connections (Gmail, " +
           "Calendar, Drive, sending mail), channels (Telegram, Slack, WhatsApp, email, a chat box on a website), " +
-          "tools like reading web pages, jobs and their schedules, settings. With no page, the list of guides and " +
-          "what each covers. Read them before saying something cannot be done, and before changing yourself.",
-        inputSchema: z.object({ page: z.string().optional().describe('A guide\'s name from the list, like "connections".') }),
-        execute: ({ page }) => (page ? guide(page) : guides()),
+          "tools like reading web pages, jobs and their schedules, settings. Give every guide you need in one call: " +
+          "the list of them is in your instructions.",
+        inputSchema: z.object({
+          pages: z.array(z.string()).min(1).max(10).describe('Guides\' names from the list, like "connections".'),
+        }),
+        execute: ({ pages }) => pages.map((page) => guide(page)).join("\n\n"),
       }),
     ),
   });
 }
+
+const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** selfWriteFile, for the files `rules` lets it change. */
 export function selfWriteTools(rules: OwnFileRules): (agent: Home) => Tools {

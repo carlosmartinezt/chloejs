@@ -4,9 +4,9 @@
 // Its folder is anything except its memory, which has tools of its own.
 // Changing it is narrower, and every rule is here in code rather than in a
 // prompt: only the file endings its definition lists, code only when it says
-// `code`, never a path its definition keeps back, and never a file somebody
-// else is in the middle of changing. A change is one commit under the agent's
-// name, so it can be read and undone. Code is loaded first, as the next reload
+// `code`, and never a path its definition keeps back. A change is one commit
+// under the agent's name, so it can be read and undone, and what a person
+// changed by hand in those files is committed first, under their own. Code is loaded first, as the next reload
 // would load it, and put back when it does not load.
 //
 // Its runs are its own and never an eval's. The guides are docs/ in a clone
@@ -71,18 +71,19 @@ export function whyNot(agent: Home, rules: OwnFileRules | undefined, path: strin
   return undefined;
 }
 
-/** Every file in the agent's folder outside its memory, and whether it may write each one. */
-export async function ownFiles(agent: Home, rules: OwnFileRules | undefined) {
+/** The files in the agent's folder outside its memory, up to `most`, and whether it may write each one. */
+export async function ownFiles(agent: Home, rules: OwnFileRules | undefined, most = 500) {
   const files: { path: string; canWrite: boolean; why?: string }[] = [];
   const walk = async (dir: string, depth: number): Promise<void> => {
     for (const entry of (await readdir(join(agent.folder, dir), { withFileTypes: true }).catch(() => [])).sort((a, b) =>
       a.name.localeCompare(b.name),
     )) {
+      if (files.length >= most) return;
       const at = dir ? `${dir}/${entry.name}` : entry.name;
       if (entry.name.startsWith(".") || JUNK.includes(entry.name) || unreachable(entry.name) || inMemory(agent, at)) continue;
       if (entry.isDirectory()) {
         if (depth < 6) await walk(at, depth + 1);
-      } else if (files.length < 500) {
+      } else {
         const why = whyNot(agent, rules, at);
         files.push({ path: at, canWrite: !why, ...(why && { why }) });
       }
@@ -107,11 +108,12 @@ export async function ownFile(agent: Home, rules: OwnFileRules | undefined, path
 
 /**
  * Replaces files in the agent's folder and commits them together under the
- * agent's name, as one change. Refused, with the reason and nothing written,
- * when the rules keep one back, when one has changes nobody has committed
- * (they would go in under the agent's id), or when what is written would not
- * load: a job that does not read, a job made to run more than once an hour,
- * JSON that does not parse. With a code file among them they are all written,
+ * agent's name, as one change. A file with changes nobody has committed is
+ * committed first, under this box's own git name, so the agent's commit holds
+ * only what it wrote. Refused, with the reason and nothing written, when the
+ * rules keep one back, or when what is written would not load: a job that
+ * does not read, a job made to run more than once an hour, JSON that does not
+ * parse. With a code file among them they are all written,
  * the agent is loaded once, and they are all put back when it would not load.
  */
 export async function changeOwnFiles(agent: Home, rules: OwnFileRules, files: { path: string; content: string }[], message: string) {
@@ -122,6 +124,14 @@ export async function changeOwnFiles(agent: Home, rules: OwnFileRules, files: { 
     const one = { ...(await checkOne(agent, rules, path, content)), content };
     if (checked.some((each) => each.at === one.at)) throw new Error(`${one.at} is in the list twice. Write each file once.`);
     checked.push(one);
+  }
+
+  const byHand: string[] = [];
+  for (const one of checked) if (await uncommitted(one.resolved)) byHand.push(one.resolved);
+  if (byHand.length > 0) {
+    await commitPaths(agent.folder, byHand, { message: `Changed by hand, before ${agent.id} changed it`, runId: undefined }).catch((error: unknown) => {
+      throw new Error(`What was changed by hand in ${byHand.length > 1 ? "these files" : "this file"} could not be committed first, so nothing was written: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   if (checked.some((one) => CODE.includes(extname(one.at).slice(1).toLowerCase()))) await loadsOrPutBack(agent, checked);
@@ -157,12 +167,6 @@ async function checkOne(agent: Home, rules: OwnFileRules, path: string, content:
   // An empty instructions file stops the agent loading, and so every reload after it.
   if (!content.trim()) throw new Error(`${at} would be empty. Write what it should say.`);
   const resolved = confine(agent.folder, at);
-  if (await uncommitted(resolved)) {
-    throw new Error(
-      `${at} has changes nobody has committed yet, and writing it would put them under your name. ` +
-        "Leave it for now, and say that you could not change it and why.",
-    );
-  }
 
   if (/^jobs\/[^/]+\.md$/.test(at) && !existsSync(resolved.replace(/\.md$/, ".ts"))) {
     // Jobs are named in agent.ts. Without `code` that is not yours, and a new

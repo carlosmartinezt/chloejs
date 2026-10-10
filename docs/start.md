@@ -29,9 +29,9 @@ as `serve: { port }` in `chloe.config.ts`.
 2. **A git repository.** In a folder that is not one, it makes one and commits
    what is there, under your git name, or "npx chloe setup" when git has none.
    Every change an agent makes to itself is a commit you can read and undo, and
-   it may not change a file nobody has committed, so without one it cannot
-   change itself. In a repository of your own it commits nothing, so commit
-   what it wrote before the first agent changes itself. It never installs git.
+   what you changed by hand in a file it changes is committed first, under
+   your name. In a repository of your own setup commits nothing. It never
+   installs git.
 
 ## The first agent
 

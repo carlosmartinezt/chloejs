@@ -289,13 +289,13 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
       "Ask for it, and change a job that is already there meanwhile.",
   );
   await put(join(folder, "instructions.md"), "Be brief, and say so.");
+  await wrote("instructions.md", "Be long.");
   is(
-    "a file somebody is in the middle of changing is left alone",
-    await wrote("instructions.md", "Be long."),
-    "instructions.md has changes nobody has committed yet, and writing it would put them under your name. " +
-      "Leave it for now, and say that you could not change it and why.",
+    "what somebody changed by hand is committed first, under their name, and the agent's change after it",
+    git(repo, "log", "-2", "--format=%an: %s", "--", "agents/keeper/instructions.md").split("\n"),
+    ["keeper: a change worth making", "a person: Changed by hand, before keeper changed it"],
   );
-  git(repo, "checkout", "-q", "--", "agents/keeper/instructions.md");
+  is("so going back one change gives the hand's version", git(repo, "show", "HEAD~1:agents/keeper/instructions.md"), "Be brief, and say so.");
 
   // A change made during a run belongs to that run.
   const improve = codeJob("improve", async ({ step }) =>
@@ -317,7 +317,9 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
     "both places are listed",
     all.changes.map((one) => `${one.in} ${one.by}: ${one.subject}`).sort(),
     [
+      "folder a person: Changed by hand, before keeper changed it",
       "folder a person: the agent as a person wrote it",
+      "folder keeper: a change worth making",
       "folder keeper: a change worth making",
       "folder keeper: the skill says how to ship",
       "memory a person: Changed outside a run",
@@ -325,7 +327,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
       "memory keeper: status: wrote the status",
     ],
   );
-  is("what the agent did is new until somebody looks", all.unseen, 4);
+  is("what the agent did is new until somebody looks", all.unseen, 5);
   markSeen("keeper");
   is("and then it is not", (await agentChanges(keeper, {}, "test")).unseen, 0);
   const history = (await agentChanges(keeper, { place: "memory", path: "STATUS.md" }, "test")).changes;
