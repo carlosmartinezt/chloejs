@@ -3,11 +3,12 @@
 /*
    The page's look.
 
-   The palette and the two faces are Chloe's, out of the mark: cream and ink,
-   indigo for anything there is to press, and a deep band of one colour across
-   the top. That band is a hue and nothing else: --bar-hue is the only number
-   to change, and half saturation at a third lightness is what keeps any hue
-   dark enough for the page to sit under it. Account settings sets that number.
+   The palette and the two faces are Chloe's, out of the mark: a cool white and
+   ink, indigo for anything there is to press, and a deep band of one colour
+   across the top. That band is a hue and nothing else: --bar-hue is the only
+   number to change, and a third saturation at a sixth lightness is what keeps
+   any hue dark and quiet enough for the page to sit under it. Account settings
+   sets that number.
    Green is left to mean one thing, something that is up or went well, and red
    the other. Nothing here is coloured by whose it is: a name is a name. Mono is
    the machine's own words (paths, cron lines, model ids, prices) and sans is
@@ -57,16 +58,16 @@
    color-scheme, three lines below, so pinning the look to one of them is one
    attribute and not a second copy of every colour. */
 :root:not([data-theme]), .swatch[data-theme="chloe"] {
-  --bg: light-dark(#faf6ec, #0c0d11);
-  --surface: light-dark(#fffdf7, #15161c);
-  --line: light-dark(rgb(27 26 24 / .10), rgb(236 236 245 / .085));
-  --line-2: light-dark(rgb(27 26 24 / .19), rgb(236 236 245 / .16));
-  --ink: light-dark(#1b1a18, #e9e9f0);
-  --dim: light-dark(#55514a, #9c9cab);
+  --bg: light-dark(#f7f8fa, #0c0d11);
+  --surface: light-dark(#ffffff, #15161c);
+  --line: light-dark(rgb(15 18 30 / .09), rgb(236 236 245 / .085));
+  --line-2: light-dark(rgb(15 18 30 / .17), rgb(236 236 245 / .16));
+  --ink: light-dark(#0f1117, #e9e9f0);
+  --dim: light-dark(#555b6b, #9c9cab);
   --accent: light-dark(#4338ca, #a5a0f7);
   --accent-soft: light-dark(#e7e4fa, #1d1b33);
-  --bar: hsl(var(--bar-hue) 50% 30%); --on-bar: hsl(var(--bar-hue) 30% 93%);
-  --bar-line: hsl(var(--bar-hue) 50% 38%);
+  --bar: hsl(var(--bar-hue) 32% 17%); --on-bar: hsl(var(--bar-hue) 25% 94%);
+  --bar-line: hsl(var(--bar-hue) 30% 25%);
   --ok: light-dark(#295c4b, #8fc9ab);
   --bad: light-dark(#a4463c, #e08b7f);
   /* A red dot: red, but quiet. Text and the hard states still use --bad. */
@@ -79,8 +80,8 @@
   --kind-code: light-dark(#2f5d8a, #7fa8cf);
   --kind-script: light-dark(#9a5b0c, #dfa966);
   --kind-proof: light-dark(#7c6f9a, #a99bc9);
-  --inline: light-dark(rgb(27 26 24 / .06), #1a1b22);
-  --on-accent: light-dark(#fffdf7, #0b0a16);
+  --inline: light-dark(rgb(15 18 30 / .055), #1a1b22);
+  --on-accent: light-dark(#ffffff, #0b0a16);
 }
 /* Which of the two is in force. Said on the page alone, because color-scheme
    is inherited and the swatch that draws this look reads the same one. The
