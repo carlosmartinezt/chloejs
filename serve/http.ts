@@ -16,6 +16,7 @@ import { networkInterfaces } from "node:os";
 import { z } from "zod";
 
 import { db, RUN_COLUMNS } from "#chloe/core/db";
+import { envNames, readEnvFile, writeEnv } from "#chloe/core/env";
 import { settings } from "#chloe/core/settings";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
 import type { Clock } from "#chloe/core/clock";
@@ -954,6 +955,45 @@ export const routes: Route[] = [
       if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
       forget(thread);
       json(response, { forgotten: thread });
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/keys",
+    does: "The names .env sets. Never a value.",
+    handle: ({ response }) => json(response, envNames()),
+  },
+  {
+    method: "POST",
+    path: "/api/keys",
+    does: "Write NAME=value lines into .env, each replacing the line that name had. Only CHLOE_ names, one line each, except one name given JSON, which goes in on one line. The settings are read again at once.",
+    takes: '{"lines": "CHLOE_CONNECTIONS_BRAVE_API_KEY=..."}',
+    handle: async ({ request, response }) => {
+      const { lines } = await body(request, z.object({ lines: z.string() }));
+      // A client file pasted whole is JSON over many lines, and goes in as one.
+      const whole = /^\s*(CHLOE_[A-Z0-9_]+)=(\{[\s\S]*\})\s*$/.exec(lines);
+      const flat = whole && (() => { try { return JSON.stringify(JSON.parse(whole[2])); } catch { return undefined; } })();
+      const given = whole && flat ? { [whole[1]]: flat } : readEnvFile(lines);
+      if (!Object.keys(given).length) throw new BadRequest("No NAME=value line in that.");
+      try {
+        writeEnv(given);
+      } catch (error) {
+        throw new BadRequest((error as Error).message);
+      }
+      json(response, envNames());
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/keys/:name/remove",
+    does: "Take that name's line out of .env.",
+    handle: ({ response, params }) => {
+      try {
+        writeEnv({ [params.name]: null });
+      } catch (error) {
+        throw new BadRequest((error as Error).message);
+      }
+      json(response, envNames());
     },
   },
   {

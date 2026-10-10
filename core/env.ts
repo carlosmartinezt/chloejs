@@ -11,7 +11,7 @@
 // `CHLOE_MODEL_KEY=... npx chloe` still beats the file. Read again when the file
 // changes: what the file set last time is replaced, and what it stopped setting
 // is removed, so taking a line out of .env takes effect the same as changing one.
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { ROOT } from "./root.ts";
 
@@ -56,6 +56,53 @@ export function loadEnv(): void {
     now.add(name);
   }
   mine = now;
+}
+
+/** The names .env sets, in the order it sets them. Never a value. */
+export function envNames(): string[] {
+  return existsSync(FILE) ? Object.keys(readEnvFile(readFileSync(FILE, "utf8"))) : [];
+}
+
+/** Where things are kept, read once at startup: not something a page may move. */
+const KEPT = new Set(["CHLOE_STATE", "CHLOE_MEMORY", "CHLOE_DB"]);
+
+/**
+ * The text of a .env file with each name set to its value, or taken out where
+ * the value is `null`, and every other line as it was. Only names that start
+ * with `CHLOE_` are taken, less CHLOE_STATE, CHLOE_MEMORY and CHLOE_DB, so
+ * nothing written here can change how node or a program it starts behaves. A
+ * value has to fit on one line. Throws on the first change that does not fit.
+ */
+export function changeEnvText(text: string, changes: Record<string, string | null>): string {
+  for (const [name, value] of Object.entries(changes)) {
+    if (!/^CHLOE_[A-Z0-9_]+$/.test(name)) throw new Error(`${name} is not a name chloe writes: it has to start with CHLOE_ and be capitals, digits and _.`);
+    if (KEPT.has(name)) throw new Error(`${name} is where things are kept, and is changed in .env on the machine, then a restart.`);
+    if (value !== null && /[\r\n]/.test(value)) throw new Error(`${name}'s value has to fit on one line.`);
+  }
+  // A value that starts and ends with the same quote is read with them taken
+  // off, so it goes in inside the other kind.
+  const line = (name: string, value: string) =>
+    `${name}=${/^(["']).*\1$/.test(value) ? (value.startsWith('"') ? `'${value}'` : `"${value}"`) : value}`;
+  const left = { ...changes };
+  const lines = text.split("\n").flatMap((raw) => {
+    const name = Object.keys(readEnvFile(raw))[0];
+    if (!name || !(name in changes)) return [raw];
+    // A name written twice is read at its last line, so the ones after the first go.
+    if (!(name in left)) return [];
+    const value = left[name];
+    delete left[name];
+    return value === null ? [] : [line(name, value)];
+  });
+  while (lines.length && lines[lines.length - 1] === "") lines.pop();
+  for (const [name, value] of Object.entries(left)) if (value !== null) lines.push(line(name, value));
+  return lines.length ? `${lines.join("\n")}\n` : "";
+}
+
+/** `changeEnvText` on .env itself, which stays mode 600, and the environment read again from it. */
+export function writeEnv(changes: Record<string, string | null>): void {
+  writeFileSync(FILE, changeEnvText(existsSync(FILE) ? readFileSync(FILE, "utf8") : "", changes), { mode: 0o600 });
+  chmodSync(FILE, 0o600);
+  loadEnv();
 }
 
 loadEnv();

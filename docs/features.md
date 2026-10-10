@@ -53,7 +53,7 @@ is put back and the agent is told why.
 never writes its evals or its memory.
 
 It is in a turn only when the agent's owner asked, and is refused once another
-tool in that conversation read from outside the agent. The whole rule is
+tool in that reply read from outside the agent. The whole rule is
 [What an agent may change about itself](/docs/prompts#what-an-agent-may-change-about-itself).
 
 ### memoryPerUser

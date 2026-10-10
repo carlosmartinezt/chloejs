@@ -167,6 +167,11 @@ export const api = {
   say: (agent: string, prompt: string, thread: string, images: Picture[] = []) =>
     call<{ runId: string; text: string; cost: number }>(`/agents/${agent}/chat`, images.length ? { prompt, thread, images } : { prompt, thread }),
 
+  /** What .env sets, by name. A value goes in and never comes back out. */
+  keys: () => call<string[]>("/keys"),
+  setKeys: (lines: string) => call<string[]>("/keys", { lines }),
+  removeKey: (name: string) => call<string[]>(`/keys/${encodeURIComponent(name)}/remove`, {}),
+
   /** Tokens, for another system. The secret comes back once, when it is made. */
   tokens: () => call<Token[]>("/tokens"),
   makeToken: (name: string, agent?: string) => call<Token & { secret: string }>("/tokens", { name, ...(agent && { agent }) }),

@@ -206,7 +206,7 @@ and undo it from the site. It changes itself only when its owner asks:
 and `forOwner` out of every turn without `fromOwner` (both decided in
 `receive()`, or by the page's chat route), and the loop in
 `core/turn.ts` refuses it once a tool not marked `own` has answered in that
-conversation (`toolsUsed()` in `model/memory.ts` for the replies before). A new tool that only touches the agent's own folder or memory is marked
+reply; the owner's next message starts clean. A new tool that only touches the agent's own folder or memory is marked
 `own`; anything else counts as reading from outside.
 
 **Simple.** Fewer files, fewer references between them, fewer words. The most

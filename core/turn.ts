@@ -12,7 +12,7 @@ import { oneLineSummary } from "#chloe/core/markdown";
 import { ownFileRules, type Agent, type ChatHistory, type Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
-import { recall, remember, toolsUsed } from "#chloe/model/memory";
+import { recall, remember } from "#chloe/model/memory";
 import { userNotes } from "#chloe/model/tools/memory";
 import { selfReadTools } from "#chloe/model/tools/self";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type Tools } from "#chloe/model/tool";
@@ -193,9 +193,6 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   ).run(runId, agent.id, started, source, job ?? null, using, prompt, asked ?? null, owner ?? null, thread ?? null);
 
   const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent });
-  // What an earlier reply read can come back through what it said, so a
-  // conversation that read from outside never changes the agent.
-  const readEarlier = mayChangeAgent && thread ? toolsUsed(thread).find((name) => !tools[name]?.own) : undefined;
   const overviews = await overviewsOf(tools);
   // In the instructions rather than the message, so it is not kept in the conversation again each turn.
   const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
@@ -209,7 +206,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   db.prepare("update runs set context = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), runId);
   if (thread) remember(thread, "user", prompt);
 
-  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, stranger, fromOwner, mayChangeAgent, readEarlier, user, instead, signal });
+  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, stranger, fromOwner, mayChangeAgent, user, instead, signal });
 }
 
 /**
@@ -366,8 +363,6 @@ async function go(options: {
   stranger?: boolean;
   fromOwner?: boolean;
   mayChangeAgent?: boolean;
-  /** A tool not marked `own` that an earlier reply in this conversation used. */
-  readEarlier?: string;
   user?: string;
   instead?: Ask["instead"];
   /** Steps already taken, which the agent's `stopWhen` counts. */
@@ -390,7 +385,6 @@ async function go(options: {
         model: options.model,
         messages: options.messages,
         tools,
-        readOutside: options.readEarlier,
         context: { agent, ...(options.user && { user: options.user }) },
         stopWhen: stopWhenOf(agent),
         before: options.before,
@@ -496,8 +490,6 @@ export async function loop(options: {
   stopWhen: StopCondition<any>[];
   /** Steps a run that carried on had already taken, which the conditions count. */
   before?: number;
-  /** A tool not marked `own` that answered before this loop began, in the same conversation. */
-  readOutside?: string;
   /**
    * The most this may spend, in dollars. Checked between turns, because what a
    * turn costs is only known once it has been paid for, so the turn that goes
@@ -536,10 +528,10 @@ export async function loop(options: {
   // What the stop conditions read: each step's text, the calls it made and what came back.
   const taken: Taken[] = Array.from({ length: options.before ?? 0 }, () => ({ text: "", toolCalls: [], toolResults: [] }));
   let resume = options.resume;
-  // The first tool to answer that is not `own`, in this loop or earlier in the
-  // conversation. After it, a tool that changes the agent is refused: what it
-  // read could be asking for the change.
-  let readOutside = options.readOutside ?? "";
+  // The first tool to answer in this reply that is not `own`. After it, a tool
+  // that changes the agent is refused: what it read could be asking for the
+  // change. The owner's next message starts clean.
+  let readOutside = "";
 
   for (let steps = 0; ; steps++) {
     let toolCalls: ToolCall[];
@@ -575,7 +567,7 @@ export async function loop(options: {
       if (one) options.onCall?.(call.function.name);
       const ran =
         one?.changesAgent && readOutside
-          ? refusedCall(call, `this conversation used ${readOutside}, and what it read may be what asked for this. Say what you would change, and your owner can ask for it in a new conversation`)
+          ? refusedCall(call, `this reply used ${readOutside}, and what it read may be what asked for this. Say what you would change, and your owner can ask for it in their next message`)
           : await runTool(options.tools, call, { context: options.context, instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided });
       if ("person" in ran) {
         return { text: "", steps, cost, calls, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
@@ -760,7 +752,7 @@ const FILES_SHOWN = 100;
 /**
  * What an agent that may change itself is told in a turn its owner wrote: its
  * files, the guides and what each covers, to read what a change needs in one
- * call and write it in one more, and that a secret never goes through a chat.
+ * call and write it in one more, and that a secret goes in the Keys box, never a chat.
  * Empty for any other turn.
  */
 async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
@@ -780,8 +772,9 @@ async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
     "schedule. When you are asked for something you cannot do yet, read the guides it needs, then add it to " +
     "yourself or say what your owner has to do for it. " +
     changing +
-    "Never ask for a key, password or secret in a chat: say which line goes in .env and let your owner put it " +
-    "there. A sign-in like Google's is done by Chloe itself, with a link, never by you.\n\n" +
+    "Never ask for a key, password or secret in a chat: say which line goes in .env, and send your owner to the Keys " +
+    "box on the dashboard's Settings page, as a link to /settings?key=<the name>, which writes it into .env without " +
+    "you or the chat seeing it. A sign-in like Google's is done by Chloe itself, with a link, never by you.\n\n" +
     `### Your files\n\n${shown.join("\n") || "None yet."}\n\n` +
     `### The guides\n\n${guides().map((one) => `- **${one.page}**: ${one.about}`).join("\n")}`
   );

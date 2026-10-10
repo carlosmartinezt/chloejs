@@ -37,8 +37,8 @@ export type ChloeTool = Tool & {
    *
    * A tool without it counts as reading from outside (mail, a web page, a
    * script, an MCP server). Once such a tool has answered, every
-   * `changesAgent` tool is refused for the rest of that conversation, because
-   * the outside text may be what asked for the change.
+   * `changesAgent` tool is refused for the rest of that reply, because the
+   * outside text may be what asked for the change.
    */
   own?: boolean;
   /**

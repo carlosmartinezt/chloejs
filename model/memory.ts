@@ -34,12 +34,6 @@ export function remember(thread: string, role: "user" | "assistant", content: st
   );
 }
 
-/** Every tool a thread's replies used, by name, each once, oldest first. Forgetting the thread forgets them. */
-export function toolsUsed(thread: string): string[] {
-  const rows = db.prepare("select used from messages where thread = ? and used is not null order by id").all(thread) as { used: string }[];
-  return [...new Set(rows.flatMap((row) => (JSON.parse(row.used) as Used[]).map((one) => one.tool)))];
-}
-
 /**
  * The last `limit` messages of a thread, oldest first, leaving out any older
  * than `days` when it is given. Nothing is deleted: a message too old to be

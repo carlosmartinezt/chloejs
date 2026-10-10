@@ -137,4 +137,22 @@ import { about, is } from "#chloe/ops/check";
   is("a value may hold an =", readEnvFile("A=b=c").A, "b=c");
   is("a line with no = is not a setting", readEnvFile("nonsense").nonsense, undefined);
   is("space either side of the name is not part of it", readEnvFile("  A = 1  ").A, "1");
+
+  const { changeEnvText } = await import("#chloe/core/env");
+  const before = "# keys\nCHLOE_MODEL_KEY=old\nOTHER=1\nCHLOE_MODEL_KEY=older\n";
+  is("a name set again replaces its line and keeps the rest", changeEnvText(before, { CHLOE_MODEL_KEY: "new" }), "# keys\nCHLOE_MODEL_KEY=new\nOTHER=1\n");
+  is("a new name goes at the end", changeEnvText("A=1", { CHLOE_X: "2" }), "A=1\nCHLOE_X=2\n");
+  is("null takes the line out", changeEnvText(before, { CHLOE_MODEL_KEY: null }), "# keys\nOTHER=1\n");
+  is("a value in quotes is read back as it was given", readEnvFile(changeEnvText("", { CHLOE_X: '"q"' })).CHLOE_X, '"q"');
+  const refuses = (changes: Record<string, string>) => {
+    try {
+      changeEnvText("", changes);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  is("a name without CHLOE_ is refused, so a page cannot set NODE_OPTIONS", refuses({ NODE_OPTIONS: "--require x" }), true);
+  is("and so is where things are kept", refuses({ CHLOE_STATE: "/tmp" }), true);
+  is("and a value on two lines", refuses({ CHLOE_X: "a\nB=2" }), true);
 }

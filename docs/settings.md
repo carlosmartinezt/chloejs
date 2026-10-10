@@ -59,6 +59,12 @@ message saying a key is missing gives both the name and the config line.
 Every setting with its default is in [the settings reference](/reference/settings),
 and your editor shows each one's explanation as you type it.
 
+A line in `.env` can also be set from the dashboard, in the Keys box on the
+Settings page: paste `CHLOE_SOMETHING=value` and it replaces that name's line.
+It lists the names `.env` sets and never shows a value. Only `CHLOE_` names are
+written, less `CHLOE_STATE`, `CHLOE_MEMORY` and `CHLOE_DB`, and an agent sends
+its owner there, at `/settings?key=<name>`, rather than ask for a key in a chat.
+
 An edit to the config or `.env` is live without a restart, except `serve`.
 Renaming an agent means renaming its entry under `agents`; until then chloe says
 which entry names no agent.

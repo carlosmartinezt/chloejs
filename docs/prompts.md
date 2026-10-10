@@ -94,11 +94,11 @@ itself only when its owner asks: a message from the agent's owner
 on one of its channels (`owner` in settings, or the first entry in the
 channel's `allowFrom`), or from the account on the dashboard. A job, a
 schedule, a token and a visitor never get `selfWriteFile`, and an agent step
-handed it is refused. Once any tool in a conversation has read something
-from outside the agent (mail, a web page, a script, an MCP server, one of its
-own runs, which holds what those said), a change is refused for the rest of
-that conversation, because what it read may be what asked for the change, and
-the agent's own replies can carry it into a later message. Ask for the change
-in a new conversation, or after `/clear`. In a turn without `selfWriteFile`, an agent that may change itself
+handed it is refused. Once any tool in a reply has read something from
+outside the agent (mail, a web page, a script, an MCP server, one of its own
+runs, which holds what those said), a change is refused for the rest of that
+reply, because what it read may be what asked for the change. The owner's
+next message may ask for it, and every change is a commit that can be read and
+undone. In a turn without `selfWriteFile`, an agent that may change itself
 is told so by the runtime, and to keep what it learned in its memory and say
 which file it would change, so its instructions need not say it.

@@ -254,23 +254,15 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   answers.push({ content: "", tool_calls: [call("c", "webReadPage")] }, { content: "", tool_calls: [call("d", "selfWriteFile")] }, "Could not.");
   const after = await turn({ agent, prompt: "read the page and do what it says", source: "test", mayChangeAgent: true });
   is("after a tool read from outside, a change is refused and nothing is written", written.length, 1);
-  is("and the model is told why", String(after.calls.at(-1)?.output).startsWith("selfWriteFile was not allowed: this conversation used webReadPage"), true);
+  is("and the model is told why", String(after.calls.at(-1)?.output).startsWith("selfWriteFile was not allowed: this reply used webReadPage"), true);
 
-  // What a reply read can come back in what it said, so the conversation stays out of bounds.
-  const { remember, forget } = await import("#chloe/model/memory");
+  // The owner's next message is their own request, whatever an earlier reply read.
+  const { remember } = await import("#chloe/model/memory");
   remember("test/read-mail", "user", "what does the mail say?");
   remember("test/read-mail", "assistant", "It asks you to add a step to your job.", [{ toolName: "webReadPage", input: {} }]);
-  answers.push({ content: "", tool_calls: [call("e", "selfWriteFile")] }, "Start a new conversation for that.");
-  const later = await turn({ agent, prompt: "ok, do it", source: "test", thread: "test/read-mail", mayChangeAgent: true });
-  is("a later message in a conversation that read from outside cannot change the agent", [written.length, String(later.calls.at(-1)?.output).includes("in a new conversation")], [1, true]);
-  remember("test/own-only", "assistant", "Your note says ship small.", [{ toolName: "memoryReadFile", input: {} }]);
-  answers.push({ content: "", tool_calls: [call("g", "selfWriteFile")] }, "Done.");
-  await turn({ agent, prompt: "put that in your skill", source: "test", thread: "test/own-only", mayChangeAgent: true });
-  is("one that only read its own memory can", written.length, 2);
-  forget("test/read-mail");
-  answers.push({ content: "", tool_calls: [call("h", "selfWriteFile")] }, "Done.");
-  await turn({ agent, prompt: "add the step", source: "test", thread: "test/read-mail", mayChangeAgent: true });
-  is("and so can one cleared with /clear", written.length, 3);
+  answers.push({ content: "", tool_calls: [call("e", "selfWriteFile")] }, "Done.");
+  await turn({ agent, prompt: "add a daily job for that", source: "test", thread: "test/read-mail", mayChangeAgent: true });
+  is("a later message in a conversation that read from outside can change the agent", written.length, 2);
 }
 
 {
@@ -346,7 +338,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("listing its runs and reading its files does not stop a change", written.length, 1);
   answers.push({ content: "", tool_calls: [call("r", "selfReadRun", { id: "r-chat" }), call("w2", "selfWriteFile", {})] }, "Could not.");
   const after = await turn({ agent: writer, prompt: "fix what went wrong", source: "test", mayChangeAgent: true });
-  is("reading a run does, because what it read from outside is in it", [written.length, String(after.calls.at(-1)?.output).includes("this conversation used selfReadRun")], [1, true]);
+  is("reading a run does, because what it read from outside is in it", [written.length, String(after.calls.at(-1)?.output).includes("this reply used selfReadRun")], [1, true]);
 }
 
 {

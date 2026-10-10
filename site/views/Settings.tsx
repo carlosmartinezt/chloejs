@@ -30,6 +30,11 @@ export function Settings() {
         <h2>Account</h2>
         <Password />
       </section>
+
+      <section className="setting" id="keys">
+        <h2>Keys</h2>
+        <Keys />
+      </section>
     </>
   );
 }
@@ -92,6 +97,99 @@ function Password() {
         </button>
       </form>
       {trouble && <p className="bad">{trouble}</p>}
+    </>
+  );
+}
+
+/**
+ * What .env sets, by name, and a box to paste NAME=value lines into it. A
+ * value is sent once and never shown again. `?key=NAME` in the address starts
+ * the box with that name, which is how an agent sends its owner here.
+ */
+function Keys() {
+  const [names, setNames] = useState<string[] | null>(null);
+  const [lines, setLines] = useState(() => {
+    const name = new URLSearchParams(window.location.search).get("key");
+    // One well-formed name and nothing else, so a link cannot slip a line of its own in.
+    return name && /^CHLOE_[A-Z0-9_]+$/.test(name) ? `${name}=` : "";
+  });
+  const [trouble, setTrouble] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [refused, setRefused] = useState(false);
+
+  // Somebody invited is refused .env, and is not shown the box at all.
+  useEffect(() => {
+    api.keys().then(setNames, () => setRefused(true));
+  }, []);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    setTrouble("");
+    setSaved(false);
+    try {
+      setNames(await api.setKeys(lines));
+      setLines("");
+      setSaved(true);
+    } catch (error) {
+      setTrouble((error as Error).message);
+    }
+  }
+
+  async function remove(name: string) {
+    if (!window.confirm(`Take ${name} out of .env?`)) return;
+    try {
+      setNames(await api.removeKey(name));
+    } catch (error) {
+      setTrouble((error as Error).message);
+    }
+  }
+
+  if (refused) return null;
+  return (
+    <>
+      <p className="empty">
+        Every password, key and token chloe uses is a line in <code>.env</code>, beside <code>chloe.config.ts</code>.
+        Paste one or more lines here, as <code>CHLOE_SOMETHING=value</code>, and each replaces the line that name had.
+        What you paste goes straight into the file and is never shown again, here or to an agent. The config still
+        has to hand each one over, as <code>process.env.CHLOE_SOMETHING</code>.
+      </p>
+      <form onSubmit={save}>
+        <textarea
+          rows={3}
+          spellCheck={false}
+          autoComplete="off"
+          value={lines}
+          onChange={(event) => setLines(event.target.value)}
+          placeholder="CHLOE_CONNECTIONS_BRAVE_API_KEY=..."
+          aria-label="Lines for .env"
+        />
+        <button className="small" type="submit" disabled={!lines.includes("=")}>
+          Save to .env
+        </button>
+      </form>
+      {saved && <p className="empty">Saved. The settings were read again.</p>}
+      {trouble && <p className="bad">{trouble}</p>}
+      {names && names.length === 0 && <p className="empty">.env sets nothing yet.</p>}
+      {names && names.length > 0 && (
+        <table className="tight">
+          <tbody>
+            {names.map((name) => (
+              <tr key={name}>
+                <td>
+                  <code>{name}</code>
+                </td>
+                <td className="right">
+                  {name.startsWith("CHLOE_") && (
+                    <button className="small" onClick={() => void remove(name)}>
+                      Remove
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </>
   );
 }
