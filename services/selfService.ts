@@ -236,16 +236,18 @@ async function wontLoad(agent: Home, was: Agent | undefined): Promise<string> {
 }
 
 /**
- * What TypeScript says is wrong in the agent's folder, or "" when nothing is,
- * the project has no TypeScript and tsconfig.json to ask, or the folder is
- * outside the project. Problems in other folders are not this agent's to fix.
+ * What TypeScript says is wrong in that folder or file, or "" when nothing is,
+ * the project has no TypeScript and tsconfig.json to ask, or the path is
+ * outside the project. Problems anywhere else are not the caller's to fix.
  */
-async function typeProblems(folder: string): Promise<string> {
-  const mine = `${relative(realpathSync(ROOT), realpathSync(folder))}/`;
+export async function typeProblems(path: string): Promise<string> {
+  const mine = relative(realpathSync(ROOT), realpathSync(path));
   if (mine.startsWith("..")) return "";
   let tsc: string;
   try {
-    tsc = createRequire(join(ROOT, "package.json")).resolve("typescript/bin/tsc");
+    // Through its package.json: TypeScript 7 does not export bin/tsc.
+    const manifest = createRequire(join(ROOT, "package.json")).resolve("typescript/package.json");
+    tsc = join(dirname(manifest), (JSON.parse(readFileSync(manifest, "utf8")) as { bin?: { tsc?: string } }).bin?.tsc ?? "bin/tsc");
   } catch {
     return "";
   }
@@ -255,7 +257,7 @@ async function typeProblems(folder: string): Promise<string> {
   );
   return out
     .split("\n")
-    .filter((line) => line.startsWith(mine))
+    .filter((line) => line.startsWith(`${mine}/`) || line.startsWith(`${mine}(`))
     .slice(0, 20)
     .join("\n");
 }

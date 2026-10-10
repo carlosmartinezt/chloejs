@@ -64,6 +64,11 @@ Settings page: paste `CHLOE_SOMETHING=value` and it replaces that name's line.
 It lists the names `.env` sets and never shows a value. Only `CHLOE_` names are
 written, less `CHLOE_STATE`, `CHLOE_MEMORY` and `CHLOE_DB`, and an agent sends
 its owner there, at `/settings?key=<name>`, rather than ask for a key in a chat.
+Each name the config does not hand over as `process.env.<name>` says so.
+
+`chloe.config.ts` itself can be changed on the same page, below Keys. A save is
+loaded as the next reload would load it, and type checked when the project has
+TypeScript, and when either fails the old file stays and the page shows why.
 
 An edit to the config or `.env` is live without a restart, except `serve`.
 Renaming an agent means renaming its entry under `agents`; until then chloe says

@@ -168,9 +168,12 @@ export const api = {
     call<{ runId: string; text: string; cost: number }>(`/agents/${agent}/chat`, images.length ? { prompt, thread, images } : { prompt, thread }),
 
   /** What .env sets, by name. A value goes in and never comes back out. */
-  keys: () => call<string[]>("/keys"),
-  setKeys: (lines: string) => call<string[]>("/keys", { lines }),
-  removeKey: (name: string) => call<string[]>(`/keys/${encodeURIComponent(name)}/remove`, {}),
+  keys: () => call<Key[]>("/keys"),
+  setKeys: (lines: string) => call<Key[]>("/keys", { lines }),
+  removeKey: (name: string) => call<Key[]>(`/keys/${encodeURIComponent(name)}/remove`, {}),
+  /** chloe.config.ts. A save that would not load or type check is put back, and the reason is the error. */
+  config: () => call<{ text: string }>("/config"),
+  saveConfig: (text: string) => call<{ ok: true }>("/config", { text }),
 
   /** Tokens, for another system. The secret comes back once, when it is made. */
   tokens: () => call<Token[]>("/tokens"),
@@ -216,6 +219,12 @@ export const api = {
   undo: (agent: string, place: Place, id: string) =>
     call<{ id?: string; files: string[] }>(`/agents/${agent}/changes/${id}/undo`, { in: place }),
 };
+
+/** A name .env sets, and whether chloe.config.ts hands it over as process.env.<name>. */
+export interface Key {
+  name: string;
+  inConfig: boolean;
+}
 
 /** One line of a memory's audit log. */
 export interface MemoryRead {

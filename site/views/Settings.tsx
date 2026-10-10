@@ -1,6 +1,6 @@
 import { type CSSProperties, useEffect, useState } from "react";
 
-import { api } from "../lib/api.ts";
+import { api, type Key } from "../lib/api.ts";
 import * as prefs from "../lib/prefs.ts";
 
 /**
@@ -34,6 +34,11 @@ export function Settings() {
       <section className="setting" id="keys">
         <h2>Keys</h2>
         <Keys />
+      </section>
+
+      <section className="setting" id="config">
+        <h2>chloe.config.ts</h2>
+        <Config />
       </section>
     </>
   );
@@ -107,7 +112,7 @@ function Password() {
  * the box with that name, which is how an agent sends its owner here.
  */
 function Keys() {
-  const [names, setNames] = useState<string[] | null>(null);
+  const [names, setNames] = useState<Key[] | null>(null);
   const [lines, setLines] = useState(() => {
     const name = new URLSearchParams(window.location.search).get("key");
     // One well-formed name and nothing else, so a link cannot slip a line of its own in.
@@ -173,11 +178,12 @@ function Keys() {
       {names && names.length > 0 && (
         <table className="tight">
           <tbody>
-            {names.map((name) => (
+            {names.map(({ name, inConfig }) => (
               <tr key={name}>
                 <td>
                   <code>{name}</code>
                 </td>
+                <td className="dim aside">{inConfig ? "" : <>not handed over in <a href="#config">chloe.config.ts</a></>}</td>
                 <td className="right">
                   {name.startsWith("CHLOE_") && (
                     <button className="small" onClick={() => void remove(name)}>
@@ -190,6 +196,75 @@ function Keys() {
           </tbody>
         </table>
       )}
+    </>
+  );
+}
+
+/**
+ * chloe.config.ts as text, for the settings, the default model and the
+ * process.env lines that hand keys over. The server loads and type checks a
+ * save before it keeps it, so a mistake comes back as the reason and the file
+ * stays as it was.
+ */
+function Config() {
+  const [text, setText] = useState<string | null>(null);
+  const [saved, setSaved] = useState("");
+  const [trouble, setTrouble] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    api.config().then(
+      (said) => {
+        setText(said.text);
+        setSaved(said.text);
+      },
+      () => setText(null),
+    );
+  }, []);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (text === null) return;
+    setTrouble("");
+    setDone(false);
+    setBusy(true);
+    try {
+      await api.saveConfig(text);
+      setSaved(text);
+      setDone(true);
+    } catch (error) {
+      setTrouble((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (text === null) return null;
+  return (
+    <>
+      <p className="empty">
+        The agents and every setting. A key never goes here: it goes in Keys above, and this file hands it over as{" "}
+        <code>process.env.CHLOE_SOMETHING</code>. Saving checks the file loads first, and keeps the old one when it
+        does not.
+      </p>
+      <form onSubmit={save}>
+        <textarea
+          className="editor"
+          spellCheck={false}
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value);
+            setDone(false);
+          }}
+          aria-label="chloe.config.ts"
+        />
+        <button className="small" type="submit" disabled={busy || text === saved}>
+          {busy ? "Checking" : "Save"}
+        </button>
+      </form>
+      {done && <p className="empty">Saved and loaded.</p>}
+      {trouble && <pre className="bad">{trouble}</pre>}
     </>
   );
 }

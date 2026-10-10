@@ -16,7 +16,7 @@ import { networkInterfaces } from "node:os";
 import { z } from "zod";
 
 import { db, RUN_COLUMNS } from "#chloe/core/db";
-import { envNames, readEnvFile, writeEnv } from "#chloe/core/env";
+import { readEnvFile, writeEnv } from "#chloe/core/env";
 import { settings } from "#chloe/core/settings";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
 import type { Clock } from "#chloe/core/clock";
@@ -25,6 +25,7 @@ import { forget } from "#chloe/model/memory";
 import { models } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
+import { configText, keysUsed, saveConfig } from "./config.ts";
 import { editable, open, save, tree } from "./files.ts";
 import {
   memoryCommit,
@@ -960,8 +961,8 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/keys",
-    does: "The names .env sets. Never a value.",
-    handle: ({ response }) => json(response, envNames()),
+    does: "The names .env sets, and whether chloe.config.ts hands each over. Never a value.",
+    handle: async ({ response }) => json(response, await keysUsed()),
   },
   {
     method: "POST",
@@ -980,20 +981,42 @@ export const routes: Route[] = [
       } catch (error) {
         throw new BadRequest((error as Error).message);
       }
-      json(response, envNames());
+      json(response, await keysUsed());
     },
   },
   {
     method: "POST",
     path: "/api/keys/:name/remove",
     does: "Take that name's line out of .env.",
-    handle: ({ response, params }) => {
+    handle: async ({ response, params }) => {
       try {
         writeEnv({ [params.name]: null });
       } catch (error) {
         throw new BadRequest((error as Error).message);
       }
-      json(response, envNames());
+      json(response, await keysUsed());
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/config",
+    does: "The text of chloe.config.ts.",
+    handle: async ({ response }) => json(response, { text: await configText() }),
+  },
+  {
+    method: "POST",
+    path: "/api/config",
+    does: "Write chloe.config.ts. Loaded and type checked first, as the next reload would, and put back with the reason when it fails.",
+    takes: '{"text": "the whole file"}',
+    handle: async ({ request, response }) => {
+      const { text } = await body(request, z.object({ text: z.string().min(1) }));
+      try {
+        await saveConfig(text);
+      } catch (error) {
+        if (error instanceof NotFound) throw error;
+        throw new BadRequest((error as Error).message);
+      }
+      json(response, { ok: true });
     },
   },
   {

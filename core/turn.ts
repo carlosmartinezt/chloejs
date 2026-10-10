@@ -774,7 +774,9 @@ async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
     changing +
     "Never ask for a key, password or secret in a chat: say which line goes in .env, and send your owner to the Keys " +
     "box on the dashboard's Settings page, as a link to /settings?key=<the name>, which writes it into .env without " +
-    "you or the chat seeing it. A sign-in like Google's is done by Chloe itself, with a link, never by you.\n\n" +
+    "you or the chat seeing it. A setting, and the process.env line that hands a key over, go in chloe.config.ts, " +
+    "which you cannot write: say the line and where it goes, and your owner changes it on the same page, at " +
+    "/settings#config. A sign-in like Google's is done by Chloe itself, with a link, never by you.\n\n" +
     `### Your files\n\n${shown.join("\n") || "None yet."}\n\n` +
     `### The guides\n\n${guides().map((one) => `- **${one.page}**: ${one.about}`).join("\n")}`
   );
