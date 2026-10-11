@@ -81,6 +81,12 @@ in `.env` beside it, mode 600: every password, key and token, and nothing else.
 Nothing in source control may hold one. An address, a path or a name is not a
 secret and goes in the config.
 
+**The page's Configuration forms write the config itself**, through
+`changeSettings()` in `serve/config.ts`: one value at a known place in
+`settings`, the rest of the file untouched, and refused as `InCode` where the
+file says it as code. A secret goes into `.env` and the config names it. Do not
+add a database row that sits over a setting: two homes for one fact disagree.
+
 **Designed for everyone who will use it, not for the first user.** The question
 behind every change is what the best design is for the runtime as a whole,
 worked out from the principles in this file. How one install happens to use a

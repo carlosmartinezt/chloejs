@@ -18,13 +18,8 @@ export function Ways({ ways, empty, more }: { ways: Way[] | null; empty: string;
         <li key={way.name}>
           <span className="line">
             <b>{way.name}</b>
-            {way.ready === null ? (
-              <span className="dim num">nothing to set up</span>
-            ) : way.ready ? (
-              <span className="free num">set up</span>
-            ) : (
-              <span className="bad num">not set up</span>
-            )}
+            {/* Words, not a button: a dot and what it is. Nothing at all when there is nothing to set up. */}
+            {way.ready === null ? null : way.ready ? <span className="state free">Ready</span> : <span className="state bad">Not ready</span>}
           </span>
           <span className="does">{way.does}</span>
           {way.ready === false && way.missing?.length ? (
@@ -33,10 +28,8 @@ export function Ways({ ways, empty, more }: { ways: Way[] | null; empty: string;
                 {line}
               </span>
             ))
-          ) : way.needs ? (
-            <span className="num dim needs">
-              {way.ready ? "from" : "waiting on"} {way.needs} in settings
-            </span>
+          ) : way.needs && !way.ready ? (
+            <span className="num dim needs">Needs {way.needs} in chloe.config.ts</span>
           ) : null}
           {way.settings?.length ? (
             <ul className="set">

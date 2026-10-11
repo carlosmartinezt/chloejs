@@ -163,7 +163,7 @@ export async function pick<K extends string>(question: string, options: { key: K
  * before there is one.
  */
 export async function setPassword(): Promise<void> {
-  const { firstPassword, hasPassword, resetPassword, suggestPassword } = await import("#chloe/serve/login");
+  const { firstPassword, hasPassword, ownName, resetPassword, suggestPassword } = await import("#chloe/serve/login");
 
   const already = hasPassword();
   if (already) {
@@ -185,8 +185,10 @@ export async function setPassword(): Promise<void> {
       continue;
     }
 
-    if (typed) return void console.log(`\nDone. Sign in with it at whatever serves the page.`);
-    console.log(`\nYour password is  ${password}\n`);
+    // Somebody here because they forgot the password may have forgotten the name too.
+    const name = ownName() ? ` and the name ${ownName()}` : "";
+    if (typed) return void console.log(`\nDone. Sign in with it${name} at whatever serves the page.`);
+    console.log(`\nYour password is  ${password}${name ? `, with the name ${ownName()}` : ""}\n`);
     console.log("Write it down. Only its hash is kept, so this is the one time it is shown.");
     return;
   }

@@ -33,8 +33,13 @@ in.
 | `/agents/<id>/files/<path>` | its own files |
 | `/agents/<id>/memory` | its memory |
 | `/log` | every agent's runs, searched together |
+| `/account` | your password, a name to sign in with, and signing out |
+| `/configuration` | every setting and key as a form: Google, models, mail and alerts, web search, `.env`, and `chloe.config.ts` as text |
+| `/appearance` | how the page looks, kept in this browser |
 | `/tokens` | making and revoking tokens |
 | `/people` | inviting people, and changing or removing what they were given |
+
+All of them but an agent's are under Dashboard, at the right of the bar.
 
 ## Who may reach it
 
@@ -51,8 +56,10 @@ asked. A link signs one browser in for a week, works once, and only within the
 hour. Making one reads `data/login.json`, so it takes a shell on the machine.
 
 A password is for signing in without a link. Set the first one on the page,
-under Account settings, or with `npx chloe account`, which is also how you
-change it or get back in. There is no username. A token is shown once and kept
+under My account, or with `npx chloe account`. My account changes it, given
+the current one, and a new one signs every other browser out. You may add a
+name there too, and then signing in asks for the name and the password.
+Forgotten either, `npx chloe account` sets a new password and prints the name. A token is shown once and kept
 only as a hash. A token made with `--agent <id>` reaches that agent and nothing
 else.
 
@@ -62,7 +69,7 @@ a page in a browser, JSON for anything else.
 ```sh
 token=$(curl -s -X POST localhost:3067/api/login \
   -H 'content-type: application/json' \
-  -d '{"password":"yours"}' | jq -r .token)
+  -d '{"password":"yours", "name":"yours, if you chose one"}' | jq -r .token)
 curl -s localhost:3067/api/agents -H "authorization: Bearer $token"
 ```
 

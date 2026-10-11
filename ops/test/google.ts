@@ -213,7 +213,7 @@ import type { Tools } from "./shared.ts";
   );
   const loopback = whatToDo("a@b.co", { url: "" });
   is("and on this machine, that the page will not load is said first", loopback.includes("will not load"), true);
-  is("with the reason, which is that the address is not theirs", loopback.includes("not yours"), true);
+  is("and that it is fine", loopback.includes("that is fine"), true);
   is(
     "an address that happens to be localhost is the same case",
     whatToDo("a@b.co", { url: "http://localhost:9/x" }).includes("will not load"),

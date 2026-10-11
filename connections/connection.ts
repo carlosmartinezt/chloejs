@@ -23,8 +23,13 @@ export interface SignIn {
    *
    * Leave out `link` when there is nothing to open yet (for example, the
    * account has no app set up). Then put the steps to follow in `say`.
+   *
+   * `code` is for a sign-in where the person types a code on the page the
+   * link opens (Microsoft's and GitHub's device sign-in). The dashboard opens
+   * the link and shows the code on its own, with its own words, so put the
+   * code in `say` as well for a chat.
    */
-  start(): Promise<{ say: string; link?: string }>;
+  start(): Promise<{ say: string; link?: string; code?: string }>;
   /**
    * Returns `true` if a chat message is the answer to a sign-in that is
    * waiting, such as a pasted code. chloe checks every message with it, so keep

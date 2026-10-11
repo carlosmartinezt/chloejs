@@ -8,6 +8,7 @@
 // Google's answer there is nothing to send back, and `start()` says so.
 import type { SignIn } from "#chloe/connections/connection";
 
+import { whereKeyGoes } from "#chloe/core/settings";
 import { NeedsClient, finish, isAnswer, setupSteps, start } from "./googleService.ts";
 
 export const googleSignIn: SignIn = {
@@ -24,7 +25,11 @@ export const googleSignIn: SignIn = {
       return {
         say: [
           `${why} Nobody has done that here yet. These are the steps:`,
-          ...steps.map((one, i) => `${i + 1}. ${one}`),
+          ...[
+            ...steps,
+            `Put the file's path or its contents ${whereKeyGoes(["connections", "google", "client"])}, or paste it into Configuration on the page.`,
+            "Then ask me for your mail again, and I will send you the link to approve.",
+          ].map((one, i) => `${i + 1}. ${one}`),
           "",
           "The redirect addresses:",
           ...addresses,

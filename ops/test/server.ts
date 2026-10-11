@@ -108,6 +108,25 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   is("a password made up here is long enough to be one", made.length >= 8, true);
   is("and two are not the same", made === suggestPassword(), false);
 
+  // A name and a new password from the page, which take the current password.
+  {
+    const { changeAccount, hasName, ownName } = await import("#chloe/serve/login");
+    is("a change needs the current password", refusal(() => changeAccount("not it", { name: "Carlos" })), "That is not the current password.");
+    const kept = changeAccount("a different long one", { name: " Carlos " });
+    is("a name is kept in small letters", [hasName(), ownName()], [true, "carlos"]);
+    is("and this browser stays signed in", signedIn(carrying(`${cookie}=${kept}`)), true);
+    is("then the password alone is refused", refusal(() => signIn("a different long one", "5.6.7.8")), "Wrong name or password.");
+    is("and so is the wrong name", refusal(() => signIn("a different long one", "5.6.7.8", "someone")), "Wrong name or password.");
+    is("the name and the password sign in, in any case", Boolean(signIn("a different long one", "5.6.7.8", "CARLOS")), true);
+    const moved = changeAccount("a different long one", { password: "a third long one" });
+    is("a new password signs other browsers out", signedIn(carrying(`${cookie}=${kept}`)), false);
+    is("but not the one that changed it", signedIn(carrying(`${cookie}=${moved}`)), true);
+    resetPassword("a long enough one");
+    is("a password from the terminal keeps the name", ownName(), "carlos");
+    changeAccount("a long enough one", { name: "" });
+    is("and an empty name takes it away", hasName(), false);
+  }
+
   // One account file for the whole run, so put back the one later blocks sign in with.
   resetPassword("a long enough one");
 }
@@ -127,7 +146,7 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   const at = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 
   const asked = await fetch(`${at}/api/account`);
-  is("whether there is a password is answered with no session", [asked.status, await asked.json()], [200, { exists: true }]);
+  is("whether there is a password is answered with no session", [asked.status, await asked.json()], [200, { exists: true, named: false }]);
 
   const shut = await fetch(`${at}/api/agents`);
   is("and everything else is still shut", [shut.status, await shut.json()], [401, { error: "Sign in first." }]);

@@ -25,7 +25,7 @@ import { forget } from "#chloe/model/memory";
 import { models } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
-import { configText, keysUsed, saveConfig } from "./config.ts";
+import { changeSettings, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
 import { editable, open, save, tree } from "./files.ts";
 import {
   memoryCommit,
@@ -44,10 +44,26 @@ import {
 import type { Certificate } from "./certificate.ts";
 import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound, Refused } from "./errors.ts";
-import { finish as finishSignIn, signInState } from "#chloe/connections/google/googleService";
+import { finish as finishSignIn, setupSteps, signInState } from "#chloe/connections/google/googleService";
+import { googleSignIn } from "#chloe/connections/google/signIn";
 import { channelsOf, connectionsOf, signInOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
-import { type Caller, caller, firstPassword, from, guestSession, hasPassword, overHttps, setCookie, signIn, signInGuest, signInWithLink } from "./login.ts";
+import {
+  type Caller,
+  caller,
+  changeAccount,
+  firstPassword,
+  from,
+  guestSession,
+  hasName,
+  hasPassword,
+  overHttps,
+  ownName,
+  setCookie,
+  signIn,
+  signInGuest,
+  signInWithLink,
+} from "./login.ts";
 import { accept, change, invitation, invite, people, remove, SWITCHES, type Given, type Switch } from "./people.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "#chloe/core/alerts";
@@ -271,20 +287,23 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/account",
-    does: "Whether this copy has a password yet, so a page knows whether to ask for one or for a link.",
+    does: "Whether this copy has a password yet, and whether signing in asks for a name too, so a page knows what to ask for.",
     open: true,
-    handle: ({ response }) => json(response, { exists: hasPassword() }),
+    handle: ({ response }) => json(response, { exists: hasPassword(), named: hasName() }),
   },
   {
     method: "POST",
     path: "/api/login",
     does: "Sign in. Sets the cookie, and hands back the same value for anything that is not a browser. With an email, as somebody the owner invited.",
-    takes: '{"password": "...", "email": "only for somebody invited"}',
+    takes: '{"password": "...", "name": "when the owner chose one", "email": "only for somebody invited"}',
     open: true,
     handle: async (at) => {
-      const { password, email } = await body(at.request, z.object({ password: z.string(), email: z.string().trim().optional() }));
+      const { password, name, email } = await body(
+        at.request,
+        z.object({ password: z.string(), name: z.string().optional(), email: z.string().trim().optional() }),
+      );
       if (email) return wayIn(at, () => signInGuest(email, password, from(at.request)), false);
-      wayIn(at, () => signIn(password, from(at.request)));
+      wayIn(at, () => signIn(password, from(at.request), name));
     },
   },
   {
@@ -301,7 +320,7 @@ export const routes: Route[] = [
   {
     method: "POST",
     path: "/api/setup",
-    does: "Set the first password, from a browser already signed in. Refused once one is set: a new one is npx chloe account.",
+    does: "Set the first password, from a browser already signed in. Refused once one is set: change it with /api/account/change.",
     takes: '{"password": "..."}',
     handle: async ({ request, response }) => {
       const { password } = await body(request, z.object({ password: z.string() }));
@@ -310,6 +329,28 @@ export const routes: Route[] = [
         json(response, { ok: true });
       } catch (error) {
         json(response, { error: (error as Error).message }, 400);
+      }
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/account/name",
+    does: "The owner's name, which signing in asks for, or \"\" when there is none.",
+    handle: ({ response }) => json(response, { name: ownName() }),
+  },
+  {
+    method: "POST",
+    path: "/api/account/change",
+    does: "Change the owner's password, name or both, given the current password. A new password signs every other browser out; this one gets a new cookie.",
+    takes: '{"current": "...", "password": "the new one", "name": "\"\" takes it away"}',
+    handle: async ({ request, response }) => {
+      const change = await body(request, z.object({ current: z.string(), password: z.string().optional(), name: z.string().optional() }));
+      try {
+        const token = changeAccount(change.current, { password: change.password, name: change.name });
+        response.setHeader("set-cookie", setCookie(token, overHttps(request)));
+        json(response, { ok: true });
+      } catch (error) {
+        throw new BadRequest((error as Error).message);
       }
     },
   },
@@ -1017,6 +1058,28 @@ export const routes: Route[] = [
   },
   {
     method: "GET",
+    path: "/api/config/settings",
+    does: "Each setting the Configuration page changes: its value (never a secret's), whether it is set, and whether the file says it plainly, from .env, or as code.",
+    handle: async ({ response }) => json(response, await configFields()),
+  },
+  {
+    method: "POST",
+    path: "/api/config/settings",
+    does: "Change settings in chloe.config.ts in one save, a secret into .env and named in the config. null puts the default back. Refused where the file says it as code.",
+    takes: '{"changes": [{"path": "connections.google.account", "value": "you@gmail.com"}]}',
+    handle: async ({ request, response }) => {
+      const { changes } = await body(request, z.object({ changes: z.array(z.object({ path: z.string(), value: z.unknown() })).min(1) }));
+      try {
+        await changeSettings(changes.map((one) => ({ path: one.path, value: one.value ?? null })));
+      } catch (error) {
+        if (error instanceof NotFound) throw error;
+        throw new BadRequest(error instanceof InCode ? `${error.message}` : (error as Error).message);
+      }
+      json(response, await configFields());
+    },
+  },
+  {
+    method: "GET",
     path: "/api/config",
     does: "The text of chloe.config.ts.",
     handle: async ({ response }) => json(response, { text: await configText() }),
@@ -1206,6 +1269,18 @@ export const routes: Route[] = [
     path: "/api/google",
     does: "Whether Google can be reached: which account, what is missing, and whether a sign-in is waiting for its answer.",
     handle: async ({ response }) => json(response, await signInState()),
+  },
+  {
+    method: "GET",
+    path: "/api/google/setup",
+    does: "The steps to make a Google client in Google's console, and the redirect addresses to give it, exactly as written.",
+    handle: ({ response }) => json(response, setupSteps()),
+  },
+  {
+    method: "POST",
+    path: "/api/google/sign-in",
+    does: "Start signing in to Google, and hand back what to tell the person and the link to open. Finished with /api/google/finish.",
+    handle: async ({ response }) => json(response, await googleSignIn.start()),
   },
   {
     method: "POST",

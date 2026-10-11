@@ -59,16 +59,26 @@ message saying a key is missing gives both the name and the config line.
 Every setting with its default is in [the settings reference](/reference/settings),
 and your editor shows each one's explanation as you type it.
 
-A line in `.env` can also be set from the dashboard, in the Keys box on the
-Settings page: paste `CHLOE_SOMETHING=value` and it replaces that name's line.
-It lists the names `.env` sets and never shows a value. Only `CHLOE_` names are
-written, less `CHLOE_STATE`, `CHLOE_MEMORY` and `CHLOE_DB`, and an agent sends
-its owner there, at `/settings?key=<name>`, rather than ask for a key in a chat.
-Each name the config does not hand over as `process.env.<name>` says so.
+The dashboard's Configuration page (`/configuration`) changes them as forms:
+Google, the default model and the provider keys, mail and alerts, web search
+and the owner. A form changes the one value in `chloe.config.ts` and leaves
+the rest of the file, comments included, as it was. A key goes into `.env`,
+under the name the config already reads it from, or the suggested one, and the
+config names it as `process.env.<name>`. A value the file says as code (a
+variable, a spread, a call) is shown and not changed: the file is where to
+change it.
 
-`chloe.config.ts` itself can be changed on the same page, below Keys. A save is
-loaded as the next reload would load it, and type checked when the project has
-TypeScript, and when either fails the old file stays and the page shows why.
+Below the forms, the Keys box takes any `CHLOE_SOMETHING=value` line and
+replaces that name's line in `.env`. It lists the names `.env` sets and never
+shows a value. Only `CHLOE_` names are written, less `CHLOE_STATE`,
+`CHLOE_MEMORY` and `CHLOE_DB`, and an agent sends its owner there, at
+`/configuration?key=<name>`, rather than ask for a key in a chat. Each name the
+config does not hand over as `process.env.<name>` says so. Last is
+`chloe.config.ts` itself, as text.
+
+Every save, from a form or the text, is loaded as the next reload would load
+it, and type checked when the project has TypeScript, and when either fails
+the old file stays (and `.env` with it) and the page shows why.
 
 An edit to the config or `.env` is live without a restart, except `serve`.
 Renaming an agent means renaming its entry under `agents`; until then chloe says

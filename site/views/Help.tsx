@@ -3,7 +3,7 @@ export function Help() {
   return (
     <>
       <div className="head">
-        <h1>Get help</h1>
+        <h1>Help</h1>
       </div>
 
       <section className="setting">

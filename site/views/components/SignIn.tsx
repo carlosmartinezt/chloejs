@@ -3,68 +3,102 @@ import { useState } from "react";
 import { api } from "../../lib/api.ts";
 
 /**
- * Signing in to one connection from the page: the same sign-in a chat runs, so
- * the link comes from the runtime as it made it and the code goes straight back
- * to it. `done` refreshes the list once it is finished.
+ * Signing in to one connection from the page: the same sign-in a chat runs,
+ * so the link comes from the runtime as it made it and the answer goes
+ * straight back to it. The button opens the sign-in page in a new tab at
+ * once, then asks for what that page gives: a code to paste back, or, when
+ * the person types a code there instead (`code`), only to say they are done.
+ * With no agent it is Google's, which is the whole copy's. `done` refreshes
+ * the list once it is finished.
  */
-export function SignIn({ agent, name, again, done }: { agent: string; name: string; again: boolean; done: () => void }) {
-  const [started, setStarted] = useState<{ say: string; link?: string } | null>(null);
+export function SignIn({ agent, name, again, done }: { agent?: string; name: string; again: boolean; done: () => void }) {
+  const [started, setStarted] = useState<{ say: string; link?: string; code?: string } | null>(null);
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState("");
   const [bad, setBad] = useState("");
 
-  const work = async (step: () => Promise<void>) => {
+  async function start() {
+    setBusy(true);
+    setBad("");
+    setSaid("");
+    // Opened now, while the click still counts, or the browser blocks it; it is pointed at the page once the link is back.
+    const tab = window.open("", "_blank");
+    try {
+      const got = agent ? await api.startSignIn(agent, name) : await api.startGoogle();
+      if (got.link && tab) {
+        tab.opener = null;
+        tab.location.href = got.link;
+      } else tab?.close();
+      setStarted(got);
+    } catch (error) {
+      tab?.close();
+      setBad((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finish(given: string) {
     setBusy(true);
     setBad("");
     try {
-      await step();
+      setSaid(
+        agent
+          ? (await api.finishSignIn(agent, name, given)).said
+          : `Signed in to Google as ${(await api.finishGoogle(given)).account}.`,
+      );
+      setStarted(null);
+      setAnswer("");
+      done();
     } catch (error) {
       setBad((error as Error).message);
     } finally {
       setBusy(false);
     }
-  };
-  const start = () =>
-    work(async () => {
-      setSaid("");
-      setStarted(await api.startSignIn(agent, name));
-    });
-  const finish = () =>
-    work(async () => {
-      const { said } = await api.finishSignIn(agent, name, answer.trim());
-      setSaid(said);
-      setStarted(null);
-      setAnswer("");
-      done();
-    });
+  }
 
   return (
     <div className="signing">
       {!started ? (
-        <button className="small" onClick={start} disabled={busy}>
+        <button className="small" onClick={() => void start()} disabled={busy}>
           {again ? "Sign in again" : "Sign in"}
         </button>
+      ) : !started.link ? (
+        // Nothing to open yet: the steps are all there is to show.
+        <span className="does">{started.say}</span>
+      ) : started.code ? (
+        <>
+          <span className="does">
+            On the page that opened, type <code>{started.code}</code> and sign in. Then press Done.
+          </span>
+          <span className="answer">
+            <button className="small go" onClick={() => void finish("done")} disabled={busy}>
+              Done
+            </button>
+            <button className="small plain" onClick={() => setStarted(null)} disabled={busy}>
+              Cancel
+            </button>
+          </span>
+        </>
       ) : (
         <>
-          <span className="does">{started.say}</span>
-          {started.link ? (
-            <a href={started.link} target="_blank" rel="noopener noreferrer">
-              Open the sign-in page
-            </a>
-          ) : null}
-          {started.link ? (
-            <span className="answer">
-              <input value={answer} placeholder="The code, or the page's whole address" onChange={(event) => setAnswer(event.target.value)} />
-              <button className="small go" onClick={finish} disabled={busy || !answer.trim()}>
-                Finish
-              </button>
-              <button className="small plain" onClick={() => setStarted(null)} disabled={busy}>
-                Cancel
-              </button>
-            </span>
-          ) : null}
+          <span className="does">Sign in on the page that opened. Then paste the code it shows here.</span>
+          <span className="answer">
+            <input value={answer} placeholder="The code" onChange={(event) => setAnswer(event.target.value)} />
+            <button className="small go" onClick={() => void finish(answer.trim())} disabled={busy || !answer.trim()}>
+              Finish
+            </button>
+            <button className="small plain" onClick={() => setStarted(null)} disabled={busy}>
+              Cancel
+            </button>
+          </span>
         </>
+      )}
+      {started?.link && (
+        <a className="dim" href={started.link} target="_blank" rel="noopener noreferrer">
+          The page did not open? Open it here.
+        </a>
       )}
       {said ? <span className="free needs">{said}</span> : null}
       {bad ? <span className="bad needs">{bad}</span> : null}

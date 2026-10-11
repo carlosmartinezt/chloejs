@@ -28,8 +28,12 @@ export type View =
   | { at: "memory"; agent: string; path?: string }
   /** Every route the runtime answers, read from GET /api. Shown without signing in. */
   | { at: "api" }
-  /** How this browser shows the page, and what the account can be told to do. */
-  | { at: "settings" }
+  /** The owner's password and name, and signing out. */
+  | { at: "account" }
+  /** chloe.config.ts and .env, as forms: connections, models, alerts, keys. */
+  | { at: "configuration" }
+  /** How this browser shows the page. */
+  | { at: "appearance" }
   /** Where to ask the people who make Chloe. */
   | { at: "help" }
   /** Signing in. "making" is the same form when this copy has no account yet. */
@@ -70,8 +74,10 @@ export function href(view: View): string {
       return "/people";
     case "invitation":
       return `/invitation/${encodeURIComponent(view.code)}`;
-    case "settings":
-      return "/settings";
+    case "account":
+    case "configuration":
+    case "appearance":
+      return `/${view.at}`;
     case "help":
       return "/help";
     case "memory":
@@ -93,7 +99,10 @@ export function read(path = window.location.pathname, search = window.location.s
   const thread = new URLSearchParams(search).get("thread") ?? undefined;
 
   if (parts[0] === "login" || parts[0] === "setup") return { at: "signin", making: parts[0] === "setup" };
-  if (parts[0] === "settings") return { at: "settings" };
+  if (parts[0] === "account") return { at: "account" };
+  if (parts[0] === "appearance") return { at: "appearance" };
+  // Settings was one page for all three, and agents still send people to /settings?key=.
+  if (parts[0] === "configuration" || parts[0] === "settings") return { at: "configuration" };
   if (parts[0] === "help") return { at: "help" };
   if (parts[0] === "agents" && parts[1]) {
     const [, agent, what, ...rest] = parts;

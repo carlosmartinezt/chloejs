@@ -24,7 +24,9 @@ import { Jobs } from "./views/Jobs.tsx";
 import { Skills } from "./views/Skills.tsx";
 import { Tools } from "./views/Tools.tsx";
 import { Help } from "./views/Help.tsx";
-import { Settings } from "./views/Settings.tsx";
+import { Account } from "./views/Account.tsx";
+import { Appearance } from "./views/Appearance.tsx";
+import { Configuration } from "./views/Configuration.tsx";
 import { Log, LogTable } from "./views/Log.tsx";
 import { Memory } from "./views/Memory.tsx";
 import { People } from "./views/People.tsx";
@@ -264,7 +266,9 @@ export function App() {
           )}
           {view.at === "tokens" && <Tokens />}
           {view.at === "people" && <People agents={agents} />}
-          {view.at === "settings" && <Settings />}
+          {view.at === "account" && <Account />}
+          {view.at === "configuration" && <Configuration />}
+          {view.at === "appearance" && <Appearance />}
           {view.at === "help" && <Help />}
           {view.at === "jobs" && given && jobsOf(view.agent)}
         </main>
@@ -298,9 +302,9 @@ export function App() {
   );
 }
 
-/** Signing out, and back to the way in: the form with an email, for somebody invited. */
-function signOut(invited: boolean): void {
-  void api.signOut().then(() => window.location.assign(invited ? "/login?invited" : "/login"));
+/** Somebody invited signing out, and back to the way in with the form for an email. The owner signs out on My account. */
+function signOut(): void {
+  void api.signOut().then(() => window.location.assign("/login?invited"));
 }
 
 /**
@@ -565,31 +569,32 @@ function flatten(entries: Entry[]): string[] {
 }
 
 /**
- * The account, from the right of the bar. The owner is the one account with a
- * password and no name, so it says Account. Somebody invited sees their name,
- * and has nothing here but signing out. Tokens and People are here because
- * they are about the whole of this copy, not one agent.
+ * The right of the bar. For the owner it is Dashboard: everything about the
+ * whole copy rather than one agent, signing out included, which is on My
+ * account. Somebody invited sees their name, and has nothing here but
+ * signing out.
  */
 function You({ me, tokens, people }: { me: Me; tokens: boolean; people: boolean }) {
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const close = useCallback(() => setAt(null), []);
   const choices: Choice[] = me.owner
     ? [
-        { label: "Account settings", run: () => go({ at: "settings" }) },
-        ...(tokens ? [{ label: "Tokens", run: () => go({ at: "tokens" }) }] : []),
+        { label: "My account", run: () => go({ at: "account" }) },
+        { label: "Configuration", run: () => go({ at: "configuration" }) },
+        { label: "Appearance", run: () => go({ at: "appearance" }) },
         ...(people ? [{ label: "People", run: () => go({ at: "people" }) }] : []),
+        ...(tokens ? [{ label: "Tokens", run: () => go({ at: "tokens" }) }] : []),
         // The people who make Chloe. Somebody invited asks whoever invited them.
-        { label: "Get help", run: () => go({ at: "help" }) },
-        { label: "Sign out", run: () => signOut(false) },
+        { label: "Help", run: () => go({ at: "help" }) },
       ]
-    : [{ head: me.email }, { label: "Sign out", run: () => signOut(true) }];
+    : [{ head: me.email }, { label: "Sign out", run: signOut }];
   return (
     <>
       <button
         className="you"
         aria-haspopup="menu"
         aria-expanded={Boolean(at)}
-        aria-label="Account"
+        aria-label={me.owner ? "Dashboard" : "Account"}
         // Kept from the menu's own close-on-mousedown, so a second click shuts it.
         onMouseDown={(event) => event.stopPropagation()}
         onClick={(event) => {
@@ -597,7 +602,7 @@ function You({ me, tokens, people }: { me: Me; tokens: boolean; people: boolean 
           setAt(at ? null : { x: box.right, y: box.bottom + 8 });
         }}
       >
-        <span className="who">{me.owner ? "Account" : me.name || me.email}</span>
+        <span className="who">{me.owner ? "Dashboard" : me.name || me.email}</span>
         <Icons.Down />
       </button>
       {at && <ContextMenu at={at} from="right" close={close} choices={choices} />}

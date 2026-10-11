@@ -156,3 +156,90 @@ import { about, is } from "#chloe/ops/check";
   is("and so is where things are kept", refuses({ CHLOE_STATE: "/tmp" }), true);
   is("and a value on two lines", refuses({ CHLOE_X: "a\nB=2" }), true);
 }
+
+{
+  about("the Configuration page's edits to chloe.config.ts");
+  const { setInConfig, valueAt, InCode } = await import("#chloe/serve/config");
+
+  const laidOut = `import { defineConfig } from "@chloejs/core";
+
+export default defineConfig({
+  agents: [cc],
+  settings: {
+    // The gateway's key.
+    model: {
+      key: process.env.CHLOE_MODEL_KEY, // from .env
+    },
+    connections: {
+      google: {
+        account: "a@example.com",
+        client: process.env.CHLOE_GOOGLE_CLIENT
+      },
+    },
+  },
+});
+`;
+  is("a value is read where it is", valueAt(laidOut, ["connections", "google", "account"]), { kind: "value", text: '"a@example.com"' });
+  is("a value nobody wrote is absent", valueAt(laidOut, ["connections", "resend", "api_key"]), { kind: "absent" });
+  is(
+    "changing one value changes those characters and nothing else",
+    setInConfig(laidOut, ["connections", "google", "account"], '"b@example.com"'),
+    laidOut.replace('"a@example.com"', '"b@example.com"'),
+  );
+  is(
+    "a new value in a group goes on its own line, after the last one, with a comma before it",
+    setInConfig(laidOut, ["connections", "google", "callback"], '"https://x"'),
+    laidOut.replace("client: process.env.CHLOE_GOOGLE_CLIENT\n", 'client: process.env.CHLOE_GOOGLE_CLIENT,\n        callback: "https://x",\n'),
+  );
+  is(
+    "and a comment on the last line stays with its own value",
+    setInConfig(laidOut, ["model", "defaultModel"], '"m"'),
+    laidOut.replace("// from .env\n", '// from .env\n      defaultModel: "m",\n'),
+  );
+  is(
+    "a group that is not there is written in",
+    setInConfig(laidOut, ["connections", "resend", "email_to"], '"me@example.com"'),
+    laidOut.replace("      },\n    },\n  },\n});", '      },\n      resend: { email_to: "me@example.com" },\n    },\n  },\n});'),
+  );
+  is(
+    "taking a value out takes its line",
+    setInConfig(laidOut, ["connections", "google", "account"], null),
+    laidOut.replace('        account: "a@example.com",\n', ""),
+  );
+  is("taking out what is not there changes nothing", setInConfig(laidOut, ["owner"], null), laidOut);
+
+  const oneLine = `export default defineConfig({ agents: [test], settings: { model: { key: process.env.CHLOE_MODEL_KEY } } });\n`;
+  is(
+    "in a group on one line, a new value goes on that line",
+    setInConfig(oneLine, ["model", "defaultModel"], '"m"'),
+    `export default defineConfig({ agents: [test], settings: { model: { key: process.env.CHLOE_MODEL_KEY, defaultModel: "m" } } });\n`,
+  );
+  is(
+    "and a config with no settings gets them",
+    setInConfig(`export default defineConfig({ agents: [] });\n`, ["owner"], '"telegram:1"'),
+    `export default defineConfig({ agents: [], settings: { owner: "telegram:1" } });\n`,
+  );
+  is(
+    "a brace or a comma inside words or a comment is not read as code",
+    setInConfig(`export default defineConfig({ settings: { owner: "a, {b}", /* } */ node: "" } });\n`, ["node"], '"/usr/bin"'),
+    `export default defineConfig({ settings: { owner: "a, {b}", /* } */ node: "/usr/bin" } });\n`,
+  );
+
+  const spread = `export default defineConfig({ settings: { ...shared, model: { defaultModel: "m" } } });\n`;
+  let refused: unknown;
+  try {
+    setInConfig(spread, ["owner"], '"x"');
+  } catch (error) {
+    refused = error;
+  }
+  is("a value a spread beside it may set is refused as code", refused instanceof InCode, true);
+  is("and is read as code", valueAt(spread, ["owner"]), { kind: "code" });
+  is("though one written out beside the spread is still changed", setInConfig(spread, ["model", "defaultModel"], '"n"'), spread.replace('"m"', '"n"'));
+  refused = undefined;
+  try {
+    setInConfig(`export default defineConfig({ settings: { model: shared } });\n`, ["model", "key"], '"x"');
+  } catch (error) {
+    refused = error;
+  }
+  is("so is a group that is a variable", refused instanceof InCode, true);
+}

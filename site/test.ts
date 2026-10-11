@@ -82,7 +82,7 @@ describe("code, painted", () => {
 
 describe("where the page is, as an address", () => {
   test("an address reads back as itself", () => {
-    for (const path of ["/", "/agents/cc", "/agents/cc/config", "/agents/cc/log", "/agents/chloe/memory/01_projects/x.html", "/log", "/tokens", "/settings", "/help", "/people"]) {
+    for (const path of ["/", "/agents/cc", "/agents/cc/config", "/agents/cc/log", "/agents/chloe/memory/01_projects/x.html", "/log", "/tokens", "/account", "/configuration", "/appearance", "/help", "/people"]) {
       strictEqual(href(read(path, "")), path, path);
     }
     deepStrictEqual(read("/agents/cc/log", ""), { at: "log", agent: "cc", run: undefined });
@@ -190,7 +190,7 @@ describe("talking to a runtime", () => {
     globalThis.fetch = ((url: string, init?: RequestInit) => (sent.push(JSON.parse(String(init?.body))), was(url, init))) as typeof fetch;
     try {
       await api.signIn("pw");
-      await api.signIn("pw", "someone@example.com");
+      await api.signIn("pw", { email: "someone@example.com" });
     } finally {
       globalThis.fetch = was;
     }
@@ -215,7 +215,7 @@ describe("somebody invited, on the page", () => {
     ok(!allowed(given, { at: "jobs", agent: "cc" }));
     ok(allowed(given, { at: "log", agent: "tempo" }) && allowed(given, { at: "log" }));
     ok(!allowed({ cc: ["chat"] }, { at: "log" }));
-    for (const view of [{ at: "home" }, { at: "agent", agent: "cc" }, { at: "memory", agent: "cc" }, { at: "people" }, { at: "tokens" }, { at: "settings" }] as const) {
+    for (const view of [{ at: "home" }, { at: "agent", agent: "cc" }, { at: "memory", agent: "cc" }, { at: "people" }, { at: "tokens" }, { at: "account" }, { at: "configuration" }, { at: "appearance" }] as const) {
       ok(!allowed(given, view), view.at);
     }
   });
@@ -304,20 +304,20 @@ describe("a connection, and what it is missing", () => {
 
   test("each missing line is shown, in place of the setting it waits on", () => {
     const html = render([{ ...google, missing: ["google.client is not set", "nobody has signed in yet"] }]);
-    ok(html.includes("not set up"));
+    ok(html.includes("Not ready"));
     ok(html.includes("google.client is not set"));
     ok(html.includes("nobody has signed in yet"));
-    ok(!html.includes("waiting on"));
+    ok(!html.includes("Needs google.client"));
   });
 
   test("without missing, it says which setting it waits on", () => {
-    ok(render([google]).includes("waiting on google.client in settings"));
+    ok(render([google]).includes("Needs google.client in chloe.config.ts"));
   });
 
   test("once set up, missing is not shown", () => {
     const html = render([{ ...google, ready: true, missing: ["left over"] }]);
     ok(!html.includes("left over"));
-    ok(html.includes("from google.client in settings"));
+    ok(html.includes("Ready") && !html.includes("Needs google.client"));
   });
 });
 

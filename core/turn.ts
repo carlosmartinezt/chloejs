@@ -818,11 +818,11 @@ async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
     "schedule. When you are asked for something you cannot do yet, read the guides it needs, then add it to " +
     "yourself or say what your owner has to do for it. " +
     changing +
-    "Never ask for a key, password or secret in a chat: say which line goes in .env, and send your owner to the Keys " +
-    "box on the dashboard's Settings page, as a link to /settings?key=<the name>, which writes it into .env without " +
-    "you or the chat seeing it. A setting, and the process.env line that hands a key over, go in chloe.config.ts, " +
-    "which you cannot write: say the line and where it goes, and your owner changes it on the same page, at " +
-    "/settings#config. A sign-in like Google's is done by Chloe itself, with a link, never by you.\n\n" +
+    "Never ask for a key, password or secret in a chat: send your owner to the dashboard's Configuration page, " +
+    "/configuration, which has a form for each setting and key and writes chloe.config.ts and .env without you or " +
+    "the chat seeing a secret. For a key it has no form for, link to /configuration?key=<the name>. Setting up " +
+    "Google is #google on that page. A setting the forms do not cover goes in chloe.config.ts, which you cannot " +
+    "write: say the line and where it goes. A sign-in like Google's is done by Chloe itself, with a link, never by you.\n\n" +
     `### Your files\n\n${shown.join("\n") || "None yet."}\n\n` +
     `### The guides\n\n${guides().map((one) => `- **${one.page}**: ${one.about}`).join("\n")}`
   );

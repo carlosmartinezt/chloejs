@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, missing } from "../lib/api.ts";
 import { labelOf } from "../lib/format.ts";
 import type { Way } from "../lib/types.ts";
+import { GoogleSetup } from "./components/GoogleSetup.tsx";
 import { SignIn } from "./components/SignIn.tsx";
 import { Ways } from "./components/Ways.tsx";
 
@@ -30,14 +31,21 @@ export function Connections({ agent }: { agent: string }) {
       <div className="head">
         <h1>Connections</h1>
       </div>
-      <p className="empty">The ways out: what {labelOf(agent)} reaches that is not on this box.</p>
+      <p className="empty">What {labelOf(agent)} can reach outside this computer.</p>
       {trouble ? (
         <p className="empty frame bad">{trouble}</p>
       ) : (
         <Ways
           ways={ways}
           empty={`No connections at the moment. What ${labelOf(agent)} can do is under Tools.`}
-          more={(way) => (way.signIn ? <SignIn agent={agent} name={way.name} again={way.ready === true} done={() => setAsked((n) => n + 1)} /> : null)}
+          more={(way) =>
+            // Google is set up for the whole copy, but this is where people look for it.
+            way.name === "google" ? (
+              <GoogleSetup onAgent done={() => setAsked((n) => n + 1)} />
+            ) : way.signIn ? (
+              <SignIn agent={agent} name={way.name} again={way.ready === true} done={() => setAsked((n) => n + 1)} />
+            ) : null
+          }
         />
       )}
     </>

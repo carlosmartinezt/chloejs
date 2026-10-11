@@ -8,7 +8,7 @@ import { googleSignIn } from "./signIn.ts";
 
 export const google: Connection = {
   name: "google",
-  does: "The account its mail, calendar and files are reached as. Somebody signs in once, from a chat with the agent or from the dashboard.",
+  does: "Gmail, Google Calendar and Google Drive.",
   settings: ["connections.google.account", "connections.google.client"],
   signIn: googleSignIn,
   async missing() {

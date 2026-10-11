@@ -18,7 +18,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { settings, whereKeyGoes } from "#chloe/core/settings";
+import { settings } from "#chloe/core/settings";
 import { STATE } from "#chloe/core/paths";
 import { NeedsSignIn } from "#chloe/connections/connection";
 
@@ -402,14 +402,9 @@ function onThisMachine(url: string): boolean {
  * so in advance is the difference between a step and a fault.
  */
 export function whatToDo(account: string, to: { url: string }): string {
-  const open = `Open this link and approve it as ${account}.`;
-  if (!onThisMachine(to.url || PASTE_BACK)) {
-    return `${open} The page it lands on will show you a short code: send me that code and I will finish.`;
-  }
-  return (
-    `${open} The page it lands on will not load, which is expected, because that address is on my machine ` +
-    `and not yours. Copy that page's whole address out of the address bar and send it back to me.`
-  );
+  const open = `Open this link and sign in as ${account}.`;
+  if (!onThisMachine(to.url || PASTE_BACK)) return `${open} Then send me the short code the last page shows.`;
+  return `${open} The last page will not load, and that is fine. Copy its whole address and send it to me.`;
 }
 
 /**
@@ -617,7 +612,9 @@ export async function googleApi<T>(
  *
  * Returns:
  * - `why`: a sentence on why the steps are needed.
- * - `steps`: the steps, in order, in plain words.
+ * - `steps`: the steps in Google's console, in order, in plain words. Where the
+ *   file goes after them is the caller's to say: a chat and the page say it
+ *   differently.
  * - `addresses`: the addresses Google may send the person back to after they approve. The steps say to add them to the client, exactly as written.
  */
 export function setupSteps(): { steps: string[]; addresses: string[]; why: string } {
@@ -631,14 +628,13 @@ export function setupSteps(): { steps: string[]; addresses: string[]; why: strin
       "Go to console.cloud.google.com and make a project. The name does not matter.",
       "Open APIs and Services, then Library, and switch on the Gmail API, the Google Calendar API and the Google Drive API.",
       "Open the Google Auth Platform section. Fill in an app name and your own email as the contact, and choose External for who it is for.",
-      "Under Audience, press Publish app so it is In production. Left in Testing, Google ends the sign-in every 7 days. Google will show a warning that it has not checked the app, once, when you approve: it is your own app, so go on past it.",
+      "Under Audience, press Publish app so it is In production. Left in Testing, Google ends the sign-in every 7 days, and refuses anybody not added there as a test user. Google will show a warning that it has not checked the app, once, when you approve: it is your own app, so go on past it.",
       "Go to Clients, create an OAuth client, and choose Web application as the type.",
       "Add the redirect addresses listed here, exactly as they are written, one per line in that form.",
       to.url === SHOWS_THE_CODE
         ? "The chloejs.org one is the one that matters: with that registered, the page you land on shows you a short code to send back. Without it you get a browser error with the answer hidden in its address bar."
         : "The chloejs.org one is optional and worth it, if you make a Web application client: with that registered, the page you land on shows you a short code to send back, instead of a browser error with the answer hidden in its address bar.",
-      `Download the client file it gives you, and put its path or its contents ${whereKeyGoes(["connections", "google", "client"])}.`,
-      "Then ask me for your mail again, and I will send you the link to approve.",
+      "Download the client file it gives you.",
     ],
   };
 }

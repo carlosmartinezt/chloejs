@@ -26,6 +26,8 @@ import type {
   Trial,
   Picture,
   Visitor,
+  Field,
+  GoogleState,
 } from "./types.ts";
 
 /**
@@ -113,13 +115,17 @@ export const api = {
   routes: () => call<RouteDoc[]>(""),
   /** Whether this copy has a password yet, so the page knows which form to show. Answered without a session. */
   account: () => call<Account>("/account"),
-  /** The owner signs in with the password alone. Somebody invited gives their email with theirs. */
-  signIn: (password: string, email?: string) => call<Session>("/login", email ? { password, email } : { password }),
+  /** The owner signs in with the password, and their name when they chose one. Somebody invited gives their email with theirs. */
+  signIn: (password: string, who: { email?: string; name?: string } = {}) => call<Session>("/login", { password, ...who }),
   /** The code from a link the runtime printed, swapped for a session. Each works once. */
   link: (code: string) => call<Session>("/link", { code }),
   /** The first password, from a browser already signed in. */
   setup: (password: string) => call<{ ok: true }>("/setup", { password }),
   signOut: () => call<{ ok: true }>("/logout", {}),
+  /** The owner's name, which signing in asks for, or "". */
+  ownName: () => call<{ name: string }>("/account/name"),
+  /** A new password, a new name ("" takes it away), or both, given the current password. A new password signs every other browser out. */
+  changeAccount: (current: string, change: { password?: string; name?: string }) => call<{ ok: true }>("/account/change", { current, ...change }),
   /** Who is signed in: the owner, or somebody invited, with what they were given. */
   me: () => call<Me>("/me"),
   agents: () => call<AgentSummary[]>("/agents"),
@@ -150,7 +156,7 @@ export const api = {
   connections: (agent: string) => call<Way[]>(`/agents/${agent}/connections`),
   /** Start a connection's sign-in: what to tell the person, and the link to open, sent as it is. */
   startSignIn: (agent: string, name: string) =>
-    call<{ say: string; link?: string }>(`/agents/${agent}/connections/${encodeURIComponent(name)}/sign-in`, {}),
+    call<{ say: string; link?: string; code?: string }>(`/agents/${agent}/connections/${encodeURIComponent(name)}/sign-in`, {}),
   /** Finish it with the code, or the address the browser landed on. */
   finishSignIn: (agent: string, name: string, answer: string) =>
     call<{ said: string }>(`/agents/${agent}/connections/${encodeURIComponent(name)}/finish`, { answer }),
@@ -177,6 +183,17 @@ export const api = {
   /** chloe.config.ts. A save that would not load or type check is put back, and the reason is the error. */
   config: () => call<{ text: string }>("/config"),
   saveConfig: (text: string) => call<{ ok: true }>("/config", { text }),
+  /** Each setting the Configuration page changes, as chloe.config.ts says it. */
+  fields: () => call<Field[]>("/config/settings"),
+  /** Several settings in one save. null puts the default back. A secret goes into .env. */
+  changeSettings: (changes: { path: string; value: unknown }[]) => call<Field[]>("/config/settings", { changes }),
+  /** Whether Google can be reached, and what is missing. */
+  google: () => call<GoogleState>("/google"),
+  /** The steps in Google's console, and the redirect addresses to give the client. */
+  googleSetup: () => call<{ why: string; steps: string[]; addresses: string[] }>("/google/setup"),
+  /** Signing in to Google from the page, without an agent: what to tell the person and the link to open. */
+  startGoogle: () => call<{ say: string; link?: string }>("/google/sign-in", {}),
+  finishGoogle: (answer: string) => call<{ account: string }>("/google/finish", { answer }),
 
   /** Tokens, for another system. The secret comes back once, when it is made. */
   tokens: () => call<Token[]>("/tokens"),

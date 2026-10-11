@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import * as Icons from "./components/Icons.tsx";
 import { api } from "../lib/api.ts";
 import { linkTrouble } from "../lib/link.ts";
 
 /**
- * The way in: a link the runtime printed, or the owner's password with no
- * username, because there is one owner. Somebody the owner invited signs in
+ * The way in: a link the runtime printed, or the owner's password, with their
+ * name when they chose one. Somebody the owner invited signs in
  * with their email and their own password, from the same form once they say
  * so: `?invited` in the address opens it that way. A copy with no password
  * opens only with a link, so this says how to get one; the first password is
@@ -15,10 +15,17 @@ import { linkTrouble } from "../lib/link.ts";
 export function Doorway({ making }: { making: boolean }) {
   const [invited, setInvited] = useState(() => new URLSearchParams(window.location.search).has("invited"));
   const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  // Whether the owner chose a name, which the server says before anybody is in.
+  const [named, setNamed] = useState(false);
   const [password, setPassword] = useState("");
   const [sending, setSending] = useState(false);
   const [trouble, setTrouble] = useState(linkTrouble);
   const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    api.account().then((said) => setNamed(Boolean(said.named)), () => undefined);
+  }, []);
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
@@ -26,7 +33,7 @@ export function Doorway({ making }: { making: boolean }) {
     setSending(true);
     setTrouble("");
     try {
-      await api.signIn(password, invited ? email.trim() : undefined);
+      await api.signIn(password, invited ? { email: email.trim() } : named ? { name: name.trim() } : {});
       // A whole load rather than a view change: the page is fetching everything
       // it shows anyway, and it has none of it yet.
       window.location.assign("/");
@@ -46,7 +53,7 @@ export function Doorway({ making }: { making: boolean }) {
         <p className="empty">
           This copy has no password, so it opens with a link that signs this browser in. In its folder, run{" "}
           <code>npx chloe link</code> and open what it prints. Starting it with <code>npx chloe</code> prints one too.
-          Once in, Account settings is where to set a password, if you want one.
+          Once in, My account is where to set a password, if you want one.
         </p>
         <p className="swap">
           <button type="button" className="plain" onClick={() => setInvited(true)}>
@@ -75,6 +82,12 @@ export function Doorway({ making }: { making: boolean }) {
             />
           </label>
         )}
+        {!invited && named && (
+          <label>
+            Name
+            <input value={name} autoComplete="username" autoFocus onChange={(event) => setName(event.target.value)} />
+          </label>
+        )}
         <label>
           Password
           <span className="peek">
@@ -82,7 +95,7 @@ export function Doorway({ making }: { making: boolean }) {
               value={password}
               type={shown ? "text" : "password"}
               autoComplete="current-password"
-              autoFocus={!invited}
+              autoFocus={!invited && !named}
               onChange={(event) => setPassword(event.target.value)}
             />
             <button
@@ -97,7 +110,7 @@ export function Doorway({ making }: { making: boolean }) {
             </button>
           </span>
         </label>
-        <button type="submit" disabled={sending || !password || (invited && !email.trim())}>
+        <button type="submit" disabled={sending || !password || (invited && !email.trim()) || (!invited && named && !name.trim())}>
           Sign in
         </button>
       </form>
@@ -109,7 +122,7 @@ export function Doorway({ making }: { making: boolean }) {
       ) : (
         <p className="empty">
           Or open it with a link: run <code>npx chloe link</code> in its folder and open what it prints. Forgotten the
-          password is <code>npx chloe account</code> there, which sets a new one and loses nothing.
+          password? Run <code>npx chloe account</code> there. It sets a new one, says your name, and loses nothing.
         </p>
       )}
       <p className="swap">

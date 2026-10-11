@@ -6,11 +6,13 @@
 // browser in, once, within the hour, and making one reads the account file, so
 // only somebody with a shell here can. A password is for signing in without a
 // link. The first one is set on the page by a browser already signed in, or
-// with `npx chloe account`, which is also how a password is changed.
+// with `npx chloe account`. A signed-in browser changes it with the current
+// one, and a forgotten one is `npx chloe account`.
 //
-// The owner has no username, because with one account a name identifies
-// nobody. The people the owner invites (people.ts) sign in with their email
-// and a password of their own, and their session names them.
+// The owner may add a name, and then signs in with the name and the
+// password: one more thing a stranger has to guess. The people the owner
+// invites (people.ts) sign in with their email and a password of their own,
+// and their session names them.
 //
 // Hand rolled on node:crypto, scrypt for the password and HMAC-SHA256 for the
 // cookie, because the alternative is a dependency for forty lines.
@@ -51,6 +53,8 @@ interface Account {
   password?: string;
   /** Signs the session cookie and the links. Made with the account, so a restart keeps people signed in. */
   secret: string;
+  /** The owner's name, in small letters, when they chose one: then signing in asks for it. */
+  name?: string;
   /** Older copies had one. Read so their file still loads, never checked. */
   username?: string;
 }
@@ -95,6 +99,34 @@ export function hasPassword(): boolean {
   return Boolean(read()?.password);
 }
 
+/** Whether signing in asks for the owner's name as well as the password. */
+export function hasName(): boolean {
+  return Boolean(read()?.name);
+}
+
+/** The owner's name, or "" when there is none. Only for the owner's own page. */
+export function ownName(): string {
+  return read()?.name ?? "";
+}
+
+/**
+ * Changes the owner's password, name or both, given the current password, so
+ * a browser somebody walked away from cannot lock its owner out. A new
+ * password signs every other browser out, since the secret that signs their
+ * cookies is made fresh: returns the session for the browser that asked. A
+ * name of "" takes the name away.
+ */
+export function changeAccount(current: string, change: { password?: string; name?: string }): string {
+  const found = read();
+  if (!found?.password) throw new Error("This copy has no password yet: set one first.");
+  if (!check(current, found.password)) throw new Error("That is not the current password.");
+  const name = change.name === undefined ? found.name : change.name.trim().toLowerCase() || undefined;
+  if (name && (name.length > 64 || /\s/.test(name))) throw new Error("A name is one word, at most 64 characters.");
+  if (change.password !== undefined) write(change.password, crypto.randomBytes(32).toString("base64url"), name);
+  else save({ password: found.password, secret: found.secret, ...(name ? { name } : {}) });
+  return sign(held());
+}
+
 /**
  * The first password, from a browser already signed in or from a shell. Throws
  * if there is one: changing it takes a shell, `npx chloe account`. Keeps the
@@ -102,7 +134,7 @@ export function hasPassword(): boolean {
  */
 export function firstPassword(password: string): void {
   if (hasPassword()) throw new Error("A password is already set.");
-  write(password, held().secret);
+  write(password, held().secret, read()?.name);
 }
 
 /**
@@ -111,16 +143,20 @@ export function firstPassword(password: string): void {
  * password is `npx chloe account`, and that is the whole of the recovery.
  *
  * Nothing else is touched. The agents, their runs, their memories and the
- * tokens are all somewhere else. Browsers signed in on the old password are
- * signed out, because the secret that signs their cookies is made fresh here.
+ * tokens are all somewhere else, and the owner's name stays. Browsers signed
+ * in on the old password are signed out, because the secret that signs their
+ * cookies is made fresh here.
  */
 export function resetPassword(password: string): void {
-  write(password, crypto.randomBytes(32).toString("base64url"));
+  write(password, crypto.randomBytes(32).toString("base64url"), read()?.name);
 }
 
-function write(password: string, secret: string): void {
+function write(password: string, secret: string, name: string | undefined): void {
   if (password.length < 8) throw new Error("The password must be at least 8 characters.");
-  const made: Account = { password: hash(password), secret };
+  save({ password: hash(password), secret, ...(name ? { name } : {}) });
+}
+
+function save(made: Account): void {
   mkdirSync(STATE, { recursive: true });
   writeFileSync(FILE, JSON.stringify(made, null, 2), { mode: 0o600 });
   chmodSync(FILE, 0o600);
@@ -145,14 +181,16 @@ export function suggestPassword(): string {
  * address is what the lockout counts, so one person guessing does not lock
  * everybody out.
  */
-export function signIn(password: string, from: string): string {
+export function signIn(password: string, from: string, name = ""): string {
   const found = read();
   if (!found?.password) throw new Error("This copy has no password, so it opens with a link. Run npx chloe link in its folder.");
   const wait = lockedFor(from);
   if (wait) throw new Error(`Too many tries. Try again in ${Math.ceil(wait / 60)} minutes.`);
-  if (!check(password, found.password)) {
+  // The password is checked whatever the name, so a wrong name takes as long to refuse as a wrong password.
+  const right = check(password, found.password);
+  if (!right || (found.name && !same(name.trim().toLowerCase(), found.name))) {
     countFailure(from);
-    throw new Error("Wrong password.");
+    throw new Error(found.name ? "Wrong name or password." : "Wrong password.");
   }
   failures.delete(from);
   return sign(found);

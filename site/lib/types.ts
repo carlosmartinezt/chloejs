@@ -300,6 +300,8 @@ export type Git =
 /** What /api/account says before anybody is signed in: whether there is an account yet. */
 export interface Account {
   exists: boolean;
+  /** Signing in asks for the owner's name as well as the password. */
+  named?: boolean;
   /** A copy somebody is working on, which says so across the top of the page. */
   dev?: boolean;
   /** The folder that copy is running out of. Only a dev copy says. */
@@ -343,4 +345,29 @@ export interface Invitation {
   given: Switch[];
   /** That address already has a password here, from an earlier invitation. */
   known: boolean;
+}
+
+/** One setting as the Configuration page shows it, from /api/config/settings. A secret's value is never here. */
+export interface Field {
+  /** The setting as a path with dots, like "connections.google.account". */
+  path: string;
+  /** A password, key or token, kept in .env. */
+  secret: boolean;
+  set: boolean;
+  /** What it is now, the default when the file does not say. */
+  value?: unknown;
+  /** Not said, said plainly, handed over from .env, or written as code the page leaves alone. */
+  written: "default" | "file" | "env" | "code";
+  /** Its name in .env, when it comes from there. */
+  key?: string;
+}
+
+/** Where Google stands, from /api/google. */
+export interface GoogleState {
+  ready: boolean;
+  account: string;
+  /** What is missing, in plain words. Empty when nothing is. */
+  missing: string;
+  /** A sign-in was started and waits for its answer. */
+  waiting: boolean;
 }

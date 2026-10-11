@@ -51,8 +51,11 @@ Then sign in, from either place:
 - **A chat.** Ask the agent for your mail. chloe sees nobody has signed in and
   sends a link. Approve it, and send back the short code the page you land on
   shows. chloe finishes the sign-in and answers what you asked.
-- **The dashboard.** The agent's Connections page has a sign-in button, and a
-  box for the code.
+- **The dashboard.** Configuration, or any agent's Connections page, walks
+  through the steps above with a link to each page in Google's console, copy
+  buttons for the two addresses, a box for the client file (it goes into
+  `.env`) and one for the account (it goes into `chloe.config.ts`). Then Sign
+  in opens Google's page in a new tab, and you paste the code it ends on.
 
 The model never sees the link or the code. The sign-in is saved as one file in
 the state folder, mode 600.
@@ -192,7 +195,10 @@ services, its tools, and a `Connection`. Nothing in the runtime changes.
 `missing()` is what the Connections page and the startup lines show, and an
 empty list means ready. A connection on a plain key has no `signIn`. One that
 has it gives `start()` for the words and the link, `answers()` to recognise the
-reply, and `finish()`, and its service throws `NeedsSignIn` when signing in
+reply, and `finish()`. The words are for a chat: the page opens the link in a
+new tab and says its own, asking for the code the last page shows, or, when
+`start()` also gives `code` (a sign-in where the person types a code on the
+page, like Microsoft's), showing that code and a Done button. Its service throws `NeedsSignIn` when signing in
 would fix what failed. A tool that works through it says so with `needs`:
 `Object.assign(tool({ ... }), { needs: crm })`. `Connection`, `SignIn` and
 `NeedsSignIn` are exported from `@chloejs/core`.
