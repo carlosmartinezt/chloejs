@@ -31,7 +31,7 @@
 // conversation, and the box shows it the next time it loads it.
 import type { Agent, Channel, ChatHistory } from "#chloe/load/load";
 import { nameOf, type SdkModel } from "#chloe/model/key";
-import { remember } from "#chloe/model/memory";
+import { current, remember } from "#chloe/model/memory";
 import { reachBy, unreach } from "#chloe/model/ask";
 import type { ChloeTool } from "#chloe/model/tool";
 import { bind, type Answering } from "./shared.ts";
@@ -109,9 +109,12 @@ export interface Web {
   pictures: boolean;
 }
 
-/** The thread a visitor's conversation is kept under. Not `web-`, which is what the dashboard's own chats were called. */
+/**
+ * The thread a visitor's conversation is kept under now, a new one after each
+ * time they start over. Not `web-`, which is what the dashboard's own chats were called.
+ */
 export function visitorThread(agent: string, visitor: string): string {
-  return `${agent}/visitor-${visitor}`;
+  return current(`${agent}/visitor-${visitor}`);
 }
 
 /**

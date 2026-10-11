@@ -808,7 +808,8 @@ pre.painted .keyword { color: var(--accent); }
 .talking .head button.model:hover, .talking .head button.model[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 .talking .head .model.picked { color: var(--accent); }
 .thinking { display: flex; align-items: center; gap: 10px; color: var(--dim); }
-.thinking .doing { color: var(--accent); }
+.thinking .doing { color: var(--accent); padding: 0; font: inherit; }
+.thinking .doing:hover:enabled { text-decoration: underline; }
 .dots { display: inline-flex; gap: 4px; }
 .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .25; }
 @media (prefers-reduced-motion: no-preference) {

@@ -878,7 +878,7 @@ function Context({ value }: { value: unknown }) {
 }
 
 /** A tool call or a job step, folded to one line. A failed one opens itself. */
-function Card({ name, step, body }: { name: string; step: Step; body?: ReactNode }) {
+export function Card({ name, step, body }: { name: string; step: Step; body?: ReactNode }) {
   const facts = [clock(step.at), step.ms ? took(step.ms) : "", step.cost || step.unpriced ? spent(step.cost, step.unpriced) : "", step.note ?? ""].filter(Boolean);
   const gist =
     typeof step.failed === "string" ? step.failed : body && Array.isArray(step.result) ? many(step.result.length, "message") : brief(step.result);

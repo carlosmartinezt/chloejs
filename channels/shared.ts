@@ -41,7 +41,7 @@ import type { Agent, Channel, ChatHistory, Job, Running } from "#chloe/load/load
 import type { JobConfig } from "#chloe/load/job";
 import type { Attachment } from "#chloe/model/model";
 import { choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices";
-import { current, forget, remember, startAgain } from "#chloe/model/memory";
+import { current, remember, startAgain } from "#chloe/model/memory";
 import { models, UsageLimit } from "#chloe/model/model";
 import { clock, type Fired, ran } from "#chloe/core/clock";
 import { settings } from "#chloe/core/settings";
@@ -166,7 +166,7 @@ export interface Rules {
    * Treats everyone who writes as a stranger, like a visitor on a web page.
    * Off by default.
    *
-   * A stranger's message gets a reply, forgets the conversation with `/clear`,
+   * A stranger's message gets a reply, starts a new conversation with `/clear`,
    * or answers a job that asked them. It is never a `/command`, a model pick
    * or a sign-in code, and no sign-in is ever started for a stranger.
    */
@@ -441,8 +441,7 @@ export interface Button {
  * The first of these that fits decides what happens:
  *
  * 1. A sender not in `allowFrom` gets nothing.
- * 2. `/clear` starts a new conversation. The old one is kept, except a
- *    stranger's, which is forgotten.
+ * 2. `/clear` starts a new conversation. The old one is kept.
  * 3. `/models` lists the models, and `/model <name>` picks one.
  * 4. A sign-in code goes to the connection that asked for it. The model never
  *    sees it.
@@ -472,13 +471,8 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
     }
   }
 
+  // Nothing said is deleted here: only the owner forgets a conversation, from the page.
   if (clearCommand(text)) {
-    // A stranger's words go with it, as a visitor would expect. Anyone else's
-    // stay where the owner can read them.
-    if (rules.strangers) {
-      if (message.thread) forget(current(message.thread));
-      return said("Conversation cleared.");
-    }
     if (message.thread) startAgain(message.thread);
     return said("Started a new conversation.");
   }

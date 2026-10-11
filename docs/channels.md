@@ -78,7 +78,7 @@ with its own channel.
 A message starting with `/<job id>` runs that job, and the words after it fill
 the job's `args`: see [A job is a workflow](/docs/jobs#starting-one-with-something).
 Three commands work on every channel: `/clear` starts a new conversation and
-keeps the old one on the page (a stranger's is forgotten instead), and `/models` and `/model` pick the model, see [Models](/docs/models). Any other
+keeps the old one on the page, and `/models` and `/model` pick the model, see [Models](/docs/models). Any other
 slash message is an ordinary message.
 
 ## Writing one

@@ -30,7 +30,7 @@ import { z } from "zod";
 import { db } from "#chloe/core/db";
 import { STATE } from "#chloe/core/paths";
 import type { Agent } from "#chloe/load/load";
-import { forget } from "#chloe/model/memory";
+import { startAgain } from "#chloe/model/memory";
 import { receive } from "#chloe/channels/shared";
 import { visitorThread, webOf, type Web } from "#chloe/channels/web";
 import { BadRequest, NotFound, Refused } from "./errors.ts";
@@ -381,10 +381,10 @@ export function webHistory(at: At): void {
   });
 }
 
-/** Forgets this visitor's conversation. */
+/** Starts this visitor on a new conversation. The old one stays on the owner's page. */
 export function webClear(at: At): void {
   const { agent, pass } = visitorOf(at);
-  forget(visitorThread(agent.id, pass.v));
+  startAgain(visitorThread(agent.id, pass.v));
   at.context.json(at.response, { cleared: true });
 }
 

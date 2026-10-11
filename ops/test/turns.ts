@@ -186,7 +186,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   answers.push("Hi.");
   await receive(brief, { channel: "test", chat: "s", thread: "test/stranger", from: { id: "2", name: "Them" }, text: "hello", private: true }, { strangers: true });
   await receive(brief, { channel: "test", chat: "s", thread: "test/stranger", from: { id: "2", name: "Them" }, text: "/clear", private: true }, { strangers: true });
-  is("a stranger's /clear forgets their conversation", recall("test/stranger"), []);
+  is("a stranger's /clear keeps their conversation too", recall("test/stranger").length > 0, true);
 
   // What the model writes on its way to an answer is sent as it goes only when
   // the channel asks for it, and always before the answer.

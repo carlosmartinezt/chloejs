@@ -187,10 +187,14 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("and one somebody wrote themselves", (await turn(`${first.pass.split(".")[0]}.forged`, "hello")).status, 401);
   is("and none at all", (await turn("", "hello")).status, 401);
 
-  // Forgetting is the visitor's own.
+  // Starting over hands the visitor a new conversation and keeps the old one.
+  const { recall } = await import("#chloe/model/memory");
+  const { visitorThread } = await import("#chloe/channels/web");
+  const old = visitorThread("test", first.visitor);
   await post("/api/agents/test/web/clear", {}, { "x-chloe-pass": first.pass });
   const cleared = (await (await fetch(`${at}/api/agents/test/web/history`, { headers: { "x-chloe-pass": first.pass, origin: site } })).json()) as { messages: unknown[] };
-  is("a visitor can forget their conversation", cleared.messages, []);
+  is("a visitor who starts over sees an empty conversation", cleared.messages, []);
+  is("and the old one is still kept", recall(old).length > 0, true);
 
   // A job that asks a visitor leaves the question in their conversation.
   const running = channel.start(() => agent);

@@ -1,13 +1,13 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { AgentSummary, Picture, Said, Thread } from "../lib/types.ts";
+import type { AgentSummary, Picture, Said, Step, Thread } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
 import { ago, labelOf, many, money, spent, threadName, when } from "../lib/format.ts";
 import * as Icons from "./components/Icons.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { Trail } from "./components/Link.tsx";
 import { ContextMenu, type Choice } from "./components/ContextMenu.tsx";
-import { Prompt } from "./Log.tsx";
+import { Card, Prompt } from "./Log.tsx";
 import { go, href } from "../lib/route.ts";
 import { ideasFor } from "../lib/ideas.ts";
 import { Collapse } from "./components/Collapse.tsx";
@@ -117,7 +117,9 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   const [menu, setMenu] = useState<{ x: number; y: number; one: Thread } | null>(null);
   const [naming, setNaming] = useState("");
   const [archived, setArchived] = useState(false);
-  const [doing, setDoing] = useState<string[]>([]);
+  const [doing, setDoing] = useState<Step[]>([]);
+  // The steps under "Thinking" opened, to read what each one was asked and got back.
+  const [showing, setShowing] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [summary, setSummary] = useState<AgentSummary | null>(null);
   const [offered, setOffered] = useState<string[]>([]);
@@ -247,7 +249,11 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   // not ask for has no answer coming back to wait on, so when its run
   // finishes, the conversation is read again instead.
   useEffect(() => {
-    if (!waiting) return void setDoing([]);
+    if (!waiting) {
+      setDoing([]);
+      setShowing(false);
+      return;
+    }
     let live = true;
     let id: string | undefined;
     async function look() {
@@ -258,8 +264,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
         }
         if (!id) return;
         const run = await api.run(id);
-        const used = run.trace.map((step) => step.tool ?? step.name).filter((name): name is string => Boolean(name));
-        if (live) setDoing(used);
+        if (live) setDoing(run.trace.filter((step) => step.tool ?? step.name));
         if (live && run.finished && !asking.current.has(thread)) {
           done(thread);
           api.said(thread).then((said) => open.current === thread && setLines(said), () => {});
@@ -548,8 +553,19 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                 </span>
                 Thinking
                 {since !== undefined && <span className="num">{lasted(now - since)}</span>}
-                {doing.length > 0 && <span className="num doing">{used(doing)}</span>}
+                {doing.length > 0 && (
+                  <button className="plain num doing" aria-expanded={showing} onClick={() => setShowing(!showing)}>
+                    {used(doing.map((step) => step.tool ?? step.name ?? ""))}
+                  </button>
+                )}
               </p>
+            )}
+            {waiting && showing && (
+              <div className="did">
+                {doing.map((step, at) => (
+                  <Card key={at} name={step.tool ?? step.name ?? ""} step={step} />
+                ))}
+              </div>
             )}
             <div ref={foot} />
           </div>

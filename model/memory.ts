@@ -85,10 +85,12 @@ export function current(thread: string): string {
 
 /**
  * Moves a channel's chat on to a new conversation and returns its id. The old
- * one is kept, with everything said in it, and stays on the page.
+ * one is kept, with everything said in it, and stays on the page. Takes the
+ * id the channel gives the chat or the one it is in now.
  */
 export function startAgain(thread: string): string {
-  const now = `${thread}-${Date.now().toString(36)}`;
-  db.prepare("insert into cleared (thread, now) values (?, ?) on conflict (thread) do update set now = excluded.now").run(thread, now);
+  const first = (db.prepare("select thread from cleared where now = ?").get(thread) as { thread: string } | undefined)?.thread ?? thread;
+  const now = `${first}-${Date.now().toString(36)}`;
+  db.prepare("insert into cleared (thread, now) values (?, ?) on conflict (thread) do update set now = excluded.now").run(first, now);
   return now;
 }
