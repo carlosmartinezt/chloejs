@@ -111,6 +111,10 @@ agents.example.com {
 
 `flush_interval -1` lets a reply stream while the agent is still working.
 
+Whichever way you reach it, put that address in the config as `serve: { url:
+"https://agents.example.com" }`, so an agent can send you a link to a file in its
+memory rather than a path.
+
 ## An agent's memory
 
 Every agent has a memory folder, `data/memory/<id>/` unless its `memory` says

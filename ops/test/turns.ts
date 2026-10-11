@@ -531,6 +531,17 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   answers.push("Hello.");
   await receive(shop, { channel: "test", chat: "t", thread: "test/tools-stranger", from: { id: "v", name: "a visitor" }, text: "hi", private: true }, { tools: ["shopOrders"], strangers: true });
   is("a stranger's turn has only what is named", [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("skillRead")], [true, false, false]);
+  const toldNow = () => lastAsked.find((m) => m.role === "system")?.content ?? "";
+  is("nor is it told where the memory opens on the dashboard", toldNow().includes("## Links to your memory"), false);
+  {
+    const { settings } = await import("@chloejs/core");
+    const before = settings.serve;
+    settings.serve = { ...before, url: "https://chloe.example.com/" };
+    answers.push("Here.");
+    await receive(shop, { channel: "test", chat: "t", thread: "test/tools-named", from: { id: "1", name: "Me" }, text: "a link?", private: true }, { tools: ["shopOrders"] });
+    is("anybody else is told the link to a file in its memory, from serve.url", toldNow().includes(`https://chloe.example.com/agents/${shop.id}/memory/<its path`), true);
+    settings.serve = before;
+  }
 
   // A job that holds each run open until the case lets it go.
   const inputs: { text: string; userId: string; from: string }[] = [];

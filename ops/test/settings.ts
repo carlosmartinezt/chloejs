@@ -11,7 +11,7 @@ import { about, is } from "#chloe/ops/check";
   is("what the config says is what it says", readSettings(base).model.preferredRoute, ["gateway"]);
   is("and one key declared leaves its neighbours alone", readSettings(base).model.judgeModel, "a");
   is("a setting nobody set is empty rather than missing", readSettings({}).node, "");
-  is("the port listens on this machine only unless the config says", readSettings({}).serve, { host: "127.0.0.1", port: 3067 });
+  is("the port listens on this machine only unless the config says", readSettings({}).serve, { host: "127.0.0.1", port: 3067, url: "" });
   let portAsText = "";
   try {
     readSettings({ serve: { port: "8080" } } as never);
@@ -23,9 +23,9 @@ import { about, is } from "#chloe/ops/check";
     const { settings } = await import("@chloejs/core");
     const { ownAddress } = await import("#chloe/serve/http");
     const before = settings.serve;
-    settings.serve = { host: "0.0.0.0", port: 8080 };
+    settings.serve = { host: "0.0.0.0", port: 8080, url: "" };
     is("listening on every address is reached on loopback", ownAddress(), "http://127.0.0.1:8080");
-    settings.serve = { host: "::1", port: 8080 };
+    settings.serve = { host: "::1", port: 8080, url: "" };
     is("an IPv6 host goes in brackets", ownAddress(), "http://[::1]:8080");
     settings.serve = before;
   }

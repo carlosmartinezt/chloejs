@@ -52,7 +52,7 @@ message saying a key is missing gives both the name and the config line.
 | `connections.resend` | The Resend key, and chloe's alert mail. | [Connections](/docs/connections#resend) |
 | `connections.brave` | The Brave Search key `web.search` uses. Without one it searches DuckDuckGo. | [Connections](/docs/connections#brave-search) |
 | `agents.<id>` | Each agent's channel tokens, under the `id` in its `agent.ts`. | [Channels](/docs/channels) |
-| `serve` | Where the port listens: `127.0.0.1:3067`. Change takes a restart. | [The site](/docs/the-page) |
+| `serve` | Where the port listens: `127.0.0.1:3067`. Change takes a restart. `serve.url` is the address the dashboard is opened at from elsewhere, so an agent can link to a file in its memory. | [The site](/docs/the-page) |
 | `owner` | Who a run the clock started belongs to, as `channel:who`. | [Asking a person](/docs/asking-a-person) |
 | `node` | Which node `npx chloe install` runs. Empty is whichever is on the path. | |
 
@@ -80,7 +80,7 @@ Every save, from a form or the text, is loaded as the next reload would load
 it, and type checked when the project has TypeScript, and when either fails
 the old file stays (and `.env` with it) and the page shows why.
 
-An edit to the config or `.env` is live without a restart, except `serve`.
+An edit to the config or `.env` is live without a restart, except `serve.host` and `serve.port`.
 Renaming an agent means renaming its entry under `agents`; until then chloe says
 which entry names no agent.
 

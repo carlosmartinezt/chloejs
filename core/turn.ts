@@ -9,6 +9,7 @@ import { z } from "zod";
 import { duringRun, holdBack, inTrial } from "#chloe/core/current";
 import { CUT_OFF, db } from "#chloe/core/db";
 import { oneLineSummary } from "#chloe/core/markdown";
+import { settings } from "#chloe/core/settings";
 import { ownFileRules, type Agent, type ChatHistory, type Skill } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
@@ -214,7 +215,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   // In the instructions rather than the message, so it is not kept in the conversation again each turn.
   const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools), await whatYouRunOn(agent, tools)) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools), await whatYouRunOn(agent, tools), memoryLinks(agent, stranger)) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -819,8 +820,8 @@ async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
     "yourself or say what your owner has to do for it. " +
     changing +
     "Never ask for a key, password or secret in a chat: send your owner to the dashboard's Configuration page, " +
-    "/configuration, which has a form for each setting and key and writes chloe.config.ts and .env without you or " +
-    "the chat seeing a secret. For a key it has no form for, link to /configuration?key=<the name>. Setting up " +
+    `${dashboard()}/configuration, which has a form for each setting and key and writes chloe.config.ts and .env without you or ` +
+    `the chat seeing a secret. For a key it has no form for, link to ${dashboard()}/configuration?key=<the name>. Setting up ` +
     "Google is #google on that page. A setting the forms do not cover goes in chloe.config.ts, which you cannot " +
     "write: say the line and where it goes. A sign-in like Google's is done by Chloe itself, with a link, never by you.\n\n" +
     `### Your files\n\n${shown.join("\n") || "None yet."}\n\n` +
@@ -828,11 +829,31 @@ async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
   );
 }
 
-function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = "", cannot = "", runsOn = ""): string {
+/** The dashboard's address from other machines, `serve.url`, without a trailing slash. Empty when unset. */
+function dashboard(): string {
+  return settings.serve.url.replace(/\/+$/, "");
+}
+
+/**
+ * How to link to a file in the agent's memory on the dashboard. Empty for a
+ * stranger's turn and for an agent without its memory tools.
+ */
+function memoryLinks(agent: Agent, stranger: boolean | undefined): string {
+  if (stranger || agent.features?.memory === false) return "";
+  const at = `${dashboard()}/agents/${agent.id}/memory`;
+  return (
+    "## Links to your memory\n\n" +
+    `A file in your memory opens on the dashboard at ${at}/<its path in your memory>. Only your owner can open it.` +
+    (dashboard() ? "" : " The dashboard's address is not set (serve.url in chloe.config.ts), so give this path and say it goes after that address.")
+  );
+}
+
+function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = "", cannot = "", runsOn = "", links = ""): string {
   // Without its own name, the only name a model is shown is Chloe's, and it answers to that.
   const parts = [`Your name is ${agent.label ?? agent.id}.`, agent.instructions];
   if (person) parts.push(talkingWith(person));
   if (runsOn) parts.push(runsOn);
+  if (links) parts.push(links);
   if (cannot) parts.push(cannot);
   if (note) parts.push(`## Your note on them\n\n${note}`);
   if (overviews) parts.push(overviews);

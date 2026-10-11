@@ -374,6 +374,14 @@ export interface Settings {
      * `port: Number(process.env.PORT)`.
      */
     port: number;
+    /**
+     * The address the dashboard is opened at from other machines, like
+     * "https://chloe.example.com", when your own web server or private
+     * network puts it there. Agents use it to send their owner a link to a
+     * file in their memory. Read on each turn, so it needs no restart.
+     * Default: "" (unknown, and an agent gives the path on the dashboard).
+     */
+    url: string;
   };
   /**
    * The owner of every agent's runs, written as `channel:id`, like
@@ -421,7 +429,7 @@ export const DEFAULTS: Settings = {
     google: { account: "", client: "", callback: "", GA_KEY_FILE: "" },
   },
   agents: {},
-  serve: { host: "127.0.0.1", port: 3067 },
+  serve: { host: "127.0.0.1", port: 3067, url: "" },
   owner: "",
   node: "",
 };
