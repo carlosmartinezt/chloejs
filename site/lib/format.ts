@@ -44,10 +44,11 @@ export function kindOf(name: string): string {
 /**
  * What to call a conversation. A channel's thread is "<agent>/telegram-111111111",
  * and the long number is a chat id nobody reads, so it keeps its last four.
+ * After a `/clear` the chat's new one has more after the number.
  */
 export function threadName(thread: string): string {
   const own = thread.slice(thread.indexOf("/") + 1);
-  return own.replace(/-(\d{5,})$/, (_, digits: string) => `-${digits.slice(-4)}`);
+  return own.replace(/-(\d{5,})(?=-|$)/, (_, digits: string) => `-${digits.slice(-4)}`);
 }
 
 /** "1 skill", "2 skills". */

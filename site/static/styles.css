@@ -1124,6 +1124,8 @@ pre.diff .meta { color: var(--dim); }
 
 /* Pictures: held under the box until sent, and shown above what was said with them. */
 .composer .pictures { display: flex; gap: 8px; margin: 4px 0; }
+.composer .held-file { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; margin: 4px 0; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--inline); font: 400 var(--size-small)/1.4 var(--sans); }
+.composer .held-file svg { width: 14px; height: 14px; }
 .composer .pictures img { display: block; height: 64px; border-radius: 8px; }
 .composer .row { display: flex; justify-content: space-between; align-items: center; margin-left: -10px; }
 .composer .attach { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; color: var(--ink); cursor: pointer; }

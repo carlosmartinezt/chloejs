@@ -270,7 +270,7 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
   is("the / menu is the agent's jobs, then /models and /clear", calls.find((c) => c.method === "setMyCommands")?.body.commands, [
     { command: "highlights", description: "highlights" },
     { command: "models", description: "Which model answers here, and the ones to pick from" },
-    { command: "clear", description: "Start this conversation fresh" },
+    { command: "clear", description: "Start a new conversation" },
   ]);
 
   // Two messages a second apart are one message, and the answer goes under the

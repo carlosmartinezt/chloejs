@@ -41,7 +41,7 @@ import type { Agent, Channel, ChatHistory, Job, Running } from "#chloe/load/load
 import type { JobConfig } from "#chloe/load/job";
 import type { Attachment } from "#chloe/model/model";
 import { choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices";
-import { forget, remember } from "#chloe/model/memory";
+import { current, forget, remember, startAgain } from "#chloe/model/memory";
 import { models, UsageLimit } from "#chloe/model/model";
 import { clock, type Fired, ran } from "#chloe/core/clock";
 import { settings } from "#chloe/core/settings";
@@ -166,7 +166,7 @@ export interface Rules {
    * Treats everyone who writes as a stranger, like a visitor on a web page.
    * Off by default.
    *
-   * A stranger's message gets a reply, clears the conversation with `/clear`,
+   * A stranger's message gets a reply, forgets the conversation with `/clear`,
    * or answers a job that asked them. It is never a `/command`, a model pick
    * or a sign-in code, and no sign-in is ever started for a stranger.
    */
@@ -441,7 +441,8 @@ export interface Button {
  * The first of these that fits decides what happens:
  *
  * 1. A sender not in `allowFrom` gets nothing.
- * 2. `/clear` starts the conversation fresh.
+ * 2. `/clear` starts a new conversation. The old one is kept, except a
+ *    stranger's, which is forgotten.
  * 3. `/models` lists the models, and `/model <name>` picks one.
  * 4. A sign-in code goes to the connection that asked for it. The model never
  *    sees it.
@@ -472,9 +473,16 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
   }
 
   if (clearCommand(text)) {
-    if (message.thread) forget(message.thread);
-    return said("Conversation cleared.");
+    // A stranger's words go with it, as a visitor would expect. Anyone else's
+    // stay where the owner can read them.
+    if (rules.strangers) {
+      if (message.thread) forget(current(message.thread));
+      return said("Conversation cleared.");
+    }
+    if (message.thread) startAgain(message.thread);
+    return said("Started a new conversation.");
   }
+  if (message.thread) message = { ...message, thread: current(message.thread) };
 
   const picking = rules.strangers || rules.job ? undefined : modelCommand(text);
   if (picking) return { ...bound(agent, message, picking), steps: 0, cost: 0 };
@@ -515,7 +523,7 @@ export function isForAgent(message: Incoming, rules: Rules = {}): boolean {
   return message.private || !!message.addressed || rules.inGroups === "always" || message.text.startsWith("/");
 }
 
-/** `/clear`, with an optional channel mention, starts this chat or topic fresh. */
+/** `/clear`, with an optional channel mention, starts a new conversation in this chat or topic. */
 function clearCommand(text: string): boolean {
   return /^\/clear(?:@\w+)?\s*$/i.test(text);
 }
@@ -537,7 +545,7 @@ export function commands(agent: Agent): { command: string; description: string }
       .map((job) => ({ command: job.id.replace(/-/g, "_").toLowerCase(), description: (job.description || job.id).slice(0, 256) }))
       .filter((one) => /^[a-z0-9_]{1,32}$/.test(one.command)),
     { command: "models", description: "Which model answers here, and the ones to pick from" },
-    { command: "clear", description: "Start this conversation fresh" },
+    { command: "clear", description: "Start a new conversation" },
   ];
 }
 

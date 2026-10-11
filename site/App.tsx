@@ -254,7 +254,7 @@ export function App() {
           {!landAt && <p className="empty frame">Nothing here has been given to you yet. Ask whoever invited you.</p>}
         </main>
       ) : view.at === "chat" ? (
-        <Chat agent={view.agent} thread={view.thread} owner={owner} />
+        <Chat agent={view.agent} thread={view.thread} about={view.about} owner={owner} />
       ) : view.at === "log" ? (
         <Log agent={view.agent} agents={given ? reach((agent) => may(given, agent, "read")) : agents} open={view.run} />
       ) : view.at === "memory" ? (

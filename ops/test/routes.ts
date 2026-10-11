@@ -575,7 +575,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
 
   is("the menu ends with /models and /clear", commands(agent).slice(-2), [
     { command: "models", description: "Which model answers here, and the ones to pick from" },
-    { command: "clear", description: "Start this conversation fresh" },
+    { command: "clear", description: "Start a new conversation" },
   ]);
 
   const listBefore = settings.model.models;

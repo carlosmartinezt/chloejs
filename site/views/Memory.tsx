@@ -591,6 +591,11 @@ function Shown({
               History
             </button>
           )}
+          {kept && (
+            <button title="A new chat, with a link to this file" onClick={() => go({ at: "chat", agent, about: path })}>
+              Chat
+            </button>
+          )}
           {source && (
             <>
               <button className="small" disabled={draft === text} onClick={() => void save()}>

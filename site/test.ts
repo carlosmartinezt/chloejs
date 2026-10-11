@@ -102,6 +102,12 @@ describe("where the page is, as an address", () => {
     deepStrictEqual(read("/agents/chloe/chat", "?thread=chloe%2Fweb-1"), { at: "chat", agent: "chloe", thread: "chloe/web-1" });
   });
 
+  test("a new chat about a file in memory keeps the file in the address", () => {
+    const at = href({ at: "chat", agent: "chloe", about: "01_projects/a b/index.html" });
+    strictEqual(at, "/agents/chloe?about=01_projects%2Fa%20b%2Findex.html");
+    deepStrictEqual(read("/agents/chloe", at.slice(at.indexOf("?"))), { at: "chat", agent: "chloe", about: "01_projects/a b/index.html" });
+  });
+
   test("an invitation's link opens its own page, code and all", () => {
     strictEqual(href({ at: "invitation", code: "abc123" }), "/invitation/abc123");
     deepStrictEqual(read("/invitation/abc123", ""), { at: "invitation", code: "abc123" });

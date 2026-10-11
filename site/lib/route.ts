@@ -6,8 +6,11 @@ export type View =
   | { at: "home" }
   | { at: "agent"; agent: string }
   | { at: "file"; agent: string; path: string }
-  /** A conversation is in the address once it has anything in it, so a reload comes back to it. */
-  | { at: "chat"; agent: string; thread?: string }
+  /**
+   * A conversation is in the address once it has anything in it, so a reload comes back to it.
+   * `about` is a path in its memory: a new conversation, with a link to that file held for the first message.
+   */
+  | { at: "chat"; agent: string; thread?: string; about?: string }
   /** What it is told to do, and the words it reaches for when it needs them. */
   | { at: "instructions"; agent: string }
   | { at: "skills"; agent: string }
@@ -60,6 +63,7 @@ export function href(view: View): string {
     case "file":
       return `/agents/${view.agent}/files/${view.path}`;
     case "chat":
+      if (view.about) return `/agents/${view.agent}?about=${encodeURIComponent(view.about)}`;
       return view.thread ? `/agents/${view.agent}/chat/${encodeURIComponent(conversation(view.agent, view.thread))}` : `/agents/${view.agent}`;
     case "instructions":
     case "skills":
@@ -97,6 +101,7 @@ export function read(path = window.location.pathname, search = window.location.s
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
   const run = new URLSearchParams(search).get("run") ?? undefined;
   const thread = new URLSearchParams(search).get("thread") ?? undefined;
+  const about = new URLSearchParams(search).get("about");
 
   if (parts[0] === "login" || parts[0] === "setup") return { at: "signin", making: parts[0] === "setup" };
   if (parts[0] === "account") return { at: "account" };
@@ -106,7 +111,7 @@ export function read(path = window.location.pathname, search = window.location.s
   if (parts[0] === "help") return { at: "help" };
   if (parts[0] === "agents" && parts[1]) {
     const [, agent, what, ...rest] = parts;
-    if (!what) return { at: "chat", agent, thread };
+    if (!what) return about ? { at: "chat", agent, about } : { at: "chat", agent, thread };
     if (what === "config" && !rest.length) return { at: "agent", agent };
     if (what === "files" && rest.length) return { at: "file", agent, path: rest.join("/") };
     if (what === "log" && !rest.length) return { at: "log", agent, run };

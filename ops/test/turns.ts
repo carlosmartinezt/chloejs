@@ -167,11 +167,13 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("a channel's chatHistory is what a turn on it is shown", shownTo, ["just now", "and today?"]);
   answers.push("Fresh start.");
   const cleared = await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "/clear", private: true });
-  is("/clear confirms the conversation was cleared", cleared?.text, "Conversation cleared.");
+  is("/clear says a new conversation started", cleared?.text, "Started a new conversation.");
   is("/clear does not ask the model", asked, askedBefore + 1);
-  is("/clear leaves this chat with no recalled messages", recall("test/old"), []);
+  is("/clear keeps the old conversation", recall("test/old").length > 0, true);
   await receive(brief, { channel: "test", chat: "c", thread: "test/old", from: { id: "1", name: "Me" }, text: "new topic", private: true });
   is("the next message starts without the old conversation", lastAsked.filter((m) => m.role !== "system").map((m) => m.content), ["new topic"]);
+  const moved = (db.prepare("select now from cleared where thread = 'test/old'").get() as { now: string }).now;
+  is("the next message is kept in the new conversation", recall(moved).map((m) => m.content), ["new topic", "Fresh start."]);
   const context = JSON.parse((db.prepare("select context from runs order by started desc limit 1").get() as { context: string }).context);
   is("the run keeps the messages the model saw", context.map((one: { role: string; content: string }) => [one.role, one.content]), [
     ["system", (lastAsked.find((one) => one.role === "system")?.content ?? "")],
@@ -181,6 +183,10 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("a turn is told its name first, which is its label or else its id", system.startsWith("Your name is test."), true);
   is("a turn on a channel is told who it is talking to, and to say you", system.includes('You are talking with Me on test, directly. Write to them as "you"'), true);
   is("and not that its lines on the way are sent, when they are not", system.includes("sent to them straight away"), false);
+  answers.push("Hi.");
+  await receive(brief, { channel: "test", chat: "s", thread: "test/stranger", from: { id: "2", name: "Them" }, text: "hello", private: true }, { strangers: true });
+  await receive(brief, { channel: "test", chat: "s", thread: "test/stranger", from: { id: "2", name: "Them" }, text: "/clear", private: true }, { strangers: true });
+  is("a stranger's /clear forgets their conversation", recall("test/stranger"), []);
 
   // What the model writes on its way to an answer is sent as it goes only when
   // the channel asks for it, and always before the answer.

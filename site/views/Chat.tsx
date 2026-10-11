@@ -99,13 +99,15 @@ const called = (one: Thread): string => {
 const fromWeb = (one: Thread): boolean => threadName(one.thread).startsWith("visitor-");
 
 /** `owner` may pick the model for a conversation; anybody else only sees it. */
-export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: string; owner: boolean }) {
+export function Chat({ agent, thread: asked, about, owner }: { agent: string; thread?: string; about?: string; owner: boolean }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [listed, setListed] = useState(false);
   const [thread, setThread] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [prompt, setPrompt] = useState("");
   const [pictures, setPictures] = useState<Held[]>([]);
+  // A file in its memory, held to go with the next message as its full link.
+  const [file, setFile] = useState("");
   const [trouble, setTrouble] = useState("");
   // The conversations waiting on an answer. Each one is its own, so another
   // conversation opened meanwhile is not shown as thinking, and can be spoken to.
@@ -181,12 +183,14 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
   // address, so a reload comes back to it.
   useEffect(() => {
     setThread(asked ?? freshThread(agent));
-  }, [agent, asked]);
+    setFile(about ?? "");
+  }, [agent, asked, about]);
 
   /** Start again, leaving what was said where it is. */
   function newChat() {
     setPrompt("");
     setPictures([]);
+    setFile("");
     setThread(freshThread(agent));
     go({ at: "chat", agent });
   }
@@ -300,15 +304,17 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
   }
 
   async function send() {
-    const asked = prompt.trim();
+    const link = file ? `${window.location.origin}${href({ at: "memory", agent, path: file })}` : "";
+    const words = [prompt.trim(), link].filter(Boolean).join("\n\n");
     const sending = pictures;
-    if ((!asked && !sending.length) || waiting) return;
+    if ((!words && !sending.length) || waiting) return;
     setPrompt("");
     setPictures([]);
+    setFile("");
     setTrouble("");
     setLines((said) => [
       ...said,
-      { role: "user", content: asked, at: new Date().toISOString(), pictures: sending.length ? sending.map((one) => one.url) : undefined },
+      { role: "user", content: words, at: new Date().toISOString(), pictures: sending.length ? sending.map((one) => one.url) : undefined },
     ]);
     const to = thread;
     setWaitingOn((all) => new Map(all).set(to, Date.now()));
@@ -317,13 +323,13 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
     // again reads it back with the answer in it.
     const here = (line: Line) => open.current === to && setLines((said) => [...said, line]);
     try {
-      const answer = await api.say(agent, asked, to, sending.map(({ name, mediaType, data }) => ({ name, mediaType, data })));
+      const answer = await api.say(agent, words, to, sending.map(({ name, mediaType, data }) => ({ name, mediaType, data })));
       here({ role: "assistant", content: answer.text, cost: answer.cost, unpriced: answer.unpriced, at: new Date().toISOString() });
       // A conversation started here only exists once something is in it, so
       // this is where it turns up in the list beside, and in the address.
       api.threads(agent).then(setThreads, () => {});
       // /model typed in the box picks one too.
-      if (/^\/models?\b/i.test(asked)) api.agent(agent).then(setSummary, () => {});
+      if (/^\/models?\b/i.test(words)) api.agent(agent).then(setSummary, () => {});
       if (!asked && open.current === to) window.history.replaceState(null, "", href({ at: "chat", agent, thread: to }));
     } catch (error) {
       here({ role: "assistant", content: (error as Error).message, failed: true });
@@ -551,6 +557,12 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
 
         <div className="composer">
           <div className="box">
+            {file && (
+              <button className="plain held-file" title={`Take ${file} off`} onClick={() => setFile("")}>
+                <Icons.File />
+                {file.split("/").pop()}
+              </button>
+            )}
             {pictures.length > 0 && (
               <div className="pictures">
                 {pictures.map((one, n) => (
@@ -603,7 +615,7 @@ export function Chat({ agent, thread: asked, owner }: { agent: string; thread?: 
                 className="go"
                 aria-label={`Send to ${labelOf(agent)}`}
                 onClick={send}
-                disabled={waiting || (!prompt.trim() && !pictures.length)}
+                disabled={waiting || (!prompt.trim() && !pictures.length && !file)}
               >
                 <Icons.Send />
               </button>

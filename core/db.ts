@@ -155,6 +155,10 @@ db.exec(`
   )
 `);
 
+// The conversation a channel's chat moved on to with /clear, keyed by the id
+// the channel gives the chat. A chat with no row is still in that one.
+db.exec("create table if not exists cleared (thread text primary key, now text not null)");
+
 // When somebody last looked at an agent's changes. One row per agent.
 db.exec("create table if not exists seen (agent text primary key, at text not null)");
 

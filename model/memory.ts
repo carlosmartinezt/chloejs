@@ -76,3 +76,19 @@ export function forget(thread: string): void {
   db.prepare("delete from threads where thread = ? and owner is null").run(thread);
   db.prepare("update threads set label = null, archived = null where thread = ?").run(thread);
 }
+
+/** The conversation a channel's chat is in now: the id the channel gives it, until `/clear` moves it on. */
+export function current(thread: string): string {
+  const row = db.prepare("select now from cleared where thread = ?").get(thread) as { now: string } | undefined;
+  return row?.now ?? thread;
+}
+
+/**
+ * Moves a channel's chat on to a new conversation and returns its id. The old
+ * one is kept, with everything said in it, and stays on the page.
+ */
+export function startAgain(thread: string): string {
+  const now = `${thread}-${Date.now().toString(36)}`;
+  db.prepare("insert into cleared (thread, now) values (?, ?) on conflict (thread) do update set now = excluded.now").run(thread, now);
+  return now;
+}
