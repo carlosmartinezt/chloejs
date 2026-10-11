@@ -348,7 +348,9 @@ function readTagged(whole: string, tools: ToolSpec[]): { said: string; call: Too
  * one argument at 128KB and a long conversation goes past that. `missing` is
  * the message for a program that is not on the path, and `env` is added to
  * this process's environment for the program, where a name given undefined
- * is left out.
+ * is left out. When `signal` stops it, the program is asked to stop, killed
+ * five seconds later if it is still there, and the call fails with the
+ * signal's reason.
  */
 export function invoke(
   cli: string,
@@ -357,11 +359,34 @@ export function invoke(
   options: { signal?: AbortSignal; cwd?: string; missing: string; env?: Record<string, string | undefined> },
 ): Promise<{ code: number; out: string; err: string }> {
   return new Promise((done, fail) => {
+    if (options.signal?.aborted) return fail(options.signal.reason);
     const child = spawn(cli, args, {
       stdio: ["pipe", "pipe", "pipe"],
-      signal: options.signal,
       cwd: options.cwd,
       env: options.env ? { ...process.env, ...options.env } : undefined,
+      // A group of its own, so a stop reaches what it started too, like the
+      // tool server the claude command runs beside it.
+      detached: true,
+    });
+    // Not spawn's own signal, which only asks once: a program stuck on a
+    // login or a network call can ignore that, and then nothing ends it.
+    const kill = (signal: NodeJS.Signals) => {
+      try {
+        process.kill(-child.pid!, signal);
+      } catch {
+        // Gone already.
+      }
+    };
+    let hard: NodeJS.Timeout | undefined;
+    const stop = () => {
+      kill("SIGTERM");
+      hard = setTimeout(() => kill("SIGKILL"), 5_000);
+      fail(options.signal!.reason);
+    };
+    options.signal?.addEventListener("abort", stop, { once: true });
+    child.on("close", () => {
+      clearTimeout(hard);
+      options.signal?.removeEventListener("abort", stop);
     });
     // Buffers until the child ends, then decoded once: decoding chunk by
     // chunk turns a character that straddles two chunks into two replacement

@@ -176,6 +176,17 @@ export interface Settings {
      */
     keys: Record<Provider, string>;
     /**
+     * The longest one model call may take, in minutes, on any route: one
+     * answer from Claude Code, Codex, opencode or a provider's API. A call
+     * still going then is stopped (a program is killed) and fails with a
+     * message that says so, so a stuck call fails its run instead of holding
+     * its job for ever. Default: 10. 0 is no limit.
+     *
+     * An agent step makes one call per answer, so this is not a limit on the
+     * whole step.
+     */
+    timeLimit: number;
+    /**
      * The model that grades the agent's answers when you run
      * `npx chloe evals`. Default: "anthropic/claude-sonnet-5".
      */
@@ -398,6 +409,7 @@ export const DEFAULTS: Settings = {
     gatewayUrl: "https://ai-gateway.vercel.sh/v1/chat/completions",
     key: "",
     keys: { anthropic: "", openai: "" },
+    timeLimit: 10,
     judgeModel: "anthropic/claude-sonnet-5",
     namingModel: "anthropic/claude-haiku-4.5",
     program: { claude: "claude", codex: "codex", opencode: "opencode" },

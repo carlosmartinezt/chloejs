@@ -247,7 +247,8 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal, 
       // Four tries in all, for a busy or failing provider. A bad key or a
       // missing model fails the same way forever and is not tried again.
       maxRetries: 3,
-      abortSignal: signal ?? AbortSignal.timeout(600_000),
+      // ask() gives every call its time limit, model.timeLimit.
+      abortSignal: signal,
     };
     const result = onText ? await streamed(call, onText) : await generateText(call);
     const toolCalls: ToolCall[] = result.toolCalls.map((call) => ({

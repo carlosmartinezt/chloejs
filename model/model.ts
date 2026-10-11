@@ -333,11 +333,25 @@ export interface Ask {
  * Asks a model once and returns what it said, by whichever route its
  * provider goes. The only seam between a key and a subscription.
  */
-export function ask(request: Ask): Promise<Answer> {
+export async function ask(request: Ask): Promise<Answer> {
   const route = routeFor(request.model);
-  const named = { ...request, model: viaOf(request.model).name };
-  if (route === "claude") return viaClaude(named);
-  if (route === "codex") return viaCodex(named);
-  if (route === "opencode") return viaOpencode(named);
-  return viaKey(named, route);
+  // The one time limit, here so that every route has it: nothing else stops a
+  // program that never answers, and a run waiting on it holds its job.
+  const minutes = settings.model.timeLimit;
+  const limit = minutes > 0 ? AbortSignal.timeout(minutes * 60_000) : undefined;
+  const signal = limit && request.signal ? AbortSignal.any([request.signal, limit]) : (limit ?? request.signal);
+  const named = { ...request, model: viaOf(request.model).name, signal };
+  try {
+    if (route === "claude") return await viaClaude(named);
+    if (route === "codex") return await viaCodex(named);
+    if (route === "opencode") return await viaOpencode(named);
+    return await viaKey(named, route);
+  } catch (error) {
+    if (limit?.aborted && !request.signal?.aborted) {
+      throw new Error(
+        `Model call stopped: ${request.model} on the ${route} route gave no answer within ${minutes} minute${minutes === 1 ? "" : "s"} (model.timeLimit in settings).`,
+      );
+    }
+    throw error;
+  }
 }

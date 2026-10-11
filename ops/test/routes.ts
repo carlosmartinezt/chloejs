@@ -365,6 +365,23 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     const said = await viaClaude({ model: "anthropic/claude-sonnet-5", messages: [{ role: "user", content: "hi" }] } as any);
     is("the claude route caps each answer", said.text, "16000");
 
+    // A program that never answers, stuck on a login or the network, is
+    // stopped at the time limit, and killed when it will not stop.
+    const stuck = await fake("claude-stuck", "trap '' TERM; sleep 30");
+    pin(stuck, anyCli, opencodeCli);
+    const { ask } = await import("#chloe/model/model");
+    const wasLimit = settings.model.timeLimit;
+    settings.model.timeLimit = 0.01;
+    const began = Date.now();
+    const stopped = await ask({ model: "anthropic/claude-sonnet-5", messages: [{ role: "user", content: "hi" }] }).then(
+      () => "answered",
+      (error: Error) => error.message,
+    );
+    settings.model.timeLimit = wasLimit;
+    is("a call past the time limit fails, saying so", stopped.startsWith("Model call stopped: anthropic/claude-sonnet-5 on the claude route gave no answer within 0.01 minutes"), true);
+    is("and does not wait for the program", Date.now() - began < 10_000, true);
+    pin(capped, anyCli, opencodeCli);
+
     // With tools, they are real tool calls through the server beside the
     // route, and the calls are read from the CLI's record, never from words.
     // The stand-in answers in that record only when it was handed the server
