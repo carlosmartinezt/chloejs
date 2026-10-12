@@ -417,7 +417,6 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                             web
                           </span>
                         )}
-                        <span className="num dim">{one.messages}</span>
                       </button>
                       <button
                         className="plain more"

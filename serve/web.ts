@@ -336,7 +336,7 @@ export async function webTurn(at: At): Promise<void> {
         private: true,
         model: web.model,
         files: images.length
-          ? async () => ({ attachments: images.map(({ name, mediaType, data }) => ({ name, mediaType, data })), notes: images.map((one) => `(Attached: ${one.name})`) })
+          ? async () => ({ attachments: images.map(({ name, mediaType, data }) => ({ mediaType, data, filename: name })), notes: images.map((one) => `(Attached: ${one.name})`) })
           : undefined,
         signal: gone.signal,
       },

@@ -74,11 +74,10 @@
 :root:not([data-theme])[data-mode="light"] { color-scheme: light; }
 :root:not([data-theme])[data-mode="dark"] { color-scheme: dark; }
 
-/* Five sizes and no others, each about a sixth larger than the one below it.
-   A new rule picks one of these. */
+/* Five sizes and no others. A new rule picks one of these. */
 :root {
   --size-small: 13px;   /* what is said about a thing: when, who, a path, code */
-  --size-body: 15px;    /* reading, and everything you click */
+  --size-body: 14px;    /* reading, and everything you click, and every file tree */
   --size-lead: 17.5px;  /* a section's or a tile's name */
   --size-title: 22px;   /* the name of the page */
   --size-figure: 28px;  /* a number that is the point of its box */
@@ -315,7 +314,7 @@ html { touch-action: pan-x pan-y; }
 .rail a.node { text-decoration: none; }
 .node { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
   background: none; border: 0; padding: 5px 8px; border-radius: 4px; color: var(--ink);
-  font: 400 var(--size-small)/1.5 var(--sans); cursor: pointer; }
+  font: 400 var(--size-body)/1.5 var(--sans); cursor: pointer; }
 .node:hover { background: var(--accent-soft); }
 .node[aria-current="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 /* A folder row is a caret and a link, so the mark sits on the link inside it. */
@@ -813,8 +812,13 @@ pre.painted .keyword { color: var(--accent); }
    inside the window, and the box you type into ends up below the fold. */
 .chat > * { min-height: 0; }
 .chat .past { overflow: auto; padding: 12px 10px 24px; }
-.chat .past h2 { margin: 18px 0 6px; padding: 0 8px;
-  font: 600 var(--size-small)/1 var(--sans); letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
+/* The list is as quiet as a shelf of files: one plain line each, its label
+   said in words rather than in small capitals. */
+.chat .past h2 { margin: 18px 0 6px; padding: 0 12px;
+  font: 500 var(--size-small)/1 var(--sans); color: var(--dim); }
+/* A row is a name, not a statement: the button style's 500 is for what acts,
+   and this one only opens. */
+.chat .run-list button[id] { font-weight: 400; }
 .chat .past .places + .new-chat { margin-top: 12px; }
 .chat .past .empty { font-size: var(--size-small); padding: 0 8px; }
 /* Starting again. The one thing up here that is meant to be pressed, so it is
@@ -943,7 +947,7 @@ pre.token { margin: 0; padding: 11px 13px; border-radius: 8px; background: var(-
 
 .memory-tree { list-style: none; margin: 0; padding: 0; }
 .memory-tree .row { display: flex; align-items: center; gap: 6px; width: 100%; padding: 3px 10px 3px 8px;
-  border: 0; background: none; color: var(--ink); font: 400 var(--size-small)/1.55 var(--sans); text-align: left; cursor: pointer; }
+  border: 0; background: none; color: var(--ink); font: 400 var(--size-body)/1.55 var(--sans); text-align: left; cursor: pointer; }
 .memory-tree .row:hover { background: var(--inline); }
 .memory-tree .row.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 .memory-tree .row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
