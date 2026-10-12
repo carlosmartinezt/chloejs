@@ -103,10 +103,10 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const job: Job = { agent: "test", id: "morning", timezone: "UTC", prompt: "Look around.", files: [] };
   const agent = { ...agentFor(job), stopWhen: isStepCount(2) };
   const trace = [
-    { step: 0, at: "", say: "Start with the logs.", wants: ["skillRead"], cost: 0.1 },
-    { step: 0, at: "", tool: "skillRead", args: { name: "none" }, result: "No skill called none." },
-    { step: 1, at: "", say: "Now the site.", wants: ["skillRead"], cost: 0.1 },
-    { step: 1, at: "", tool: "skillRead", args: { name: "none" }, result: "No skill called none." },
+    { step: 0, at: "", say: "Start with the logs.", wants: ["selfReadFile"], cost: 0.1 },
+    { step: 0, at: "", tool: "selfReadFile", args: { paths: ["skills/none.md"] }, result: "No such file." },
+    { step: 1, at: "", say: "Now the site.", wants: ["selfReadFile"], cost: 0.1 },
+    { step: 1, at: "", tool: "selfReadFile", args: { paths: ["skills/none.md"] }, result: "No such file." },
   ];
   const context = [
     { role: "system", content: "You are a test." },
@@ -119,7 +119,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("the page is told why it can carry on", canCarryOn("tired-turn"), "out of steps");
 
   answers.length = 0;
-  answers.push({ content: "One more look.", tool_calls: [{ id: "c1", type: "function", function: { name: "skillRead", arguments: '{"name":"none"}' } }] }, "All done.");
+  answers.push({ content: "One more look.", tool_calls: [{ id: "c1", type: "function", function: { name: "selfReadFile", arguments: '{"paths":["skills/none.md"]}' } }] }, "All done.");
   const result = await carryOn({ agent, runId: "tired-turn" });
   const shown = lastAsked as { role: string; content: string }[];
   is("it is told it ran out of steps", shown.at(-3)?.content.startsWith("You ran out of steps"), true);
@@ -136,13 +136,13 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   remember("test/tools", "user", "What board am I on?");
   remember("test/tools", "assistant", "Board 210.", [
     { toolName: "webReadPage", input: { url: "https://example.com/pairings" } },
-    { toolName: "memoryWriteFile", input: { path: "chess.html", content: "x".repeat(1000) } },
+    { toolName: "memoryEditFile", input: { path: "chess.html", new: "x".repeat(1000) } },
   ]);
   remember("test/tools", "assistant", "Anything else?");
   const told = recall("test/tools", { limit: 10, tools: true });
   is("the next turn sees the calls, then the reply", told.map((one) => one.role), ["user", "assistant", "tool", "tool", "assistant", "assistant"]);
   is("in the shape a turn's own calls take", told[1].tool_calls?.[0].function, { name: "webReadPage", arguments: '{"url":"https://example.com/pairings"}' });
-  is("a whole file written is cut short", JSON.parse(told[1].tool_calls![1].function.arguments).content.length, 303);
+  is("a whole file written is cut short", JSON.parse(told[1].tool_calls![1].function.arguments).new.length, 303);
   is("each call is answered, or a provider refuses the history", told[2].tool_call_id, told[1].tool_calls?.[0].id);
   is("the reply itself is left as it was", told[4].content, "Board 210.");
   is("a reply that called nothing is too", told[5].content, "Anything else?");
@@ -308,24 +308,18 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("and nothing outside the memory and the files sent to it does", told().includes("is not in your memory or among the files sent to you"), true);
 
   const { skillsIn } = await import("#chloe/load/load");
-  const { chmod, mkdtemp } = await import("node:fs/promises");
+  const { mkdtemp } = await import("node:fs/promises");
   const folder = await mkdtemp(`${(await import("node:os")).tmpdir()}/chloe-skill-`);
-  await mkdir(`${folder}/skills/forms/scripts`, { recursive: true });
-  await writeFile(`${folder}/skills/forms/SKILL.md`, "---\ndescription: forms\n---\nRead the form first.");
-  await writeFile(`${folder}/skills/forms/fields.md`, "More.");
-  await writeFile(`${folder}/skills/forms/scripts/fill.sh`, "#!/bin/sh\n");
-  await chmod(`${folder}/skills/forms/scripts/fill.sh`, 0o755);
+  await mkdir(`${folder}/skills/forms`, { recursive: true });
+  await writeFile(`${folder}/skills/forms/SKILL.md`, "---\ndescription: how to fill a form\n---\nRead the form first.");
   const skilled = { ...base, folder, skills: await skillsIn(`${folder}/skills`) };
-  answers.push({ tool_calls: [{ id: "1", type: "function", function: { name: "skillRead", arguments: '{"name":"forms"}' } }] }, "Read it.");
-  await receive({ ...skilled, tools: { scriptRun: fake("Run a script.") } }, { ...message, files: undefined }, { allowFrom: ["1"] });
-  is(
-    "opening a skill that is a folder lists what is beside it, and the scripts by the names they run as",
-    [told().includes("Read the form first."), told().includes("Beside SKILL.md it has: fields.md, scripts/fill.sh"), told().includes("forms/scripts/fill.sh. Each runs inside skills/forms/")],
-    [true, true, true],
-  );
-  answers.push({ tool_calls: [{ id: "1", type: "function", function: { name: "skillRead", arguments: '{"name":"forms"}' } }] }, "Read it.");
+  answers.push("Fine.");
   await receive(skilled, { ...message, files: undefined }, { allowFrom: ["1"] });
-  is("and says so when the agent cannot run them", told().includes("runScripts is not on in your definition"), true);
+  is(
+    "a skill is listed with its file, which the model reads as it reads any file of its own",
+    [(lastAsked.find((m) => m.role === "system")?.content ?? "").includes("**forms** (skills/forms/SKILL.md): how to fill a form"), lastTools.includes("selfReadFile"), lastTools.includes("skillRead")],
+    [true, true, false],
+  );
 
   answers.push("No.");
   await receive({ ...base, tools: { scriptRun: fake("Run a script.") } }, message, { allowFrom: ["1"], strangers: true }, { sendFile });
@@ -569,10 +563,10 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
         model: "m",
         folder: tmpdir(),
         jobs: jobs as never,
-        channels: [
-          { name: "first", job, start: () => ({ stop: () => {} }) },
-          { name: "second", job, start: () => ({ stop: () => {} }) },
-        ] as never,
+        channels: {
+          first: { name: "first", job, start: () => ({ stop: () => {} }) },
+          second: { name: "second", job, start: () => ({ stop: () => {} }) },
+        } as never,
       }),
     ).then(
       (agent) => agent,
@@ -593,12 +587,12 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   await receive(shop, { channel: "test", chat: "t", thread: "test/tools-named", from: { id: "1", name: "Me" }, text: "where is it?", private: true }, { tools: ["shopOrders"] });
   is(
     "a turn has the tools named, its memory and its skills, and nothing else",
-    [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("skillRead"), lastTools.includes("ownerMail"), lastTools.includes("selfWriteFile")],
+    [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("selfReadFile"), lastTools.includes("ownerMail"), lastTools.includes("selfWriteFile")],
     [true, true, true, false, false],
   );
   answers.push("Hello.");
   await receive(shop, { channel: "test", chat: "t", thread: "test/tools-stranger", from: { id: "v", name: "a visitor" }, text: "hi", private: true }, { tools: ["shopOrders"], strangers: true });
-  is("a stranger's turn has only what is named", [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("skillRead")], [true, false, false]);
+  is("a stranger's turn has only what is named", [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("selfReadFile")], [true, false, false]);
   const toldNow = () => lastAsked.find((m) => m.role === "system")?.content ?? "";
   is("nor is it told where the memory opens on the dashboard", toldNow().includes("## Links to your memory"), false);
   {

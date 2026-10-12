@@ -24,7 +24,7 @@ export interface FileToSend {
  * - `folders`: where a file may come from, full paths. Anything outside them is refused.
  */
 export function chatSendFile(send: (file: FileToSend) => Promise<void>, folders: string[]): ChloeTool {
-  return tool({
+  return Object.assign(tool({
     description:
       "Send a file to the person you are talking with, as an attachment in this chat. The file must be in " +
       "your memory, or be one they sent you (its path was in their message).",
@@ -40,7 +40,7 @@ export function chatSendFile(send: (file: FileToSend) => Promise<void>, folders:
       await send(file);
       return { sent: file.name, bytes: info.size };
     },
-  });
+  }), { title: "Send file" });
 }
 
 /** The full path of `path` inside the first of `folders` that holds it, or a throw saying where files may come from. */

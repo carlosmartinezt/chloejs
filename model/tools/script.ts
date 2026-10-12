@@ -7,7 +7,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import { listScripts, runScripts as runOne, scriptsIn } from "#chloe/services/scriptsService";
+import { listScripts, runScripts as runOne } from "#chloe/services/scriptsService";
 import type { Tools } from "#chloe/model/tool";
 
 /** A tool that runs one file from that agent's own `scripts/` folder. */
@@ -25,19 +25,14 @@ export function scriptRun(agent: string) {
       name === "list"
         ? { scripts: await listScripts(agent) }
         : runOne(agent, name, args, { timeoutMs: (timeoutSeconds ?? 300) * 1000 }),
-  }), { kind: "run" as const });
+  }), { title: "Run script", kind: "run" as const });
 }
 
 /**
  * scriptRun: the agent runs any file in its scripts/ folder, or an executable
- * file in one of its skill folders, and nothing else. Refused as the agent
- * loads when it has neither.
+ * file in one of its skill folders, and nothing else. The loader refuses an
+ * agent that turns it on with neither.
  */
-export function scriptTools(): (agent: { id: string; folder: string }) => Tools {
-  return ({ id, folder }) => {
-    if (scriptsIn(folder).length === 0) {
-      throw new Error(`${id} has features.runScripts on, and no scripts: neither ${folder}/scripts nor an executable file in a skill folder.`);
-    }
-    return { scriptRun: scriptRun(id) };
-  };
+export function scriptTools(): (agent: { id: string }) => Tools {
+  return ({ id }) => ({ scriptRun: scriptRun(id) });
 }

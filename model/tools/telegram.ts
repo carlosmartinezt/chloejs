@@ -25,7 +25,7 @@ import { deliver } from "#chloe/services/messageService";
  */
 export function sendMessage({ who, when, channel = "telegram" }: { who: string[]; when: string; channel?: string }) {
   if (who.length === 0) throw new Error("telegram.sendMessage needs at least one user id in who.");
-  return tool({
+  return Object.assign(tool({
     description: `Send a Telegram message to ${who.join(", ")}. ${when}`,
     inputSchema: z.object({
       to: z.enum(who as [string, ...string[]]).describe("Who to send to."),
@@ -35,5 +35,5 @@ export function sendMessage({ who, when, channel = "telegram" }: { who: string[]
       await deliver(`${channel}:${to}`, text, agentOf(context).id);
       return { sent: true, to };
     },
-  });
+  }), { title: "Send Telegram message" });
 }

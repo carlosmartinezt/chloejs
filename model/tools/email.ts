@@ -30,7 +30,7 @@ import { keepCopy } from "./sending.ts";
  * Needs an `emailChannel` on the agent.
  */
 export function startConversation({ when, channel = "email", keep }: { when: string; channel?: string; keep?: string }) {
-  return tool({
+  return Object.assign(tool({
     description:
       `Start an email conversation with someone. Their reply comes back to you as a message in that conversation. ${when}`,
     inputSchema: z.object({
@@ -47,5 +47,5 @@ export function startConversation({ when, channel = "email", keep }: { when: str
       if (!keep) return sent;
       return { ...sent, copy: await keepCopy(agent, keep, [to], subject, text) };
     },
-  });
+  }), { title: "Start email conversation" });
 }

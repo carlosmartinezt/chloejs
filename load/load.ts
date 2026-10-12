@@ -24,10 +24,9 @@ import { nameOf, type SdkModel } from "#chloe/model/key";
 import { cannotRun, type Tools } from "#chloe/model/tool";
 import type { Connection } from "#chloe/connections/connection";
 import type { McpConnection } from "#chloe/connections/mcp";
-import { memoryTools, userNotesTools } from "#chloe/model/tools/memory";
-import { scriptTools } from "#chloe/model/tools/script";
-import { selfWriteTools } from "#chloe/model/tools/self";
 import { makeRepo } from "#chloe/services/historyService";
+import { FEATURES, featureTools, type Features } from "./features.ts";
+export { FEATURES, featureOn, featureToolSet, featureValues, type Feature, type Features, type EmailFeature, type CalendarFeature, type DriveFeature } from "./features.ts";
 import { work, type Data, type Envelope, type Result as RunResult, type Work } from "#chloe/core/steps";
 import { turn, type Result as TurnResult } from "#chloe/core/turn";
 
@@ -145,18 +144,27 @@ export interface AgentConfig {
    */
   tools?: Tools;
   /**
+   * Tools the agent has switched off, by the name each has in `tools` or the
+   * name its feature gives it, like `["memoryEditFile"]`. A feature's tools
+   * can be named whether it is on or not. The dashboard's Tools page writes
+   * this list when you switch one tool off, so a tool keeps the options it
+   * was bound with. Default: none.
+   */
+  without?: string[];
+  /**
    * The agent's jobs. Each one is a job made with `defineJob` and imported
    * from its file, or `markdownJob("jobs/<id>.md")` for a job that is only a
    * prompt. A job that is not in this list never runs. Default: none.
    */
   jobs?: (JobConfig<any, any, any> | MarkdownJob)[];
   /**
-   * The ways people and other systems reach the agent, like
-   * `[telegramChannel({ ... }), apiChannel()]`. Two channels of one agent
-   * cannot have the same `name`. Default: none. The owner can always talk to
-   * the agent in the dashboard's chat.
+   * The ways people and other systems reach the agent, each under its own
+   * name and made by its function, like `{ telegram: telegramChannel({
+   * allowFrom: [123456789] }), api: apiChannel() }`. A channel you wrote
+   * yourself goes in the same way. The key is the channel's `name`. Default:
+   * none. The owner can always talk to the agent in the dashboard's chat.
    */
-  channels?: Channel[];
+  channels?: ChannelsConfig;
   /**
    * The MCP servers this agent uses. (An MCP server is a service's list of
    * tools for models.) For example:
@@ -487,108 +495,6 @@ export interface Job {
 }
 
 /**
- * Tools that chloe can add to an agent, each switched on or off with `true`
- * or `false`, for example `features: { runScripts: true }`. The page's Tools
- * view switches them too, by changing this object in `agent.ts`. `FEATURES`
- * is the list, with what each one is when unsaid.
- */
-export interface Features {
-  /**
-   * Adds the memory tools: `memoryListFiles`, `memoryReadFile`,
-   * `memorySearchFiles`, `memoryWriteFile` and `memoryEditFile`. They work on
-   * the agent's memory folder (see `memory` on the agent). On by default.
-   */
-  memory?: boolean;
-  /**
-   * Adds the tool `selfWriteFile`, which lets the agent change its own files:
-   * its instructions, skills and jobs, and its code (`agent.ts`, jobs, tools,
-   * services, channels, scripts). On by default, which suits an agent that is
-   * still being shaped; switch it off once it does what you want.
-   *
-   * Each change is saved as a git commit, so you can see it and undo it on
-   * the dashboard. A change with code in it is loaded and type checked first,
-   * and put back with the reason when that fails. The agent can only use this
-   * tool in a reply to a message from its owner. It cannot use it after
-   * another tool in the same reply has read something from outside the agent
-   * (an email, a web page, a script's output, one of its past runs). It never
-   * writes its `evals/` folder or its memory.
-   *
-   * Warning: code the agent writes then runs on your machine with the same
-   * rights as chloe.
-   *
-   * Every agent can already read its own files in every turn
-   * (`selfListFiles`, `selfReadFile`) and its past runs (`selfListRuns`,
-   * `selfReadRun`), and try one of its jobs (`selfTryJob`), in replies to its
-   * owner. It does not need this setting for that.
-   */
-  selfImprovement?: boolean;
-  /**
-   * Adds the tool `scriptRun`, which lets the agent run any file in its own
-   * `scripts/` folder. Off by default.
-   *
-   * Each script runs as a program, so it must be executable (`chmod +x`, with
-   * a `#!` first line). It runs inside the `scripts/` folder, and gets the
-   * agent's memory folder in the `MEMORY_FOLDER` environment variable. If this
-   * is on and `scripts/` is empty, the agent does not load.
-   *
-   * Write a skill that tells the agent when to use each script.
-   */
-  runScripts?: boolean;
-  /**
-   * Adds the tool `memoryWriteUserNotes`, which keeps one note about each
-   * person the agent talks to, on any channel. Off by default.
-   *
-   * The notes are files in the agent's memory, like
-   * `users/telegram-12345.md`. chloe picks whose note it is from who sent the
-   * message, and the model cannot choose. The model sees that person's note
-   * at the start of each reply to them. One person on two channels has two
-   * notes.
-   */
-  memoryPerUser?: boolean;
-}
-
-/** One feature: what it is when unsaid, what it does in a line, and the tools it adds. */
-export interface Feature {
-  name: keyof Features;
-  on: boolean;
-  does: string;
-  tools: string[];
-}
-
-/** Every feature, in the order the page shows them. A test holds `tools` to what each one adds. */
-export const FEATURES: Feature[] = [
-  {
-    name: "memory",
-    on: true,
-    does: "Keeps notes in its memory folder, so one run can leave the next better informed.",
-    tools: ["memoryListFiles", "memoryReadFile", "memorySearchFiles", "memoryWriteFile", "memoryEditFile"],
-  },
-  {
-    name: "selfImprovement",
-    on: true,
-    does: "Changes its own instructions, skills, jobs and code when you ask it to. Each change is a commit you can undo.",
-    tools: ["selfWriteFile"],
-  },
-  {
-    name: "runScripts",
-    on: false,
-    does: "Runs the scripts in its scripts/ folder and in its skills' folders.",
-    tools: ["scriptRun"],
-  },
-  {
-    name: "memoryPerUser",
-    on: false,
-    does: "Keeps a note on each person it talks to, and reads it before each reply to them.",
-    tools: ["memoryWriteUserNotes"],
-  },
-];
-
-/** Whether this feature is on for an agent with these `features`. */
-export function featureOn(features: Features | undefined, name: keyof Features): boolean {
-  return features?.[name] ?? FEATURES.find((one) => one.name === name)!.on;
-}
-
-/**
  * Where and how an agent keeps its memory. Give it as `memory` on the agent.
  * The dashboard shows the memory next to the agent's own files.
  */
@@ -608,7 +514,7 @@ export interface Memory {
    * - `"each run"`: when a run ends, or pauses to wait for an answer,
    *   everything it changed is saved in one commit under the agent's id. If
    *   the folder is not a git repository, chloe makes it one.
-   * - `true`: every write, by the agent (`memoryWriteFile`, `memoryEditFile`)
+   * - `true`: every write, by the agent (`memoryEditFile`)
    *   or from the dashboard, is its own commit with a message. The folder
    *   should already be a git repository. Use this for a folder you share
    *   with a person.
@@ -671,6 +577,11 @@ export interface Channel {
    * sign in there.
    */
   needs?: Connection;
+  /**
+   * Tools the channel brings with it, added to the agent's tools under
+   * `channel <name>`: the email channel's tool for starting a conversation.
+   */
+  brings?: Tools;
   /**
    * Called when the agent loads, to check that this channel can work with
    * the agent. If it cannot, throw an error that says why: the agent then
@@ -741,6 +652,8 @@ export interface Agent extends Omit<DefinedAgent, "instructions" | "tools" | "jo
   tools?: Tools;
   /** Where each tool that is not the agent's own comes from, like `features.memory` or `connection github`. */
   toolsFrom?: Record<string, string>;
+  /** The tools `without` took out, so the page can show them switched off. */
+  toolsOff?: Tools;
   /** The agent's skills, read from its `skills/` folder: each `<name>.md` and each `<name>/SKILL.md`. */
   skills: Skill[];
   /** The agent's jobs, loaded, including the jobs named on its channels. */
@@ -894,6 +807,9 @@ export async function load(id: string): Promise<Agent> {
   return one;
 }
 
+/** What `channels` in agent.ts says: each channel under its own name, as the channel itself, like `tools`. */
+export type ChannelsConfig = Record<string, Channel | undefined>;
+
 /**
  * One declared agent as the runtime uses it: its words read, its jobs loaded,
  * its tools bound and its memory folder worked out. `loadAll` calls this for
@@ -906,7 +822,7 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
   if (!model) throw new Error(`${where} does not say which model, and model.defaultModel in settings names none.`);
   if (!definition.instructions) throw new Error(`${where} has no instructions. Add instructions: prompt("instructions.md").`);
 
-  const { tools, jobs, channels, connections, run, ask, ...rest } = definition;
+  const { tools, without, jobs, channels, connections, run, ask, ...rest } = definition;
   // Worked out once, here, so the site, the memory tool and a job's
   // work.memory all mean the same folder without any of them saying it again.
   const memory = {
@@ -924,7 +840,8 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
     );
   }
   const home = { id, folder, memory };
-  const bound = channelsOf(channels ?? [], where);
+  const bound = channelsOf(channels, where);
+  const brought = Object.fromEntries(bound.flatMap((one) => (one.brings ? [[`channel ${one.name}`, one.brings]] : [])));
   const agent: Agent = {
     ...rest,
     model,
@@ -935,7 +852,7 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
       ...includedIn(definition.instructions, folder),
       ...(jobs ?? []).flatMap((one) => includedIn((one as { markdown?: unknown }).markdown, folder)),
     ],
-    ...withTools(await connectionTools(connections ?? [], where), featureTools(definition.features, home, where), tools ?? {}, where),
+    ...withTools({ ...(await connectionTools(connections ?? [], where)), ...brought }, featureTools(definition.features, home, where), tools ?? {}, without, where),
     skills: await skillsIn(`${folder}/skills`),
     jobs: await channelJobs(id, folder, await jobsOf(id, folder, jobs ?? []), bound),
     channels: bound,
@@ -982,54 +899,49 @@ function withTools(
   connected: Record<string, Tools>,
   featured: Record<string, Tools>,
   own: Tools,
+  without: string[] = [],
   where: string,
-): { tools: Tools; toolsFrom: Record<string, string> } {
+): { tools: Tools; toolsFrom: Record<string, string>; toolsOff: Tools } {
   const added = { ...connected, ...featured };
   const toolsFrom: Record<string, string> = {};
   for (const [from, tools] of Object.entries(added)) for (const name of Object.keys(tools)) toolsFrom[name] = from;
   const tools = toolsOf({ ...Object.assign({}, ...Object.values(added)), ...own }, where);
   for (const name of Object.keys(own)) delete toolsFrom[name];
-  return { tools, toolsFrom };
+  if (!Array.isArray(without) || without.some((one) => typeof one !== "string")) {
+    throw new Error(`${where}: without is a list of tool names, like ["memoryEditFile"].`);
+  }
+  // A feature's tool may be named while the feature is off, so it stays named when it is switched on again.
+  const known = new Set([...Object.keys(tools), ...FEATURES.flatMap((one) => one.tools)]);
+  const unknown = without.find((one) => !known.has(one));
+  if (unknown) throw new Error(`${where}: without names ${JSON.stringify(unknown)}, which is no tool of this agent. Its tools are ${[...known].sort().join(", ")}.`);
+  const toolsOff: Tools = {};
+  for (const name of without) {
+    if (!tools[name]) continue;
+    toolsOff[name] = tools[name];
+    delete tools[name];
+  }
+  return { tools, toolsFrom, toolsOff };
 }
 
-function channelsOf(channels: Channel[], where: string): Channel[] {
-  if (!Array.isArray(channels)) {
-    throw new Error(`${where}: channels is a list, like [telegramChannel({ ... }), apiChannel()].`);
+/** The channels `channels` in agent.ts names, checked: each is a channel, under its own name. */
+function channelsOf(channels: ChannelsConfig | undefined, where: string): Channel[] {
+  if (channels === undefined) return [];
+  if (Array.isArray(channels) || typeof channels !== "object" || channels === null) {
+    throw new Error(`${where}: channels is one object keyed by name, like { telegram: telegramChannel({ allowFrom: [123456789] }), api: apiChannel() }.`);
   }
-  const seen = new Set<string>();
-  channels.forEach((one, i) => {
-    if (typeof one?.start !== "function" || typeof one.name !== "string" || !one.name) {
-      throw new Error(`${where}: channels[${i}] is not a channel.`);
-    }
-    if (seen.has(one.name)) throw new Error(`${where}: two channels are called ${one.name}.`);
-    seen.add(one.name);
-  });
-  return channels;
+  const made: Channel[] = [];
+  for (const [key, one] of Object.entries(channels)) {
+    if (one === undefined) continue;
+    if (typeof one?.start !== "function" || typeof one.name !== "string" || !one.name) throw new Error(`${where}: channels.${key} is not a channel.`);
+    if (one.name !== key) throw new Error(`${where}: channels.${key} is a channel named ${JSON.stringify(one.name)}. Give it under its own name.`);
+    made.push(one);
+  }
+  return made;
 }
 
 /** Does this agent have a channel of this name? "api" is what lets a token reach it. */
 export function hasChannel(agent: Pick<Agent, "channels">, name: string): boolean {
   return agent.channels.some((one) => one.name === name);
-}
-
-/**
- * What an agent's `features` turn on, as tools, under where each comes from,
- * like `features.memory`. A value that is not `true` or `false` is refused.
- */
-function featureTools(features: Features = {}, home: Home, where: string): Record<string, Tools> {
-  for (const [name, value] of Object.entries(features)) {
-    if (!FEATURES.some((one) => one.name === name)) {
-      throw new Error(`${where}: features has no ${name}. There are ${FEATURES.map((one) => one.name).join(", ")}.`);
-    }
-    if (typeof value !== "boolean" && value !== undefined) throw new Error(`${where}: features.${name} is true or false.`);
-  }
-  const on = (name: keyof Features) => featureOn(features, name);
-  return {
-    ...(on("memory") ? { "features.memory": memoryTools()(home) } : {}),
-    ...(on("selfImprovement") ? { "features.selfImprovement": selfWriteTools()(home) } : {}),
-    ...(on("runScripts") ? { "features.runScripts": scriptTools()(home) } : {}),
-    ...(on("memoryPerUser") ? { "features.memoryPerUser": userNotesTools()() } : {}),
-  };
 }
 
 /** The agent's tools, checked. */

@@ -80,7 +80,7 @@ export function readEmail({
         ? await readOneEmailMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
         : await readEmailMessages({ search, days: back ?? days, limit: limit ?? 10 }),
   });
-  return Object.assign(read, { needs: google, onlyReads: true, kind: "read" as const });
+  return Object.assign(read, { title: "Read email", needs: google, onlyReads: true, kind: "read" as const });
 }
 
 /** The options for `gmail.replyEmail`: the same as `gmail.readEmail`, plus these. */
@@ -181,7 +181,7 @@ export function replyEmail({
       return { ...sent, copy: kept.path };
     },
   });
-  return Object.assign(reply, { needs: google });
+  return Object.assign(reply, { title: "Reply to email", needs: google });
 }
 
 /**

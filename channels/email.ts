@@ -66,6 +66,7 @@ import { passwordMailbox } from "#chloe/connections/mail/mailbox";
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
 import { reachBy, unreach } from "#chloe/services/messageService";
 import { remember } from "#chloe/model/memory";
+import { startConversation } from "#chloe/model/tools/email";
 import { holdBack } from "#chloe/core/current";
 import { db } from "#chloe/core/db";
 import { addresses, readEmail, signedBy, whenSent, type Email, type Inbox, type LookUp } from "#chloe/core/mail";
@@ -179,6 +180,13 @@ export interface EmailOptions extends Shared {
    * - A `Mailbox`: one of your own making, for another mail service.
    */
   mailbox: "gmail" | "password" | Mailbox;
+  /**
+   * Lets the agent write to somebody first, in `allowFrom`, with the tool
+   * `emailStartConversation`: `when` says to the model when to, and `keep`
+   * names a folder in its memory for a copy of each. Their reply comes back
+   * as a message in that conversation. Default: it only answers.
+   */
+  start?: { when: string; keep?: string };
   /** Stands in for Gmail or the password mailbox. Only the tests set it. */
   gmail?: Inbox;
   /** How often the mailbox is asked for new mail, in milliseconds. Default: 15000. Only the tests change it. */
@@ -327,6 +335,9 @@ export function emailChannel(options: EmailOptions): Channel {
   // On Gmail it works through the Google sign-in, so the agent's Connections
   // page lists it and can sign in, even with no Gmail tool beside it.
   if (options.mailbox === "gmail") channel.needs = google;
+  if (options.start?.when) {
+    channel.brings = { emailStartConversation: startConversation({ when: options.start.when, channel: channel.name, keep: options.start.keep || undefined }) };
+  }
   return channel;
 }
 

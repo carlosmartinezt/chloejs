@@ -19,6 +19,10 @@ export interface AgentSummary {
   /** What the site calls its memory. Every agent has one. */
   memory: string;
   tools: string[];
+  /** What the page calls each tool that has a title of its own. The others are said by their name in words. */
+  titles?: Record<string, string>;
+  /** Every feature, and whether it is on. */
+  features?: { name: string; label: string; on: boolean }[];
   /** Where each tool it did not write itself comes from, like "features.memory". A runtime older than 0.34 sends none. */
   toolsFrom?: Record<string, string>;
   skills: string[];
@@ -237,18 +241,64 @@ export interface Way {
 export interface AgentTool {
   /** The name the model calls it by. */
   name: string;
+  /** What the page calls it, like "Read file". Absent for a tool the agent wrote itself. */
+  title?: string;
   does: string;
-  /** Where it comes from, like "features.memory", or absent for the agent's own. */
+  /** Where it comes from, like "features.memory", "always" for one every agent has, or absent for the agent's own. */
   from?: string;
+  /** Whether the agent has it. A tool switched off is listed, off. */
+  on: boolean;
+  /** Only in a conversation with its owner. */
+  ownerOnly?: boolean;
   takes: { name: string; about: string; required: boolean }[];
 }
 
-/** A feature: tools chloe adds to an agent, switched on or off in its agent.ts. */
+/** One field of a feature or a channel, with what it is now. */
+export interface OptionShown {
+  name: string;
+  label: string;
+  about: string;
+  kind: "words" | "number" | "yesno" | "list" | "pick";
+  pick?: string[];
+  numbers?: boolean;
+  value: unknown;
+  default: unknown;
+  /** The file writes it as code, so it is shown and left alone. */
+  code: boolean;
+  required?: boolean;
+}
+
+/** One channel: a way in chloe ships, on or off for this agent, or one the agent wrote itself. */
+export interface ChannelShown {
+  name: string;
+  label: string;
+  does: string;
+  on: boolean;
+  /** Written by the agent in code: shown, not changed here. */
+  own?: boolean;
+  fields: OptionShown[];
+  /** The settings that hold its tokens, and whether each is filled. Never a value. */
+  secrets: { path: string; label: string; set: boolean }[];
+  needs?: { name: string; missing: string[] };
+  /** The file writes the whole channel as code. */
+  code?: boolean;
+  /** Options it has that are not fields, as the file wrote them. Never a credential. */
+  settings: { name: string; value: string }[];
+}
+
+/** A feature: tools chloe adds to an agent, switched on or off in its agent.ts, some with fields. */
 export interface AgentFeature {
   name: string;
+  label: string;
   on: boolean;
   does: string;
+  /** Every tool it can add. */
   tools: string[];
+  /** The connection it works through, and what that still needs. */
+  needs?: { name: string; missing: string[] };
+  fields?: OptionShown[];
+  /** The file writes the whole feature as code. */
+  code?: boolean;
 }
 
 /** One conversation an agent is in, whichever way it is reached. */

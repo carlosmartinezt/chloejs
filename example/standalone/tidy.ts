@@ -2,8 +2,8 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { defineAgent, defineJob, startChloe } from "@chloejs/core";
-import { telegramChannel } from "@chloejs/core/channels";
 import { every } from "@chloejs/core/timer";
+import { telegramChannel } from "@chloejs/core/channels";
 
 const FOLDER = "/home/you/Downloads";
 const MONTH = 30 * 24 * 60 * 60 * 1000;
@@ -41,7 +41,7 @@ const housekeeper = defineAgent({
   instructions: "Be brief.",
   model: "anthropic/claude-haiku-4.5",
   jobs: [tidy],
-  channels: [telegramChannel({ allowFrom: [123456789] })],
+  channels: { telegram: telegramChannel({ allowFrom: [123456789] }) },
 });
 
 await startChloe({

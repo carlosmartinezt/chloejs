@@ -298,7 +298,9 @@ export async function writeFiles(
 }
 
 /**
- * Replaces one piece of text in a file, and leaves the rest as it was.
+ * Replaces one piece of text in a file, and leaves the rest as it was. With
+ * no `old`, adds `replacement` to the end of the file, or makes the file when
+ * it is not there.
  *
  * - `root`: the folder you allow. The file must be inside it.
  * - `path`: the file, relative to `root`.
@@ -307,19 +309,23 @@ export async function writeFiles(
  * - `options`: `commit`, `message`, `author` and `in`, the same as for `writeFiles`.
  *
  * Returns the same as `writeFiles`, plus `line`: the line where the change
- * starts.
+ * starts, or 0 when text was added to the end.
  *
- * Throws if `old` is empty, is not in the file, or is in the file more than
- * once (the message says how many times). Also throws if the file does not
- * exist, and for the same reasons as `writeFiles`.
+ * Throws if `old` is not in the file, or is in the file more than once (the
+ * message says how many times). Also throws if there is an `old` and the file
+ * does not exist, and for the same reasons as `writeFiles`.
  */
 export async function editFiles(
   root: string,
   path: string,
-  old: string,
+  old: string | undefined,
   replacement: string,
   options: { commit?: boolean; message?: string; author?: string; in?: Place } = {},
 ) {
+  if (old === undefined) {
+    if (replacement.length === 0) throw new Error("There is nothing to add: `new` is empty.");
+    return { ...(await writeFiles(root, path, replacement, { ...options, append: true })), line: 0 };
+  }
   if (old.length === 0) throw new Error("Say which text to replace: `old` is empty.");
   const resolved = confine(root, path);
   const before = await readFile(resolved, "utf8");

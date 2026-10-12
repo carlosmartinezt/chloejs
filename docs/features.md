@@ -21,7 +21,11 @@ rename breaks nothing ([A prompt with tools](/docs/prompts#skills-and-scripts)).
 
 | Feature | Default | Tools it adds |
 |---|---|---|
-| `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles`, `memoryWriteFile`, `memoryEditFile` |
+| `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles`, `memoryEditFile` |
+| `web` | off | `webReadPage` |
+| `email` | off | `emailReadMail`, `emailReplyMail`, `emailSendMail` |
+| `calendar` | off | `calendarListEvents`, `calendarAddEvent` |
+| `drive` | off | `driveSearchFiles`, `driveReadFile` |
 | `selfImprovement` | on | `selfWriteFile` |
 | `memoryPerUser` | off | `memoryWriteUserNotes` |
 | `runScripts` | off | `scriptRun` |
@@ -36,10 +40,34 @@ The agent's notes between runs, in its memory folder and nowhere else
 | `memoryListFiles` | Lists the files in its memory. |
 | `memoryReadFile` | Reads one. |
 | `memorySearchFiles` | Finds the files that contain some text. The search is plain text, not by meaning. |
-| `memoryWriteFile` | Writes a whole file. |
-| `memoryEditFile` | Changes part of a file. |
+| `memoryEditFile` | Changes one piece of text in a file, which must be there exactly once. With no old text it adds to the end of the file, or makes the file. There is no tool that replaces a whole file, because that is how the rest of one gets lost. |
 
 Every run that changes the memory is one git commit under the agent's id.
+
+### web
+
+`webReadPage` reads one public web page as plain text, with links written as
+`[text](url)`. It refuses this machine and private addresses, and does not run
+a page's JavaScript. Searching the web is `web.search()`, bound in `tools`.
+
+### email, calendar and drive
+
+Google, as three features that share the one sign-in (see
+[Connections](/docs/connections#the-google-tools)). Each is `true` for its
+narrowest reach, or its fields written out, which the Tools page shows as a form.
+The model never chooses what a field fixes.
+
+| Feature | Fields | Tools |
+|---|---|---|
+| `email` | `search` (a Gmail search, default `in:inbox`), `days` (7), `about`, `reply` (false), `sendTo` (none), `sendFrom`, `sendWhen` | `emailReadMail`; with `reply`, `emailReplyMail`; with a `sendTo`, `emailSendMail`, which writes only the subject and the body |
+| `calendar` | `calendars` (`["primary"]`), `days` (7), `about`, `add` (false) | `calendarListEvents`; with `add`, `calendarAddEvent`, which invites nobody |
+| `drive` | `search` (all of Drive), `about` | `driveSearchFiles`, `driveReadFile` |
+
+`features: { email: { search: "label:orders", days: 3, reply: true } }`. What a
+feature cannot hold (a copy folder for sent mail, several calendars to add to,
+a limit worked out in code) is bound with the tool functions in `tools`, which
+are on [Tools](/docs/tools). An email channel that may write first brings
+`emailStartConversation` itself: see `start` in [Email](/docs/channels-email).
 
 ### selfImprovement
 
@@ -80,14 +108,22 @@ Give each script a skill that says when to run it, or keep it in the skill's
 folder. With it on, a file somebody sends is also saved for the scripts
 ([Skills and scripts](/docs/prompts#skills-and-scripts)).
 
+## Switching one tool off
+
+A feature is all of its tools. To keep a feature but not one of its tools, or
+to switch off a tool you bound yourself without losing the options you gave it,
+list its name in `without`: `without: ["memoryEditFile"]`. The dashboard's
+Tools page writes that list when you switch a single tool. A name that is no
+tool of the agent stops it loading, saying what there is. A feature's tool may
+be named while the feature is off.
+
 ## With no feature
 
 | Tool | Who gets it | What it does |
 |---|---|---|
-| `skillRead` | every turn | Opens one of the agent's skills by name. The agent sees every skill's description and opens the one it needs. A skill that is a folder also lists its files and the scripts it can run. |
 | `chatSendFile` | a conversation on a channel that can send files, never a stranger's | Sends a file from its memory, or one it was sent, into that conversation. Telegram can. |
 | `selfListFiles` | every turn | Lists the files in its own folder, and which it may change. Never its memory. |
-| `selfReadFile` | every turn | Reads any of them, several in one call: its own source code included. |
+| `selfReadFile` | every turn | Reads any of them, several in one call: its own source code and its skills included. The agent is shown every skill's description and the file to read, and reads the one it needs. |
 | `selfListRuns` | turns its owner wrote | Lists its own runs, newest first: the job or chat, where it came from, when, the cost, and whether it failed. |
 | `selfReadRun` | turns its owner wrote | Reads one run: what started it, the answer or the error, and each step on the way. |
 | `selfTryJob` | turns its owner wrote | Runs one of its jobs as a [trial](/docs/jobs#a-trial-run), as its files are now: it reads for real, sends nothing, and answers with every message and email it would have sent. |
@@ -103,8 +139,8 @@ conversation is refused.
 ## On a channel that names its tools
 
 A channel's `tools` keeps a turn to the tools it names, plus the memory tools,
-`selfListFiles` and `selfReadFile` (an agent may always read its own folder)
-and `skillRead`. A visitor on a web channel is a stranger and gets only what
+`selfListFiles` and `selfReadFile` (an agent may always read its own folder).
+A visitor on a web channel is a stranger and gets only what
 the channel names, and `memoryWriteUserNotes` with `memoryPerUser` on. Naming a
 memory or self tool there stops the agent from loading. See
 [Channels](/docs/channels).

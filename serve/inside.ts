@@ -9,9 +9,15 @@ import { modelFor } from "#chloe/model/choices";
 import { ownKey, sdkModel } from "#chloe/model/key";
 import { providerOf, routeFor, type Route } from "#chloe/model/model";
 import { describe, descriptionOf, neededBy } from "#chloe/model/tool";
-import { FEATURES, featureOn, type Agent } from "#chloe/load/load";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { FEATURES, featureOn, featureToolSet, featureValues, type Agent } from "#chloe/load/load";
+import { defaultOf, valueAtName, type OptionSpec } from "#chloe/load/options";
 import { webOf } from "#chloe/channels/web";
-import { money, spentText } from "#chloe/core/turn";
+import { alwaysOnTools, money, spentText } from "#chloe/core/turn";
+import { saidChannel, saidIn, type Said } from "./config.ts";
 import { BadRequest, NotFound } from "./errors.ts";
 import { spent } from "./web.ts";
 
@@ -105,111 +111,260 @@ function optionsOf(channel: { name: string; madeWith?: string }): { name: string
     .map(([name, value]) => ({ name, value: said(value, held) }));
 }
 
+/** What a channel was made with, as the JSON it keeps. Empty when it keeps none. */
+function madeWith(channel: { madeWith?: string }): Record<string, unknown> {
+  try {
+    return channel.madeWith ? (JSON.parse(channel.madeWith) as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 /** One tool as the page shows it. */
 export interface ToolShown {
   /** The name the model calls it by. */
   name: string;
+  /** What the page calls it, like "Read file". Absent for a tool the agent wrote itself: the page says its name in words. */
+  title?: string;
   /** What the model is told it is for. */
   does: string;
-  /** Where it comes from, like "features.memory", or absent for the agent's own. */
+  /** Where it comes from, like "features.memory", "always" for one every agent has, or absent for the agent's own. */
   from?: string;
+  /** Whether the agent has it. A tool in `without` is shown, switched off. */
+  on: boolean;
+  /** Only in a conversation with its owner. */
+  ownerOnly?: boolean;
   /** What it takes, in the words the model is given for each. */
   takes: { name: string; about: string; required: boolean }[];
 }
 
-/** What an agent can do: every tool it is bound, with what the model is told it is for and what it takes. */
-export async function toolsOf(agent: Agent): Promise<ToolShown[]> {
-  const from = agent.toolsFrom ?? {};
-  const shown = await Promise.all(
-    Object.entries(agent.tools ?? {}).map(async ([name, tool]) => {
-      const schema = await describe(name, tool).then((one) => one.parameters, () => ({}) as Record<string, any>);
-      const required: string[] = schema.required ?? [];
-      const takes = Object.entries((schema.properties ?? {}) as Record<string, { description?: string }>).map(([key, one]) => ({
-        name: key,
-        about: one.description ?? "",
-        required: required.includes(key),
-      }));
-      return { name, does: descriptionOf(tool).trim(), ...(from[name] && { from: from[name] }), takes };
-    }),
-  );
-  return shown.sort((a, b) => a.name.localeCompare(b.name));
+/** One tool, with what it takes read off its schema. */
+async function shown(name: string, tool: Parameters<typeof describe>[1], rest: Omit<ToolShown, "name" | "does" | "takes">): Promise<ToolShown> {
+  const schema = await describe(name, tool).then((one) => one.parameters, () => ({}) as Record<string, any>);
+  const required: string[] = schema.required ?? [];
+  const takes = Object.entries((schema.properties ?? {}) as Record<string, { description?: string }>).map(([key, one]) => ({
+    name: key,
+    about: one.description ?? "",
+    required: required.includes(key),
+  }));
+  return { name, ...((tool as { title?: string }).title && { title: (tool as { title?: string }).title }), does: descriptionOf(tool).trim(), ...rest, takes };
 }
 
-/** Every feature, whether this agent has it on, what it does and the tools it adds. */
-export function featuresOf(agent: Agent) {
-  return FEATURES.map((one) => ({ name: one.name, on: featureOn(agent.features, one.name), does: one.does, tools: one.tools }));
+/**
+ * What an agent can do: every tool it is bound, the ones it has switched off,
+ * and the ones every agent has, each with what the model is told it is for
+ * and what it takes.
+ */
+export async function toolsOf(agent: Agent): Promise<ToolShown[]> {
+  const from = agent.toolsFrom ?? {};
+  const mine = Object.entries(agent.tools ?? {}).map(([name, tool]) => shown(name, tool, { on: true, ...(from[name] && { from: from[name] }) }));
+  const off = Object.entries(agent.toolsOff ?? {}).map(([name, tool]) => shown(name, tool, { on: false, ...(from[name] && { from: from[name] }) }));
+  // What a feature that is off would bring, so what switching it on does is plain.
+  const brings = FEATURES.filter((one) => !featureOn(agent.features, one.name)).flatMap((one) =>
+    Object.entries(featureToolSet(agent, one.name, agent.features, true)).map(([name, tool]) => shown(name, tool, { on: false, from: `features.${one.name}` })),
+  );
+  const always = alwaysOnTools(agent).map((one) => shown(one.name, one.tool, { on: true, from: "always", ...(one.ownerOnly && { ownerOnly: true }) }));
+  return (await Promise.all([...mine, ...off, ...brings, ...always])).sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/** One feature as the page shows it. */
+export interface FeatureShown {
+  name: string;
+  /** What the page calls it. */
+  label: string;
+  on: boolean;
+  does: string;
+  /** Every tool it can add. */
+  tools: string[];
+  /** The connection it works through, and what that still needs before it works. */
+  needs?: { name: string; missing: string[] };
+  /** The fields it takes, with what each is now. Absent for a feature that is only on or off. */
+  fields?: {
+    name: string;
+    label: string;
+    about: string;
+    kind: string;
+    pick?: string[];
+    numbers?: boolean;
+    value: unknown;
+    default: unknown;
+    /** The file writes it as code, so it is shown and left alone. */
+    code: boolean;
+  }[];
+  /** The file writes the whole feature as code, so its fields are shown and left alone. */
+  code?: boolean;
+}
+
+/** Every feature, whether this agent has it on, its fields as they are now and what each does. */
+export async function featuresOf(agent: Agent): Promise<FeatureShown[]> {
+  const file = join(agent.folder, "agent.ts");
+  const text = existsSync(file) ? await readFile(file, "utf8").catch(() => "") : "";
+  return Promise.all(
+    FEATURES.map(async (one): Promise<FeatureShown> => {
+      const said = text ? safely(() => saidIn(text, "features", one.name)) : ({ kind: "code" } as Said);
+      const values = one.fields ? featureValues(agent.features, one.name) : {};
+      const missing = one.needs ? await one.needs.missing().catch((error: Error) => [error.message]) : [];
+      return {
+        name: one.name,
+        label: one.label,
+        on: featureOn(agent.features, one.name),
+        does: one.does,
+        tools: one.tools,
+        ...(one.needs && { needs: { name: one.needs.name, missing } }),
+        ...(one.fields && {
+          fields: one.fields.map((spec) => ({
+            name: spec.name,
+            label: spec.label,
+            about: spec.about,
+            kind: spec.kind,
+            ...(spec.pick && { pick: spec.pick }),
+            ...(spec.numbers && { numbers: true }),
+            value: values[spec.name],
+            default: defaultOf(spec),
+            code: said.kind === "code" || (said.kind === "fields" && (said.fields[spec.name] === "code" || "..." in said.fields)),
+          })),
+        }),
+        ...(said.kind === "code" && { code: true }),
+      };
+    }),
+  );
+}
+
+/** The labels of the features that are on, for the agent's own page. */
+export function featureNames(agent: Agent): { name: string; label: string; on: boolean }[] {
+  return FEATURES.map((one) => ({ name: one.name, label: one.label, on: featureOn(agent.features, one.name) }));
+}
+
+const safely = <T,>(work: () => T): T | { kind: "code" } => {
+  try {
+    return work();
+  } catch {
+    return { kind: "code" };
+  }
+};
 
 /** Whether a setting has been filled in. An object counts when it has anything in it. */
 const filled = (value: string | Record<string, unknown> | undefined): boolean =>
   typeof value === "object" ? Object.keys(value).length > 0 : Boolean(value && value.trim());
 
+/** One channel as the page shows it: every channel chloe ships whether the agent has it or not, and the agent's own. */
+export interface ChannelShown {
+  name: string;
+  /** What the page calls it. */
+  label: string;
+  does: string;
+  on: boolean;
+  /** A channel the agent wrote itself: shown, and not changed here. */
+  own?: boolean;
+  /** The options that are plain values, as a form. */
+  fields: OptionShown[];
+  /** The settings that hold its tokens, and whether each is filled. Never a value. */
+  secrets: { path: string; label: string; set: boolean }[];
+  /** The connection it works through, and what that still needs. */
+  needs?: { name: string; missing: string[] };
+  /** The agent's file writes the whole channel as code. */
+  code?: boolean;
+  /** Options it was made with that are not fields, such as the tools or the job it names, as the file wrote them. */
+  settings: { name: string; value: string }[];
+}
+
+/** One field of a feature or a channel, as the page's form takes it. */
+export interface OptionShown {
+  name: string;
+  label: string;
+  about: string;
+  kind: string;
+  pick?: string[];
+  numbers?: boolean;
+  value: unknown;
+  default: unknown;
+  /** The file writes it as code, so it is shown and left alone. */
+  code: boolean;
+  required?: boolean;
+}
+
+/** A value fit for the page: a word, a number, a switch or a list of them, and nothing a form could not hold. */
+const plain = (value: unknown): unknown =>
+  typeof value === "string" || typeof value === "number" || typeof value === "boolean" || (Array.isArray(value) && value.every((one) => typeof one === "string" || typeof one === "number"))
+    ? value
+    : undefined;
+
+/** The form of a feature's or a channel's fields, from what agent.ts says now. */
+function optionsShown(specs: OptionSpec[], said: Said, value: (name: string) => unknown): OptionShown[] {
+  return specs.map((spec) => {
+    const code = said.kind === "code" || (said.kind === "fields" && (said.fields[spec.name] === "code" || "..." in said.fields));
+    const now = value(spec.name);
+    return {
+      name: spec.name,
+      label: spec.label,
+      about: spec.about,
+      kind: spec.kind,
+      ...(spec.pick && { pick: spec.pick }),
+      ...(spec.numbers && { numbers: true }),
+      value: plain(now === undefined ? defaultOf(spec) : now),
+      default: defaultOf(spec),
+      code,
+      ...(spec.required && { required: true }),
+    };
+  });
+}
+
 /**
- * The ways in this agent binds. A channel chloe ships says which setting holds
- * its token; one written in an agent's own channels/ folder is named and
- * nothing more, because only it knows what it needs.
+ * Every channel chloe ships, on or off for this agent, with its options as
+ * fields and which of its tokens are filled in, then the agent's own. A
+ * channel's options are read from what agent.ts says, because the channel
+ * made from them keeps no copy.
  */
-export function channelsOf(agent: Agent): Way[] {
-  return agent.channels
-    .map((channel): Way => {
-      const how = optionsOf(channel);
-      if (channel.name === "telegram") {
-        return {
-          name: "telegram",
-          does: "A Telegram bot. Anyone it is told to listen to can talk to this agent.",
-          needs: `agents.${agent.id}.telegram`,
-          ready: filled(settings.agents[agent.id]?.telegram),
-          settings: how,
-        };
-      }
-      if (channel.name === "slack") {
-        const slack = settings.agents[agent.id]?.slack;
-        return {
-          name: "slack",
-          does: "A Slack app. It answers in a direct message or wherever it is invited.",
-          needs: `agents.${agent.id}.slack`,
-          ready: filled(slack?.bot_token) && filled(slack?.app_token),
-          settings: how,
-        };
-      }
-      if (channel.name === "whatsapp") {
-        const whatsapp = settings.agents[agent.id]?.whatsapp;
-        return {
-          name: "whatsapp",
-          does: "A number on WhatsApp's own API. It answers one-to-one messages, and WhatsApp allows no groups on it.",
-          needs: `agents.${agent.id}.whatsapp`,
-          ready: filled(whatsapp?.phone_number_id) && filled(whatsapp?.token) && filled(whatsapp?.app_secret),
-          settings: how,
-        };
-      }
-      const web = channel.name === "web" ? webOf(agent) : undefined;
-      if (web) {
-        const day = spent(agent.id);
-        return {
-          name: "web",
-          does:
-            `A chat box on a web page, for anybody who visits ${web.origins.join(" or ")}. ` +
-            `The last 24 hours: ${day.visitors} ${day.visitors === 1 ? "visitor" : "visitors"}, ${day.messages} ${day.messages === 1 ? "message" : "messages"}, ` +
-            (day.unpriced
-              ? `${spentText(day.dollars, day.unpriced)} spent, because ${day.unpriced} ${day.unpriced === 1 ? "answer" : "answers"} came with no price, so it refuses visitors until those are a day old.`
-              : `${money(day.dollars)} of the ${money(web.limits.perDay.dollars)} it may spend.`),
-          needs: "",
-          ready: null,
-          settings: how,
-        };
-      }
-      if (channel.name === "api") {
-        return {
-          name: "api",
-          does: "A token another system holds may chat to this agent and run its jobs.",
-          needs: "",
-          ready: null,
-          settings: how,
-        };
-      }
-      return { name: channel.name, does: "A way in of this agent's own.", needs: "", ready: null, settings: how };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
+export async function channelsOf(agent: Agent): Promise<ChannelShown[]> {
+  const { CHANNELS } = await import("#chloe/channels/catalog");
+  const file = agent.folder ? join(agent.folder, "agent.ts") : "";
+  const text = file && existsSync(file) ? await readFile(file, "utf8").catch(() => "") : "";
+  const held = settings.agents[agent.id] as unknown as Record<string, unknown> | undefined;
+  const filledAt = (path: string) => filled(path.split(".").reduce<unknown>((at, key) => (at && typeof at === "object" ? (at as Record<string, unknown>)[key] : undefined), held) as string | undefined);
+  const shipped = await Promise.all(
+    CHANNELS.map(async (kind): Promise<ChannelShown> => {
+      const channel = agent.channels.find((one) => one.name === kind.name);
+      const said = text ? safely(() => saidChannel(text, kind.name, kind.fn)) : ({ kind: "code" } as Said);
+      // What the file writes plainly, else what the running channel was made with, for a value the file writes as code.
+      const made = channel ? madeWith(channel) : {};
+      const valueOf = (name: string) => (said.kind === "fields" && name in said.values ? said.values[name] : valueAtName(made, name));
+      const needs = channel?.needs ? { name: channel.needs.name, missing: await channel.needs.missing().catch((error: Error) => [error.message]) } : undefined;
+      const names = kind.fields.map((one) => one.name.split(".")[0]);
+      const web = channel && kind.name === "web" ? webOf(agent) : undefined;
+      const day = web ? spent(agent.id) : undefined;
+      return {
+        name: kind.name,
+        label: kind.label,
+        does:
+          web && day
+            ? `A chat box on a web page, for anybody who visits ${web.origins.join(" or ")}. ` +
+              `The last 24 hours: ${day.visitors} ${day.visitors === 1 ? "visitor" : "visitors"}, ${day.messages} ${day.messages === 1 ? "message" : "messages"}, ` +
+              (day.unpriced
+                ? `${spentText(day.dollars, day.unpriced)} spent, because ${day.unpriced} ${day.unpriced === 1 ? "answer" : "answers"} came with no price, so it refuses visitors until those are a day old.`
+                : `${money(day.dollars)} of the ${money(web.limits.perDay.dollars)} it may spend.`)
+            : kind.does,
+        on: Boolean(channel),
+        fields: optionsShown(kind.fields, said, valueOf),
+        secrets: kind.secrets.map((one) => ({ ...one, set: filledAt(one.path) })),
+        ...(needs && { needs }),
+        ...(said.kind === "code" && channel && { code: true }),
+        settings: channel ? optionsOf(channel).filter((one) => !names.includes(one.name)) : [],
+      };
+    }),
+  );
+  const own = agent.channels
+    .filter((one) => !CHANNELS.some((kind) => kind.name === one.name))
+    .map((channel): ChannelShown => ({
+      name: channel.name,
+      label: channel.name,
+      does: "A way in of this agent's own, written in code.",
+      on: true,
+      own: true,
+      fields: [],
+      secrets: [],
+      settings: optionsOf(channel),
+    }));
+  return [...shipped, ...own];
 }
 
 /** Where a model is asked, as one of the ways out of this box. */

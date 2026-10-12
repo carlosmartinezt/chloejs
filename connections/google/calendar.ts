@@ -51,7 +51,7 @@ export function listEvents({ calendars = ["primary"], what = "the calendar", day
     execute: async ({ from, days: ahead, limit }) =>
       await listCalendarEvents({ calendars, from: from ? new Date(from) : new Date(), days: ahead ?? days, limit }),
   });
-  return Object.assign(list, { needs: google, onlyReads: true, kind: "list" as const });
+  return Object.assign(list, { title: "List events", needs: google, onlyReads: true, kind: "list" as const });
 }
 
 /**
@@ -83,5 +83,5 @@ export function addEvent({ calendar = "primary", what = "the calendar", when = "
     }),
     execute: async (input) => await addCalendarEvent({ calendar, ...input }),
   });
-  return Object.assign(add, { needs: google });
+  return Object.assign(add, { title: "Add event", needs: google });
 }

@@ -88,8 +88,8 @@ interface Event {
  * tool calls of every answer it gave, and the result line it ends on. Only
  * calls to the tools it was handed count.
  *
- * The instructions name a tool as its developer wrote it, `skillRead`, and
- * the CLI lists it as `mcp__chloe__skillRead`. The prompt says they are the
+ * The instructions name a tool as its developer wrote it, `selfReadFile`, and
+ * the CLI lists it as `mcp__chloe__selfReadFile`. The prompt says they are the
  * same (`asText`), but a model now and then calls the short name anyway, and
  * the CLI refuses that call, tries again past the one answer it is allowed,
  * and exits 1. It is still a call to a tool it was handed, so it counts, once.

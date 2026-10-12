@@ -257,7 +257,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const usage = (await (await fetch(`${at}/api/agents/test/web`, { headers: { authorization: `Bearer ${secret}` } })).json()) as { lastDay: { visitors: number } };
   is("its owner sees how many visitors the last day had", usage.lastDay.visitors >= 3, true);
   const { channelsOf } = await import("#chloe/serve/inside");
-  is("and the channel says so where the agent's ways in are listed", channelsOf(agent)[0].does.includes("The last 24 hours:"), true);
+  is("and the channel says so where the agent's ways in are listed", (await channelsOf(agent)).find((one) => one.name === "web")!.does.includes("The last 24 hours:"), true);
   const { db } = await import("#chloe/core/db");
   const named = db.prepare("select label from threads where thread = ?").get(`test/visitor-${vouched.visitor}`) as { label: string };
   is("a visitor's conversation is named for who and where", named.label, "Ada script, myshop.com");

@@ -5,8 +5,16 @@ summary: Putting an agent on Telegram, Slack, WhatsApp or email, in a chat box o
 ---
 
 A channel is how people reach an agent, and how a job's question reaches a
-person. An agent is on one because its `agent.ts` lists it in `channels`. Each
-is imported from `@chloejs/core/channels`, and has a page of its own.
+person. An agent is on one because its `agent.ts` names it in `channels`, keyed
+by its name like a tool and made by its function from `@chloejs/core/channels`,
+like `channels: { telegram: telegramChannel({ allowFrom: [123456789] }), api: apiChannel() }`.
+A channel you write yourself goes in the same way, so nothing about a channel
+chloe ships is built in. The dashboard's Channels page shows every channel
+chloe ships with a switch, the options that are plain values as a form, and a
+place for its tokens; it adds or removes the call and its import in `agent.ts`,
+and checks the agent still loads. An option that needs code, like `tools` or
+`job`, is written in the file and shown there read only. Each channel has a
+page of its own.
 
 | Channel | Who may write | What it needs | Opens a port? |
 |---|---|---|---|

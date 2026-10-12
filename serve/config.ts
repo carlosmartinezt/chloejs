@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { envNames, writeEnv } from "#chloe/core/env";
 import { DEFAULTS, KEYS, nameInEnv, settings } from "#chloe/core/settings";
 import { checkFirst, CONFIG, FEATURES, loadAgain, loadAll, type Agent, type Home } from "#chloe/load/load";
+import { defaultOf, fits, takes, type OptionSpec } from "#chloe/load/options";
 import { typeProblems } from "#chloe/services/selfService";
 import { BadRequest, NotFound } from "./errors.ts";
 
@@ -117,6 +118,12 @@ export async function configFields(): Promise<Field[]> {
 export async function changeSettings(changes: { path: string; value: unknown }[]): Promise<void> {
   let text = await configText();
   const known = new Map(leaves().map((one) => [one.path.join("."), one.was]));
+  // A channel's tokens are under the agent that has the channel.
+  const { CHANNELS } = await import("#chloe/channels/catalog");
+  for (const { path } of changes) {
+    const [top, id, ...rest] = path.split(".");
+    if (top === "agents" && id && CHANNELS.some((kind) => kind.secrets.some((one) => one.path === rest.join(".")))) known.set(path, "");
+  }
   const env: Record<string, string | null> = {};
   for (const { path: dotted, value } of changes) {
     if (!known.has(dotted)) throw new Error(`${dotted} is not a setting this page changes.`);
@@ -162,48 +169,384 @@ export async function changeSettings(changes: { path: string; value: unknown }[]
 }
 
 /**
- * Switches one of an agent's features on or off in its agent.ts, and hands
- * back the agent as it now loads. The file says a feature only where it
- * differs from what the feature is unsaid, so switching one back takes its
- * line out. Refused as `InCode` where `features` is written as code, and put
- * back with the reason when the agent would not load or type check.
+ * Changes one of an agent's features in its agent.ts, and hands back the
+ * agent as it now loads: `on` switches it, and `set` gives its fields, each a
+ * value or `null` to put the default back. The file says a feature only where
+ * it differs from what the feature is unsaid. Refused as `InCode` where the
+ * file writes it as code.
  */
-export async function changeFeature(agent: Home, name: string, on: boolean): Promise<Agent> {
+export async function changeFeature(agent: Home, name: string, change: { on?: boolean; set?: Record<string, unknown> }): Promise<Agent> {
   const feature = FEATURES.find((one) => one.name === name);
   if (!feature) throw new BadRequest(`There is no feature called ${name}. There are ${FEATURES.map((one) => one.name).join(", ")}.`);
-  const file = join(agent.folder, "agent.ts");
-  if (!existsSync(file)) throw new NotFound(`${agent.id} has no agent.ts, so its features are changed where it is defined.`);
-  const before = await readFile(file, "utf8");
-  const text = setFeatureIn(before, name, on === feature.on ? null : on);
-  if (text === before) return loadAgain(agent);
-  return checkFirst(async () => {
-    await writeFile(file, text);
-    let problem = "";
-    try {
-      const now = await loadAgain(agent);
-      const types = await typeProblems(file);
-      if (!types) return now;
-      problem = `it does not type check:\n${types}`;
-    } catch (error) {
-      problem = error instanceof Error ? error.message : String(error);
-    }
-    await writeFile(file, before);
-    throw new Error(`agent.ts is put back as it was, because ${problem}`);
-  });
+  const set = checked(feature.fields ?? [], change.set, `features.${name}`);
+  return changeAgentFile(agent, (text) => setOptionsIn(text, "features", name, { on: change.on, set }, feature.on));
 }
 
 /**
- * agent.ts's text with `features.<name>` set to `on`, or taken out when it is
- * null, and `features` with it when nothing is left in it.
+ * Changes one of an agent's channels in its agent.ts, and hands back the agent
+ * as it now loads: `on` adds or removes its call in `channels`, `set` gives
+ * the plain options inside the call, and `secrets` gives the tokens it needs,
+ * each by its path under `agents.<id>`, which go to .env and are named in the
+ * config. A channel the file writes some other way is the file's.
  */
-export function setFeatureIn(text: string, name: string, on: boolean | null): string {
+export async function changeChannel(
+  agent: Home,
+  name: string,
+  change: { on?: boolean; set?: Record<string, unknown>; secrets?: Record<string, string> },
+): Promise<Agent> {
+  const { CHANNELS } = await import("#chloe/channels/catalog");
+  const kind = CHANNELS.find((one) => one.name === name);
+  if (!kind) throw new BadRequest(`${agent.id} has no channel chloe ships called ${name}. There are ${CHANNELS.map((one) => one.name).join(", ")}.`);
+  const set = checked(kind.fields, change.set, `channels.${name}`);
+  const tokens = Object.entries(change.secrets ?? {});
+  for (const [path, value] of tokens) {
+    if (!kind.secrets.some((one) => one.path === path)) throw new BadRequest(`${name} has no setting ${path}. It reads ${kind.secrets.map((one) => one.path).join(", ") || "none"}.`);
+    if (typeof value !== "string" || !value.trim()) throw new BadRequest(`${path} is empty.`);
+  }
+  const now =
+    change.on === undefined && Object.keys(set).length === 0
+      ? await loadAgain(agent)
+      : await changeAgentFile(agent, (text) => setChannelIn(text, kind.name, kind.fn, { on: change.on, set, starter: kind.starter }));
+  if (tokens.length) await changeSettings(tokens.map(([path, value]) => ({ path: `agents.${agent.id}.${path}`, value })));
+  return now;
+}
+
+/** What a form gave for each field, refused where it is not what the field takes. `null` stays, and puts the default back. */
+function checked(specs: OptionSpec[], given: Record<string, unknown> | undefined, where: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(given ?? {})) {
+    const spec = specs.find((one) => one.name === name);
+    if (!spec) throw new BadRequest(`${where} has no field ${name}. It has ${specs.map((one) => one.name).join(", ") || "none"}.`);
+    if (value !== null && !fits(spec, value)) throw new BadRequest(`${where}: ${name} takes ${takes(spec)}.`);
+    out[name] = value !== null && JSON.stringify(value) === JSON.stringify(defaultOf(spec)) ? null : value;
+  }
+  return out;
+}
+
+/**
+ * Switches one tool off or on by changing `without` in the agent's agent.ts,
+ * and hands back the agent as it now loads. A name the agent does not have
+ * is refused. Refused as `InCode` where `without` is written as code.
+ */
+export async function changeTool(agent: Home, name: string, on: boolean): Promise<Agent> {
+  return changeAgentFile(agent, (text) => setWithoutIn(text, name, on));
+}
+
+/**
+ * Writes agent.ts as `change` makes it, loads the agent from it, and hands it
+ * back; or puts the file back and throws why it would not load. There is no
+ * type check: a switch changes a true, false or a name in a list, which
+ * cannot be a type error, and a check of the whole project is what made a
+ * switch take seconds. Loading catches a name that is wrong.
+ */
+async function changeAgentFile(agent: Home, change: (text: string) => string): Promise<Agent> {
+  const file = join(agent.folder, "agent.ts");
+  if (!existsSync(file)) throw new NotFound(`${agent.id} has no agent.ts, so this is changed where it is defined.`);
+  const before = await readFile(file, "utf8");
+  const text = change(before);
+  if (text === before) return loadAgain(agent);
+  return checkFirst(async () => {
+    await writeFile(file, text);
+    try {
+      return await loadAgain(agent);
+    } catch (error) {
+      await writeFile(file, before);
+      throw new Error(`agent.ts is put back as it was, because ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+}
+
+/** Where `defineAgent({` opens in agent.ts. */
+function agentObject(text: string): number {
   const open = /defineAgent\s*\(\s*\{/.exec(blank(text));
   if (!open) throw new InCode("agent.ts has no defineAgent({ ... }) to change.");
-  const at = open.index + open[0].length - 1;
-  const out = put(text, at, ["features", name], on === null ? null : String(on), "agent.ts");
-  const features = entries(out, at).find((one) => one.key === "features");
-  if (features && out[features.valueStart] === "{" && entries(out, features.valueStart).length === 0) return remove(out, features);
+  return open.index + open[0].length - 1;
+}
+
+/** How agent.ts says a feature or a channel: nothing, true or false, its fields written out, or as code. */
+export type Said =
+  | { kind: "absent" }
+  | { kind: "flag"; on: boolean }
+  | {
+      kind: "fields";
+      /** Each field as its dotted name, and whether it is a plain value or code. */
+      fields: Record<string, "value" | "code">;
+      /** The plain ones, as they are written. */
+      values: Record<string, unknown>;
+    }
+  | { kind: "code" };
+
+/** How agent.ts's text says `<root>.<name>`, root being `features` or `channels`. */
+export function saidIn(text: string, root: string, name: string): Said {
+  const at = agentObject(text);
+  const group = entries(text, at).find((one) => one.key === root);
+  if (!group) return entries(text, at).some((one) => one.key === null) ? { kind: "code" } : { kind: "absent" };
+  if (text[group.valueStart] !== "{") return { kind: "code" };
+  const all = entries(text, group.valueStart);
+  const found = all.find((one) => one.key === name);
+  if (!found) return all.some((one) => one.key === null) ? { kind: "code" } : { kind: "absent" };
+  const value = text.slice(found.valueStart, found.valueEnd).trim();
+  if (value === "true" || value === "false") return { kind: "flag", on: value === "true" };
+  if (text[found.valueStart] !== "{") return { kind: "code" };
+  const fields: Record<string, "value" | "code"> = {};
+  const values: Record<string, unknown> = {};
+  const walk = (open: number, prefix: string) => {
+    for (const one of entries(text, open)) {
+      if (one.key === null) {
+        fields["..."] = "code";
+        continue;
+      }
+      const at = `${prefix}${one.key}`;
+      if (text[one.valueStart] === "{") walk(one.valueStart, `${at}.`);
+      else {
+        const plain = literal(text.slice(one.valueStart, one.valueEnd));
+        fields[at] = plain === undefined ? "code" : "value";
+        if (plain !== undefined) values[at] = plain;
+      }
+    }
+  };
+  walk(found.valueStart, "");
+  return { kind: "fields", fields, values };
+}
+
+/** A value as TypeScript, for a field: words and numbers as JSON, a list with a space after each comma. */
+const typed = (value: unknown): string => (Array.isArray(value) ? `[${value.map((one) => JSON.stringify(one)).join(", ")}]` : JSON.stringify(value));
+
+/**
+ * agent.ts's text with `<root>.<name>` changed: `on` switches it, and `set`
+ * gives its fields, each a value or `null` to take it out. A feature or
+ * channel that is on with no field to say is written `true`, and one that is
+ * off is written `false` when it is on unless said (`defaultOn`) and taken
+ * out otherwise. A field that is code is never touched: `InCode` when the
+ * change needs it, or the whole entry is code.
+ */
+export function setOptionsIn(
+  text: string,
+  root: "features" | "channels",
+  name: string,
+  change: { on?: boolean; set?: Record<string, unknown> },
+  defaultOn: boolean,
+): string {
+  const at = agentObject(text);
+  const now = saidIn(text, root, name);
+  const touching = Object.keys(change.set ?? {}).length > 0;
+  if (now.kind === "code") throw new InCode(`${root}.${name} is written as code in agent.ts, so it is changed in the file.`);
+  const path = (rest: string[] = []) => [root, name, ...rest];
+  let out = text;
+  if (change.on === false) return withoutEmpty(put(out, at, path(), defaultOn ? "false" : null, "agent.ts"), at, root);
+  const wasOn = now.kind === "absent" ? defaultOn : now.kind === "flag" ? now.on : true;
+  if (!touching) {
+    if (change.on === true && !wasOn) out = put(out, at, path(), "true", "agent.ts");
+    return out;
+  }
+  // Fields to say: the entry has to be an object for them to go in.
+  if (now.kind !== "fields") out = put(out, at, path(), "{}", "agent.ts");
+  for (const [field, value] of Object.entries(change.set ?? {})) {
+    if (now.kind === "fields" && now.fields[field] === "code") throw new InCode(`${root}.${name}.${field} is written as code in agent.ts, so it is changed in the file.`);
+    out = put(out, at, path(field.split(".")), value === null ? null : typed(value), "agent.ts");
+    if (value === null) out = pruneEmpty(out, at, path(field.split(".")).slice(0, -1));
+  }
+  // With nothing left to say, it is just on.
+  const entry = entries(out, entries(out, at).find((one) => one.key === root)!.valueStart).find((one) => one.key === name);
+  if (entry && out[entry.valueStart] === "{" && entries(out, entry.valueStart).length === 0) out = put(out, at, path(), "true", "agent.ts");
+  return withoutEmpty(out, at, root);
+}
+
+/** The text with `<root>: { }` taken out when nothing is left in it. */
+function withoutEmpty(text: string, at: number, root: string): string {
+  const group = entries(text, at).find((one) => one.key === root);
+  return group && text[group.valueStart] === "{" && entries(text, group.valueStart).length === 0 ? remove(text, group) : text;
+}
+
+/**
+ * How agent.ts says the channel `name`, made by `fn`: not at all, as
+ * `fn({ ... })` or `fn()` with its plain options, or some other way (`code`).
+ */
+export function saidChannel(text: string, name: string, fn: string): Said {
+  const at = agentObject(text);
+  const group = entries(text, at).find((one) => one.key === "channels");
+  if (!group) return entries(text, at).some((one) => one.key === null) ? { kind: "code" } : { kind: "absent" };
+  if (text[group.valueStart] !== "{") return { kind: "code" };
+  const all = entries(text, group.valueStart);
+  const found = all.find((one) => one.key === name);
+  if (!found) return all.some((one) => one.key === null) ? { kind: "code" } : { kind: "absent" };
+  const call = callOf(text, found, fn);
+  if (!call) return { kind: "code" };
+  const fields: Record<string, "value" | "code"> = {};
+  const values: Record<string, unknown> = {};
+  if (call.open !== undefined) walkFields(text, call.open, "", fields, values);
+  return { kind: "fields", fields, values };
+}
+
+/** Where the options of `fn(...)` open inside an entry's value, `open` being undefined for `fn()`, or nothing when the value is something else. */
+function callOf(text: string, entry: Entry, fn: string): { open?: number } | undefined {
+  const value = text.slice(entry.valueStart, entry.valueEnd);
+  const empty = new RegExp(`^${fn}\\(\\s*\\)$`).exec(value);
+  if (empty) return {};
+  const call = new RegExp(`^${fn}\\(\\s*\\{`).exec(value);
+  if (!call) return undefined;
+  const open = entry.valueStart + call[0].length - 1;
+  // The call has to end where the options do, or there is more in it than options.
+  return text.slice(closing(text, open) + 1, entry.valueEnd).trim() === ")" ? { open } : undefined;
+}
+
+/** The plain and code fields of the object opening at `open`, by dotted name. */
+function walkFields(text: string, open: number, prefix: string, fields: Record<string, "value" | "code">, values: Record<string, unknown>): void {
+  for (const one of entries(text, open)) {
+    if (one.key === null) {
+      fields["..."] = "code";
+      continue;
+    }
+    const at = `${prefix}${one.key}`;
+    if (text[one.valueStart] === "{") walkFields(text, one.valueStart, `${at}.`, fields, values);
+    else {
+      const plain = literal(text.slice(one.valueStart, one.valueEnd));
+      fields[at] = plain === undefined ? "code" : "value";
+      if (plain !== undefined) values[at] = plain;
+    }
+  }
+}
+
+/**
+ * agent.ts's text with the channel `name` added, removed or its options
+ * changed. Adding writes `name: fn({ ...starter, ...set })` into `channels`
+ * and `fn` into the import from `@chloejs/core/channels`; removing takes both
+ * out, the import only when nothing else uses it. A `set` value of `null`
+ * takes an option out. `InCode` when the file says the channel or the import
+ * some other way.
+ */
+export function setChannelIn(
+  text: string,
+  name: string,
+  fn: string,
+  change: { on?: boolean; set?: Record<string, unknown>; starter?: Record<string, unknown> },
+): string {
+  let at = agentObject(text);
+  const now = saidChannel(text, name, fn);
+  if (now.kind === "code") throw new InCode(`channels.${name} is written some other way than ${fn}(...) in agent.ts, so it is changed in the file.`);
+  let out = text;
+  if (change.on === false) {
+    if (now.kind === "absent") return out;
+    out = put(out, at, ["channels", name], null, "agent.ts");
+    out = withoutEmpty(out, at, "channels");
+    return dropImport(out, fn);
+  }
+  const touching = Object.keys(change.set ?? {}).length > 0;
+  if (now.kind === "absent") {
+    if (change.on !== true && !touching) return out;
+    out = addImport(out, fn);
+    // The import moved everything below it.
+    at = agentObject(out);
+    out = put(out, at, ["channels", name], `${fn}()`, "agent.ts");
+    for (const [field, value] of Object.entries(change.starter ?? {})) out = setCallField(out, at, name, fn, field, value);
+  }
+  for (const [field, value] of Object.entries(change.set ?? {})) {
+    if (now.kind === "fields" && now.fields[field] === "code") throw new InCode(`channels.${name}.${field} is written as code in agent.ts, so it is changed in the file.`);
+    out = setCallField(out, at, name, fn, field, value);
+  }
   return out;
+}
+
+/** The text with one option inside `name: fn({ ... })` set, or taken out for `null`, the call keeping to `fn()` when no option is left. */
+function setCallField(text: string, at: number, name: string, fn: string, field: string, value: unknown): string {
+  const find = (source: string) => {
+    const group = entries(source, at).find((one) => one.key === "channels")!;
+    return entries(source, group.valueStart).find((one) => one.key === name)!;
+  };
+  let out = text;
+  let entry = find(out);
+  const call = callOf(out, entry, fn);
+  if (!call) throw new InCode(`channels.${name} is written some other way than ${fn}(...) in agent.ts, so it is changed in the file.`);
+  if (call.open === undefined) {
+    if (value === null) return out;
+    out = out.slice(0, entry.valueStart) + `${fn}({})` + out.slice(entry.valueEnd);
+    entry = find(out);
+  }
+  const open = callOf(out, entry, fn)!.open!;
+  const path = field.split(".");
+  out = put(out, open, path, value === null ? null : typed(value), "agent.ts");
+  if (value === null) {
+    // Groups the option sat in go when they are empty, then the call goes back to fn() when it holds nothing.
+    for (let depth = path.length - 1; depth > 0; depth--) {
+      let inside = callOf(out, find(out), fn)!.open!;
+      let found: Entry | undefined;
+      for (const key of path.slice(0, depth)) {
+        found = entries(out, inside).find((one) => one.key === key);
+        if (!found) break;
+        inside = found.valueStart;
+      }
+      if (found && out[found.valueStart] === "{" && entries(out, found.valueStart).length === 0) out = remove(out, found);
+    }
+    entry = find(out);
+    const left = callOf(out, entry, fn)!.open;
+    if (left !== undefined && entries(out, left).length === 0) out = out.slice(0, entry.valueStart) + `${fn}()` + out.slice(entry.valueEnd);
+  }
+  return out;
+}
+
+const CHANNELS_IMPORT = /import\s*\{([^}]*)\}\s*from\s*["']@chloejs\/core\/channels["'];?/;
+
+/** The text with `fn` in its import from `@chloejs/core/channels`, the import made when there is none. */
+function addImport(text: string, fn: string): string {
+  const found = CHANNELS_IMPORT.exec(text);
+  if (found) {
+    const names = found[1].split(",").map((one) => one.trim()).filter(Boolean);
+    if (names.includes(fn)) return text;
+    return text.slice(0, found.index) + `import { ${[...names, fn].join(", ")} } from "@chloejs/core/channels";` + text.slice(found.index + found[0].length);
+  }
+  if (/import\s+\*\s+as\s+\w+\s+from\s*["']@chloejs\/core\/channels["']/.test(text) || new RegExp(`\\b${fn}\\b`).test(text)) {
+    throw new InCode(`agent.ts imports from @chloejs/core/channels some other way, so ${fn} is added in the file.`);
+  }
+  const imports = [...text.matchAll(/^import .*;?\s*$/gm)];
+  const last = imports.at(-1);
+  const line = `import { ${fn} } from "@chloejs/core/channels";\n`;
+  if (!last) return line + text;
+  const end = last.index + last[0].length;
+  return text.slice(0, end) + (text[end - 1] === "\n" ? "" : "\n") + line.trimEnd() + text.slice(end);
+}
+
+/** The text with `fn` out of its import from `@chloejs/core/channels` when nothing else in the file uses it, and the import with it when it is the last name. */
+function dropImport(text: string, fn: string): string {
+  const found = CHANNELS_IMPORT.exec(text);
+  if (!found) return text;
+  const names = found[1].split(",").map((one) => one.trim()).filter(Boolean);
+  if (!names.includes(fn)) return text;
+  const rest = text.slice(0, found.index) + text.slice(found.index + found[0].length).replace(/^\n/, "");
+  if (new RegExp(`\\b${fn}\\b`).test(rest)) return text;
+  const kept = names.filter((one) => one !== fn);
+  if (kept.length) return text.slice(0, found.index) + `import { ${kept.join(", ")} } from "@chloejs/core/channels";` + text.slice(found.index + found[0].length);
+  return rest;
+}
+
+/** Takes the groups along `path` out, deepest first, while they are empty objects. */
+function pruneEmpty(text: string, at: number, path: string[]): string {
+  let out = text;
+  for (let depth = path.length; depth > 2; depth--) {
+    let open = at;
+    let found: Entry | undefined;
+    for (const key of path.slice(0, depth)) {
+      found = entries(out, open).find((one) => one.key === key);
+      if (!found) return out;
+      open = found.valueStart;
+    }
+    if (found && out[found.valueStart] === "{" && entries(out, found.valueStart).length === 0) out = put(out, at, path.slice(0, depth), null, "agent.ts");
+    else break;
+  }
+  return out;
+}
+
+/**
+ * agent.ts's text with `name` in `without` when `on` is false and out of it
+ * when true, and `without` taken out when nothing is left in it. Throws
+ * `InCode` when `without` is not a plain list of words.
+ */
+export function setWithoutIn(text: string, name: string, on: boolean): string {
+  const at = agentObject(text);
+  const found = entries(text, at).find((one) => one.key === "without");
+  const now = found ? literal(text.slice(found.valueStart, found.valueEnd)) : [];
+  if (!Array.isArray(now) || now.some((one) => typeof one !== "string")) throw new InCode("without is written as code in agent.ts, so it is changed in the file.");
+  const list = on ? now.filter((one) => one !== name) : now.includes(name) ? now : [...now, name];
+  return put(text, at, ["without"], list.length ? `[${list.map((one) => JSON.stringify(one)).join(", ")}]` : null, "agent.ts");
 }
 
 /** The name in `process.env.NAME` or `process.env["NAME"]`, when that is the whole of the value. */

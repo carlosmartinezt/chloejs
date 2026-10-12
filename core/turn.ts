@@ -2,7 +2,6 @@
 // Every step is written to the run as it happens, because a job that goes
 // wrong at four in the morning is only debuggable if that record exists.
 import { randomUUID } from "node:crypto";
-import { readdirSync, statSync } from "node:fs";
 
 import { isStepCount, tool, type StopCondition, type ToolApprovalConfiguration } from "ai";
 import { z } from "zod";
@@ -20,7 +19,6 @@ import { selfFolderTools, selfReadTools, selfTrialTools } from "#chloe/model/too
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { receivedFolder } from "#chloe/services/receivedService";
-import { scriptsIn } from "#chloe/services/scriptsService";
 import { chatSendFile, type FileToSend } from "#chloe/model/tools/chat";
 import { guides, ownFiles } from "#chloe/services/selfService";
 import { NeedsSignIn } from "#chloe/connections/connection";
@@ -741,49 +739,6 @@ async function runTool(
   }
 }
 
-// The model sees each skill's name and one sentence, and opens the body only
-// when it applies. In the system prompt instead, every skill would cost its
-// full text on every step of every turn.
-function skillTool(agent: Agent): ChloeTool {
-  const byName = new Map(agent.skills.map((s) => [s.name, s]));
-  return Object.assign(tool({
-    description:
-      "Open one of your skills and read what it says. A skill tells you when to do something and " +
-      "how. Open the skill before doing the thing it covers.",
-    inputSchema: z.object({ name: z.string().describe("The skill's name, from the list in your instructions.") }),
-    execute: ({ name }) => {
-      const found = byName.get(name);
-      if (!found) throw new Error(`No skill called ${JSON.stringify(name)}. You have: ${[...byName.keys()].join(", ")}`);
-      return found.folder ? `${found.body}\n\n${besideSkill(agent, found.folder)}` : found.body;
-    },
-  }), { own: true, kind: "read" as const });
-}
-
-/** What a skill that is a folder keeps beside its SKILL.md, and which of those files it can run. */
-function besideSkill(agent: Agent, folder: string): string {
-  const files: string[] = [];
-  const walk = (dir: string, at: string, depth: number) => {
-    for (const name of readdirSync(dir).filter((one) => !one.startsWith(".") && one !== "node_modules").sort()) {
-      const info = statSync(`${dir}/${name}`, { throwIfNoEntry: false });
-      if (info?.isDirectory() && depth < 4) walk(`${dir}/${name}`, `${at}${name}/`, depth + 1);
-      else if (info?.isFile() && `${at}${name}` !== "SKILL.md") files.push(`${at}${name}`);
-    }
-  };
-  walk(`${agent.folder}/${folder}`, "", 1);
-  const skill = folder.slice("skills/".length);
-  const scripts = scriptsIn(agent.folder).filter((one) => one.startsWith(`${skill}/`));
-  const lines = [`This skill is the folder ${folder}/ in your own folder.`];
-  if (files.length) lines.push(`Beside SKILL.md it has: ${files.join(", ")}. Read any of them as ${folder}/<file>.`);
-  if (scripts.length) {
-    lines.push(
-      agent.tools?.scriptRun
-        ? `Its scripts, by the names you run them with: ${scripts.join(", ")}. Each runs inside ${folder}/.`
-        : `It has scripts (${scripts.join(", ")}), but you cannot run them: runScripts is not on in your definition.`,
-    );
-  }
-  return lines.join("\n");
-}
-
 /**
  * The agent's own instructions talk about people in the third person, because
  * they describe them. This is what stops that carrying over into a
@@ -798,7 +753,7 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
 }
 
 /**
- * The tools a turn of this agent has: its own and `skillRead`, less any its
+ * The tools a turn of this agent has: its own, less any its
  * channel leaves out, less those for its owner unless the owner wrote, and
  * less those that change it unless the owner may. Every turn reads its own
  * folder (`selfListFiles`, `selfReadFile`); a turn its owner wrote also reads
@@ -810,7 +765,6 @@ function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boole
     ...selfFolderTools(featureOn(agent.features, "selfImprovement"))(agent),
     ...(owner ? { ...selfReadTools()(agent), ...selfTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
-    skillRead: skillTool(agent),
     ...(who.sendFile && !who.stranger ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id)]) } : {}),
   };
   for (const name of without) delete tools[name];
@@ -818,6 +772,18 @@ function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boole
     if ((one.forOwner && !owner) || (one.changesAgent && !who.mayChangeAgent)) delete tools[name];
   }
   return tools;
+}
+
+/**
+ * The tools every agent has with nothing to switch: reading its own folder and
+ * skills in every turn, and for its owner's turns its runs, the guides and
+ * trying a job. Each says whether it is for the owner's turns only.
+ */
+export function alwaysOnTools(agent: Agent): { name: string; tool: ChloeTool; ownerOnly: boolean }[] {
+  const all = toolsFor(agent, [], { fromOwner: true });
+  return Object.entries(all)
+    .filter(([name]) => !(name in (agent.tools ?? {})) && !(name in (agent.toolsOff ?? {})))
+    .map(([name, one]) => ({ name, tool: one, ownerOnly: Boolean(one.forOwner) }));
 }
 
 /**
@@ -903,8 +869,8 @@ function systemPrompt(agent: Agent, person: { name: string; source: string; asYo
   if (agent.skills.length > 0) {
     parts.push(
       "## Your skills\n\n" +
-        "Open one with the `skillRead` tool before doing the thing it covers.\n\n" +
-        agent.skills.map((s) => `- **${s.name}**: ${s.description}`).join("\n"),
+        "Read one's file before doing the thing it covers.\n\n" +
+        agent.skills.map((s) => `- **${s.name}** (${s.file}): ${s.description}`).join("\n"),
     );
   }
   parts.push(`Today is ${new Date().toISOString().slice(0, 10)}.`);

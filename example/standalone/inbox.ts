@@ -1,6 +1,6 @@
 import { defineAgent, startChloe } from "@chloejs/core";
-import { telegramChannel } from "@chloejs/core/channels";
 import * as gmail from "@chloejs/core/tools/gmail";
+import { telegramChannel } from "@chloejs/core/channels";
 
 const inbox = defineAgent({
   id: "inbox",
@@ -8,7 +8,7 @@ const inbox = defineAgent({
   instructions: "You help me keep on top of my email. Be brief.",
   model: "anthropic/claude-sonnet-5",
   tools: { gmailReadEmail: gmail.readEmail() },
-  channels: [telegramChannel({ allowFrom: [123456789] })],
+  channels: { telegram: telegramChannel({ allowFrom: [123456789] }) },
 });
 
 await startChloe({

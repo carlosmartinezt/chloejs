@@ -67,22 +67,14 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
       stackWithin: 5,
       credentials: { botToken: "8301554167:AAH3kQ2vB7pLxZr9TnW4sYdE1cJmU6oKgFa" },
     });
-    const shown = channelsOf({ id: "first", channels: [channel] } as any)[0].settings;
-    is("who may reach it and how it answers are shown", shown?.slice(0, 3), [
-      { name: "allowFrom", value: "111111111" },
-      { name: "inGroups", value: "always" },
-      { name: "stackWithin", value: "5" },
+    const shown = (await channelsOf({ id: "first", channels: [channel] } as any)).find((one) => one.name === "telegram")?.settings;
+    is("what the page's form holds is not repeated, and a token written into the agent is hidden however deep it sits", shown, [
+      { name: "credentials", value: "botToken hidden" },
     ]);
-    is("a token written into the agent is not, however deep it sits", shown?.[3], {
-      name: "credentials",
-      value: "botToken hidden",
-    });
     const held = telegramChannel({ credentials: { botToken: "the-one-in-settings" } });
-    is(
-      "nor is a short one the settings hold",
-      channelsOf({ id: "first", channels: [held] } as any)[0].settings,
-      [{ name: "credentials", value: "botToken hidden" }],
-    );
+    const heldShown = (await channelsOf({ id: "first", channels: [held] } as any)).find((one) => one.name === "telegram");
+    is("nor is a short one the settings hold", heldShown?.settings, [{ name: "credentials", value: "botToken hidden" }]);
+    is("and whether its token is filled in is said, never the token", heldShown?.secrets, [{ path: "telegram", label: "Bot token, from @BotFather", set: true }]);
     settings.agents = before;
   }
 

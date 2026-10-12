@@ -673,8 +673,8 @@ filter, not a boundary: it widens the moment a turn goes wrong, and by then it
 has already read the thing. If you add a tool that reaches private material,
 give it this shape.
 
-**An agent is on Telegram because its `agent.ts` lists
-`telegramChannel({ allowFrom: [...] })` in `channels`**, imported from
+**An agent is on Telegram because its `agent.ts` names it,
+`channels: { telegram: telegramChannel({ allowFrom: [...] }) }`**, imported from
 `@chloejs/core/channels`. `allowFrom` is Telegram
 user ids, so an allowed person is answered in any chat, including a group made
 later. One bot per agent, unless each has its own `name`. `mode` is `"polling"` (the default: chloe fetches
@@ -683,8 +683,7 @@ messages, nothing is exposed) or `"webhook"` (Telegram posts to
 secret on every call). Do not add another path past the login without a secret
 and an allowlist of its own.
 
-**Slack is the same shape**: `slackChannel({ allowFrom: [...] })` from
-`@chloejs/core/channels`, with Slack member ids. It uses Socket Mode only,
+**Slack is the same shape**: `slackChannel({ allowFrom: [...] })`, with Slack member ids. It uses Socket Mode only,
 chloe connecting out to Slack, so it adds no path past the login at all.
 
 **WhatsApp is WhatsApp's own API, and nothing else.** `whatsappChannel()` needs
@@ -742,8 +741,8 @@ to its name in `check`, as the agent loads, because a reload makes new tool
 objects and a running channel keeps the names; `madeWith` writes the names,
 so a changed list restarts the channel.
 
-**An agent is reachable by another system because its `agent.ts` lists
-`apiChannel()` in `channels`**, imported from `@chloejs/core/channels`.
+**An agent is reachable by another system because its `agent.ts` says
+`channels: { api: apiChannel() }`**.
 It listens to nothing. `POST /api/agents/<id>/chat` and
 `POST /api/agents/<id>/job/<job>` are answered by `serve/http.ts`
 either way, and what binding the channel does is let a **token** reach that
@@ -785,8 +784,8 @@ sites only, and `api()` answers the browser's asking-first (OPTIONS) for it. A t
 jobs of the agents that bind an api channel. It may never write a file, read
 the notes, or touch the tokens.
 
-**A web page reaches an agent because its `agent.ts` lists `webChannel({
-origins, tools })`**, and the routes under `/api/agents/<id>/web/` are
+**A web page reaches an agent because its `agent.ts` says `channels: { web:
+webChannel({ origins, tools }) }`**, and the routes under `/api/agents/<id>/web/` are
 `serve/web.ts`. A visitor is a stranger: `strangers` in `receive()`'s rules
 takes their message as a turn, `/clear` or an answer to a job that asked them,
 never a command, a model pick or a sign-in, and their turn gets the tools the
@@ -1008,19 +1007,39 @@ stands on. Agent specific code lives in that agent's folder.
 in `model/tools/` and let each agent name it in its `agent.ts`. What any
 agent may want switched on (its memory tools, the self tools, scriptRun) is
 a `features` flag in its definition instead, and the loader adds the tools.
-A flag is `true` or `false` and never an object, so the Tools page can switch
-it by changing that one value in `agent.ts` (`changeFeature()` in
-`serve/config.ts`). `FEATURES` in `load/load.ts` is the list, with each one's
-default and the tools it adds, and a test holds the two together.
+A flag is `true` or `false`, or for a feature that reaches something outside
+(`email`, `calendar`, `drive`) its fields as plain values, so the Tools page can
+switch it and fill them in by changing agent.ts (`changeFeature()` in
+`serve/config.ts`). `FEATURES` in `load/features.ts` is the list: each one's
+default, its fields (`OptionSpec`, shared with the channels), the tools it makes
+from them, and a test holds the list to what the loader adds. A tool says its
+own `title`, so the page never works one out from a name. One tool is
+switched off by name in `without` (`changeTool()` beside it), so a tool keeps
+the options it was bound with; a feature's tool may be named while its feature
+is off.
 
 **A channel says its own name, and nothing else may say it for it.** Every
-`Channel` has a `name`, `channels` in a definition is a list, and the loader
-refuses two with one name. `channels/telegram.ts` is allowed to know it is Telegram. Nothing outside
+`Channel` has a `name`, and `channels` in a definition is one object keyed by
+that name like `tools` (`channelsOf()` in `load/load.ts`), each value the
+channel itself. The loader knows no shipped channel: one of the agent's own
+plugs in the same way. `channels/telegram.ts` is allowed to know it is Telegram. Nothing outside
 that file is: a job's question goes out to an address, `channel:who`, and
 `model/ask.ts` looks the channel half up in a registry each running
 channel fills for its own agent, so an agent's question goes out through its
 own bot. The runtime still reaches somebody without knowing how, and an agent is
 put on a channel by adding one entry to `channels` in its `agent.ts`.
+
+**`channels/catalog.ts` is what the Channels page knows about the channels
+chloe ships, and the loader never reads it.** A row says a channel's name, the
+function that makes it, which options are plain values (`OptionSpec` in
+`load/options.ts`, the list the page draws its form from), and which settings
+hold its tokens. The page edits the call in agent.ts the way `changeSettings()`
+edits the config: one value, the rest untouched, the import added or removed
+with the call, and everything put back with the reason when the agent would not
+load (`changeChannel()` and `setChannelIn()` in `serve/config.ts`). An option
+that is code (a job, a tool list) is shown as written and left alone. A channel
+that needs a tool brings it itself (`Channel.brings`, as the email channel's
+`start` does).
 
 **What happens to a message is `channels/shared.ts`, and no channel decides it
 for itself.** allowFrom, an answer to a job waiting on the chat, whether a group

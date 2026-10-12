@@ -37,5 +37,5 @@ export default defineAgent({
   // A channel's job is named on its channel, not here: answer-whatsapp-customer
   // is in channels/whatsapp.ts.
   jobs: [stuckOrders, sortMessages, restock, orderIssues, whyTheyLeft, bigRefunds, howItWent],
-  channels: [telegram, whatsapp, api, web],
+  channels: { telegram, whatsapp, api, web },
 });

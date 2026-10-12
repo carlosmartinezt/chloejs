@@ -38,7 +38,7 @@ export function readPage() {
       from: z.number().int().min(0).optional().describe("Where to start, from the last slice's `next`."),
     }),
     execute: ({ url, from }) => webService.readPage(url, from ?? 0),
-  }), { onlyReads: true, kind: "fetch" as const });
+  }), { title: "Read page", onlyReads: true, kind: "fetch" as const });
 }
 
 /**
@@ -68,5 +68,5 @@ export function search() {
     }),
     execute: ({ query, count }) => searchService.searchWeb(query, count),
   });
-  return Object.assign(search, { needs: brave, onlyReads: true, kind: "search" as const });
+  return Object.assign(search, { title: "Search the web", needs: brave, onlyReads: true, kind: "search" as const });
 }

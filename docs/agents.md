@@ -22,7 +22,7 @@ tool or channel exists only because it names it.
 | `model` | `model.defaultModel` in settings | The model it asks, like `"anthropic/claude-sonnet-5"`. A job or a step can name its own. See [Models](/docs/models). |
 | `tools` | none | What a model may call, keyed by the name it sees. See [Tools](/docs/tools). |
 | `jobs` | none | Its jobs: each one imported, or `markdownJob("jobs/<id>.md")` for a prompt. See [A job is a workflow](/docs/jobs). |
-| `channels` | none | Where people reach it. See [Channels](/docs/channels). |
+| `channels` | none | Where people reach it, keyed by name: `{ telegram: telegramChannel({ allowFrom: [123] }) }`. See [Channels](/docs/channels). |
 | `connections` | none | MCP servers only this agent reaches. See [Connections](/docs/connections). |
 | `features` | memory on, the rest off | Built-in tools to switch on. Below. |
 | `memory` | its own folder in `data/memory` | Where it keeps notes between runs. Below. |
@@ -37,14 +37,16 @@ job's code sets its own limits on each step: see
 ## features
 
 Switched on in the definition, with nothing to import:
-`features: { memoryPerUser: true, runScripts: true }`. Each is `true` or `false`, and the dashboard's Tools page switches them. Every tool each one
+`features: { memoryPerUser: true, runScripts: true }`. Each is `true` or `false`, or for `email`, `calendar` and `drive` its fields, and the dashboard's Tools page switches them and fills the fields in. Every tool each one
 adds, and the ones an agent has with no feature, are on
 [Features](/docs/features).
 
 | Feature | Default | What it adds |
 |---|---|---|
-| `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles`, `memoryWriteFile` and `memoryEditFile`, inside its memory folder and nowhere else. |
+| `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles` and `memoryEditFile`, inside its memory folder and nowhere else. |
 | `memoryPerUser` | off | `memoryWriteUserNotes`: a note per person it talks to, `users/<channel>-<id>.md` in its memory, shown at the top of that person's turns. Whose note it is comes from who sent the message, never from the model. |
+| `web` | off | `webReadPage`, to read a public web page as plain text. |
+| `email`, `calendar`, `drive` | off | Gmail, Google Calendar and Google Drive, each limited by its fields. See [Features](/docs/features#email-calendar-and-drive). |
 | `selfImprovement` | on | `selfWriteFile`, to change its own folder: instructions, skills, jobs, and its code. `false` turns it off, once the agent does what you want. Never evals or memory, and a job it changes must still load and run at most once an hour. Every write is a commit you can undo from the dashboard, and what you changed by hand in a file it writes is committed first, under your own git name. It writes only when its owner asks, and not once a tool in the same conversation read from outside ([what an agent may change](/docs/prompts#what-an-agent-may-change-about-itself)). |
 | `runScripts` | off | `scriptRun`, to run a file in its own `scripts/` folder. The agent is refused as it loads if that folder is empty. |
 

@@ -4,6 +4,7 @@ import type {
   Account,
   AgentSummary,
   AgentFeature,
+  ChannelShown,
   AgentTool,
   Change,
   Changes,
@@ -155,9 +156,15 @@ export const api = {
   agentTools: (agent: string) => call<AgentTool[]>(`/agents/${agent}/tools`),
   features: (agent: string) => call<AgentFeature[]>(`/agents/${agent}/features`),
   /** Switch a feature on or off in the agent's agent.ts, and get every feature and tool back as it now loads. */
-  setFeature: (agent: string, name: string, on: boolean) =>
-    call<{ features: AgentFeature[]; tools: AgentTool[] }>(`/agents/${agent}/features`, { name, on }),
-  channels: (agent: string) => call<Way[]>(`/agents/${agent}/channels`),
+  setFeature: (agent: string, change: { name: string; on?: boolean; set?: Record<string, unknown> }) =>
+    call<{ features: AgentFeature[]; tools: AgentTool[] }>(`/agents/${agent}/features`, change),
+  /** Switch one tool off or on, in the agent's agent.ts, and get every feature and tool back as it now loads. */
+  setTool: (agent: string, name: string, on: boolean) =>
+    call<{ features: AgentFeature[]; tools: AgentTool[] }>(`/agents/${agent}/tools`, { name, on }),
+  channels: (agent: string) => call<ChannelShown[]>(`/agents/${agent}/channels`),
+  /** Switch a channel, fill in its options, or give it its tokens, and get every channel back as the agent now loads. */
+  setChannel: (agent: string, change: { name: string; on?: boolean; set?: Record<string, unknown>; secrets?: Record<string, string> }) =>
+    call<ChannelShown[]>(`/agents/${agent}/channels`, change),
   connections: (agent: string) => call<Way[]>(`/agents/${agent}/connections`),
   /** Start a connection's sign-in: what to tell the person, and the link to open, sent as it is. */
   startSignIn: (agent: string, name: string) =>

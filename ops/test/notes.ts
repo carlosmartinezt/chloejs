@@ -94,6 +94,10 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   await editFiles(folder, "work.html", "<li>Clay: no</li>\n", "");
   is("an empty replacement deletes the text", (await readFile(`${folder}/work.html`, "utf8")).includes("Clay"), false);
   is("a file that is not there is refused", (await why(editFiles(folder, "gone.html", "a", "b"))).includes("ENOENT"), true);
+  await editFiles(folder, "log.md", undefined, "first line\n");
+  await editFiles(folder, "log.md", undefined, "second line");
+  is("with no old text, the file is made, and the next text is added to its end", await readFile(join(folder, "log.md"), "utf8"), "first line\nsecond line");
+  is("and nothing to add is refused", await why(editFiles(folder, "log.md", undefined, "")), "There is nothing to add: `new` is empty.");
   is("and the edge of the folder holds", (await why(editFiles(folder, "../outside.html", "a", "b"))) === "not refused", false);
 }
 
@@ -240,7 +244,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   is(
     "nor its memory, which has tools of its own, when somebody keeps that inside its folder",
     whyNot({ ...home, memory: { folder: join(folder, "memory") } }, true, "memory/STATUS.md") ?? "yes",
-    "that is your memory, which you write with memoryWriteFile",
+    "that is your memory, which you change with memoryEditFile",
   );
   is("nor what marks its runs", may("evals/status.json"), "evals/ is how your runs are marked");
   is("nor anything with selfImprovement off", (whyNot(home, false, "instructions.md") ?? "yes").includes("switched off"), true);

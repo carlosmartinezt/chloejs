@@ -904,17 +904,17 @@ function ownerOf(message: Incoming, rules: Rules): { fromOwner: boolean; mayChan
 
 /**
  * The tools a turn goes without because its channel names the ones it may
- * have: everything not named, less the memory tools and `skillRead`, which
- * come with the agent. A stranger gets only what is named, and their own note
+ * have: everything not named, less the memory tools, which come with the
+ * agent. A stranger gets only what is named, and their own note
  * when the agent keeps one per person.
  */
 function leftOut(agent: Agent, rules: Rules): string[] {
   const named = rules.tools;
   if (!named) return [];
   const keeps = (name: string) =>
-    named.includes(name) || (rules.strangers ? name === "memoryWriteUserNotes" : /^memory[A-Z]/.test(name) || name === "skillRead");
+    named.includes(name) || (rules.strangers ? name === "memoryWriteUserNotes" : /^memory[A-Z]/.test(name));
   // A stranger gets none of the agent's own folder, which the web channel's
   // check also refuses by name. The two self tools that read it are the
   // runtime's, not the agent's, so they are said here rather than in agent.tools.
-  return [...Object.keys(agent.tools ?? {}), "skillRead", ...(rules.strangers ? ["selfListFiles", "selfReadFile"] : [])].filter((name) => !keeps(name));
+  return [...Object.keys(agent.tools ?? {}), ...(rules.strangers ? ["selfListFiles", "selfReadFile"] : [])].filter((name) => !keeps(name));
 }

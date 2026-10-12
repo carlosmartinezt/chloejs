@@ -54,7 +54,7 @@ export function listFiles({ root, what }: Folder) {
       "```\n" + tree.join("\n") + "\n```"
     );
   };
-  return Object.assign(list, { overview, onlyReads: true, kind: "list" as const });
+  return Object.assign(list, { title: "List files", overview, onlyReads: true, kind: "list" as const });
 }
 
 /**
@@ -78,7 +78,7 @@ export function readFile({ root, what, limit = 40_000 }: Folder & { limit?: numb
       lines: z.number().int().min(1).optional().describe("How many lines to read from there."),
     }),
     execute: ({ path, from, lines }) => files.readFiles(root, path, { from, lines, limit }),
-  }), { onlyReads: true, kind: "read" as const });
+  }), { title: "Read file", onlyReads: true, kind: "read" as const });
 }
 
 /**
@@ -101,15 +101,20 @@ export function searchFiles({ root, what, around = 2 }: Folder & { around?: numb
       folder: z.string().optional().describe("Narrow to one folder. Omit to search everything."),
     }),
     execute: ({ query, folder }) => files.searchFiles(root, query, folder, { around }),
-  }), { onlyReads: true, kind: "search" as const });
+  }), { title: "Search files", onlyReads: true, kind: "search" as const });
 }
 
 /**
- * Makes a tool that lets the model write one file inside `root`. It replaces
- * the whole file, or adds to its end. Missing folders are made.
+ * Makes a tool that lets the model change a file inside `root`. It gives the
+ * exact text to replace and the new text, and the old text must appear in the
+ * file exactly once, or the change is refused. With no old text, the new text
+ * is added to the end of the file, or makes the file when it is not there:
+ * for a log, a list that only grows, or a first draft. There is no tool that
+ * replaces a whole file, because that is how the rest of one gets lost.
+ * Missing folders are made.
  *
  * Options, besides `root` and `what`:
- * - `commit`: set to `true` to save each write as a git commit, with a commit
+ * - `commit`: set to `true` to save each change as a git commit, with a commit
  *   message the model must write. Off by default. `root` must be inside a git
  *   repository, or the file is written but not committed.
  * - `author`: the name the commits are made under, such as the agent's id.
@@ -117,37 +122,6 @@ export function searchFiles({ root, what, around = 2 }: Folder & { around?: numb
  * - `memory`: set to `true` when `root` is the agent's memory folder, so each
  *   commit is listed on the run that made it. Off by default. Only matters
  *   with `commit`.
- */
-export function writeFile({
-  root,
-  what,
-  commit = false,
-  author,
-  memory = false,
-}: Folder & { commit?: boolean; author?: string; memory?: boolean }) {
-  return Object.assign(tool({
-    description:
-      `Write one file in ${what}. This replaces the file, so include everything you want kept: ` +
-      `read it first unless it is new. To add to the end of a file, such as a log or a list that only ` +
-      `grows, set append instead of writing it out again.` +
-      (commit ? " Committed as it is written, so `message` is required." : ""),
-    inputSchema: z.object({
-      path: z.string(),
-      content: z.string().min(1),
-      append: z.boolean().optional().describe("Add content to the end of the file instead of replacing it."),
-      message: z.string().optional().describe("Commit message saying what changed. Required here."),
-    }),
-    execute: ({ path, content, append, message }) =>
-      files.writeFiles(root, path, content, { commit, message, append, author, in: memory ? "memory" : undefined }),
-  }), { kind: "write" as const });
-}
-
-/**
- * Makes a tool that lets the model change one part of a file inside `root`.
- * The model gives the exact text to replace and the new text. The old text
- * must appear in the file exactly once, or the change is refused.
- *
- * `commit`, `author` and `memory` work as for `fs.writeFile`.
  */
 export function editFile({
   root,
@@ -158,18 +132,19 @@ export function editFile({
 }: Folder & { commit?: boolean; author?: string; memory?: boolean }) {
   return Object.assign(tool({
     description:
-      `Change one part of a file in ${what}: give the exact text to replace and what replaces it. ` +
-      `Use this for any change to a file that exists; write the whole file only when it is new or being ` +
-      `rewritten. The old text must appear exactly once, so include a line or two around it when it is short. ` +
-      `Read the file first, and copy the old text from what you read.` +
+      `Change a file in ${what}: give the exact text to replace and what replaces it. ` +
+      `The old text must appear exactly once, so include a line or two around it when it is short. ` +
+      `Read the file first, and copy the old text from what you read. ` +
+      `Leave old out to add to the end of the file, such as a log or a list that only grows, or to make a ` +
+      `new file.` +
       (commit ? " Committed as it is written, so `message` is required." : ""),
     inputSchema: z.object({
       path: z.string(),
-      old: z.string().min(1).describe("The exact text to replace, copied from the file."),
-      new: z.string().describe("What replaces it. Empty to delete it."),
+      old: z.string().min(1).optional().describe("The exact text to replace, copied from the file. Leave out to add to the end, or to make the file."),
+      new: z.string().describe("What replaces it, or what is added. Empty to delete the old text."),
       message: z.string().optional().describe("Commit message saying what changed. Required here."),
     }),
     execute: ({ path, old, new: replacement, message }) =>
       files.editFiles(root, path, old, replacement, { commit, message, author, in: memory ? "memory" : undefined }),
-  }), { kind: "edit" as const });
+  }), { title: "Edit file", kind: "edit" as const });
 }

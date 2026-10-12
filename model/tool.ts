@@ -26,6 +26,12 @@ export type ChloeTool = Tool & {
    */
   kind?: ToolKind;
   /**
+   * What the dashboard calls the tool: a verb and what it works on, like
+   * "Read file". The tool's name is what the model calls it by and is not
+   * for people to read. Off by default: the dashboard shows the name in words.
+   */
+  title?: string;
+  /**
    * Returns a few lines about what the tool can reach right now, such as the
    * folders in a memory or the tables in a database.
    *

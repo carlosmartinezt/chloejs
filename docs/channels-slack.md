@@ -19,7 +19,7 @@ public address.
 3. Put both in `.env` as `CHLOE_AGENTS_<ID>_SLACK_BOT_TOKEN` and
    `CHLOE_AGENTS_<ID>_SLACK_APP_TOKEN`, and in the config as
    `agents: { <id>: { slack: { bot_token: process.env.CHLOE_AGENTS_<ID>_SLACK_BOT_TOKEN, app_token: process.env.CHLOE_AGENTS_<ID>_SLACK_APP_TOKEN } } }`.
-4. Add `slackChannel({ allowFrom: [] })` to the agent's `channels`.
+4. Add `slack: slackChannel({ allowFrom: [] })` to the agent's `channels`, or switch Slack on from the dashboard's Channels page.
 5. Send the app a direct message. It answers with your member id, like
    `U0123ABCD`. Put that in `allowFrom`. In a Slack channel, invite the bot
    first with `/invite @name`.

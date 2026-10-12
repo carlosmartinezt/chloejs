@@ -35,7 +35,7 @@ export interface SendOptions extends EmailSender {
  * given, to the address it was given.
  */
 export function sendingTool(provider: SendingProvider, { when, keep, ...sender }: SendOptions) {
-  return tool({
+  return Object.assign(tool({
     description: `Send an email. ${when}`,
     inputSchema: z.object({
       subject: z.string().min(5).max(120),
@@ -50,7 +50,7 @@ export function sendingTool(provider: SendingProvider, { when, keep, ...sender }
       if (!keep || !sent.sent) return sent;
       return { ...sent, copy: await keepCopy(agentOf(context), keep, sender.to, sent.subject, body) };
     },
-  });
+  }), { title: "Send email" });
 }
 
 /** Writes a sent email into `keep` in the agent's memory, as `2026-09-23-0715-<subject>.md`, and gives back its path. */

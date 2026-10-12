@@ -392,15 +392,30 @@ html { touch-action: pan-x pan-y; }
 .ways .signing .answer { display: flex; gap: 8px; width: 100%; align-items: center; }
 .ways .signing .answer input { flex: 1; }
 /* The Tools page: a feature's switch on the right of its name, and each tool opening to what the model is told. */
+h2 + .ways.tools, h2 + p.empty + .ways.tools { margin-top: 10px; }
 .ways.tools .line .switch { margin-left: auto; display: flex; align-items: center; gap: 7px; font-size: var(--size-small); color: var(--dim); cursor: pointer; }
 .ways.tools .line .switch input { width: auto; margin: 0; accent-color: var(--accent); }
 .ways.tools li.off .line b { color: var(--dim); }
 .ways.tools .each { display: flex; flex-direction: column; margin-top: 6px; }
+.ways.tools .tool { display: flex; align-items: flex-start; gap: 12px; }
+.ways.tools .tool > details { flex: 1; min-width: 0; }
+.ways.tools .tool > .switch { padding-top: 3px; display: flex; align-items: center; gap: 7px; font-size: var(--size-small); color: var(--dim); cursor: pointer; }
+.ways.tools .tool > .switch input { width: auto; margin: 0; accent-color: var(--accent); }
+.ways.tools .tool.off > details > summary { color: var(--dim); }
 .ways.tools details > summary { cursor: pointer; padding: 3px 0; font-size: var(--size-small); color: var(--accent); }
 .ways.tools details[open] > summary { color: var(--ink); font-weight: 500; }
 .ways.tools .about { margin: 2px 0 8px; padding: 9px 12px; border-radius: 7px; background: var(--inline); font-size: var(--size-small); line-height: 1.5; }
 .ways.tools .about p { margin: 0 0 6px; }
 .ways.tools .about ul { margin: 0; padding-left: 18px; }
+/* The fields of a feature or a channel: one line each, what it does under it, saved together. */
+.options { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; padding: 12px 14px; border-radius: 7px; background: var(--inline); }
+.options label { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); gap: 3px 14px; align-items: center; font-size: var(--size-small); }
+.options label .name { font-weight: 500; }
+.options label .hint { grid-column: 2; color: var(--dim); line-height: 1.4; }
+.options label input[type=text], .options label input[type=number], .options label select { width: 100%; }
+.options label.yesno input { width: auto; justify-self: start; accent-color: var(--accent); }
+.options button { align-self: flex-start; }
+@media (max-width: 560px) { .options label { grid-template-columns: minmax(0, 1fr); } .options label .hint { grid-column: 1; } }
 /* How a channel was set up, as its definition wrote it. Never a credential. */
 .ways .set { list-style: none; margin: 7px 0 0; padding: 8px 11px; border-radius: 7px;
   background: var(--inline); font: 400 var(--size-small)/1.6 var(--mono); color: var(--ink); }

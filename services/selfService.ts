@@ -52,7 +52,7 @@ function inMemory(agent: Home, path: string): boolean {
 /** Why the agent may not write this path, or undefined when it may. `may` is whether selfImprovement is on. */
 export function whyNot(agent: Home, may: boolean, path: string): string | undefined {
   const at = within(agent, path);
-  if (inMemory(agent, at)) return "that is your memory, which you write with memoryWriteFile";
+  if (inMemory(agent, at)) return "that is your memory, which you change with memoryEditFile";
   if (!may) return "changing your own files is switched off (selfImprovement is off in your definition)";
   const top = at.split("/")[0];
   if (top === "evals") return "evals/ is how your runs are marked";

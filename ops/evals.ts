@@ -75,11 +75,11 @@ function answerFrom(one: Case, quiet: string[], skills: Map<string, string>) {
     // A skill is answered from the real file rather than from the case. It
     // reads something in this repo and changes nothing, and answering it for
     // real is what makes rewriting a skill move the score.
-    if (name === "skillRead") {
-      const asked = (args as { name?: string })?.name ?? "";
-      const body = skills.get(asked);
-      if (body) return body;
-      throw new Error(`No skill called ${JSON.stringify(asked)}. You have: ${[...skills.keys()].join(", ")}`);
+    if (name === "selfReadFile") {
+      const paths = ((args as { paths?: string[] })?.paths ?? []);
+      if (paths.length > 0 && paths.every((path) => skills.has(path))) {
+        return paths.map((path) => ({ path, content: skills.get(path), canWrite: false }));
+      }
     }
 
     const at = left.findIndex(
@@ -100,14 +100,9 @@ function answerFrom(one: Case, quiet: string[], skills: Map<string, string>) {
   };
 }
 
-/** Every skill this agent has, by both the names a model might use for it: its own, and its file's or folder's. */
+/** Every skill this agent has, by its file's path in the agent's folder, which is how a model reads one. */
 function skillsOf(agent: Agent): Map<string, string> {
-  const skills = new Map<string, string>();
-  for (const skill of agent.skills) {
-    const named = basename(skill.folder ?? skill.file, ".md");
-    for (const key of new Set([skill.name, named])) skills.set(key, skill.body);
-  }
-  return skills;
+  return new Map(agent.skills.map((skill) => [skill.file, skill.body]));
 }
 
 function found(agent: Agent, job: string): string {

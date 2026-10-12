@@ -83,7 +83,7 @@ On a channel that can send files (Telegram), the agent gets `chatSendFile` in
 that conversation, to send back a file from its memory or one it was sent.
 
 Instructions and skills say what to do, not which of the runtime's tools does
-it: "note it in your memory", "run `deploy.sh`", never `memoryWriteFile` or
+it: "note it in your memory", "run `deploy.sh`", never `memoryEditFile` or
 `scriptRun`. Each tool comes with its own name and description, so the model
 finds it, and a rename in the runtime then breaks nothing. A tool the agent
 defines itself is yours, so name it as you like.

@@ -26,7 +26,7 @@ import { forget } from "#chloe/model/memory";
 import { models } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
-import { changeFeature, changeSettings, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
+import { changeChannel, changeFeature, changeSettings, changeTool, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
 import { editable, open, save, tree } from "./files.ts";
 import {
   memoryCommit,
@@ -47,7 +47,7 @@ import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound, Refused } from "./errors.ts";
 import { finish as finishSignIn, setupSteps, signInState } from "#chloe/connections/google/googleService";
 import { googleSignIn } from "#chloe/connections/google/signIn";
-import { channelsOf, connectionsOf, featuresOf, signInOf, toolsOf } from "./inside.ts";
+import { channelsOf, connectionsOf, featureNames, featuresOf, signInOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import {
   type Caller,
@@ -236,6 +236,10 @@ export function summary(agent: Agent) {
     /** What the site calls its memory. Every agent has one. */
     memory: memoryLabel(agent),
     tools: Object.keys(agent.tools ?? {}).sort(),
+    /** What the page calls each tool that has a title of its own. */
+    titles: Object.fromEntries(Object.entries(agent.tools ?? {}).flatMap(([name, one]) => ((one as { title?: string }).title ? [[name, (one as { title: string }).title]] : []))),
+    /** Every feature, and whether it is on. */
+    features: featureNames(agent),
     /** Where each tool it did not write itself comes from, like "features.memory". */
     toolsFrom: agent.toolsFrom ?? {},
     skills: agent.skills.map((s) => s.name),
@@ -509,20 +513,37 @@ export const routes: Route[] = [
     path: "/api/agents/:id/features",
     does: "Every feature, whether it is on for this agent, what it does and the tools it adds.",
     token: true,
-    handle: ({ response, context, params }) => json(response, featuresOf(context.agent(params.id))),
+    handle: async ({ response, context, params }) => json(response, await featuresOf(context.agent(params.id))),
   },
   {
     method: "POST",
     path: "/api/agents/:id/features",
     does: "Switch one of its features on or off, in its agent.ts. Hands back every feature and tool as the agent now loads.",
-    takes: '{"name": "memory", "on": true}',
+    takes: '{"name": "memory", "on": true} or {"name": "email", "set": {"days": 3, "reply": true}}, a field set to null takes it out',
+    handle: async ({ request, response, context, params }) => {
+      const agent = context.agent(params.id);
+      const change = await body(request, z.object({ name: z.string(), on: z.boolean().optional(), set: z.record(z.string(), z.unknown()).optional() }));
+      try {
+        // From the agent as it now loads: the server's own reload comes a moment later.
+        const now = await changeFeature(agent, change.name, change);
+        json(response, { features: await featuresOf(now), tools: await toolsOf(now) });
+      } catch (error) {
+        if (error instanceof NotFound || error instanceof BadRequest) throw error;
+        throw new BadRequest((error as Error).message);
+      }
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/tools",
+    does: "Switch one tool off or on, in the without list of its agent.ts. Hands back every feature and tool as the agent now loads.",
+    takes: '{"name": "memoryEditFile", "on": false}',
     handle: async ({ request, response, context, params }) => {
       const agent = context.agent(params.id);
       const { name, on } = await body(request, z.object({ name: z.string(), on: z.boolean() }));
       try {
-        // From the agent as it now loads: the server's own reload comes a moment later.
-        const now = await changeFeature(agent, name, on);
-        json(response, { features: featuresOf(now), tools: await toolsOf(now) });
+        const now = await changeTool(agent, name, on);
+        json(response, { features: await featuresOf(now), tools: await toolsOf(now) });
       } catch (error) {
         if (error instanceof NotFound || error instanceof BadRequest) throw error;
         throw new BadRequest((error as Error).message);
@@ -534,7 +555,26 @@ export const routes: Route[] = [
     path: "/api/agents/:id/channels",
     does: "The ways in it binds, and which setting carries each one's credentials. Never the credentials.",
     token: true,
-    handle: ({ response, context, params }) => json(response, channelsOf(context.agent(params.id))),
+    handle: async ({ response, context, params }) => json(response, await channelsOf(context.agent(params.id))),
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/channels",
+    does: "Switch one of the channels chloe ships on or off, fill in its options, or give it its tokens, in the agent's agent.ts and settings. Hands back every channel as the agent now loads.",
+    takes: '{"name": "telegram", "on": true, "set": {"allowFrom": [123456789]}, "secrets": {"telegram": "the bot token"}}',
+    handle: async ({ request, response, context, params }) => {
+      const agent = context.agent(params.id);
+      const change = await body(
+        request,
+        z.object({ name: z.string(), on: z.boolean().optional(), set: z.record(z.string(), z.unknown()).optional(), secrets: z.record(z.string(), z.string()).optional() }),
+      );
+      try {
+        json(response, await channelsOf(await changeChannel(agent, change.name, change)));
+      } catch (error) {
+        if (error instanceof NotFound || error instanceof BadRequest) throw error;
+        throw new BadRequest((error as Error).message);
+      }
+    },
   },
   {
     method: "GET",
@@ -799,7 +839,7 @@ export const routes: Route[] = [
         // line saying they were attached.
         files: images.length
           ? async () => ({
-              attachments: images.map(({ name, mediaType, data }) => ({ name, mediaType, data })),
+              attachments: images.map(({ name, mediaType, data }) => ({ mediaType, data, filename: name })),
               notes: images.map((one) => `(Attached: ${one.name})`),
             })
           : undefined,

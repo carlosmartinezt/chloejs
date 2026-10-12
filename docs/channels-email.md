@@ -38,7 +38,7 @@ With Google Workspace, the From address is on your own domain.
 2. In `chloe.config.ts`, say which account sends, and hand over the app's client
    file:
    `connections: { google: { account: "you@gmail.com", client: process.env.CHLOE_CONNECTIONS_GOOGLE_CLIENT } }`.
-3. Add the channel: `emailChannel({ mailbox: "gmail", allowFrom: ["someone@example.com"] })`.
+3. Add the channel: `email: emailChannel({ mailbox: "gmail", allowFrom: ["someone@example.com"] })` in `channels`, or switch it on from the dashboard's Channels page.
 4. Sign in. The agent's Connections page in the dashboard lists Google with a
    sign-in button. Approve reading and sending mail: chloe asks for
    `gmail.readonly` and `gmail.send`, and never deletes anything.
@@ -65,7 +65,7 @@ not, and Outlook.com no longer takes passwords from mail programs.
 2. Put it in `.env`, as `CHLOE_AGENTS_<ID>_EMAIL_PASSWORD`.
 3. In `chloe.config.ts`:
    `agents: { <id>: { email: { address: "you@fastmail.com", password: process.env.CHLOE_AGENTS_<ID>_EMAIL_PASSWORD } } }`.
-4. Add the channel: `emailChannel({ mailbox: "password", allowFrom: ["someone@example.com"] })`.
+4. Add the channel: `email: emailChannel({ mailbox: "password", allowFrom: ["someone@example.com"] })` in `channels`.
 
 For Gmail, iCloud and Fastmail addresses chloe knows the servers. For any
 other provider, add `imap` and `smtp` beside the password, each `"host:port"`

@@ -1,7 +1,7 @@
 // The tools over services/selfService.ts: an agent reading its own folder, its
 // own runs and the guides, trying one of its jobs, and changing its folder as
 // far as its definition allows. Reading its own folder (selfListFiles and
-// selfReadFile) is every turn's, like skillRead: it is the agent's own source,
+// selfReadFile) is every turn's: it is the agent's own source and its skills,
 // and nothing in it came from outside. Its runs, and the guides and selfTryJob,
 // are the runtime's, added only to a turn its owner wrote (`forOwner` in
 // model/tool.ts), because a run holds what other people said. selfWriteFile is
@@ -20,15 +20,15 @@ import type { ChloeTool, Tools, ToolKind } from "../tool.ts";
  * agent's own, so reading it never stops the agent changing itself.
  */
 // Each of these only reads: selfTryJob runs a trial, which holds back whatever goes out.
-const forOwner = (kind: ToolKind, one: ChloeTool, own = true): ChloeTool => Object.assign(one, { kind, forOwner: true, own, onlyReads: true });
+const forOwner = (title: string, kind: ToolKind, one: ChloeTool, own = true): ChloeTool => Object.assign(one, { title, kind, forOwner: true, own, onlyReads: true });
 
 /** A tool that only reads the agent's own things, for every turn. */
-const ownRead = (kind: ToolKind, one: ChloeTool): ChloeTool => Object.assign(one, { kind, own: true, onlyReads: true });
+const ownRead = (title: string, kind: ToolKind, one: ChloeTool): ChloeTool => Object.assign(one, { title, kind, own: true, onlyReads: true });
 
 /** selfListFiles and selfReadFile: reading the agent's own folder, given to every turn. `may` is whether they say it may change a file. */
 export function selfFolderTools(may: boolean): (agent: Home) => Tools {
   return (agent) => ({
-    selfListFiles: ownRead("list",
+    selfListFiles: ownRead("List files", "list",
       tool({
         description:
           "List the files in your own folder (your instructions, skills and jobs), and which of them you can " +
@@ -37,7 +37,7 @@ export function selfFolderTools(may: boolean): (agent: Home) => Tools {
         execute: () => ownFiles(agent, may),
       }),
     ),
-    selfReadFile: ownRead("read",
+    selfReadFile: ownRead("Read file", "read",
       tool({
         description:
           "Read files in your own folder, like instructions.md, agent.ts and jobs/morning-run.ts: to say how you do " +
@@ -54,7 +54,7 @@ export function selfFolderTools(may: boolean): (agent: Home) => Tools {
 /** selfListRuns, selfReadRun and selfReadGuide, for the owner's turns: a run holds what other people said. */
 export function selfReadTools(): (agent: Home) => Tools {
   return (agent) => ({
-    selfListRuns: forOwner("list",
+    selfListRuns: forOwner("List runs", "list",
       tool({
         description:
           "List your own runs, newest first: which job (or chat), where it came from, when, what it cost, and " +
@@ -67,7 +67,7 @@ export function selfReadTools(): (agent: Home) => Tools {
       }),
     ),
     // What a run read from mail or the web is in it, so it counts as reading from outside.
-    selfReadRun: forOwner("read",
+    selfReadRun: forOwner("Read run", "read",
       tool({
         description:
           "Read one of your runs: what started it, what you answered or why it failed, and every step or tool call " +
@@ -78,7 +78,7 @@ export function selfReadTools(): (agent: Home) => Tools {
       }),
       false,
     ),
-    selfReadGuide: forOwner("read",
+    selfReadGuide: forOwner("Read guide", "read",
       tool({
         description:
           "Read the guides for the version of Chloe you run on: what you can be given and how. Connections (Gmail, " +
@@ -103,7 +103,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
  */
 export function selfTrialTools(agent: Home): Tools {
   return {
-    selfTryJob: forOwner("run",
+    selfTryJob: forOwner("Try job", "run",
       tool({
         description:
           "Run one of your jobs as a trial, as its files are now, and see what it would have sent. It reads for real " +
@@ -161,6 +161,6 @@ function writeTool(agent: Home): ChloeTool {
       }),
       execute: ({ files, message }) => changeOwnFiles(agent, files, message),
     }),
-    { kind: "write" as const, own: true, forOwner: true, changesAgent: true },
+    { title: "Write file", kind: "write" as const, own: true, forOwner: true, changesAgent: true },
   );
 }

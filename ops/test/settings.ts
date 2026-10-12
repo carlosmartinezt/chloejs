@@ -246,23 +246,64 @@ export default defineConfig({
 
 {
   about("a feature switched from the page, in agent.ts");
-  const { setFeatureIn, InCode } = await import("#chloe/serve/config");
+  const { setOptionsIn, saidIn, InCode } = await import("#chloe/serve/config");
   const file = (features: string) =>
     `import { defineAgent } from "@chloejs/core";\n\nexport default defineAgent({\n  id: "a",\n  // How it is reached.\n  model: "m",${features}\n  instructions: "Hi.",\n});\n`;
+  const set = (text: string, name: string, change: { on?: boolean; set?: Record<string, unknown> }, defaultOn = false) =>
+    setOptionsIn(text, "features", name, change, defaultOn);
   is(
     "a switch where there is no features adds it, after the last entry",
-    setFeatureIn(file(""), "selfImprovement", false).split("\n").slice(-4).join("\n"),
+    set(file(""), "selfImprovement", { on: false }, true).split("\n").slice(-4).join("\n"),
     '  instructions: "Hi.",\n  features: { selfImprovement: false },\n});\n',
   );
-  is("one beside another keeps it", setFeatureIn(file("\n  features: { runScripts: true },"), "selfImprovement", false), file("\n  features: { runScripts: true, selfImprovement: false },"));
-  is("switching one back takes it out", setFeatureIn(file("\n  features: { runScripts: true, selfImprovement: false },"), "selfImprovement", null), file("\n  features: { runScripts: true },"));
-  is("and features with it when nothing is left", setFeatureIn(file("\n  features: { selfImprovement: false },"), "selfImprovement", null), file(""));
-  const refused = (() => {
+  is("one beside another keeps it", set(file("\n  features: { runScripts: true },"), "selfImprovement", { on: false }, true), file("\n  features: { runScripts: true, selfImprovement: false },"));
+  is("switching a default-on one back takes it out", set(file("\n  features: { runScripts: true, selfImprovement: false },"), "selfImprovement", { on: true }, true), file("\n  features: { runScripts: true, selfImprovement: false },").replace("selfImprovement: false", "selfImprovement: true"));
+  is("a default-off one switched off is taken out, and features with it when nothing is left", set(file("\n  features: { web: true },"), "web", { on: false }), file(""));
+  is("on, a default-off one is written true", set(file(""), "web", { on: true }).includes("features: { web: true }"), true);
+
+  const fields = (text: string) => text.split("\n").find((line) => line.includes("features")) ?? "";
+  is("a field turns true into its fields", fields(set(file("\n  features: { email: true },"), "email", { set: { days: 3 } })), "  features: { email: { days: 3 } },");
+  is("another joins it", fields(set(file("\n  features: { email: { days: 3 } },"), "email", { set: { reply: true } })), "  features: { email: { days: 3, reply: true } },");
+  is("a list is written as a list", fields(set(file("\n  features: { email: true },"), "email", { set: { sendTo: ["a@b.co", "c@d.co"] } })), '  features: { email: { sendTo: ["a@b.co", "c@d.co"] } },');
+  is("a field set to null is taken out, and true comes back when none is left", fields(set(file("\n  features: { email: { days: 3 } },"), "email", { set: { days: null } })), "  features: { email: true },");
+  is("a field on a feature that is not there turns it on", fields(set(file(""), "calendar", { set: { add: true } })), "  features: { calendar: { add: true } },");
+  is("a field inside a group is written inside it", set(file("\n  features: { email: true },"), "email", { set: { "a.b": 1 } }).includes("email: { a: { b: 1 } }"), true);
+  is("and the group goes when its last field does", fields(set(file("\n  features: { email: { a: { b: 1 } } },"), "email", { set: { "a.b": null } })), "  features: { email: true },");
+  is("a field the file writes as code is left alone", (() => { try { return set(file("\n  features: { email: { search: mine, days: 3 } },"), "email", { set: { search: "x" } }); } catch (error) { return error instanceof InCode; } })(), true);
+  is("and the others beside it are still the page's", fields(set(file("\n  features: { email: { search: mine, days: 3 } },"), "email", { set: { days: 5 } })), "  features: { email: { search: mine, days: 5 } },");
+  is("a feature written as code is the file's to change", (() => { try { return set(file("\n  features: shared,"), "memory", { on: false }, true); } catch (error) { return error instanceof InCode; } })(), true);
+  is("what the file says is read back", [saidIn(file(""), "features", "web").kind, saidIn(file("\n  features: { web: false },"), "features", "web"), saidIn(file("\n  features: { email: bound },"), "features", "email").kind, saidIn(file("\n  features: { email: { days: 2, search: mine } },"), "features", "email")], ["absent", { kind: "flag", on: false }, "code", { kind: "fields", fields: { days: "value", search: "code" }, values: { days: 2 } }]);
+
+  const { setWithoutIn } = await import("#chloe/serve/config");
+  is("a tool switched off adds a without list", setWithoutIn(file(""), "readEmail", false).split("\n").slice(-3).join("\n"), '  without: ["readEmail"],\n});\n');
+  is("a second one joins it", setWithoutIn(file('\n  without: ["readEmail"],'), "readPage", false), file('\n  without: ["readEmail", "readPage"],'));
+  is("switching one back takes it out", setWithoutIn(file('\n  without: ["readEmail", "readPage"],'), "readEmail", true), file('\n  without: ["readPage"],'));
+  is("and the list with the last one", setWithoutIn(file('\n  without: ["readPage"],'), "readPage", true), file(""));
+  is("switching off one that is off changes nothing", setWithoutIn(file('\n  without: ["readPage"],'), "readPage", false), file('\n  without: ["readPage"],'));
+  const code = (() => {
     try {
-      return setFeatureIn(file("\n  features: shared,"), "memory", false);
+      return setWithoutIn(file("\n  without: others,"), "readEmail", false);
     } catch (error) {
       return error;
     }
   })();
-  is("features written as code is the file's to change", refused instanceof InCode, true);
+  is("a list written as code is the file's to change", code instanceof InCode, true);
+
+  // Channels are calls in agent.ts, and the page edits the call.
+  const { setChannelIn, saidChannel } = await import("#chloe/serve/config");
+  const doors = (channels: string, imports = 'import { defineAgent } from "@chloejs/core";\nimport { telegramChannel } from "@chloejs/core/channels";\n') =>
+    `${imports}\nexport default defineAgent({\n  id: "a",\n  model: "m",${channels}\n  instructions: "Hi.",\n});\n`;
+  const door = (text: string, name: string, fn: string, change: { on?: boolean; set?: Record<string, unknown>; starter?: Record<string, unknown> }) => setChannelIn(text, name, fn, change);
+  const line = (text: string) => text.split("\n").find((one) => one.includes("channels:")) ?? "";
+  is("a channel is added as its call, and its function imported", [line(door(doors(""), "slack", "slackChannel", { on: true })), door(doors(""), "slack", "slackChannel", { on: true }).includes('import { telegramChannel, slackChannel } from "@chloejs/core/channels";')], ["  channels: { slack: slackChannel() },", true]);
+  is("with the options it cannot work without", line(door(doors(""), "email", "emailChannel", { on: true, starter: { mailbox: "gmail" }, set: { allowFrom: ["a@b.co"] } })), '  channels: { email: emailChannel({ mailbox: "gmail", allowFrom: ["a@b.co"] }) },');
+  is("an import is made when there is none", door(doors("", 'import { defineAgent } from "@chloejs/core";\n'), "api", "apiChannel", { on: true }).includes('import { apiChannel } from "@chloejs/core/channels";'), true);
+  is("an option goes inside the call", line(door(doors('\n  channels: { telegram: telegramChannel() },'), "telegram", "telegramChannel", { set: { allowFrom: [1] } })), "  channels: { telegram: telegramChannel({ allowFrom: [1] }) },");
+  is("beside the others, and a group of options is written as a group", line(door(doors('\n  channels: { email: emailChannel({ allowFrom: ["a@b.co"] }) },'), "email", "emailChannel", { set: { "start.when": "Rarely." } })), '  channels: { email: emailChannel({ allowFrom: ["a@b.co"], start: { when: "Rarely." } }) },');
+  is("an option taken out goes back to the bare call when none is left", line(door(doors('\n  channels: { email: emailChannel({ start: { when: "x" } }) },'), "email", "emailChannel", { set: { "start.when": null } })), "  channels: { email: emailChannel() },");
+  is("a channel taken out takes its import, and channels, with it", [door(doors('\n  channels: { telegram: telegramChannel() },'), "telegram", "telegramChannel", { on: false }).includes("channels"), door(doors('\n  channels: { telegram: telegramChannel() },'), "telegram", "telegramChannel", { on: false }).includes("telegramChannel")], [false, false]);
+  is("the import stays when the function is used elsewhere", door(doors('\n  channels: { a: telegramChannel(), b: telegramChannel({ name: "b" }) },'), "a", "telegramChannel", { on: false }).includes('import { telegramChannel }'), true);
+  is("an option the file writes as code is left alone", (() => { try { return door(doors('\n  channels: { telegram: telegramChannel({ allowFrom: ids }) },'), "telegram", "telegramChannel", { set: { allowFrom: [1] } }); } catch (error) { return error instanceof InCode; } })(), true);
+  is("a channel written some other way is the file's", (() => { try { return door(doors("\n  channels: { telegram: mine },"), "telegram", "telegramChannel", { on: false }); } catch (error) { return error instanceof InCode; } })(), true);
+  is("what the file says is read back", [saidChannel(doors(""), "telegram", "telegramChannel").kind, saidChannel(doors("\n  channels: { telegram: telegramChannel() },"), "telegram", "telegramChannel").kind, saidChannel(doors("\n  channels: { telegram: mine },"), "telegram", "telegramChannel").kind, saidChannel(doors('\n  channels: { telegram: telegramChannel({ allowFrom: [1], x: y }) },'), "telegram", "telegramChannel")], ["absent", "fields", "code", { kind: "fields", fields: { allowFrom: "value", x: "code" }, values: { allowFrom: [1] } }]);
 }

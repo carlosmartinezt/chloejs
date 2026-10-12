@@ -1,7 +1,7 @@
-// An agent's memory, as tools: memoryListFiles, memoryReadFile, memorySearchFiles,
-// memoryWriteFile and memoryEditFile, all inside the one folder its definition's
-// `memory` names (memory/ in its own folder when it names none). Every agent
-// has them: the loader adds them, so an agent's `tools` never lists them.
+// An agent's memory, as tools: memoryListFiles, memoryReadFile, memorySearchFiles
+// and memoryEditFile, all inside the one folder its definition's `memory` names
+// (memory/ in its own folder when it names none). The loader adds them
+// unless `features.memory` is false, so an agent's `tools` never lists them.
 import { mkdirSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -13,7 +13,7 @@ import * as fs from "./fs.ts";
 import { agentOf, ownTools, type ToolContext, type Tools } from "../tool.ts";
 
 /**
- * The five memory tools for one agent's memory. A write is its own commit only
+ * The four memory tools for one agent's memory. A write is its own commit only
  * when the memory says `commit: true`. With "each run", the end of the run
  * commits everything it wrote.
  */
@@ -27,7 +27,6 @@ export function memoryTools(): (agent: { id: string; memory: { folder: string; c
       memoryListFiles: fs.listFiles({ root: folder, what }),
       memoryReadFile: fs.readFile({ root: folder, what }),
       memorySearchFiles: fs.searchFiles({ root: folder, what }),
-      memoryWriteFile: fs.writeFile({ root: folder, what, commit: commit === true, author: id, memory: true }),
       memoryEditFile: fs.editFile({ root: folder, what, commit: commit === true, author: id, memory: true }),
     });
   };
@@ -72,6 +71,6 @@ export function userNotesTools(): () => Tools {
         await writeFile(file, notes.trim() + "\n");
         return "Kept.";
       },
-    }), { kind: "write" as const }),
+    }), { title: "Write user notes", kind: "write" as const }),
   });
 }

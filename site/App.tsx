@@ -460,6 +460,7 @@ function Agent({
   const held = flatten(files ?? []);
   const from = agent.toolsFrom ?? {};
   const own = agent.tools.filter((name) => !from[name]);
+  const title = (name: string) => agent.titles?.[name] ?? words(name);
 
   return (
     <>
@@ -479,26 +480,27 @@ function Agent({
         <dd>
           <Names names={agent.skills} agent={id} held={held} folder="skills" ending=".md" />
         </dd>
-        {/* Its own tools, left out when it has none and a feature adds some. */}
-        {(own.length > 0 || agent.tools.length === 0) && (
+        <dt>
+          <Link to={{ at: "tools", agent: id }}>features</Link>
+        </dt>
+        <dd>{(agent.features ?? []).filter((one) => one.on).map((one) => one.label).join(", ") || "none"}</dd>
+        {/* The tools its agent.ts names, and a connection's, each under where it comes from. */}
+        {own.length > 0 && (
           <>
             <dt>
               <Link to={{ at: "tools", agent: id }}>tools</Link>
             </dt>
             <dd>
-              <Names names={own} agent={id} held={held} folder="tools" ending=".ts" say={words} />
+              <Names names={own} agent={id} held={held} folder="tools" ending=".ts" say={title} />
             </dd>
           </>
         )}
-        {/* The tools a feature or a connection adds, under the line in agent.ts that adds them. */}
-        {[...new Set(Object.values(from))].sort().map((source) => (
+        {[...new Set(Object.values(from))].filter((source) => !source.startsWith("features.")).sort().map((source) => (
           <Fragment key={source}>
             <dt className="from">
-              <Link to={{ at: "tools", agent: id }}>{source.startsWith("features.") ? words(source.slice(9)).toLowerCase() : source}</Link>
+              <Link to={{ at: "tools", agent: id }}>{source}</Link>
             </dt>
-            <dd className="dim">
-              {agent.tools.filter((name) => from[name] === source).map(words).join(", ")}
-            </dd>
+            <dd className="dim">{agent.tools.filter((name) => from[name] === source).map(title).join(", ")}</dd>
           </Fragment>
         ))}
       </dl>
