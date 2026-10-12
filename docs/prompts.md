@@ -92,7 +92,7 @@ defines itself is yours, so name it as you like.
 
 Every agent may rewrite its own instructions, skills and jobs, and its code:
 `agent.ts`, its tools, services, channels and scripts. `selfImprovement: false`
-turns that off, and `{ code: false }` keeps it to plain text. Every change is a
+turns that off, which suits an agent that already does what you want. Every change is a
 commit under its name, which you can read and undo from the dashboard. It never
 writes its evals or its memory. See [Features](/docs/features).
 
@@ -105,9 +105,9 @@ if it would not load, would not type check, or a job would run more than once
 an hour, every file is put back as it was, and the agent is told why. Reloads wait for that check, so
 nothing unchecked goes live.
 Code an agent writes runs as chloe does and can reach whatever chloe can, so
-its folder bounds what `selfWriteFile` writes, not what that code does. For
-the same reason, an agent with `except` (files it may never change) writes no
-code, and says so with a warning as it loads until it says `code: false`.
+its folder bounds what `selfWriteFile` writes, not what that code does. A rule
+it must never change belongs in code it cannot reach, not in a file in its
+folder.
 
 Any agent can read its own folder in any turn (`selfListFiles`,
 `selfReadFile`): its instructions, skills, jobs and code, to say how it does

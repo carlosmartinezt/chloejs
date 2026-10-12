@@ -7,7 +7,6 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import { agentDir } from "#chloe/core/paths";
 import { listScripts, runScripts as runOne, scriptsIn } from "#chloe/services/scriptsService";
 import type { Tools } from "#chloe/model/tool";
 
@@ -34,10 +33,10 @@ export function scriptRun(agent: string) {
  * file in one of its skill folders, and nothing else. Refused as the agent
  * loads when it has neither.
  */
-export function scriptTools(): (agent: { id: string }) => Tools {
-  return ({ id }) => {
-    if (scriptsIn(agentDir(id)).length === 0) {
-      throw new Error(`${id} has features.runScripts on, and no scripts: neither ${agentDir(id)}/scripts nor an executable file in a skill folder.`);
+export function scriptTools(): (agent: { id: string; folder: string }) => Tools {
+  return ({ id, folder }) => {
+    if (scriptsIn(folder).length === 0) {
+      throw new Error(`${id} has features.runScripts on, and no scripts: neither ${folder}/scripts nor an executable file in a skill folder.`);
     }
     return { scriptRun: scriptRun(id) };
   };

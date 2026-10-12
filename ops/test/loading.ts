@@ -344,3 +344,31 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   await rm(dir, { recursive: true, force: true });
   await rm(elsewhere, { recursive: true, force: true });
 }
+
+{
+  about("features are switched on and off, and FEATURES says what each adds");
+  const { defineAgent } = await import("@chloejs/core");
+  const { FEATURES, resolveAgent } = await import("#chloe/load/load");
+  const { chmod } = await import("node:fs/promises");
+  const folder = await realpath(await mkdtemp(join(tmpdir(), "chloe-features-")));
+  await mkdir(join(folder, "scripts"));
+  await writeFile(join(folder, "scripts/hi.sh"), "#!/bin/sh\necho hi\n");
+  await chmod(join(folder, "scripts/hi.sh"), 0o755);
+  const agent = (features: Record<string, unknown>) =>
+    resolveAgent(defineAgent({ id: "switches", folder, model: "m", description: "", instructions: "Hi.", features: features as never }));
+  const from = (await agent(Object.fromEntries(FEATURES.map((one) => [one.name, true])))).toolsFrom ?? {};
+  is(
+    "each feature adds the tools the list says",
+    FEATURES.map((one) => [one.name, Object.keys(from).filter((name) => from[name] === `features.${one.name}`).sort()]),
+    FEATURES.map((one) => [one.name, [...one.tools].sort()]),
+  );
+  is(
+    "unsaid, each is what the list says",
+    [...new Set(Object.values((await agent({})).toolsFrom ?? {}))].sort(),
+    FEATURES.filter((one) => one.on).map((one) => `features.${one.name}`).sort(),
+  );
+  const refused = (features: Record<string, unknown>) => agent(features).then(() => "loaded", (error: Error) => error.message);
+  is("an object is refused", (await refused({ selfImprovement: { code: false } })).endsWith("features.selfImprovement is true or false."), true);
+  is("and a name that is not a feature", (await refused({ scripts: true })).includes("features has no scripts."), true);
+  await rm(folder, { recursive: true, force: true });
+}

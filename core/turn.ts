@@ -11,7 +11,7 @@ import { duringRun, holdBack, inTrial } from "#chloe/core/current";
 import { CUT_OFF, db } from "#chloe/core/db";
 import { oneLineSummary } from "#chloe/core/markdown";
 import { settings } from "#chloe/core/settings";
-import { ownFileRules, type Agent, type ChatHistory } from "#chloe/load/load";
+import { featureOn, type Agent, type ChatHistory } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
@@ -807,8 +807,8 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
 function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean; sendFile?: Ask["sendFile"]; stranger?: boolean } = {}): Tools {
   const owner = Boolean(who.fromOwner || who.mayChangeAgent);
   const tools: Tools = {
-    ...selfFolderTools(ownFileRules(agent.features))(agent),
-    ...(owner ? { ...selfReadTools(ownFileRules(agent.features))(agent), ...selfTrialTools(agent) } : {}),
+    ...selfFolderTools(featureOn(agent.features, "selfImprovement"))(agent),
+    ...(owner ? { ...selfReadTools()(agent), ...selfTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
     skillRead: skillTool(agent),
     ...(who.sendFile && !who.stranger ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id)]) } : {}),
@@ -826,12 +826,12 @@ function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boole
  * or never could.
  */
 function cannotChange(agent: Agent, tools: Tools): string {
-  if (!ownFileRules(agent.features) || Object.values(tools).some((one) => one.changesAgent)) return "";
+  if (!featureOn(agent.features, "selfImprovement") || Object.values(tools).some((one) => one.changesAgent)) return "";
   return (
     "## Changing yourself\n\n" +
     "You cannot change your own instructions, skills or jobs in this turn: only your owner can ask for that, in a " +
     "message to you. " +
-    (agent.features?.memory === false ? "When" : "Keep what you learned in your memory, and when") +
+    (!featureOn(agent.features, "memory") ? "When" : "Keep what you learned in your memory, and when") +
     " it should change one of those files, say which and how in one line, so they can ask."
   );
 }
@@ -846,8 +846,8 @@ const FILES_SHOWN = 100;
  * Empty for any other turn.
  */
 async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
-  if (!ownFileRules(agent.features) || !tools.selfReadGuide) return "";
-  const { files } = await ownFiles(agent, ownFileRules(agent.features), FILES_SHOWN + 1);
+  if (!featureOn(agent.features, "selfImprovement") || !tools.selfReadGuide) return "";
+  const { files } = await ownFiles(agent, true, FILES_SHOWN + 1);
   const shown = files.slice(0, FILES_SHOWN).map((one) => `- ${one.path}${one.canWrite ? "" : ` (not yours to write: ${one.why})`}`);
   if (files.length > FILES_SHOWN) shown.push("- and more, which selfListFiles lists");
   const changing = tools.selfWriteFile
@@ -882,7 +882,7 @@ function dashboard(): string {
  * stranger's turn and for an agent without its memory tools.
  */
 function memoryLinks(agent: Agent, stranger: boolean | undefined): string {
-  if (stranger || agent.features?.memory === false) return "";
+  if (stranger || !featureOn(agent.features, "memory")) return "";
   const at = `${dashboard()}/agents/${agent.id}/memory`;
   return (
     "## Links to your memory\n\n" +

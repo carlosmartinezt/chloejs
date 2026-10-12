@@ -246,7 +246,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const improving = agent;
   answers.push("No.");
   await turn({ agent: { ...agent, features: { selfImprovement: false } }, prompt: "improve yourself", source: "schedule", job: "nightly" });
-  is("an agent with selfImprovement: false is not told about changing itself", told().includes("## Changing yourself"), false);
+  is("an agent with selfImprovement off is not told about changing itself", told().includes("## Changing yourself"), false);
   answers.push("No.");
   await turn({ agent: improving, prompt: "improve yourself", source: "schedule", job: "nightly" });
   is("an agent that may change itself is told in a turn that cannot who can ask, and to keep the lesson", told().includes("## Changing yourself") && told().includes("Keep what you learned in your memory"), true);
@@ -396,8 +396,8 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("nor an eval's", refused("r-eval").startsWith("You have no run"), true);
 
   const { ownFile } = await import("#chloe/services/selfService");
-  const own = await ownFile(agent, undefined, "instructions.md");
-  is("with selfImprovement: false it reads its files and is told it cannot change them", [own.content, own.canWrite, own.why?.includes("selfImprovement")], ["Be brief.", false, true]);
+  const own = await ownFile(agent, false, "instructions.md");
+  is("with selfImprovement off it reads its files and is told it cannot change them", [own.content, own.canWrite, own.why?.includes("selfImprovement")], ["Be brief.", false, true]);
 
   const written: string[] = [];
   const writer = { ...agent, tools: { selfWriteFile: Object.assign(tool({ description: "Change a file.", inputSchema: z.object({}), execute: async () => (written.push("x"), "Written.") }), { own: true, forOwner: true, changesAgent: true }) } };

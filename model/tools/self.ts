@@ -5,13 +5,13 @@
 // and nothing in it came from outside. Its runs, and the guides and selfTryJob,
 // are the runtime's, added only to a turn its owner wrote (`forOwner` in
 // model/tool.ts), because a run holds what other people said. selfWriteFile is
-// in every agent's tools unless `selfImprovement: false`, and in a turn only
+// in every agent's tools while `features.selfImprovement` is on, and in a turn only
 // when the owner asked and may change it (`changesAgent`).
 import { tool } from "ai";
 import { z } from "zod";
 
 import { tryJob } from "#chloe/core/clock";
-import type { Home, OwnFileRules } from "#chloe/load/load";
+import type { Home } from "#chloe/load/load";
 import { changeOwnFiles, guide, ownFile, ownFiles, ownRun, ownRuns } from "#chloe/services/selfService";
 import type { ChloeTool, Tools, ToolKind } from "../tool.ts";
 
@@ -25,8 +25,8 @@ const forOwner = (kind: ToolKind, one: ChloeTool, own = true): ChloeTool => Obje
 /** A tool that only reads the agent's own things, for every turn. */
 const ownRead = (kind: ToolKind, one: ChloeTool): ChloeTool => Object.assign(one, { kind, own: true, onlyReads: true });
 
-/** selfListFiles and selfReadFile: reading the agent's own folder, given to every turn. `rules` is what they say it may change, none without. */
-export function selfFolderTools(rules?: OwnFileRules): (agent: Home) => Tools {
+/** selfListFiles and selfReadFile: reading the agent's own folder, given to every turn. `may` is whether they say it may change a file. */
+export function selfFolderTools(may: boolean): (agent: Home) => Tools {
   return (agent) => ({
     selfListFiles: ownRead("list",
       tool({
@@ -34,7 +34,7 @@ export function selfFolderTools(rules?: OwnFileRules): (agent: Home) => Tools {
           "List the files in your own folder (your instructions, skills and jobs), and which of them you can " +
           "change. Your memory is not in it: that is memoryListFiles.",
         inputSchema: z.object({}),
-        execute: () => ownFiles(agent, rules),
+        execute: () => ownFiles(agent, may),
       }),
     ),
     selfReadFile: ownRead("read",
@@ -45,14 +45,14 @@ export function selfFolderTools(rules?: OwnFileRules): (agent: Home) => Tools {
         inputSchema: z.object({
           paths: z.array(z.string()).min(1).max(30).describe("Paths inside your folder, from the list in your instructions."),
         }),
-        execute: ({ paths }) => Promise.all(paths.map((path) => ownFile(agent, rules, path).catch((error: unknown) => ({ path, error: message(error) })))),
+        execute: ({ paths }) => Promise.all(paths.map((path) => ownFile(agent, may, path).catch((error: unknown) => ({ path, error: message(error) })))),
       }),
     ),
   });
 }
 
-/** selfListRuns, selfReadRun and selfReadGuide, for the owner's turns: a run holds what other people said. `rules` is what they say it may change, none without. */
-export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
+/** selfListRuns, selfReadRun and selfReadGuide, for the owner's turns: a run holds what other people said. */
+export function selfReadTools(): (agent: Home) => Tools {
   return (agent) => ({
     selfListRuns: forOwner("list",
       tool({
@@ -123,18 +123,16 @@ export function selfTrialTools(agent: Home): Tools {
   };
 }
 
-/** selfWriteFile, for the files `rules` lets it change. */
-export function selfWriteTools(rules: OwnFileRules): (agent: Home) => Tools {
-  return (agent) => ({ selfWriteFile: writeTool(agent, rules) });
+/** selfWriteFile: changing the agent's own folder, as far as `whyNot` in services/selfService.ts allows. */
+export function selfWriteTools(): (agent: Home) => Tools {
+  return (agent) => ({ selfWriteFile: writeTool(agent) });
 }
 
-function writeTool(agent: Home, rules: OwnFileRules): ChloeTool {
-  const endings = rules.files.map((one) => `.${one.replace(/^\./, "")}`).join(", ");
-  const kept = rules.except?.length ? ` Never ${rules.except.join(", ")}.` : "";
+function writeTool(agent: Home): ChloeTool {
   return Object.assign(
     tool({
       description:
-        `Change files in your own folder, ending in ${endings}.${kept} Each replaces the whole file, so read it ` +
+        "Change files in your own folder: your instructions, skills, jobs and code. Each replaces the whole file, so read it " +
         "first and include everything you want kept. Give every file one change needs in one call: they are " +
         "written together and committed as one change, with your message. A markdown file directly in skills/ is a " +
         "skill, with name and description at the top: keep it short and about how to do the job, and write down only " +
@@ -142,12 +140,9 @@ function writeTool(agent: Home, rules: OwnFileRules): ChloeTool {
         "with cron, description, " +
         "timezone and model at the top, and a job you write runs at most once an hour. Its description says what is " +
         "true when a run is done, not what the job does. " +
-        (rules.code
-          ? "Your code is yours too: agent.ts, jobs, tools, services, channels, scripts. With code among them you are " +
-            "loaded once with all of them, and they are all put back with the reason when you would not load. A new " +
-            "job runs once agent.ts names it, so give both. Your evals and your memory are not yours to write here. "
-          : "Code, your evals and your memory are not yours to write here, because code you wrote is code you would " +
-            "then run as yourself: when some is wrong, say what it should do. ") +
+        "Your code is yours too: agent.ts, jobs, tools, services, channels, scripts. With code among them you are " +
+        "loaded once with all of them, and they are all put back with the reason when you would not load. A new " +
+        "job runs once agent.ts names it, so give both. Your evals and your memory are not yours to write here. " +
         "Every change can be seen and undone. " +
         "You have this only when your owner wrote to you, and only in a reply where no other tool has read " +
         "something from outside you (mail, a web page, a script, one of your runs): after that, say what you would " +
@@ -164,7 +159,7 @@ function writeTool(agent: Home, rules: OwnFileRules): ChloeTool {
           .max(20),
         message: z.string().min(10).describe("What changed and why, as a commit message."),
       }),
-      execute: ({ files, message }) => changeOwnFiles(agent, rules, files, message),
+      execute: ({ files, message }) => changeOwnFiles(agent, files, message),
     }),
     { kind: "write" as const, own: true, forOwner: true, changesAgent: true },
   );

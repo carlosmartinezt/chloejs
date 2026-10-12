@@ -51,6 +51,12 @@ export function threadName(thread: string): string {
   return own.replace(/-(\d{5,})(?=-|$)/, (_, digits: string) => `-${digits.slice(-4)}`);
 }
 
+/** A name written run together, like "memoryReadFile", in words: "Memory read file". */
+export function words(name: string): string {
+  const spaced = name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 /** "1 skill", "2 skills". */
 export const many = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 

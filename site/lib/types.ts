@@ -235,8 +235,20 @@ export interface Way {
 
 /** One thing an agent can do, and what the model is told it is for. */
 export interface AgentTool {
+  /** The name the model calls it by. */
   name: string;
   does: string;
+  /** Where it comes from, like "features.memory", or absent for the agent's own. */
+  from?: string;
+  takes: { name: string; about: string; required: boolean }[];
+}
+
+/** A feature: tools chloe adds to an agent, switched on or off in its agent.ts. */
+export interface AgentFeature {
+  name: string;
+  on: boolean;
+  does: string;
+  tools: string[];
 }
 
 /** One conversation an agent is in, whichever way it is reached. */

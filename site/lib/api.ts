@@ -3,6 +3,7 @@
 import type {
   Account,
   AgentSummary,
+  AgentFeature,
   AgentTool,
   Change,
   Changes,
@@ -152,6 +153,10 @@ export const api = {
   instructions: (agent: string) => call<{ text: string; path?: string }>(`/agents/${agent}/instructions`),
   agentSkills: (agent: string) => call<Skill[]>(`/agents/${agent}/skills`),
   agentTools: (agent: string) => call<AgentTool[]>(`/agents/${agent}/tools`),
+  features: (agent: string) => call<AgentFeature[]>(`/agents/${agent}/features`),
+  /** Switch a feature on or off in the agent's agent.ts, and get every feature and tool back as it now loads. */
+  setFeature: (agent: string, name: string, on: boolean) =>
+    call<{ features: AgentFeature[]; tools: AgentTool[] }>(`/agents/${agent}/features`, { name, on }),
   channels: (agent: string) => call<Way[]>(`/agents/${agent}/channels`),
   connections: (agent: string) => call<Way[]>(`/agents/${agent}/connections`),
   /** Start a connection's sign-in: what to tell the person, and the link to open, sent as it is. */

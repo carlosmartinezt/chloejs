@@ -193,13 +193,11 @@ every turn (`selfFolderTools` in `model/tools/self.ts`, added by `toolsFor()` in
 `core/turn.ts` like `skillRead`), and its runs, the guides and trying its jobs
 are its owner's turns' (`selfReadTools`), so neither half is in the agent's
 `tools`. Unless it says `selfImprovement: false`, it may also
-change its own folder, `ownFileRules()` in `load/load.ts`: its instructions,
+change its own folder, `whyNot()` in `services/selfService.ts`: its instructions,
 its skills, its jobs, and its code (its tools, services, channels and scripts,
-`agent.ts`, anything ending in .ts, .js, .py or .sh). `code: false` keeps it to
-`PLAIN_TEXT`, and then it cannot add a job; `files` narrows it and `except`
-keeps a path back and turns code off, with a warning as it loads unless it
-says `code: false`, because code an agent writes is code it then runs as
-itself and could change that path. `selfWriteFile` takes every file one
+`agent.ts`, anything ending in .ts, .js, .py or .sh). There is no narrower
+setting: a feature is on or off, because code an agent writes is code it then
+runs as itself and could get round any file kept back. `selfWriteFile` takes every file one
 change needs and commits them as one, after committing what a person changed
 by hand in those files under the box's own git name. An owner's turn lists the
 agent's files and the guides in its instructions, and `selfReadFile` and
@@ -1010,6 +1008,10 @@ stands on. Agent specific code lives in that agent's folder.
 in `model/tools/` and let each agent name it in its `agent.ts`. What any
 agent may want switched on (its memory tools, the self tools, scriptRun) is
 a `features` flag in its definition instead, and the loader adds the tools.
+A flag is `true` or `false` and never an object, so the Tools page can switch
+it by changing that one value in `agent.ts` (`changeFeature()` in
+`serve/config.ts`). `FEATURES` in `load/load.ts` is the list, with each one's
+default and the tools it adds, and a test holds the two together.
 
 **A channel says its own name, and nothing else may say it for it.** Every
 `Channel` has a `name`, `channels` in a definition is a list, and the loader

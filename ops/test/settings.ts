@@ -243,3 +243,26 @@ export default defineConfig({
   }
   is("so is a group that is a variable", refused instanceof InCode, true);
 }
+
+{
+  about("a feature switched from the page, in agent.ts");
+  const { setFeatureIn, InCode } = await import("#chloe/serve/config");
+  const file = (features: string) =>
+    `import { defineAgent } from "@chloejs/core";\n\nexport default defineAgent({\n  id: "a",\n  // How it is reached.\n  model: "m",${features}\n  instructions: "Hi.",\n});\n`;
+  is(
+    "a switch where there is no features adds it, after the last entry",
+    setFeatureIn(file(""), "selfImprovement", false).split("\n").slice(-4).join("\n"),
+    '  instructions: "Hi.",\n  features: { selfImprovement: false },\n});\n',
+  );
+  is("one beside another keeps it", setFeatureIn(file("\n  features: { runScripts: true },"), "selfImprovement", false), file("\n  features: { runScripts: true, selfImprovement: false },"));
+  is("switching one back takes it out", setFeatureIn(file("\n  features: { runScripts: true, selfImprovement: false },"), "selfImprovement", null), file("\n  features: { runScripts: true },"));
+  is("and features with it when nothing is left", setFeatureIn(file("\n  features: { selfImprovement: false },"), "selfImprovement", null), file(""));
+  const refused = (() => {
+    try {
+      return setFeatureIn(file("\n  features: shared,"), "memory", false);
+    } catch (error) {
+      return error;
+    }
+  })();
+  is("features written as code is the file's to change", refused instanceof InCode, true);
+}

@@ -6,7 +6,7 @@ import { ContextMenu, type Choice } from "./views/components/ContextMenu.tsx";
 import { Link } from "./views/components/Link.tsx";
 import { Dot, Rail } from "./views/components/Tree.tsx";
 import { api, EVERYTHING, NeedsSignIn, servesFrom, type Serves } from "./lib/api.ts";
-import { labelOf, many, shareLabels } from "./lib/format.ts";
+import { labelOf, many, shareLabels, words } from "./lib/format.ts";
 import { allowed, landing, may, NOT_GIVEN } from "./lib/given.ts";
 import { announceMenu, watchMenu } from "./lib/menus.ts";
 import { go, href, read, type View } from "./lib/route.ts";
@@ -482,18 +482,22 @@ function Agent({
         {/* Its own tools, left out when it has none and a feature adds some. */}
         {(own.length > 0 || agent.tools.length === 0) && (
           <>
-            <dt>tools</dt>
+            <dt>
+              <Link to={{ at: "tools", agent: id }}>tools</Link>
+            </dt>
             <dd>
-              <Names names={own} agent={id} held={held} folder="tools" ending=".ts" />
+              <Names names={own} agent={id} held={held} folder="tools" ending=".ts" say={words} />
             </dd>
           </>
         )}
         {/* The tools a feature or a connection adds, under the line in agent.ts that adds them. */}
         {[...new Set(Object.values(from))].sort().map((source) => (
           <Fragment key={source}>
-            <dt className="from">{source}</dt>
+            <dt className="from">
+              <Link to={{ at: "tools", agent: id }}>{source.startsWith("features.") ? words(source.slice(9)).toLowerCase() : source}</Link>
+            </dt>
             <dd className="dim">
-              {agent.tools.filter((name) => from[name] === source).join(", ")}
+              {agent.tools.filter((name) => from[name] === source).map(words).join(", ")}
             </dd>
           </Fragment>
         ))}
@@ -554,12 +558,15 @@ function Names({
   held,
   folder,
   ending,
+  say = (name) => name,
 }: {
   names: string[];
   agent: string;
   held: string[];
   folder: string;
   ending: string;
+  /** How a name is shown; the file is still found by the name itself. */
+  say?: (name: string) => string;
 }) {
   if (names.length === 0) return <>none</>;
   return (
@@ -570,10 +577,10 @@ function Names({
           <span key={name}>
             {at > 0 && ", "}
             {held.includes(path) ? (
-              <Link to={{ at: "file", agent, path }}>{name}</Link>
+              <Link to={{ at: "file", agent, path }}>{say(name)}</Link>
             ) : (
               <span className="dim" title="Written once in the runtime, not in this agent's folder">
-                {name}
+                {say(name)}
               </span>
             )}
           </span>

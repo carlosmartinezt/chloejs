@@ -228,23 +228,24 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
 
   // What it may change of its own folder.
   const home = { id: "keeper", folder, memory: { folder: memory } };
-  const rules = { files: ["md", "txt", "json"], except: ["PERMISSIONS.md"] };
-  const may = (path: string) => whyNot(home, rules, path) ?? "yes";
+  const may = (path: string) => whyNot(home, true, path) ?? "yes";
   is("it may change its instructions", may("instructions.md"), "yes");
   is("and a skill", may("skills/deploys.md"), "yes");
-  is("but not what is kept back for a person", may("PERMISSIONS.md"), "it is kept back for a person to change");
-  is("nor anything in a folder of code", may("tools/check.md"), "tools/ is code");
-  is("nor a file of code", may("jobs/build.ts"), "it is code");
-  is("nor an ending it was not given", may("notes.html"), "only files ending in .md, .txt, .json can be written");
+  is("and its code", [may("jobs/build.ts"), may("tools/check.ts"), may("agent.ts")], ["yes", "yes", "yes"]);
+  is(
+    "but not an ending that is neither text nor code",
+    may("notes.exe"),
+    "only files ending in .md, .txt, .html, .json, .yml, .yaml, .csv, .ts, .js, .mjs, .py, .sh can be written",
+  );
   is(
     "nor its memory, which has tools of its own, when somebody keeps that inside its folder",
-    whyNot({ ...home, memory: { folder: join(folder, "memory") } }, rules, "memory/STATUS.md") ?? "yes",
+    whyNot({ ...home, memory: { folder: join(folder, "memory") } }, true, "memory/STATUS.md") ?? "yes",
     "that is your memory, which you write with memoryWriteFile",
   );
   is("nor what marks its runs", may("evals/status.json"), "evals/ is how your runs are marked");
+  is("nor anything with selfImprovement off", (whyNot(home, false, "instructions.md") ?? "yes").includes("switched off"), true);
   is("and a skill that is a folder", may("skills/deploys/SKILL.md"), "yes");
-  is("and what that skill keeps beside it", may("skills/deploys/hosts.json"), "yes");
-  is("but not a script in it without code", may("skills/deploys/deploy.sh"), "it is code");
+  is("and what that skill keeps beside it", [may("skills/deploys/hosts.json"), may("skills/deploys/deploy.sh")], ["yes", "yes"]);
   is(
     "nor a skill that is not markdown",
     may("skills/deploys.txt"),
@@ -253,7 +254,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   is("nor anything outside its folder", await Promise.resolve().then(() => may("../other/x.md")).catch(failed), `Path is outside ${folder}: ../other/x.md`);
 
   const wrote = (path: string, content: string, message = "a change worth making") =>
-    changeOwnFiles(home, rules, [{ path, content }], message).then((done) => done.commit ?? "not committed", failed);
+    changeOwnFiles(home, [{ path, content }], message).then((done) => done.commit ?? "not committed", failed);
   is(
     "a job that would not load is refused",
     await wrote("jobs/weekly.md", "---\ncron: every monday\n---\nLook back."),
@@ -285,12 +286,6 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
     (await jobsOf("keeper", folder, [markdownJob("jobs/weekly.md")])).map((one) => [one.id, one.cron]),
     [["weekly", "0 9 * * 1"]],
   );
-  is(
-    "and a job that is not there yet is refused, because only a person can name it",
-    await wrote("jobs/monthly.md", "---\ncron: 0 9 1 * *\n---\nLook back further."),
-    "jobs/monthly.md would be a new job, and a job only runs once it is named in agent.ts, which only a person can change. " +
-      "Ask for it, and change a job that is already there meanwhile.",
-  );
   await put(join(folder, "instructions.md"), "Be brief, and say so.");
   await wrote("instructions.md", "Be long.");
   is(
@@ -303,7 +298,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   // A change made during a run belongs to that run.
   const improve = codeJob("improve", async ({ step }) =>
     step("rewrite the skill", () =>
-      changeOwnFiles(home, rules, [{ path: "skills/deploys.md", content: "---\nname: deploys\ndescription: how\n---\nShip it small." }], "the skill says how to ship"),
+      changeOwnFiles(home, [{ path: "skills/deploys.md", content: "---\nname: deploys\ndescription: how\n---\nShip it small." }], "the skill says how to ship"),
     ).then(() => "ok"),
   );
   const improved = await work({ agent: keeper, job: improve });
@@ -410,12 +405,12 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
 }
 
 {
-  about("an agent with code: true changes its own code, and nothing that does not load is kept");
+  about("an agent changes its own code, and nothing that does not load is kept");
   const { execFileSync } = await import("node:child_process");
   const { existsSync, realpathSync, statSync } = await import("node:fs");
   const { rm, symlink } = await import("node:fs/promises");
   const { fileURLToPath } = await import("node:url");
-  const { loadAgain, ownFileRules, checksDone } = await import("#chloe/load/load");
+  const { loadAgain, checksDone } = await import("#chloe/load/load");
   const { whyNot, changeOwnFiles } = await import("#chloe/services/selfService");
 
   // Outside the runtime's folder, whose files are never imported afresh, with
@@ -435,19 +430,11 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   git("commit", "-q", "-m", "the agent as a person wrote it");
 
   const home = { id: "coder", folder, memory: { folder: memory } };
-  const words = ownFileRules({ selfImprovement: { code: false } });
-  const code = ownFileRules({});
-  is("code is on unless it says code: false", [code?.code, words?.code, ownFileRules({ selfImprovement: true as never })?.code], [true, false, true]);
-  is("and false turns it all off", ownFileRules({ selfImprovement: false }), undefined);
-  is("a file kept back turns code off, since code could change it", ownFileRules({ selfImprovement: { except: ["PERMISSIONS.md"] } })?.code, false);
-  is("without code, a job's code is not its to write", whyNot(home, words!, "jobs/hello.ts"), "it is code");
-  is("nor its tools", whyNot(home, words!, "tools/look.md"), "tools/ is code");
-  is("with code it is", [whyNot(home, code!, "jobs/hello.ts"), whyNot(home, code!, "tools/look.ts"), whyNot(home, code!, "agent.ts")], [undefined, undefined, undefined]);
-  is("and a job's code may sit in a folder of its own", whyNot(home, code!, "jobs/lib/feeds.ts"), undefined);
-  is("but never its evals", whyNot(home, code!, "evals/hello.json"), "evals/ is how your runs are marked");
+  is("and a job's code may sit in a folder of its own", whyNot(home, true, "jobs/lib/feeds.ts"), undefined);
+  is("but never its evals", whyNot(home, true, "evals/hello.json"), "evals/ is how your runs are marked");
 
   const wrote = (path: string, content: string) =>
-    changeOwnFiles(home, code!, [{ path, content }], "a change worth making").then((done) => done.commit ?? "not committed", (error: Error) => error.message);
+    changeOwnFiles(home, [{ path, content }], "a change worth making").then((done) => done.commit ?? "not committed", (error: Error) => error.message);
   const job = (cron: string) =>
     `import { defineJob } from "@chloejs/core";\nexport default defineJob({ id: "hello", description: "Says hello.", cron: "${cron}", run: async () => "Hello." });\n`;
 
@@ -481,7 +468,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
 
   // A change that only loads with two files changed together.
   const together = (files: { path: string; content: string }[]) =>
-    changeOwnFiles(home, code!, files, "hello reads its words from a file of its own").then((done) => done.commit, (error: Error) => error.message);
+    changeOwnFiles(home, files, "hello reads its words from a file of its own").then((done) => done.commit, (error: Error) => error.message);
   const greetingFile = { path: "jobs/lib/words.ts", content: 'export const greeting = "Hello again.";\n' };
   const using = {
     path: "jobs/hello.ts",

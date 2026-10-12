@@ -1,14 +1,16 @@
-// chloe.config.ts, read and written from the page. A save is loaded as the
-// next reload would load it, and type checked when the project has
-// TypeScript, and put back with the reason when either fails.
+// chloe.config.ts, and the features in an agent's agent.ts, read and written
+// from the page. A save is loaded as the next reload would load it, and type
+// checked when the project has TypeScript, and put back with the reason when
+// either fails.
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { envNames, writeEnv } from "#chloe/core/env";
 import { DEFAULTS, KEYS, nameInEnv, settings } from "#chloe/core/settings";
-import { checkFirst, CONFIG, loadAll } from "#chloe/load/load";
+import { checkFirst, CONFIG, FEATURES, loadAgain, loadAll, type Agent, type Home } from "#chloe/load/load";
 import { typeProblems } from "#chloe/services/selfService";
-import { NotFound } from "./errors.ts";
+import { BadRequest, NotFound } from "./errors.ts";
 
 /** The text of chloe.config.ts. */
 export async function configText(): Promise<string> {
@@ -159,6 +161,51 @@ export async function changeSettings(changes: { path: string; value: unknown }[]
   }
 }
 
+/**
+ * Switches one of an agent's features on or off in its agent.ts, and hands
+ * back the agent as it now loads. The file says a feature only where it
+ * differs from what the feature is unsaid, so switching one back takes its
+ * line out. Refused as `InCode` where `features` is written as code, and put
+ * back with the reason when the agent would not load or type check.
+ */
+export async function changeFeature(agent: Home, name: string, on: boolean): Promise<Agent> {
+  const feature = FEATURES.find((one) => one.name === name);
+  if (!feature) throw new BadRequest(`There is no feature called ${name}. There are ${FEATURES.map((one) => one.name).join(", ")}.`);
+  const file = join(agent.folder, "agent.ts");
+  if (!existsSync(file)) throw new NotFound(`${agent.id} has no agent.ts, so its features are changed where it is defined.`);
+  const before = await readFile(file, "utf8");
+  const text = setFeatureIn(before, name, on === feature.on ? null : on);
+  if (text === before) return loadAgain(agent);
+  return checkFirst(async () => {
+    await writeFile(file, text);
+    let problem = "";
+    try {
+      const now = await loadAgain(agent);
+      const types = await typeProblems(file);
+      if (!types) return now;
+      problem = `it does not type check:\n${types}`;
+    } catch (error) {
+      problem = error instanceof Error ? error.message : String(error);
+    }
+    await writeFile(file, before);
+    throw new Error(`agent.ts is put back as it was, because ${problem}`);
+  });
+}
+
+/**
+ * agent.ts's text with `features.<name>` set to `on`, or taken out when it is
+ * null, and `features` with it when nothing is left in it.
+ */
+export function setFeatureIn(text: string, name: string, on: boolean | null): string {
+  const open = /defineAgent\s*\(\s*\{/.exec(blank(text));
+  if (!open) throw new InCode("agent.ts has no defineAgent({ ... }) to change.");
+  const at = open.index + open[0].length - 1;
+  const out = put(text, at, ["features", name], on === null ? null : String(on), "agent.ts");
+  const features = entries(out, at).find((one) => one.key === "features");
+  if (features && out[features.valueStart] === "{" && entries(out, features.valueStart).length === 0) return remove(out, features);
+  return out;
+}
+
 /** The name in `process.env.NAME` or `process.env["NAME"]`, when that is the whole of the value. */
 export function envName(value: string): string | undefined {
   return /^process\.env(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\])$/.exec(value.trim())?.slice(1).find(Boolean);
@@ -213,20 +260,20 @@ export function setInConfig(text: string, path: string[], value: string | null):
   return put(text, open, path, value);
 }
 
-function put(text: string, open: number, path: string[], value: string | null): string {
+function put(text: string, open: number, path: string[], value: string | null, file = "chloe.config.ts"): string {
   const all = entries(text, open);
   const [key, ...rest] = path;
   const found = all.find((one) => one.key === key);
   if (!found && all.some((one) => one.key === null)) {
-    throw new InCode(`${key} may be set by code beside it in chloe.config.ts, so it is changed in the file.`);
+    throw new InCode(`${key} may be set by code beside it in ${file}, so it is changed in the file.`);
   }
   if (!found) {
     if (value === null) return text;
     return insert(text, open, all, `${said(key)}: ${rest.reduceRight((inside, part) => `{ ${said(part)}: ${inside} }`, value)}`);
   }
   if (rest.length) {
-    if (text[found.valueStart] !== "{") throw new InCode(`${key} is written as code in chloe.config.ts, so it is changed in the file.`);
-    return put(text, found.valueStart, rest, value);
+    if (text[found.valueStart] !== "{") throw new InCode(`${key} is written as code in ${file}, so it is changed in the file.`);
+    return put(text, found.valueStart, rest, value, file);
   }
   if (value !== null) return text.slice(0, found.valueStart) + value + text.slice(found.valueEnd);
   return remove(text, found);
@@ -263,7 +310,9 @@ function remove(text: string, found: Entry): string {
   const lineEnd = text.indexOf("\n", found.end);
   const alone = !text.slice(lineStart, found.start).trim() && !text.slice(found.end, lineEnd === -1 ? text.length : lineEnd).trim();
   if (alone) return text.slice(0, lineStart) + text.slice(lineEnd === -1 ? text.length : lineEnd + 1);
-  return text.slice(0, found.start) + text.slice(found.end).replace(/^[ \t]+/, "");
+  // The last entry on a line has no comma of its own, so the one before it goes instead.
+  const before = found.end === found.valueEnd ? text.slice(0, found.start).replace(/,\s*$/, " ") : text.slice(0, found.start);
+  return before + text.slice(found.end).replace(/^[ \t]+/, "");
 }
 
 /** The spaces in front of the line that `at` is on. */

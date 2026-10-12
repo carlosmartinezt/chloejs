@@ -37,7 +37,7 @@ job's code sets its own limits on each step: see
 ## features
 
 Switched on in the definition, with nothing to import:
-`features: { memoryPerUser: true, runScripts: true }`. Every tool each one
+`features: { memoryPerUser: true, runScripts: true }`. Each is `true` or `false`, and the dashboard's Tools page switches them. Every tool each one
 adds, and the ones an agent has with no feature, are on
 [Features](/docs/features).
 
@@ -45,7 +45,7 @@ adds, and the ones an agent has with no feature, are on
 |---|---|---|
 | `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles`, `memoryWriteFile` and `memoryEditFile`, inside its memory folder and nowhere else. |
 | `memoryPerUser` | off | `memoryWriteUserNotes`: a note per person it talks to, `users/<channel>-<id>.md` in its memory, shown at the top of that person's turns. Whose note it is comes from who sent the message, never from the model. |
-| `selfImprovement` | on | `selfWriteFile`, to change its own folder: instructions, skills, jobs, and its code. `false` turns it off, `{ code: false }` keeps it to plain text, `{ files: ["md"] }` narrows it, `{ except: ["PERMISSIONS.md"] }` keeps a file read only and turns code off. Never evals or memory, and a job it changes must still load and run at most once an hour. Every write is a commit you can undo from the dashboard, and what you changed by hand in a file it writes is committed first, under your own git name. It writes only when its owner asks, and not once a tool in the same conversation read from outside ([what an agent may change](/docs/prompts#what-an-agent-may-change-about-itself)). |
+| `selfImprovement` | on | `selfWriteFile`, to change its own folder: instructions, skills, jobs, and its code. `false` turns it off, once the agent does what you want. Never evals or memory, and a job it changes must still load and run at most once an hour. Every write is a commit you can undo from the dashboard, and what you changed by hand in a file it writes is committed first, under your own git name. It writes only when its owner asks, and not once a tool in the same conversation read from outside ([what an agent may change](/docs/prompts#what-an-agent-may-change-about-itself)). |
 | `runScripts` | off | `scriptRun`, to run a file in its own `scripts/` folder. The agent is refused as it loads if that folder is empty. |
 
 Every agent also has six tools that need no feature. `selfListFiles` and

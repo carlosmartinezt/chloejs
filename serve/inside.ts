@@ -8,8 +8,8 @@ import { settings } from "#chloe/core/settings";
 import { modelFor } from "#chloe/model/choices";
 import { ownKey, sdkModel } from "#chloe/model/key";
 import { providerOf, routeFor, type Route } from "#chloe/model/model";
-import { descriptionOf, neededBy } from "#chloe/model/tool";
-import type { Agent } from "#chloe/load/load";
+import { describe, descriptionOf, neededBy } from "#chloe/model/tool";
+import { FEATURES, featureOn, type Agent } from "#chloe/load/load";
 import { webOf } from "#chloe/channels/web";
 import { money, spentText } from "#chloe/core/turn";
 import { BadRequest, NotFound } from "./errors.ts";
@@ -105,11 +105,39 @@ function optionsOf(channel: { name: string; madeWith?: string }): { name: string
     .map(([name, value]) => ({ name, value: said(value, held) }));
 }
 
-/** What an agent can do: every tool it is bound, with what the model is told it is for. */
-export function toolsOf(agent: Agent): { name: string; does: string }[] {
-  return Object.entries(agent.tools ?? {})
-    .map(([name, tool]) => ({ name, does: descriptionOf(tool).trim() }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+/** One tool as the page shows it. */
+export interface ToolShown {
+  /** The name the model calls it by. */
+  name: string;
+  /** What the model is told it is for. */
+  does: string;
+  /** Where it comes from, like "features.memory", or absent for the agent's own. */
+  from?: string;
+  /** What it takes, in the words the model is given for each. */
+  takes: { name: string; about: string; required: boolean }[];
+}
+
+/** What an agent can do: every tool it is bound, with what the model is told it is for and what it takes. */
+export async function toolsOf(agent: Agent): Promise<ToolShown[]> {
+  const from = agent.toolsFrom ?? {};
+  const shown = await Promise.all(
+    Object.entries(agent.tools ?? {}).map(async ([name, tool]) => {
+      const schema = await describe(name, tool).then((one) => one.parameters, () => ({}) as Record<string, any>);
+      const required: string[] = schema.required ?? [];
+      const takes = Object.entries((schema.properties ?? {}) as Record<string, { description?: string }>).map(([key, one]) => ({
+        name: key,
+        about: one.description ?? "",
+        required: required.includes(key),
+      }));
+      return { name, does: descriptionOf(tool).trim(), ...(from[name] && { from: from[name] }), takes };
+    }),
+  );
+  return shown.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Every feature, whether this agent has it on, what it does and the tools it adds. */
+export function featuresOf(agent: Agent) {
+  return FEATURES.map((one) => ({ name: one.name, on: featureOn(agent.features, one.name), does: one.does, tools: one.tools }));
 }
 
 /** Whether a setting has been filled in. An object counts when it has anything in it. */

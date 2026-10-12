@@ -26,7 +26,7 @@ import { forget } from "#chloe/model/memory";
 import { models } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
-import { changeSettings, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
+import { changeFeature, changeSettings, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
 import { editable, open, save, tree } from "./files.ts";
 import {
   memoryCommit,
@@ -47,7 +47,7 @@ import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound, Refused } from "./errors.ts";
 import { finish as finishSignIn, setupSteps, signInState } from "#chloe/connections/google/googleService";
 import { googleSignIn } from "#chloe/connections/google/signIn";
-import { channelsOf, connectionsOf, signInOf, toolsOf } from "./inside.ts";
+import { channelsOf, connectionsOf, featuresOf, signInOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import {
   type Caller,
@@ -500,9 +500,34 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents/:id/tools",
-    does: "What it can do: every tool it is bound, with what the model is told each one is for.",
+    does: "What it can do: every tool it is bound, with what the model is told each one is for, what it takes, and where it comes from.",
     token: true,
-    handle: ({ response, context, params }) => json(response, toolsOf(context.agent(params.id))),
+    handle: async ({ response, context, params }) => json(response, await toolsOf(context.agent(params.id))),
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:id/features",
+    does: "Every feature, whether it is on for this agent, what it does and the tools it adds.",
+    token: true,
+    handle: ({ response, context, params }) => json(response, featuresOf(context.agent(params.id))),
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/features",
+    does: "Switch one of its features on or off, in its agent.ts. Hands back every feature and tool as the agent now loads.",
+    takes: '{"name": "memory", "on": true}',
+    handle: async ({ request, response, context, params }) => {
+      const agent = context.agent(params.id);
+      const { name, on } = await body(request, z.object({ name: z.string(), on: z.boolean() }));
+      try {
+        // From the agent as it now loads: the server's own reload comes a moment later.
+        const now = await changeFeature(agent, name, on);
+        json(response, { features: featuresOf(now), tools: await toolsOf(now) });
+      } catch (error) {
+        if (error instanceof NotFound || error instanceof BadRequest) throw error;
+        throw new BadRequest((error as Error).message);
+      }
+    },
   },
   {
     method: "GET",

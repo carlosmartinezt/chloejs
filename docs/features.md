@@ -6,9 +6,12 @@ summary: The tools chloe brings to an agent: which feature adds each one, what i
 
 # Features
 
-A feature is a set of tools chloe has built in. You switch it on or off in
+A feature is a set of tools chloe has built in. Each is `true` or `false` in
 `features` in the agent's `agent.ts`, with nothing to import:
-`features: { memoryPerUser: true, runScripts: true }`.
+`features: { memoryPerUser: true, runScripts: true }`. The Tools page on the
+dashboard switches them too: it writes the same line, says only what differs
+from the default, and puts the file back with the reason when the agent would
+not load.
 
 The tool names here are the ones the model sees. Your instructions and skills
 should say what to do ("note it in your memory"), not name these tools, so a
@@ -47,10 +50,10 @@ commit you can read and undo from the dashboard. With code among them, the
 agent is loaded with the new files first, and if it would not load, every file
 is put back and the agent is told why.
 
-`false` turns it off, `{ code: false }` keeps it to plain text,
-`{ files: ["md"] }` narrows it to some file endings, and
-`{ except: ["PERMISSIONS.md"] }` keeps a file read only and turns code off. It
-never writes its evals or its memory.
+It is on by default, which suits an agent that is still being shaped. Switch it
+off once the agent does what you want. It never writes its evals or its
+memory. Code it writes runs with the same rights as chloe, so its folder
+bounds what it writes, not what that code does.
 
 It is in a turn only when the agent's owner asked, and is refused once another
 tool in that reply read from outside the agent. The whole rule is
