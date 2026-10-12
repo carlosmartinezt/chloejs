@@ -135,12 +135,16 @@ export async function yes(question: string, unsaid: boolean): Promise<boolean> {
 
 /**
  * One of a numbered list, asked again until it is one of them. Returns the
- * chosen entry's key, and Enter takes the first.
+ * chosen entry's key, and Enter takes the first. An entry's `above` is a dim
+ * line printed before it, for a group that starts there.
  */
-export async function pick<K extends string>(question: string, options: { key: K; what: string }[]): Promise<K> {
+export async function pick<K extends string>(question: string, options: { key: K; what: string; above?: string }[]): Promise<K> {
   const width = String(options.length).length;
   console.log(`${question}\n`);
-  options.forEach((one, at) => console.log(`  ${cyan(String(at + 1).padStart(width))}  ${one.what}`));
+  for (const [at, one] of options.entries()) {
+    if (one.above) console.log(`\n  ${dim(one.above)}`);
+    console.log(`  ${cyan(String(at + 1).padStart(width))}  ${one.what}`);
+  }
   console.log();
   for (;;) {
     const said = (await line(`Which? ${dim(`(1-${options.length})`)} `, false)).trim();
@@ -148,6 +152,50 @@ export async function pick<K extends string>(question: string, options: { key: K
     const at = Number(said);
     if (Number.isInteger(at) && at >= 1 && at <= options.length) return options[at - 1].key;
     console.log(`  a number from 1 to ${options.length}.`);
+  }
+}
+
+/** How many names a typed word may match before the answer is "type more of one". */
+const MOST = 25;
+
+/** The names containing what was typed, case forgotten. */
+export function containing(names: string[], said: string): string[] {
+  const word = said.toLowerCase();
+  return names.filter((one) => one.toLowerCase().includes(word));
+}
+
+/**
+ * One of a list of names, found by typing part of one: one match is taken as
+ * it is, several are listed to pick by number, and a word that matches none is
+ * said and asked again. Enter takes `unsaid`.
+ */
+export async function pickNamed(question: string, names: string[], unsaid: string): Promise<string> {
+  let word = "";
+  for (;;) {
+    if (!word) {
+      const asked = (await ask(`${question} ${dim(`(${unsaid})`)} `)).trim();
+      if (!asked) return unsaid;
+      word = asked;
+    }
+    const said = word;
+    word = "";
+    const found = containing(names, said);
+    if (found.length === 1) return found[0]!;
+    if (!found.length) {
+      console.log(`  None of the ${names.length} has "${said}" in its name.`);
+      continue;
+    }
+    if (found.length > MOST) {
+      console.log(`  ${found.length} of them have "${said}" in their name: type more of one.`);
+      continue;
+    }
+    const width = String(found.length).length;
+    found.forEach((one, at) => console.log(`  ${cyan(String(at + 1).padStart(width))}  ${one}`));
+    const picked = (await ask(`Which? ${dim(`(1-${found.length})`)} `)).trim();
+    if (!picked) return found[0]!;
+    const at = Number(picked);
+    if (Number.isInteger(at) && at >= 1 && at <= found.length) return found[at - 1]!;
+    word = picked;
   }
 }
 

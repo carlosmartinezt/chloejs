@@ -160,12 +160,12 @@ export async function changeSettings(changes: { path: string; value: unknown }[]
 }
 
 /** The name in `process.env.NAME` or `process.env["NAME"]`, when that is the whole of the value. */
-function envName(value: string): string | undefined {
+export function envName(value: string): string | undefined {
   return /^process\.env(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\])$/.exec(value.trim())?.slice(1).find(Boolean);
 }
 
 /** A plain value written in the file (words, a number, true or false, a list of words), or undefined when it is code. */
-function literal(value: string): unknown {
+export function literal(value: string): unknown {
   const plain = value.trim();
   try {
     return JSON.parse(plain.startsWith("'") && plain.endsWith("'") ? JSON.stringify(plain.slice(1, -1)) : plain);

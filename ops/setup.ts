@@ -28,8 +28,8 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { firstCommit, hasGit, hasGitName, repositoryOf } from "./git.ts";
-import { DEV_PACKAGES, GUIDES, modelLine, STARTER_AGENT, STARTER_MODEL_LINE, starterFiles, withSetting } from "./starter.ts";
-import { ask, askHidden, pick, takeDefaults, yes } from "./terminal.ts";
+import { DEV_PACKAGES, GUIDES, modelLine, STARTER_AGENT, STARTER_MODEL_LINE, starterFiles, withModel, withSetting } from "./starter.ts";
+import { ask, askHidden, pick, pickNamed, takeDefaults, yes } from "./terminal.ts";
 import type { Provider } from "#chloe/core/settings";
 import { bold, cyan, dim, green, red, yellow } from "#chloe/core/style";
 
@@ -41,6 +41,9 @@ const SITE_GUIDES = "https://chloejs.org/docs";
 
 /** Free models, and every provider through one key. Written only if they ask for it. */
 const OPENROUTER = "https://openrouter.ai/api/v1/chat/completions";
+
+/** What a project with no key yet gets: a model that loads, so the page has one, until a key arrives or setup runs again. */
+const LATER = { defaultModel: "openrouter/free", gatewayUrl: OPENROUTER, judgeModel: "openrouter/free", namingModel: "openrouter/free" };
 
 /** How each provider is called in a sentence. */
 const SAID: Record<Provider, string> = { anthropic: "Anthropic", openai: "OpenAI" };
@@ -63,6 +66,15 @@ let agentWritten = false;
 /** Every file this wrote or changed, in the order it happened. */
 function written(path: string, what: string): void {
   wrote.push([path, what]);
+}
+
+/** Where the model line is listed in `wrote`. */
+let modelAt = -1;
+
+/** Lists the model line once in the summary, the latest choice, however many were tried before one answered. */
+function modelWritten(line: string): void {
+  if (modelAt < 0) modelAt = wrote.push(["chloe.config.ts", line]) - 1;
+  else wrote[modelAt] = ["chloe.config.ts", line];
 }
 
 /** A heading between the parts of setup, so each question stands apart from what came before it. */
@@ -263,16 +275,22 @@ async function theModel(): Promise<string> {
   });
 
   section("Model");
+  // The three keys come first and never move when a program is installed or
+  // removed: what is already on this box is offered under them.
+  const subscriptions: { key: "claude" | "codex" | "antigravity" | "opencode"; what: string }[] = [
+    ...(runnable("claude") ? [{ key: "claude" as const, what: "your Claude subscription, through the claude command" }] : []),
+    ...(runnable("codex") ? [{ key: "codex" as const, what: "your ChatGPT plan, through the codex command" }] : []),
+    ...(runnable("antigravity") ? [{ key: "antigravity" as const, what: "your Google AI Pro plan, through the Antigravity CLI" }] : []),
+    ...(runnable("opencode") ? [{ key: "opencode" as const, what: "whatever opencode is signed in to" }] : []),
+  ];
   const choice = await pick("How should your agents reach a model? You can set this up later.", [
-    ...(runnable("claude") ? [{ key: "claude" as const, what: "your Claude subscription, through the claude command on this box" }] : []),
-    ...(runnable("codex") ? [{ key: "codex" as const, what: "your ChatGPT plan, through the codex command on this box" }] : []),
-    ...(runnable("opencode") ? [{ key: "opencode" as const, what: "whatever opencode is signed in to on this box" }] : []),
-    ...heldOwn.map(({ provider, name }) => ({ key: provider, what: `your ${SAID[provider]} key, already in ${name} in your environment, charged per call` })),
-    ...(held ? [{ key: "held" as const, what: `the key already in ${held} in your environment` }] : []),
     { key: "free" as const, what: "a free key from OpenRouter: no card, and rate limited to a few runs an hour" },
     { key: "own" as const, what: "a key from Anthropic or OpenAI, charged per call to that account" },
     { key: "key" as const, what: "a gateway key of your own (Vercel AI Gateway, OpenRouter, anything of that shape)" },
-    { key: "later" as const, what: "nothing yet" },
+    ...heldOwn.map(({ provider, name }) => ({ key: provider, what: `your ${SAID[provider]} key, already in ${name} in your environment, charged per call` })),
+    ...(held ? [{ key: "held" as const, what: `the key already in ${held} in your environment` }] : []),
+    ...subscriptions.map((one, at) => (at === 0 ? { ...one, above: "already set up on this box:" } : one)),
+    { key: "later" as const, what: "nothing yet: I'll run npx chloe setup again when I have a key" },
   ]);
 
   // No `preferredRoute` written for these: a subscription is already ahead of a key in
@@ -281,13 +299,21 @@ async function theModel(): Promise<string> {
   if (choice === "codex") return await settle({ defaultModel: "openai/gpt-6-luna" });
   if (choice === "opencode") {
     const { opencodeModels } = await import("#chloe/model/opencode");
-    const [first] = opencodeModels();
-    if (!first) {
+    const listed = opencodeModels();
+    if (!listed.length) {
       console.log("\nopencode is here but signed in to nothing. Run: opencode providers");
-      return await settle({ defaultModel: "openrouter/free", gatewayUrl: OPENROUTER, judgeModel: "openrouter/free", namingModel: "openrouter/free" });
+      return await settle(LATER);
     }
-    const asked = (await ask(`Which of opencode's models? (${first}) `)).trim();
-    return await settle({ defaultModel: asked || first });
+    return await answeredFrom("Which of opencode's models?", listed);
+  }
+  if (choice === "antigravity") {
+    const { antigravityModels } = await import("#chloe/model/antigravity");
+    const listed = await antigravityModels();
+    if (!listed.length) {
+      console.log("\nThe Antigravity CLI is here but signed in to nothing. Sign in with it, then run npx chloe setup again.");
+      return await settle(LATER);
+    }
+    return await answeredFrom("Which of the Antigravity CLI's models?", listed);
   }
 
   const found = heldOwn.find((one) => one.provider === choice);
@@ -316,13 +342,13 @@ async function theModel(): Promise<string> {
 
   // Something loadable either way: an agent that names no model and has no
   // default is refused as it loads, so a project with no key would not start.
-  if (choice === "later") return await settle({ defaultModel: "openrouter/free", gatewayUrl: OPENROUTER, judgeModel: "openrouter/free", namingModel: "openrouter/free" });
+  if (choice === "later") return await settle(LATER);
 
   if (choice === "free") {
     console.log("\nMake a key at https://openrouter.ai/keys. A free account with no card is enough.");
     console.log("openrouter/free is one model id that picks a free model and only ones that can call a tool.");
     const key = (await askHidden("Paste the key (or Enter to do it later): ")).trim();
-    return await settle({ defaultModel: "openrouter/free", gatewayUrl: OPENROUTER, judgeModel: "openrouter/free", namingModel: "openrouter/free" }, key || undefined);
+    return await settle(LATER, key || undefined);
   }
 
   const gateway = (await ask(`Which gateway? (${settings.model.gatewayUrl}) `)).trim() || settings.model.gatewayUrl;
@@ -331,6 +357,20 @@ async function theModel(): Promise<string> {
   // The gateway first, because somebody who just pasted a key meant to use it,
   // and a subscription on this box would otherwise be ahead of it in the order.
   return await settle({ defaultModel: model, gatewayUrl: gateway, preferredRoute: "gateway,claude,codex,antigravity,opencode,direct" }, key);
+}
+
+/**
+ * A model from a route that can say what it runs: asks until one of them
+ * answers. The model setup writes is what every agent falls back to, so a pick
+ * that does not answer leaves the page with nothing to talk to.
+ */
+async function answeredFrom(question: string, listed: string[]): Promise<string> {
+  for (;;) {
+    const model = await pickNamed(question, listed, listed[0]!);
+    const answered = await settle({ defaultModel: model }, undefined, "CHLOE_MODEL_KEY", ["key"], true);
+    if (answered) return answered;
+    console.log("\nThat one did not answer. Pick another, or stop with Ctrl+C.");
+  }
 }
 
 /**
@@ -353,12 +393,16 @@ async function onOwnKey(provider: Provider, key: string | undefined, named: stri
  * any of it was true. A wrong key, an unauthorised CLI and a model name that has
  * been retired all look the same until something asks.
  *
- * The choice goes in chloe.config.ts and the key in .env, under `named`, which
- * the config's model line reads as `process.env.` that name, at `where` under
- * `model`: the gateway's key unless it says otherwise. A config this did not
- * write is somebody's own and is told rather than edited.
+ * The choice goes in chloe.config.ts, each setting at its own place, the rest
+ * of the file untouched, and the key in .env, under `named`, which the config
+ * reads as `process.env.` that name, at `where` under `model`: the gateway's
+ * key unless it says otherwise. A place the file says as code is not edited.
+ *
+ * Returns the model when it answered, and "" when nothing could be asked or it
+ * refused. `again` is for a question offering one model after another: the
+ * line about fixing the config by hand is left out, because the caller asks.
  */
-async function settle(model: Record<string, string>, key?: string, named = "CHLOE_MODEL_KEY", where: string[] = ["key"]): Promise<string> {
+async function settle(model: Record<string, string>, key?: string, named = "CHLOE_MODEL_KEY", where: string[] = ["key"], again = false): Promise<string> {
   const { declareSettings } = await import("#chloe/core/settings");
   const { loadEnv } = await import("#chloe/core/env");
   if (key) {
@@ -371,10 +415,17 @@ async function settle(model: Record<string, string>, key?: string, named = "CHLO
   const configFile = join(HERE, "chloe.config.ts");
   const config = readFileSync(configFile, "utf8");
   if (config.includes(STARTER_MODEL_LINE)) {
+    // The config this run wrote: its commented model line is where the model goes.
     writeFileSync(configFile, config.replace(STARTER_MODEL_LINE, line));
-    written("chloe.config.ts", line);
-  } else if (!config.includes(line)) {
-    console.log(`\nchloe.config.ts is yours, so put this in its settings:\n  ${line}`);
+    modelWritten(line);
+  } else {
+    const after = await withModel(config, model, named, where);
+    if (after === undefined) {
+      console.log(`\nchloe.config.ts says one of these as code, so only an edit to the file changes it:\n  ${line}`);
+    } else {
+      writeFileSync(configFile, after);
+      modelWritten(line);
+    }
   }
 
   // What the config declares, with the choice on top, so the check below runs on
@@ -404,8 +455,8 @@ async function settle(model: Record<string, string>, key?: string, named = "CHLO
   process.stdout.write(`\nAsking ${asking} one thing to make sure it answers... `);
   const trouble = await tryIt(asking);
   console.log(trouble ? red(trouble) : green("it answered, and it can call a tool."));
-  if (trouble) console.log(`Fix that whenever you like: model in chloe.config.ts and ${named} in .env are all of it.`);
-  return asking;
+  if (trouble && !again) console.log(`Fix that whenever you like: model in chloe.config.ts and ${named} in .env are all of it.`);
+  return trouble ? "" : asking;
 }
 
 /**

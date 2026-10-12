@@ -67,6 +67,41 @@ import { about, is } from "#chloe/ops/check";
 }
 
 {
+  about("the model line, when setup runs again");
+
+  const { STARTER_MODEL_LINE: line, starterFiles: files, withModel } = await import("#chloe/ops/starter");
+
+  const starter = files().find((one) => one.path === "chloe.config.ts")!.body;
+  const before = starter.replace(line, 'model: { defaultModel: "openrouter/free", gatewayUrl: "https://openrouter.ai/api/v1/chat/completions" },');
+  const after = await withModel(before, { defaultModel: "opencode-go/grok-4.7" }, "CHLOE_MODEL_KEY", ["key"]);
+  is(
+    "a model chosen again replaces the one in the file",
+    after?.includes(
+      'model: { defaultModel: "opencode-go/grok-4.7", gatewayUrl: "https://openrouter.ai/api/v1/chat/completions", key: process.env.CHLOE_MODEL_KEY },',
+    ),
+    true,
+  );
+  const rest = (text: string) => text.split("\n").filter((one) => !one.includes("model:")).join("\n");
+  is("and every other line is left alone", rest(after!), rest(before));
+  is(
+    "one written as code is not touched",
+    await withModel(before.replace(/model: \{.*\},/, "model: modelSettings(),"), { defaultModel: "opencode-go/grok-4.7" }, "CHLOE_MODEL_KEY", ["key"]),
+    undefined,
+  );
+}
+
+{
+  about("typing part of a model's name");
+
+  const { containing } = await import("#chloe/ops/terminal");
+
+  const listed = ["opencode-go/claude-haiku-5-5", "opencode-go/grok-4.6", "opencode-go/grok-4.7"];
+  is("finds every model with it in the name", containing(listed, "grok"), ["opencode-go/grok-4.6", "opencode-go/grok-4.7"]);
+  is("whatever case it is typed in", containing(listed, "GROK"), ["opencode-go/grok-4.6", "opencode-go/grok-4.7"]);
+  is("and a word that is not there finds nothing", containing(listed, "grokx"), []);
+}
+
+{
   about("the repository npx chloe setup makes");
   const { firstCommit, hasGit, hasGitName, repositoryOf } = await import("#chloe/ops/git");
   const { tmpdir } = await import("node:os");

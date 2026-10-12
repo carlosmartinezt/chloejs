@@ -13,19 +13,22 @@ npm install @chloejs/core
 npx chloe setup
 ```
 
-Setup asks two things, each with a default, so holding Enter works. Running it
-again leaves what is already there alone. `--yes` takes every default. With no
-keyboard, which is how a coding agent runs it, it takes the defaults.
+Setup asks two things, each with a default, so holding Enter works. `--yes`
+takes every default. Running it again updates the model it chose in
+`chloe.config.ts`, and leaves everything else alone. With no keyboard, which is
+how a coding agent runs it, it takes the defaults.
 
 It writes the files below, with a first agent, and installs `typescript` and
 `@types/node` with the package manager your project already uses. If port 3067
 is taken, most likely by another chloe, it puts this one on the next free port,
 as `serve: { port }` in `chloe.config.ts`.
 
-1. **Which model.** It finds the `claude` and `codex` commands and any Anthropic,
-   OpenAI or gateway key in your environment, takes one you paste, or offers a
-   free one. Then it makes one real call to check the model answers and can call
-   a tool. See [Models](/docs/models).
+1. **Which model.** A key first: a free one from OpenRouter, one from Anthropic
+   or OpenAI, or a gateway of your own. Under those, anything already set up on
+   this machine (the `claude`, `codex`, `agy` and `opencode` commands), with the
+   models opencode and Antigravity say they run. Then it makes one real call to
+   check the model answers and can call a tool, and asks again if it does not.
+   See [Models](/docs/models).
 2. **A git repository.** In a folder that is not one, it makes one and commits
    what is there, under your git name, or "npx chloe setup" when git has none.
    Every change an agent makes to itself is a commit you can read and undo, and

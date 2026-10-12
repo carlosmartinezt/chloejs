@@ -68,6 +68,34 @@ export function withSetting(config: string, line: string): string | null {
   return `${config.slice(0, after)}    ${line}\n${config.slice(after)}`;
 }
 
+/**
+ * chloe.config.ts with the model settings each put at its own known place, the
+ * way the page's Configuration writes a setting, leaving every other character
+ * as it was. `named` is the name in .env the key is read from, written as
+ * `process.env.` at `where` under `model`. Returns undefined when the file says
+ * one of those places as code, which only an edit to the file changes.
+ */
+export async function withModel(config: string, model: Record<string, string>, named: string, where: string[]): Promise<string | undefined> {
+  const { envName, InCode, literal, setInConfig, valueAt } = await import("#chloe/serve/config");
+  const puts: [string[], string][] = Object.entries(model).map(([one, value]) => [
+    ["model", one],
+    one === "preferredRoute" ? JSON.stringify(value.split(",")) : JSON.stringify(value),
+  ]);
+  puts.push([["model", ...where], `process.env.${named}`]);
+  let text = config;
+  for (const [path, value] of puts) {
+    const there = valueAt(text, path);
+    if (there.kind === "value" && literal(there.text) === undefined && !envName(there.text)) return undefined;
+    try {
+      text = setInConfig(text, path, value);
+    } catch (error) {
+      if (error instanceof InCode) return undefined;
+      throw error;
+    }
+  }
+  return text;
+}
+
 const CONFIG = `// The agents this project runs, and its settings. A key goes in .env, read here as process.env.NAME.
 import { defineConfig } from "@chloejs/core";
 
