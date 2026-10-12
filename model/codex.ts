@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { settings } from "#chloe/core/settings";
 
 import { asText, invoke, readReply } from "./cli.ts";
-import type { Answer, Ask } from "./model.ts";
+import { TryAgain, type Answer, type Ask } from "./model.ts";
 
 /** "openai/gpt-6-luna" is "gpt-6-luna" to the CLI. Another provider is refused here rather than by the CLI. */
 export function codexModel(model: string): string {
@@ -61,7 +61,7 @@ export function readCodex(out: string): { text: string; tokensIn: number; tokens
       throw new Error(`Model call refused: codex: ${why.slice(0, 500)}`);
     }
   }
-  if (text === undefined) throw new Error(`Model call refused: codex wrote no message: ${out.slice(0, 500)}`);
+  if (text === undefined) throw new TryAgain(`Model call refused: codex wrote no message: ${out.slice(0, 500)}`);
   return { text, tokensIn: usage?.input_tokens ?? 0, tokensOut: usage?.output_tokens ?? 0 };
 }
 

@@ -24,6 +24,7 @@
 
 import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import type { Agent } from "#chloe/load/load";
 import { ROUTES, settings } from "#chloe/core/settings";
@@ -322,6 +323,14 @@ export interface Answer {
  */
 export class UsageLimit extends Error {}
 
+/**
+ * Thrown by a route when a call failed in a way a fresh try might fix: the
+ * provider cut the stream, dropped the connection or never wrote. ask() asks
+ * again, twice. A refusal in words, a missing credential and a usage limit are
+ * not this: they fail the same way every time.
+ */
+export class TryAgain extends Error {}
+
 export interface Ask {
   /** A model's name. An AI SDK model is named by nameOf() first. */
   model: string;
@@ -334,8 +343,12 @@ export interface Ask {
 }
 
 /**
- * Asks a model once and returns what it said, by whichever route its
- * provider goes. The only seam between a key and a subscription.
+ * Asks a model and returns what it said, by whichever route its provider
+ * goes. The only seam between a key and a subscription.
+ *
+ * A call the route marked TryAgain is asked again, twice, a few seconds
+ * apart, so one hiccup on the way to the model does not kill the run. The
+ * time limit below covers the whole of it, retries included.
  */
 export async function ask(request: Ask): Promise<Answer> {
   const route = routeFor(request.model);
@@ -345,18 +358,22 @@ export async function ask(request: Ask): Promise<Answer> {
   const limit = minutes > 0 ? AbortSignal.timeout(minutes * 60_000) : undefined;
   const signal = limit && request.signal ? AbortSignal.any([request.signal, limit]) : (limit ?? request.signal);
   const named = { ...request, model: viaOf(request.model).name, signal };
-  try {
-    if (route === "claude") return await viaClaude(named);
-    if (route === "codex") return await viaCodex(named);
-    if (route === "antigravity") return await viaAntigravity(named);
-    if (route === "opencode") return await viaOpencode(named);
-    return await viaKey(named, route);
-  } catch (error) {
-    if (limit?.aborted && !request.signal?.aborted) {
-      throw new Error(
-        `Model call stopped: ${request.model} on the ${route} route gave no answer within ${minutes} minute${minutes === 1 ? "" : "s"} (model.timeLimit in settings).`,
-      );
+  const waits = [2_000, 8_000];
+  for (let tried = 0; ; tried++) {
+    try {
+      if (route === "claude") return await viaClaude(named);
+      if (route === "codex") return await viaCodex(named);
+      if (route === "antigravity") return await viaAntigravity(named);
+      if (route === "opencode") return await viaOpencode(named);
+      return await viaKey(named, route);
+    } catch (error) {
+      if (limit?.aborted && !request.signal?.aborted) {
+        throw new Error(
+          `Model call stopped: ${request.model} on the ${route} route gave no answer within ${minutes} minute${minutes === 1 ? "" : "s"} (model.timeLimit in settings).`,
+        );
+      }
+      if (!(error instanceof TryAgain) || tried >= waits.length || request.signal?.aborted) throw error;
+      await sleep(waits[tried]);
     }
-    throw error;
   }
 }

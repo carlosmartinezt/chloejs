@@ -437,6 +437,11 @@ last two are charged per call. The default order is that one, so a subscription
 is spent before a key is, and the gateway is last because it is the only one
 that can carry any provider.
 
+A call that fails in a way a fresh try might fix is asked again, twice:
+`TryAgain` in `model/model.ts`, thrown by the route for a cut stream or a
+dropped connection and retried in `ask()`. A refusal in words, a missing
+credential and a usage limit fail at once.
+
 **A subscription and an API key are both ways to the same model.** Anthropic or
 OpenAI models over a key is the direct route, or the gateway's: put that one
 first in `model.preferredRoute`. The claude route strips `ANTHROPIC_API_KEY` from

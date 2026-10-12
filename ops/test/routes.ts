@@ -599,6 +599,42 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
       (error: Error) => error.message,
     );
     is("and any other failure in opencode's words", unavailable, "Model call refused: opencode: Model unavailable: opencode-go/missing");
+
+    // Through ask() a cut-off answer is tried again rather than failing the
+    // run. A refusal in words, a usage limit and a call that keeps failing
+    // are not: the first two fail the same way every time, the last gives up.
+    const { TryAgain } = await import("#chloe/model/model");
+    const prompts = async () => (await logged()).filter((one) => one.path?.endsWith("/prompt")).length;
+    await writeFile(standInLog, "");
+    const hiccup = await ask({ model: "openai/gpt-5.5 via opencode", messages: [{ role: "user", content: "a hiccup, please" }] });
+    is("a cut-off answer is asked again, and the run never sees the hiccup", hiccup.text, "Five.");
+    is("which took two calls", await prompts(), 2);
+
+    await writeFile(standInLog, "");
+    const stillMissing = await ask({ model: "openai/missing via opencode", messages: [{ role: "user", content: "hi" }] }).then(
+      () => "",
+      (error: Error) => error.message,
+    );
+    is("a refusal in words is not tried again", [stillMissing, await prompts()], ["Model call refused: opencode: Model unavailable: opencode-go/missing", 1]);
+
+    await writeFile(standInLog, "");
+    const stillLimited = await ask({ model: "openai/limit via opencode", messages: [{ role: "user", content: "hi" }] }).then(
+      () => undefined,
+      (error: Error) => error,
+    );
+    is("nor is a usage limit", [stillLimited instanceof UsageLimit, await prompts()], [true, 1]);
+
+    await writeFile(standInLog, "");
+    const gaveUp = await ask({ model: "openai/wobbly via opencode", messages: [{ role: "user", content: "hi" }] }).then(
+      () => undefined,
+      (error: Error) => error,
+    );
+    is("a call that keeps failing is given up on after three tries, in its own words", [gaveUp instanceof TryAgain, gaveUp?.message, await prompts()], [
+      true,
+      "Model call refused: opencode: timed out waiting for the provider",
+      3,
+    ]);
+
     pin(anyCli, anyCli, "/nowhere/opencode");
     const absent = await viaOpencode({ model: "opencode-go/words", messages: [{ role: "user", content: "hi" }] } as any).then(
       () => "",

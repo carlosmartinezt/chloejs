@@ -56,13 +56,32 @@ const send = (type: string, data: Record<string, unknown>) => {
 const ours = "ses_standin";
 let model = "";
 let interrupted = false;
+let lastPrompt = "";
+
+/**
+ * Whether this prompt asked for a hiccup and has not had one yet: it fails
+ * the way a cut stream does, once. The mark is in the log, which outlives
+ * this one call's server, so the next call answers.
+ */
+function wobble(): boolean {
+  if (!lastPrompt.includes("hiccup")) return false;
+  const marks = readFileSync(log, "utf8").split("\n").filter((line) => line.includes('"what":"wobbled"')).length;
+  if (marks > 0) return false;
+  note("wobbled");
+  return true;
+}
 
 /** What each model answers a prompt with, one event at a time. */
 function answer(): void {
   const mine = { sessionID: ours, assistantMessageID: "msg_1" };
   send("session.execution.started", { sessionID: ours });
   send("session.step.started", { ...mine, agent: "chloe" });
-  if (model === "words") {
+  if (wobble()) {
+    send("session.step.failed", { ...mine, error: { type: "provider.error", message: "OpenAI Chat stream ended without finish_reason" } });
+    send("session.execution.failed", { sessionID: ours, error: { type: "provider.error", message: "OpenAI Chat stream ended without finish_reason" } });
+    return;
+  }
+  if (model === "words" || model === "gpt-5.5") {
     send("session.text.ended", { ...mine, ordinal: 0, text: "Five." });
     send("session.step.ended", { ...mine, finish: "stop", cost: 0.004, tokens: { input: 58, output: 5 } });
     send("session.execution.succeeded", { sessionID: ours });
@@ -94,6 +113,10 @@ function answer(): void {
       send("session.step.ended", { sessionID: ours, assistantMessageID: "msg_2", finish: "stop", cost: 0.001, tokens: { input: 40, output: 3 } });
       send("session.execution.succeeded", { sessionID: ours });
     }, 300);
+  }
+  if (model === "wobbly") {
+    send("session.step.failed", { ...mine, error: { type: "provider.timeout", message: "timed out waiting for the provider" } });
+    return;
   }
   if (model === "limit") {
     send("session.step.failed", { ...mine, error: { type: "provider.quota", message: "You have hit your usage limit", status: 429 } });
@@ -132,6 +155,7 @@ const server = createServer((request, response) => {
       return reply(200, { data: { id: ours, agent: body.agent, model: body.model } });
     }
     if (request.method === "POST" && path === `/api/session/${ours}/prompt`) {
+      lastPrompt = body.text ?? "";
       reply(200, { data: { id: "msg_0", sessionID: ours, type: "user" } });
       setTimeout(answer, 20);
       return;

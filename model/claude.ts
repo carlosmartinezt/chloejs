@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { settings } from "#chloe/core/settings";
 
 import { asText, invoke, TOOL_SERVER } from "./cli.ts";
-import { type Answer, type Ask, type ToolCall, UsageLimit } from "./model.ts";
+import { type Answer, type Ask, type ToolCall, TryAgain, UsageLimit } from "./model.ts";
 
 /** What the CLI calls a tool from the server it is handed, which is named "chloe". */
 const PREFIX = "mcp__chloe__";
@@ -207,7 +207,7 @@ async function asked({ model, system, parts, messages, tools, signal, folder }: 
   });
   const read = readStream(out, tools?.map((one) => one.name));
   const answer = read.answer;
-  if (!answer && code === 0) throw new Error(`Model call refused: claude did not end with a result: ${out.slice(0, 500)}`);
+  if (!answer && code === 0) throw new TryAgain(`Model call refused: claude did not end with a result: ${out.slice(0, 500)}`);
   // Stopped after one answer because it asked for tools, which is the point of
   // that limit, and not a failure.
   const asking = Boolean(read.calls.length) && answer?.subtype === "error_max_turns";

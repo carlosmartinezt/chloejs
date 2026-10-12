@@ -69,6 +69,12 @@ A key is a secret, so it goes in `.env`, and the config hands it over:
 | `model.judgeModel` | `"anthropic/claude-sonnet-5"` | Who marks an eval. |
 | `model.namingModel` | `"anthropic/claude-haiku-4.5"` | Who names a new conversation on the dashboard. Empty leaves them unnamed. |
 
+A call that fails in a way a fresh try might fix, such as the provider
+cutting the stream or dropping the connection, is tried again twice, a few
+seconds apart, before the run fails. A refusal in words, a missing credential
+and a usage limit fail at once. The direct and gateway routes also retry a
+busy or failing provider four times within each call.
+
 ### No model and no key yet
 
 OpenRouter has free models with no card: make a key at
@@ -90,11 +96,15 @@ off, so every tool call is chloe's and is written down.
   `ANTHROPIC_API_KEY`, so a key in `.env` cannot quietly pay for a subscription
   run.
 - **antigravity** describes the tools in the prompt too, like codex: the CLI
-  refuses every tool of its own in headless mode, so the route runs it as a
-  custom agent with `tools: []` and real MCP tools are not used (they would need
-  an allow-rule in the person's own `agy` settings). The prompt goes in over
-  stdin (`agy -p` hangs in a pipe), and the custom agent also keeps the CLI's own
-  instructions out of the call.
+  refuses every tool of its own in headless mode, and real MCP tools are not
+  used (the CLI reads its MCP servers from the account's own settings, which is
+  the person's, not chloe's). The prompt goes in over stdin (`agy -p` hangs in a
+  pipe), and a custom agent written into the run folder makes chloe's
+  instructions the model's system prompt, which also keeps the CLI's own
+  instructions out of the call (about 2k tokens a step, not 12k). The CLI still
+  offers the model its own sixty tools and sometimes the model uses one, which
+  headless refuses and which ends the turn, and its own call format is the same
+  `{"tool": ...}` shape the prompt asks for: the route is not reliable yet.
 - **opencode** hands the tools over as real tools too. For each step it starts
   an opencode server of its own, reachable from this machine only, and closes it
   after. It needs opencode 2 or later, and adds a second or two to each step.

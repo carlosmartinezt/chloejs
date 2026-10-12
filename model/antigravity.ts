@@ -5,24 +5,30 @@
 // there is nothing to put in a bearer header. The route "antigravity" in
 // settings picks it, and it runs Google models only.
 //
-// The CLI's own tools are switched off with a custom agent written into the run
-// folder: `.agents/agents/chloe/agent.md` with `tools: []` and
-// `commandExecutionPolicy: off`, which is the only way it offers the model
-// nothing of its own. Without that the model tries a shell command, headless
-// cannot ask to allow it, and the run ends with no answer at all.
+// A custom agent is written into the run folder (`.agents/agents/chloe/agent.md`)
+// so that chloe's instructions are the model's system prompt. That also
+// replaces the CLI's own instructions, which takes a call from about 12k tokens
+// to about 2k.
 //
 // chloe hands its own tools over by describing them in the prompt and reading
 // the calls back out of the reply, the same as codex (see cli.ts for why the
-// loop is chloe's). Real MCP tools are not used: agy denies a tool it cannot
-// prompt for unless the account's own settings allow it, and that file is the
-// person's, not chloe's.
+// loop is chloe's). Real MCP tools are not used: the CLI reads its MCP servers
+// from the account's own settings file, which is the person's, not chloe's.
+//
+// The CLI still offers the model its own sixty tools, and nothing found so far
+// takes them away: the agent's `tools` list is ignored for a main agent, a
+// `permissions` deny rule only refuses a call rather than removing the tool,
+// and there is no flag for it. So a run sometimes reaches for one of them (a
+// shell command, say), headless refuses it, and the turn ends with no answer.
+// The CLI's own call format is also `{"tool": ..., "arguments": ...}`, the same
+// shape the prompt asks for, so a reply can be read as one of its calls and
+// refused as malformed. Both are known and neither is fixed.
 //
 // Two traps, both found by running it:
 // - `agy -p` hangs in a pipe, so the prompt goes in over stdin in the CLI's
 //   stream-json shape and the answer comes back as stream-json too.
-// - a custom agent with no tools is what keeps the CLI's own instructions and
-//   tools out of the call, which also makes a step here about a fifth as heavy
-//   as agy's default.
+// - the CLI reads its config from `~/.gemini/antigravity-cli` and ignores
+//   `XDG_CONFIG_HOME`, the workspace, and its own data-dir variables.
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,7 +36,7 @@ import { join } from "node:path";
 import { settings } from "#chloe/core/settings";
 
 import { asText, invoke, readReply } from "./cli.ts";
-import { type Answer, type Ask, UsageLimit } from "./model.ts";
+import { type Answer, type Ask, TryAgain, UsageLimit } from "./model.ts";
 
 /** The custom agent written into the run folder, and the name `--agent` is given. */
 const AGENT = "chloe";
@@ -124,9 +130,10 @@ function withoutHarnessNotes(said: string): string {
 }
 
 /**
- * Writes the custom agent the run uses, into the folder it runs in. `tools: []`
- * is what leaves the model with nothing of the CLI's own to reach for; the
- * instructions become its system prompt.
+ * Writes the custom agent the run uses, into the folder it runs in, so chloe's
+ * instructions become the model's system prompt. The `tools` list is asked for
+ * but the CLI ignores it for a main agent; `commandExecutionPolicy: off` keeps
+ * it from running commands on its own.
  */
 async function writeAgent(folder: string, system: string): Promise<void> {
   const dir = join(folder, ".agents", "agents", AGENT);
@@ -195,7 +202,7 @@ export async function viaAntigravity({ model, messages, tools, signal }: Ask): P
     }
     // An empty answer is the CLI's own note when a run tried one of its refused
     // tools and stopped, not something to hand on as words.
-    if (!read.said) throw new Error(`Model call refused: antigravity wrote no answer: ${(err || out).slice(0, 500)}`);
+    if (!read.said) throw new TryAgain(`Model call refused: antigravity wrote no answer: ${(err || out).slice(0, 500)}`);
 
     const { said, calls, dropped } = tools?.length ? readReply(withoutHarnessNotes(read.said), tools) : { said: read.said, calls: [] };
     // A plan is not billed per call and the CLI names no price, so what a run on

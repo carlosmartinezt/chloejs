@@ -15,7 +15,7 @@ import { APICallError, generateText, jsonSchema, RetryError, streamText, tool, t
 
 import { PROVIDERS, settings, whereKeyGoes, type Provider } from "#chloe/core/settings";
 
-import type { Answer, Ask, Message, ToolCall } from "./model.ts";
+import { TryAgain, type Answer, type Ask, type Message, type ToolCall } from "./model.ts";
 
 /** A model made by an AI SDK provider package, like anthropic("claude-opus-5-5"). */
 export type SdkModel = Exclude<LanguageModel, string>;
@@ -270,7 +270,13 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal, 
       tokensOut: result.usage.outputTokens ?? 0,
     };
   } catch (error) {
-    throw new Error(explained(error, where), { cause: error });
+    const message = explained(error, where);
+    // A stream cut short or a dropped connection is asked again. An answered
+    // refusal is not, and neither is a failure the SDK already tried
+    // maxRetries times, nor a stop the caller asked for. After a streamed
+    // answer died halfway, the retry's words follow the part already sent.
+    const fresh = !RetryError.isInstance(error) && !APICallError.isInstance(error) && (error as Error)?.name !== "AbortError";
+    throw fresh ? new TryAgain(message, { cause: error }) : new Error(message, { cause: error });
   }
 }
 

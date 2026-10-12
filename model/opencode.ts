@@ -29,7 +29,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { settings } from "#chloe/core/settings";
 
 import { asText, TOOL_SERVER } from "./cli.ts";
-import { type Answer, type Ask, type Message, type ToolCall, type ToolSpec, UsageLimit } from "./model.ts";
+import { type Answer, type Ask, type Message, type ToolCall, type ToolSpec, TryAgain, UsageLimit } from "./model.ts";
 
 /** The CLI names a model provider first, the same way chloe does, so nothing is rewritten. */
 export function opencodeModel(model: string): string {
@@ -149,15 +149,22 @@ async function readAnswer(
     if (type === "session.execution.interrupted") throw failure({ message: `it stopped the answer (${data.reason ?? "no reason given"})` });
     if (type === "session.execution.succeeded") return read;
   }
-  throw new Error("Model call refused: opencode stopped before the answer was over.");
+  throw new TryAgain("Model call refused: opencode stopped before the answer was over.");
 }
+
+/** What opencode says went wrong and will say every time: a fresh try is no use on these. */
+const LASTING = ["provider.auth", "provider.no-route", "provider.invalid-request", "provider.invalid-output", "provider.content-filter", "aborted"];
 
 function failure(error: { type?: string; message?: string } = {}): Error {
   const why = (error.message ?? error.type ?? "no reason given").slice(0, 500);
   if (error.type === "provider.quota") {
     return new UsageLimit(`I have hit a usage limit on the account opencode reaches this model through, so I cannot answer until it is lifted. It says: ${why}`);
   }
-  return new Error(`Model call refused: opencode: ${why}`);
+  const said = `Model call refused: opencode: ${why}`;
+  // A provider that cut the answer short or dropped it is tried again; one
+  // that will not carry the model, or blocked the answer, is not.
+  const lasting = LASTING.includes(error.type ?? "") || (error.type ?? "").startsWith("tool.");
+  return lasting ? new Error(said) : new TryAgain(said);
 }
 
 /** The calls a model asked for, as tools it was handed. A call to any other tool does not count, and the same call twice counts once. */
@@ -277,7 +284,7 @@ async function* events(response: Response): AsyncGenerator<Event> {
     }
   } catch (error) {
     if ((error as Error).name === "AbortError") throw error;
-    throw new Error(`Model call refused: opencode stopped answering: ${(error as Error).message}`);
+    throw new TryAgain(`Model call refused: opencode stopped answering: ${(error as Error).message}`);
   }
 }
 
