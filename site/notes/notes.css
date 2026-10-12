@@ -224,9 +224,9 @@
      <dl class="ctx-log">
        <dt>2026-06-27</dt><dd>Project created.</dd>
      </dl>
-     A dated list: a changelog, a decision record, a diary. Dates in the mono
-     face so they form a column the eye can run down, and the whole thing is a
-     <dl> because that is what it is.
+     A dated list: a changelog, a decision record, a diary. Dates in tabular
+     figures, so they form a column the eye can run down, and the whole thing
+     is a <dl> because that is what it is.
      ═══════════════════════════════════════════════════════════ */
 
   .ctx-log {
@@ -237,7 +237,7 @@
     font-size: 0.9em;
   }
   .ctx-log dt {
-    font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-variant-numeric: tabular-nums;
     font-size: 0.85em;
     color: var(--muted, #444746);
     white-space: nowrap;

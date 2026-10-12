@@ -10,25 +10,16 @@
    any hue dark and quiet enough for the page to sit under it. Account settings
    sets that number.
    Green is left to mean one thing, something that is up or went well, and red
-   the other. Nothing here is coloured by whose it is: a name is a name. Mono is
-   the machine's own words (paths, cron lines, model ids, prices) and sans is
-   an agent's. Amber appears in one place only, a job that has stopped and is
-   waiting on a person.
+   the other. Nothing here is coloured by whose it is: a name is a name. One
+   face throughout, the system's own sans; the mono face is kept only where a
+   file's own code is read or written. Amber appears in one place only, a job
+   that has stopped and is waiting on a person.
 */
-/* The code face, served by the runtime itself so no visit is seen by anyone
-   else. Latin only, variable, with its license (SIL Open Font License) beside
-   it in fonts/. The text face is the one the system already has. */
-@font-face {
-  font-family: "Google Sans Code";
-  font-style: normal;
-  font-weight: 400 600;
-  font-display: swap;
-  src: url("./fonts/GoogleSansCode.woff2") format("woff2");
-}
-/* The two faces, whichever look is on. */
+/* Both faces are the system's own, so no visit is seen by anyone else and a
+   new face is never a download. */
 :root {
   --sans: -apple-system-body, ui-sans-serif, -apple-system, system-ui, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
-  --mono: "Google Sans Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   /* How tall the bar is. Everything that fills the rest of the window measures
      down from this, so it is said once. */
   --bar-h: 60px;
@@ -83,10 +74,9 @@
 :root:not([data-theme])[data-mode="light"] { color-scheme: light; }
 :root:not([data-theme])[data-mode="dark"] { color-scheme: dark; }
 
-/* Six sizes and no others, each about a sixth larger than the one below it.
+/* Five sizes and no others, each about a sixth larger than the one below it.
    A new rule picks one of these. */
 :root {
-  --size-label: 11px;   /* the small capitals over a list */
   --size-small: 13px;   /* what is said about a thing: when, who, a path, code */
   --size-body: 15px;    /* reading, and everything you click */
   --size-lead: 17.5px;  /* a section's or a tile's name */
@@ -122,7 +112,7 @@ html { touch-action: pan-x pan-y; }
   background: var(--bad); color: var(--wait-soft); 
   font: 500 var(--size-small)/1 var(--sans); }
 .dev b { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
-.dev .num { font: 400 var(--size-small)/1 var(--mono); opacity: .85; overflow: hidden;
+.dev .num { font: 400 var(--size-small)/1 var(--sans); opacity: .85; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
 
 /* The bar: the mark, where you are, and what is running now. */
@@ -161,11 +151,11 @@ html { touch-action: pan-x pan-y; }
 .bar .where:hover:enabled, .bar .where[aria-expanded="true"] {
   background: color-mix(in srgb, var(--on-bar) 20%, transparent); color: var(--on-bar); }
 .bar .where svg { flex: none; opacity: .55; }
-.bar .num { font: 400 var(--size-small)/1 var(--mono); color: var(--on-bar); opacity: .7;
+.bar .num { font: 400 var(--size-small)/1 var(--sans); color: var(--on-bar); opacity: .7;
   font-variant-numeric: tabular-nums; }
 .bar .out { display: flex; align-items: center; margin-left: auto; padding: 0;
   border: 0; background: none; color: var(--on-bar); opacity: .7;
-  font: 400 var(--size-small)/1 var(--mono); }
+  font: 400 var(--size-small)/1 var(--sans); }
 .bar .out:hover { opacity: 1; }
 
 /* The account, at the right end, and the way its menu opens. */
@@ -291,7 +281,7 @@ html { touch-action: pan-x pan-y; }
 .tile .few i { flex: none; width: 42px; font-style: normal; color: var(--dim); }
 .tile .few > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile .standing { margin: 0; padding: 0; background: none; color: var(--dim);
-  font-size: var(--size-label); }
+  font-size: var(--size-small); }
 .tile .standing.bad { color: var(--bad); }
 .tile .standing .dot { background: currentColor; }
 
@@ -319,13 +309,13 @@ html { touch-action: pan-x pan-y; }
     border-right: 0; border-bottom: 1px solid var(--line); padding: 0; }
 }
 
-/* The tree. Agents are its roots, in the sans: a name is a word, a path is not. */
+/* The tree. Agents are its roots. */
 .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
 .tree ul { margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--line); }
 .rail a.node { text-decoration: none; }
 .node { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
   background: none; border: 0; padding: 5px 8px; border-radius: 4px; color: var(--ink);
-  font: 400 var(--size-small)/1.5 var(--mono); cursor: pointer; }
+  font: 400 var(--size-small)/1.5 var(--sans); cursor: pointer; }
 .node:hover { background: var(--accent-soft); }
 .node[aria-current="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 /* A folder row is a caret and a link, so the mark sits on the link inside it. */
@@ -343,7 +333,7 @@ html { touch-action: pan-x pan-y; }
 .rail h2 { margin: 22px 0 6px; padding: 0 8px; }
 .rail .thinking { padding: 10px 12px; }
 /* What the rows under it are. Said once, small, out of the way. */
-.rail .what { margin: 16px 8px 6px; font: 600 var(--size-label)/1 var(--sans); letter-spacing: .07em;
+.rail .what { margin: 16px 8px 6px; font: 600 var(--size-small)/1 var(--sans); letter-spacing: .07em;
   text-transform: uppercase; color: var(--dim); }
 
 /* The top of the sidebar, the same on all four of an agent's pages: whose
@@ -375,7 +365,7 @@ html { touch-action: pan-x pan-y; }
 .skill button.fold svg { flex: none; margin-top: 3px; opacity: .55; transition: transform .12s; }
 .skill button.fold[aria-expanded="false"] svg { transform: rotate(-90deg); }
 .skill .front { display: flex; flex-direction: column; gap: 3px; min-width: 0;
-  font: 400 var(--size-small)/1.55 var(--mono); color: var(--dim); }
+  font: 400 var(--size-small)/1.55 var(--sans); color: var(--dim); }
 .skill .front i { font-style: normal; opacity: .75; }
 .skill .front b { font-weight: 600; color: var(--ink); }
 /* The same room above what a skill says as below it. */
@@ -393,8 +383,7 @@ html { touch-action: pan-x pan-y; }
 .ways .line > button { margin-left: auto; }
 /* The files a job is written in. */
 .ways .made { display: flex; flex-wrap: wrap; gap: 14px; }
-/* A tool's name is what the model calls it by, so it is written as code. */
-.ways .line b.num { font: 600 var(--size-small)/1.5 var(--mono); }
+.ways .line b.num { font: 600 var(--size-small)/1.5 var(--sans); }
 .ways .does { font-size: var(--size-small); line-height: 1.5; color: var(--dim); }
 .ways .needs { font-size: var(--size-small); color: var(--dim); }
 .ways .state::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%;
@@ -457,24 +446,23 @@ p { margin: 0 0 10px; max-width: 68ch; }
   padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 .head.spread { margin-top: 44px; }
 .head h2 { margin: 0; }
-.trail { font: 400 var(--size-body)/1.5 var(--mono); color: var(--dim); margin-bottom: 4px; }
+.trail { font: 400 var(--size-body)/1.5 var(--sans); color: var(--dim); margin-bottom: 4px; }
 .trail a { color: var(--accent); text-decoration: none; }
 .trail a:hover { text-decoration: underline; }
 .trail a.who-ran { font: 600 var(--size-body)/1.5 var(--sans); color: var(--accent); }
 .trail i { color: var(--line-2); font-style: normal; padding: 0 5px; }
 .listing { list-style: none; margin: 14px 0 0; padding: 0;
-  font: 400 var(--size-body)/1.6 var(--mono); }
+  font: 400 var(--size-body)/1.6 var(--sans); }
 .listing li { padding: 8px 0; border-bottom: 1px solid var(--line); }
-.path { font: 400 var(--size-small)/1.5 var(--mono); color: var(--dim); }
+.path { font: 400 var(--size-small)/1.5 var(--sans); color: var(--dim); }
 .dim { color: var(--dim); }
 .bad { color: var(--bad); }
-.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
 /* The one loud thing on the page: a job that stopped to ask somebody. */
 .waiting { background: var(--wait-soft); border: 1px solid var(--wait-line); border-radius: 8px;
   padding: 16px 20px 18px; margin: 4px 0 30px; }
 .waiting + .waiting { margin-top: -18px; }
-.waiting .who { font: 400 var(--size-small)/1.5 var(--mono); color: var(--wait); }
+.waiting .who { font: 400 var(--size-small)/1.5 var(--sans); color: var(--wait); }
 .waiting .q { font: 500 var(--size-lead)/1.5 var(--sans); max-width: 58ch; margin: 6px 0 14px; }
 .waiting .reply { display: flex; gap: 10px; flex-wrap: wrap; }
 .waiting input { flex: 1 1 260px; }
@@ -548,7 +536,7 @@ table.roomy tr:hover td { background: color-mix(in srgb, var(--ink) 3%, transpar
 /* The dot sits in a line of text here rather than in a flex row of its own. */
 table.roomy .dot { display: inline-block; margin-right: 7px; vertical-align: middle; }
 
-.cron { font: 400 var(--size-small)/1.5 var(--mono); color: var(--dim); white-space: nowrap; }
+.cron { font: 400 var(--size-small)/1.5 var(--sans); color: var(--dim); white-space: nowrap; }
 /* A cron line said in words. The line itself is in the title, on hover. */
 .timing { font: 400 var(--size-small)/1.5 var(--sans); color: var(--dim); white-space: nowrap; }
 .who-ran { font-weight: 500; }
@@ -579,8 +567,8 @@ a.back:hover { text-decoration: underline; }
 .filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 16px 0 18px; }
 .filters .word { flex: 0 1 360px; min-width: 190px; }
 .filters label { display: flex; align-items: center; gap: 7px;
-  font: 400 var(--size-small)/1 var(--mono); color: var(--dim); }
-.filters label input { width: auto; padding: 7px 10px; font: 400 var(--size-small)/1.3 var(--mono); }
+  font: 400 var(--size-small)/1 var(--sans); color: var(--dim); }
+.filters label input { width: auto; padding: 7px 10px; font: 400 var(--size-small)/1.3 var(--sans); }
 
 tr.pick[aria-current="true"] td { background: var(--accent-soft); }
 
@@ -670,7 +658,7 @@ textarea.editor { min-height: 62vh; font: 400 var(--size-body)/1.75 var(--mono);
   border-color: var(--line); tab-size: 2; }
 /* A job's code, its prompt and its test, as tabs over the one open. */
 .together { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 12px; }
-.pane .together a { font: 400 var(--size-small)/1 var(--mono); padding: 8px 12px; border-radius: 6px;
+.pane .together a { font: 400 var(--size-small)/1 var(--sans); padding: 8px 12px; border-radius: 6px;
   background: var(--accent-soft); text-decoration: none; }
 .pane .together a[aria-current="true"] { background: var(--accent); color: var(--on-accent); }
 .saveline { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 12px; }
@@ -684,7 +672,7 @@ textarea.editor { min-height: 62vh; font: 400 var(--size-body)/1.75 var(--mono);
 .live .block:hover { background: var(--accent-soft); }
 .live .block > :last-child { margin-bottom: 0; }
 .live .front { color: var(--dim); font-size: var(--size-small); margin: 0; }
-textarea.source { font: 400 var(--size-body)/1.7 var(--mono); padding: 2px 6px; margin: 0 -6px;
+textarea.source { font: 400 var(--size-body)/1.7 var(--sans); padding: 2px 6px; margin: 0 -6px;
   width: calc(100% + 12px); border: 0; border-radius: 4px; background: var(--accent-soft);
   color: var(--ink); resize: none; overflow: hidden; tab-size: 2; }
 textarea.source:focus { outline: 1px solid var(--line-2); }
@@ -723,7 +711,7 @@ pre.painted .keyword { color: var(--accent); }
   border-radius: 6px; background: var(--surface); }
 .code .copy:hover:enabled { background: var(--inline); color: var(--accent); }
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 22px;
-  font: 400 var(--size-small)/1.7 var(--mono); margin: 12px 0 4px; }
+  font: 400 var(--size-small)/1.7 var(--sans); margin: 12px 0 4px; }
 .facts dt { color: var(--accent); } .facts dd { margin: 0; font-variant-numeric: tabular-nums; }
 
 /* A run in the log, read as a conversation. */
@@ -786,7 +774,7 @@ pre.painted .keyword { color: var(--accent); }
   font-size: var(--size-body); line-height: 1.5; min-width: 0; }
 .call summary b { font-weight: 500; color: var(--ink); flex: none; }
 .call .gist { flex: 1 1 auto; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.call .kind { flex: none; font: 400 var(--size-small)/1.5 var(--mono); color: var(--dim); }
+.call .kind { flex: none; font: 400 var(--size-small)/1.5 var(--sans); color: var(--dim); }
 .call[open] .gist { white-space: normal; }
 .call .open { padding: 2px 12px 12px; font-size: var(--size-body); }
 .call .open p { margin: 0 0 8px; }
@@ -811,7 +799,7 @@ pre.painted .keyword { color: var(--accent); }
 .chat > * { min-height: 0; }
 .chat .past { overflow: auto; padding: 12px 10px 24px; }
 .chat .past h2 { margin: 18px 0 6px; padding: 0 8px;
-  font: 600 var(--size-label)/1 var(--sans); letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
+  font: 600 var(--size-small)/1 var(--sans); letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
 .chat .past .places + .new-chat { margin-top: 12px; }
 .chat .past .empty { font-size: var(--size-small); padding: 0 8px; }
 /* Starting again. The one thing up here that is meant to be pressed, so it is
@@ -840,11 +828,11 @@ pre.painted .keyword { color: var(--accent); }
 .msg.you { display: flex; justify-content: flex-end; }
 .msg.you .bubble { background: var(--accent-soft); border-radius: 14px;
   padding: 10px 15px; max-width: 78%; }
-.msg .who { font: 400 var(--size-small)/1.6 var(--mono); color: var(--dim); margin-bottom: 4px; }
+.msg .who { font: 400 var(--size-small)/1.6 var(--sans); color: var(--dim); margin-bottom: 4px; }
 .msg .bubble code, .msg .said code { background: var(--inline); border-radius: 4px; padding: 1px 5px; }
 /* An answer is markdown, so the bubble holds blocks: the last one ends the bubble. */
 .msg .bubble .read > :last-child, .msg .said .read > :last-child { margin-bottom: 0; }
-.talking .head .model { font: 400 var(--size-small)/1.6 var(--mono); color: var(--dim); }
+.talking .head .model { font: 400 var(--size-small)/1.6 var(--sans); color: var(--dim); }
 .talking .head button.model { border: 0; background: none; padding: 2px 6px; border-radius: 6px; cursor: pointer; }
 .talking .head button.model:hover, .talking .head button.model[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 .talking .head .model.picked { color: var(--accent); }
@@ -931,11 +919,11 @@ pre.token { margin: 0; padding: 11px 13px; border-radius: 8px; background: var(-
    blank box. */
 .side-tabs svg { flex: none; width: 16px; height: 16px; }
 .side-tabs .badge { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 4px;
-  border-radius: 8px; background: var(--accent); color: var(--on-accent); font: 600 var(--size-label)/15px var(--sans); }
+  border-radius: 8px; background: var(--accent); color: var(--on-accent); font: 600 var(--size-small)/15px var(--sans); }
 .side-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 0 18px; }
-.side-title { margin: 12px 12px 6px; font: 600 var(--size-label)/1 var(--sans); letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
+.side-title { margin: 12px 12px 6px; font: 600 var(--size-small)/1 var(--sans); letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
 /* A branch is a name, so it keeps its own case inside an uppercase title. */
-.side-title .dim { margin-left: 6px; font-family: var(--mono); letter-spacing: 0; text-transform: none; }
+.side-title .dim { margin-left: 6px; letter-spacing: 0; text-transform: none; }
 .pad { margin: 6px 12px; font-size: var(--size-small); }
 
 .memory-tree { list-style: none; margin: 0; padding: 0; }
@@ -947,7 +935,7 @@ pre.token { margin: 0; padding: 11px 13px; border-radius: 8px; background: var(-
 .row-icon { display: flex; flex: none; color: var(--dim); }
 .row.on .row-icon { color: var(--accent); }
 .row-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-mark { flex: none; font: 600 var(--size-label)/1 var(--mono); color: var(--wait); }
+.row-mark { flex: none; font: 600 var(--size-small)/1 var(--sans); color: var(--wait); }
 .row-mark.status { width: 18px; text-align: center; }
 .memory-tree .row.changed .row-name { color: var(--wait); }
 
@@ -1006,7 +994,7 @@ pre.token { margin: 0; padding: 11px 13px; border-radius: 8px; background: var(-
 .statusbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; min-width: 0; padding: 4px 12px;
   background: var(--bar); color: var(--on-bar); font: 400 var(--size-small)/1.5 var(--sans); }
 .status-part { display: inline-flex; align-items: center; gap: 5px; opacity: .85; white-space: nowrap; }
-.status-part.end { display: block; min-width: 0; margin-left: auto; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; }
+.status-part.end { display: block; min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
 .status-reload { margin: -4px -6px -4px -12px; padding: 0 10px; align-self: stretch; border-radius: 0;
   background: none; color: inherit; }
 .status-reload:hover:enabled { background: color-mix(in srgb, var(--on-bar) 14%, transparent); color: inherit; }
@@ -1049,10 +1037,10 @@ pre.token { margin: 0; padding: 11px 13px; border-radius: 8px; background: var(-
 .listing table { font-size: var(--size-small); }
 .listing th { position: sticky; top: 0; background: var(--bg); text-align: left; padding: 0; border-bottom: 1px solid var(--line); }
 .listing th button { width: 100%; padding: 8px 16px; border: 0; background: none; color: var(--dim); text-align: left;
-  justify-content: flex-start; font: 600 var(--size-label)/1 var(--sans); letter-spacing: .07em; text-transform: uppercase; cursor: pointer; }
+  justify-content: flex-start; font: 600 var(--size-small)/1 var(--sans); letter-spacing: .07em; text-transform: uppercase; cursor: pointer; }
 .listing th button:hover { color: var(--ink); }
 .listing td { padding: 0 16px; border-bottom: 1px solid var(--line); white-space: nowrap; font-family: var(--sans); text-align: left; }
-.listing td.num { font: 400 var(--size-small)/1 var(--mono); }
+.listing td.num { font: 400 var(--size-small)/1 var(--sans); font-variant-numeric: tabular-nums; }
 .listing tr:hover td { background: var(--inline); }
 .listing-name { display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; padding: 7px 0; border: 0; background: none;
   color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
@@ -1086,7 +1074,7 @@ pre.token { margin: 0; padding: 11px 13px; border-radius: 8px; background: var(-
 .run-changes { margin-top: 22px; }
 .call.change.new summary b::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 7px;
   border-radius: 50%; background: var(--accent); vertical-align: 2px; }
-.changed-files { list-style: none; margin: 0 0 8px; padding: 0; font: 400 var(--size-small)/1.7 var(--mono); }
+.changed-files { list-style: none; margin: 0 0 8px; padding: 0; font: 400 var(--size-small)/1.7 var(--sans); }
 .changed-files .status { display: inline-block; width: 1.6em; color: var(--dim); }
 pre.diff { max-height: 520px; overflow: auto; font-size: var(--size-small); line-height: 1.5; padding: 8px 0; }
 pre.diff span { display: block; padding: 0 12px; }
@@ -1184,7 +1172,7 @@ pre.diff .meta { color: var(--dim); }
 .api-list .head input { max-width: 260px; }
 .api-list section { margin-top: 28px; }
 .api-list .facts { display: grid; grid-template-columns: 7rem 1fr; gap: 8px 16px; margin: 20px 0; font: 400 var(--size-body)/1.55 var(--sans); }
-.api-list .facts dt { color: var(--dim); font: 400 var(--size-small)/1.9 var(--mono); }
+.api-list .facts dt { color: var(--dim); font: 400 var(--size-small)/1.9 var(--sans); }
 .api-list .facts dd { margin: 0; }
 .routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 4px 0 2px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
@@ -1194,14 +1182,14 @@ pre.diff .meta { color: var(--dim); }
 .route code { font: 400 var(--size-small) var(--mono); }
 .route code.takes { display: block; margin-top: 6px; color: var(--dim); font-size: var(--size-small); word-break: break-word; }
 .route-tag { margin-left: 8px; font-size: var(--size-small); color: var(--dim); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
-.method { display: inline-block; min-width: 3.3rem; margin-right: 8px; font: 650 var(--size-label)/1.6 var(--mono); letter-spacing: .04em;
+.method { display: inline-block; min-width: 3.3rem; margin-right: 8px; font: 650 var(--size-small)/1.6 var(--sans); letter-spacing: .04em;
   text-align: center; border-radius: 5px; padding: 1px 6px; }
 .method.get { background: var(--accent-soft); color: var(--accent); }
 .method.post { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
 @media (max-width: 620px) { .api-list .facts { grid-template-columns: 1fr; gap: 2px; } .api-list .facts dd { margin-bottom: 8px; } }
 
 /* People: one line each in a card, a quiet rule between, a heading per agent above. */
-h2.group { margin: 30px 0 10px; font: 600 var(--size-label)/1 var(--sans); letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
+h2.group { margin: 30px 0 10px; font: 600 var(--size-small)/1 var(--sans); letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
 ul.rows { padding: 0; list-style: none; overflow: visible; }
 .rows > li { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-top: 1px solid var(--line); }
 .rows > li:first-child { border-top: 0; }
@@ -1227,7 +1215,7 @@ button.pill[aria-pressed="true"]:disabled { opacity: 1; }
 .ready h2 { margin: 0; font: 600 var(--size-lead)/1.35 var(--sans); letter-spacing: -.015em; color: var(--ink); }
 .ready > p { margin: 6px 0 0; font-size: var(--size-small); }
 .ready .key { margin: 16px 0 0; padding: 13px 15px; border-radius: 10px; background: var(--bg);
-  border: 1px solid var(--line-2); font: 400 var(--size-body)/1.5 var(--mono); overflow-wrap: anywhere; white-space: pre-wrap; }
+  border: 1px solid var(--line-2); font: 400 var(--size-body)/1.5 var(--sans); overflow-wrap: anywhere; white-space: pre-wrap; }
 .ready .fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 200px; gap: 14px; margin-top: 20px; }
 .ready .fields label { display: flex; flex-direction: column; gap: 7px; font: 500 var(--size-small)/1 var(--sans); color: var(--dim); }
 .ready .fields input, .ready .fields select { width: 100%; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px;
