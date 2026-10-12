@@ -18,7 +18,7 @@ export function Rail({ agent, view, files }: { agent: string; view: View; files:
   const tree = view.at === "agent" || view.at === "file";
   return (
     <nav className="rail">
-      <Collapse closeOn={view.at === "file" ? `${view.at}:${view.path}` : view.at}>
+      <Collapse closeOn={view.at === "file" ? `${view.at}:${view.path}` : view.at} label="Config">
         <Places agent={agent} view={view} />
         {tree && files?.length ? (
           <>

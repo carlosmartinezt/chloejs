@@ -228,7 +228,7 @@ export function Memory({
   return (
     <div className="workbench">
       <aside className="sidebar rail">
-        <Collapse closeOn={path}>
+        <Collapse closeOn={path} label="File Explorer">
         <div className="side-head">
           <nav className="side-tabs">
             <button className={side === "files" ? "on" : undefined} onClick={() => setSide("files")} title="Files">

@@ -371,7 +371,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
           which can be renamed or archived from its menu. The agent's other
           pages are Config in the bar. */}
       <nav className="past rail">
-        <Collapse closeOn={thread}>
+        <Collapse closeOn={thread} label="Past conversations">
           <button className="new-chat" onClick={newChat}>
             <Icons.Plus />
             New chat

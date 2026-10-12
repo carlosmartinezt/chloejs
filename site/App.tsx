@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, useCallback, useEffect, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useId, useState } from "react";
 
 import * as Icons from "./views/components/Icons.tsx";
 import { AgentChanges } from "./views/components/Changes.tsx";
@@ -8,6 +8,7 @@ import { Dot, Rail } from "./views/components/Tree.tsx";
 import { api, EVERYTHING, NeedsSignIn, servesFrom, type Serves } from "./lib/api.ts";
 import { labelOf, many, shareLabels } from "./lib/format.ts";
 import { allowed, landing, may, NOT_GIVEN } from "./lib/given.ts";
+import { announceMenu, watchMenu } from "./lib/menus.ts";
 import { go, href, read, type View } from "./lib/route.ts";
 import { lastAgent, lastFile } from "./lib/tabs.ts";
 import type { AgentSummary, Entry, Given, Me, ParkedRun, RunRow } from "./lib/types.ts";
@@ -361,14 +362,27 @@ function WhichAgent({ here, all, view, given }: { here?: string; all: AgentSumma
  */
 function Menu({ closeOn, children }: { closeOn: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const id = useId();
   useEffect(() => setOpen(false), [closeOn]);
+  // Opening the sidebar's menu, or this page's, closes this one, so the one
+  // that was just tapped is the one on top.
+  useEffect(() => watchMenu((which) => which !== id && setOpen(false)), [id]);
+  const close = () => {
+    setOpen(false);
+    announceMenu(null);
+  };
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    announceMenu(next ? id : null);
+  };
   return (
     <>
       <button
         className="burger"
         aria-label={open ? "Close the menu" : "Open the menu"}
         aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        onClick={toggle}
       >
         {open ? <Icons.Close /> : <Icons.Menu />}
       </button>
@@ -379,7 +393,7 @@ function Menu({ closeOn, children }: { closeOn: string; children: ReactNode }) {
           Reload
         </button>
       </nav>
-      {open && <div className="shade" onClick={() => setOpen(false)} />}
+      {open && <div className="shade" onClick={close} />}
     </>
   );
 }
