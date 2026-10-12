@@ -2,7 +2,7 @@ import { type CSSProperties, Fragment, type PointerEvent, type ReactNode, useEff
 
 import type { AgentSummary, Held, Run, RunRow, Step, Visitor } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
-import { ago, clock, dayOf, kindOf, labelOf, many, spent, text, when } from "../lib/format.ts";
+import { ago, clock, dayOf, kindOf, labelOf, many, spent, text, threadName, when } from "../lib/format.ts";
 import { gist } from "./Chat.tsx";
 import { ChangeCard } from "./components/Changes.tsx";
 import { rich } from "./components/Markdown.tsx";
@@ -478,8 +478,8 @@ function RunDetail({ id, agents }: { id: string; agents: AgentSummary[] }) {
           <p className="when num">
             {when(run.started)}
             {lasted && `, took ${lasted}`}
-            {`, ${spent(run.cost, run.unpriced)}`}
           </p>
+          <RunFacts run={run} />
         </div>
       </div>
 
@@ -508,6 +508,32 @@ function RunDetail({ id, agents }: { id: string; agents: AgentSummary[] }) {
         </details>
       )}
     </>
+  );
+}
+
+/**
+ * What a run came to, in a grid under its heading: the channel it came in on,
+ * the model, how many steps it took and what it cost. A job's own line under
+ * this names its channel and its job, so neither is said twice.
+ */
+function RunFacts({ run }: { run: Run }) {
+  const facts: [string, string][] = [
+    ...(run.job ? [] : [["channel", run.source] as [string, string]]),
+    ["model", run.model],
+    ["steps", String(run.steps)],
+    ["cost", spent(run.cost, run.unpriced)],
+    ["state", run.error ? "failed" : run.finished ? "finished" : run.parked ? "waiting" : "running"],
+    ...(run.thread ? [["conversation", threadName(run.thread)] as [string, string]] : []),
+  ];
+  return (
+    <dl className="facts run-facts">
+      {facts.map(([name, value]) => (
+        <Fragment key={name}>
+          <dt>{name}</dt>
+          <dd className={name === "state" && run.error ? "bad" : undefined}>{value}</dd>
+        </Fragment>
+      ))}
+    </dl>
   );
 }
 
