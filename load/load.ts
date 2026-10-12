@@ -236,7 +236,7 @@ export interface DefinedAgent extends AgentConfig {
    *
    * The reply is saved in the run history like any other. The question does
    * not count as a message from the owner, so tools kept for the owner (like
-   * `selfReadFile`) are not given.
+   * `selfReadRun`) are not given. Reading its own folder (`selfReadFile`) is.
    *
    * It loads every agent first, so use it in a script, not in a loop. The
    * settings come from the same place as for `run`.
@@ -509,10 +509,10 @@ export interface Features {
    * read something from outside the agent (an email, a web page, a script's
    * output, one of its past runs).
    *
-   * Every agent can already read its own files and past runs
-   * (`selfListFiles`, `selfReadFile`, `selfListRuns`, `selfReadRun`) and try
-   * one of its jobs (`selfTryJob`) in replies to its owner. It does not need
-   * this setting for that.
+   * Every agent can already read its own files in every turn
+   * (`selfListFiles`, `selfReadFile`) and its past runs (`selfListRuns`,
+   * `selfReadRun`), and try one of its jobs (`selfTryJob`), in replies to its
+   * owner. It does not need this setting for that.
    */
   selfImprovement?: false | SelfImprovement;
   /**

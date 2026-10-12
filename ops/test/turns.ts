@@ -281,15 +281,17 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const folder = await mkdtemp(join(tmpdir(), "own-runs-"));
   await put(join(folder, "instructions.md"), "Be brief.");
   const agent = { ...agentFor(codeJob("unused", async () => ({}))), id: "reader", folder, memory: { folder: join(folder, "memory") } };
-  const readers = ["selfListFiles", "selfReadFile", "selfListRuns", "selfReadRun"];
+  const readsFolder = ["selfListFiles", "selfReadFile"];
+  const readsRuns = ["selfListRuns", "selfReadRun"];
 
   answers.push("Hi.");
   await turn({ agent, prompt: "hi", source: "test", fromOwner: true });
-  is("every agent's owner gets the tools that read its own files and runs", readers.every((one) => lastTools.includes(one)), true);
+  is("every agent's owner gets the tools that read its own files and runs", [...readsFolder, ...readsRuns].every((one) => lastTools.includes(one)), true);
   is("and not the one that changes it, which loading adds", lastTools.includes("selfWriteFile"), false);
   answers.push("Hi.");
   await turn({ agent, prompt: "hi", source: "schedule", job: "nightly" });
-  is("a turn its owner did not write has none of them", readers.some((one) => lastTools.includes(one)), false);
+  is("a turn its owner did not write still reads its own folder", readsFolder.every((one) => lastTools.includes(one)), true);
+  is("but not its runs, which hold what other people said", readsRuns.some((one) => lastTools.includes(one)), false);
 
   const insert = db.prepare(
     "insert into runs (id, agent, started, finished, source, model, prompt, asked, reply, error, kind, job, trace, cost, steps) values (?, ?, ?, ?, ?, 'm', ?, ?, ?, ?, ?, ?, ?, ?, ?)",

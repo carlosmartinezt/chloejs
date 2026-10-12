@@ -1,10 +1,12 @@
 // The tools over services/selfService.ts: an agent reading its own folder, its
 // own runs and the guides, trying one of its jobs, and changing its folder as
-// far as its definition allows. The five that read and selfTryJob are the
-// runtime's, added to every turn its owner wrote (`forOwner` in model/tool.ts),
-// like skillRead. selfWriteFile is in every agent's tools unless
-// `selfImprovement: false`, and in a turn only when the owner asked and may
-// change it (`changesAgent`).
+// far as its definition allows. Reading its own folder (selfListFiles and
+// selfReadFile) is every turn's, like skillRead: it is the agent's own source,
+// and nothing in it came from outside. Its runs, and the guides and selfTryJob,
+// are the runtime's, added only to a turn its owner wrote (`forOwner` in
+// model/tool.ts), because a run holds what other people said. selfWriteFile is
+// in every agent's tools unless `selfImprovement: false`, and in a turn only
+// when the owner asked and may change it (`changesAgent`).
 import { tool } from "ai";
 import { z } from "zod";
 
@@ -20,10 +22,13 @@ import type { ChloeTool, Tools, ToolKind } from "../tool.ts";
 // Each of these only reads: selfTryJob runs a trial, which holds back whatever goes out.
 const forOwner = (kind: ToolKind, one: ChloeTool, own = true): ChloeTool => Object.assign(one, { kind, forOwner: true, own, onlyReads: true });
 
-/** selfListFiles, selfReadFile, selfListRuns, selfReadRun and selfReadGuide. `rules` is what they say it may change, none without. */
-export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
+/** A tool that only reads the agent's own things, for every turn. */
+const ownRead = (kind: ToolKind, one: ChloeTool): ChloeTool => Object.assign(one, { kind, own: true, onlyReads: true });
+
+/** selfListFiles and selfReadFile: reading the agent's own folder, given to every turn. `rules` is what they say it may change, none without. */
+export function selfFolderTools(rules?: OwnFileRules): (agent: Home) => Tools {
   return (agent) => ({
-    selfListFiles: forOwner("list",
+    selfListFiles: ownRead("list",
       tool({
         description:
           "List the files in your own folder (your instructions, skills and jobs), and which of them you can " +
@@ -32,17 +37,23 @@ export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
         execute: () => ownFiles(agent, rules),
       }),
     ),
-    selfReadFile: forOwner("read",
+    selfReadFile: ownRead("read",
       tool({
         description:
-          "Read files in your own folder, like instructions.md and jobs/morning-run.ts, to say how you do something " +
-          "or before you change it. Give every file you need in one call.",
+          "Read files in your own folder, like instructions.md, agent.ts and jobs/morning-run.ts: to say how you do " +
+          "something, to read your own source code, or before you change it. Give every file you need in one call.",
         inputSchema: z.object({
           paths: z.array(z.string()).min(1).max(30).describe("Paths inside your folder, from the list in your instructions."),
         }),
         execute: ({ paths }) => Promise.all(paths.map((path) => ownFile(agent, rules, path).catch((error: unknown) => ({ path, error: message(error) })))),
       }),
     ),
+  });
+}
+
+/** selfListRuns, selfReadRun and selfReadGuide, for the owner's turns: a run holds what other people said. `rules` is what they say it may change, none without. */
+export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
+  return (agent) => ({
     selfListRuns: forOwner("list",
       tool({
         description:

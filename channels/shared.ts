@@ -878,5 +878,8 @@ function leftOut(agent: Agent, rules: Rules): string[] {
   if (!named) return [];
   const keeps = (name: string) =>
     named.includes(name) || (rules.strangers ? name === "memoryWriteUserNotes" : /^memory[A-Z]/.test(name) || name === "skillRead");
-  return [...Object.keys(agent.tools ?? {}), "skillRead"].filter((name) => !keeps(name));
+  // A stranger gets none of the agent's own folder, which the web channel's
+  // check also refuses by name. The two self tools that read it are the
+  // runtime's, not the agent's, so they are said here rather than in agent.tools.
+  return [...Object.keys(agent.tools ?? {}), "skillRead", ...(rules.strangers ? ["selfListFiles", "selfReadFile"] : [])].filter((name) => !keeps(name));
 }

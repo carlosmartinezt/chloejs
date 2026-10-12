@@ -78,22 +78,24 @@ Give each script a skill that says when to run it.
 | Tool | Who gets it | What it does |
 |---|---|---|
 | `skillRead` | every turn | Opens one of the agent's skills by name. The agent sees every skill's description and opens the one it needs. |
-| `selfListFiles` | turns its owner wrote | Lists the files in its own folder, and which it may change. Never its memory. |
-| `selfReadFile` | turns its owner wrote | Reads any of them, several in one call. |
+| `selfListFiles` | every turn | Lists the files in its own folder, and which it may change. Never its memory. |
+| `selfReadFile` | every turn | Reads any of them, several in one call: its own source code included. |
 | `selfListRuns` | turns its owner wrote | Lists its own runs, newest first: the job or chat, where it came from, when, the cost, and whether it failed. |
 | `selfReadRun` | turns its owner wrote | Reads one run: what started it, the answer or the error, and each step on the way. |
 | `selfTryJob` | turns its owner wrote | Runs one of its jobs as a [trial](/docs/jobs#a-trial-run), as its files are now: it reads for real, sends nothing, and answers with every message and email it would have sent. |
 | `selfReadGuide` | turns its owner wrote | Reads these guides, several in one call, for the version installed, so it can say what it could be given (Gmail, a channel, web pages) and how. Its files and the list of guides are in its instructions in those turns, and an agent that may change itself is told to read what a change needs at once and never to ask for a secret in a chat. |
 
 The owner is `owner` in settings, the first entry in a channel's `allowFrom`,
-or the account on the dashboard. A job, a token and a visitor never
-get the self tools, because a run holds what other people said. Reading
-a run, or trying a job, counts as reading from outside, so a change after it in
-the same conversation is refused.
+or the account on the dashboard. Reading its own folder is on for every turn,
+but a job, a token and a visitor never get the tools that read its runs or try
+its jobs, because a run holds what other people said. Reading a run, or trying
+a job, counts as reading from outside, so a change after it in the same
+conversation is refused.
 
 ## On a channel that names its tools
 
-A channel's `tools` keeps a turn to the tools it names, plus the memory tools
+A channel's `tools` keeps a turn to the tools it names, plus the memory tools,
+`selfListFiles` and `selfReadFile` (an agent may always read its own folder)
 and `skillRead`. A visitor on a web channel is a stranger and gets only what
 the channel names, and `memoryWriteUserNotes` with `memoryPerUser` on. Naming a
 memory or self tool there stops the agent from loading. See

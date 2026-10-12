@@ -15,7 +15,7 @@ import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
 import { userNotes } from "#chloe/model/tools/memory";
-import { selfReadTools, selfTrialTools } from "#chloe/model/tools/self";
+import { selfFolderTools, selfReadTools, selfTrialTools } from "#chloe/model/tools/self";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { guides, ownFiles } from "#chloe/services/selfService";
@@ -101,10 +101,11 @@ export interface Ask {
   stranger?: boolean;
   /**
    * Set when the agent's owner wrote this message. Only then does the model
-   * get the tools only the owner may use (tools marked `forOwner`), and the
-   * tools that read the agent's own files and past runs (`selfListFiles`,
-   * `selfReadFile`, `selfListRuns`, `selfReadRun`) and try one of its jobs
-   * (`selfTryJob`). Off by default.
+   * get the tools only the owner may use (tools marked `forOwner`): its past
+   * runs (`selfListRuns`, `selfReadRun`), which hold what other people said,
+   * the guides (`selfReadGuide`), and trying one of its jobs (`selfTryJob`).
+   * Reading its own folder (`selfListFiles`, `selfReadFile`) is every turn's.
+   * Off by default.
    */
   fromOwner?: boolean;
   /**
@@ -762,12 +763,14 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
 /**
  * The tools a turn of this agent has: its own and `skillRead`, less any its
  * channel leaves out, less those for its owner unless the owner wrote, and
- * less those that change it unless the owner may. A turn its owner wrote also
- * has the tools that read its own folder and runs, and selfTryJob.
+ * less those that change it unless the owner may. Every turn reads its own
+ * folder (`selfListFiles`, `selfReadFile`); a turn its owner wrote also reads
+ * its runs and the guides, and may try one of its jobs.
  */
 function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean } = {}): Tools {
   const owner = Boolean(who.fromOwner || who.mayChangeAgent);
   const tools: Tools = {
+    ...selfFolderTools(ownFileRules(agent.features))(agent),
     ...(owner ? { ...selfReadTools(ownFileRules(agent.features))(agent), ...selfTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
     skillRead: skillTool(agent.skills),

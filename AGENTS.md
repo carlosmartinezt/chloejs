@@ -184,10 +184,11 @@ into three folders, stop: that is the signal you are about to industrialise
 boilerplate rather than build a system.
 
 **Self-improving, within a boundary.** An agent keeps its own notes, so a run
-can leave the next one better informed. Every agent can read its own folder,
-its runs and the guides in its owner's turns (`selfReadTools` in `model/tools/self.ts`,
-added by `toolsFor()` in `core/turn.ts` like `skillRead`, so they are not in
-the agent's `tools`). Unless it says `selfImprovement: false`, it may also
+can leave the next one better informed. Every agent can read its own folder in
+every turn (`selfFolderTools` in `model/tools/self.ts`, added by `toolsFor()` in
+`core/turn.ts` like `skillRead`), and its runs, the guides and trying its jobs
+are its owner's turns' (`selfReadTools`), so neither half is in the agent's
+`tools`. Unless it says `selfImprovement: false`, it may also
 change its own folder, `ownFileRules()` in `load/load.ts`: its instructions,
 its skills, its jobs, and its code (its tools, services, channels and scripts,
 `agent.ts`, anything ending in .ts, .js, .py or .sh). `code: false` keeps it to
