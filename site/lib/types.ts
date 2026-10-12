@@ -6,11 +6,11 @@ export interface AgentSummary {
   /** What to call it on the page, when that is not its id. */
   label?: string;
   description: string;
-  /** What its runs go to now: a pick made on the fly, else what agent.ts names. */
+  /** What its runs go to now: what its definition names. */
   model: string;
-  /** What agent.ts names. */
+  /** What its definition names. */
   declaredModel: string;
-  /** Every pick made on the fly: "agent", "job:<id>" or "chat:<thread>". */
+  /** Every pick made on the fly: "job:<id>" or "chat:<thread>". */
   chosen: { scope: string; model: string; at: string }[];
   /** The ways in it binds: telegram, api, whatever else. */
   channels: string[];

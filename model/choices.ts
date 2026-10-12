@@ -1,7 +1,7 @@
 // A model somebody picked on the fly, kept in the database rather than in a
-// file: for one chat, for one job, or for everything an agent does. The file
-// stays the default and a choice here beats it, so the run record shows which
-// model made each run and the choice can be undone from a chat or the API.
+// file: for one chat or for one job. The file stays the default and a choice
+// here beats it, so the run record shows which model made each run and the
+// choice can be undone from a chat or the API.
 import { db } from "#chloe/core/db";
 import type { Agent, Job } from "#chloe/load/load";
 
@@ -15,8 +15,12 @@ db.exec(`
   )
 `);
 
-/** "agent" for everything the agent does, "job:<id>" for one job, "chat:<thread>" for one conversation. */
-export type Scope = "agent" | `job:${string}` | `chat:${string}`;
+// A pick for the whole agent was taken out: an agent runs on the model in its
+// own definition, and a pick is a trial for one chat or one job.
+db.prepare("delete from choices where scope = 'agent'").run();
+
+/** "job:<id>" for one job, "chat:<thread>" for one conversation. */
+export type Scope = `job:${string}` | `chat:${string}`;
 
 export interface Choice {
   scope: Scope;
@@ -44,20 +48,19 @@ export function chosen(agent: string, scope: Scope): string | undefined {
   return row?.model;
 }
 
-/** Every choice kept for an agent, the agent's own first, then its jobs, then chats. */
+/** Every choice kept for an agent: its jobs first, then its chats. */
 export function choices(agent: string): Choice[] {
   const rows = db.prepare("select scope, model, at from choices where agent = ? order by scope").all(agent) as unknown as Choice[];
-  const rank = (one: Choice) => (one.scope === "agent" ? 0 : one.scope.startsWith("job:") ? 1 : 2);
+  const rank = (one: Choice) => (one.scope.startsWith("job:") ? 0 : 1);
   return rows.sort((a, b) => rank(a) - rank(b) || a.scope.localeCompare(b.scope));
 }
 
 /**
  * The model a run goes to. For a job: what was chosen for that job, else what
- * the job names, else what was chosen for the agent, else what the agent
- * names. Without a job, the last two.
+ * the job names, else what the agent names. Without a job: what the agent
+ * names.
  */
 export function modelFor(agent: Agent, job?: Job): string {
-  const own = chosen(agent.id, "agent") ?? agent.model;
-  if (!job) return own;
-  return chosen(agent.id, `job:${job.id}`) ?? job.model ?? own;
+  if (!job) return agent.model;
+  return chosen(agent.id, `job:${job.id}`) ?? job.model ?? agent.model;
 }

@@ -269,7 +269,7 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
   is("and the exchange is kept in that chat's conversation, once", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["/highlights \u201cA line from a book.\u201d \u2014 A Book", whole]);
   is("the / menu is the agent's jobs, then /models and /clear", calls.find((c) => c.method === "setMyCommands")?.body.commands, [
     { command: "highlights", description: "highlights" },
-    { command: "models", description: "Which model answers here, and the ones to pick from" },
+    { command: "models", description: "Which model answers here, and the ones to pick from. The agent's own file decides it." },
     { command: "clear", description: "Start a new conversation" },
   ]);
 

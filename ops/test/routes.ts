@@ -765,17 +765,16 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   const named = { ...job, model: "anthropic/claude-sonnet-5" };
 
   is("without a pick, the file decides", [modelFor(agent), modelFor(agent, job), modelFor(agent, named)], ["anthropic/claude-haiku-4.5", "anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-5"]);
-  choose("test", "agent", "openai/gpt-6-luna");
-  is("a pick for everything beats the agent's own, not a job's own", [modelFor(agent), modelFor(agent, job), modelFor(agent, named)], ["openai/gpt-6-luna", "openai/gpt-6-luna", "anthropic/claude-sonnet-5"]);
   choose("test", "job:nightly", "openai/gpt-5.5");
-  is("a pick for a job beats everything", modelFor(agent, job), "openai/gpt-5.5");
-  is("every pick is listed, the agent's first", choices("test").map((one) => `${one.scope}=${one.model}`), ["agent=openai/gpt-6-luna", "job:nightly=openai/gpt-5.5"]);
-  choose("test", "agent", "");
+  is("a pick for a job beats the job's own model, and the agent's", [modelFor(agent, job), modelFor(agent, named), modelFor(agent)], ["openai/gpt-5.5", "openai/gpt-5.5", "anthropic/claude-haiku-4.5"]);
+  choose("test", "chat:test/api-pick", "openai/gpt-6-luna");
+  is("every pick is listed, a job's before a chat's", choices("test").map((one) => `${one.scope}=${one.model}`), ["job:nightly=openai/gpt-5.5", "chat:test/api-pick=openai/gpt-6-luna"]);
   choose("test", "job:nightly", "");
-  is("an empty model takes a pick back", [chosen("test", "agent"), choices("test")], [undefined, []]);
+  choose("test", "chat:test/api-pick", "");
+  is("an empty model takes a pick back", [chosen("test", "job:nightly"), choices("test")], [undefined, []]);
 
   is("the menu ends with /models and /clear", commands(agent).slice(-2), [
-    { command: "models", description: "Which model answers here, and the ones to pick from" },
+    { command: "models", description: "Which model answers here, and the ones to pick from. The agent's own file decides it." },
     { command: "clear", description: "Start a new conversation" },
   ]);
 
@@ -794,14 +793,14 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     is("and the next turn in it goes there", run.model, "openai/gpt-6-luna");
     is("a chat on another thread does not", (await from("/models", "test/api-other"))?.text.split("\n")[0], "This chat: anthropic/claude-haiku-4.5 (the default)");
     is("a name that cannot be run is refused", (await from("/model nonsense"))?.text, "I cannot run nonsense. /models lists what I can.");
-    is("for everything picks for the agent", (await from("/model openai/gpt-6-luna for everything"))?.text, "Everything test does now uses openai/gpt-6-luna, apart from a job that names its own.");
-    is("which a job with no model of its own follows", modelFor(agent, job), "openai/gpt-6-luna");
+    is("nothing picks for the whole agent", (await from("/model openai/gpt-6-luna for everything"))?.text, "There is no pick for the whole agent: what it runs on is the model in its own definition.");
+    is("and neither the agent nor its job moved", [modelFor(agent), modelFor(agent, job)], ["anthropic/claude-haiku-4.5", "anthropic/claude-haiku-4.5"]);
     is("for a job picks for that job, with _ for -", (await from("/model anthropic/claude-haiku-4.5 for nightly"))?.text, "nightly now uses anthropic/claude-haiku-4.5.");
     is("and a job it does not have is said", (await from("/model openai/gpt-6-luna for weekly"))?.text, "I have no job called weekly. Mine: nightly.");
-    is("/models then shows every pick that is not a chat's", (await from("/models"))?.text.split("\n").slice(0, 3), ["This chat: openai/gpt-6-luna", "Everything: openai/gpt-6-luna", "nightly: anthropic/claude-haiku-4.5"]);
-    is("default takes one back", (await from("/model default for everything"))?.text, "Everything test does is back on the default, anthropic/claude-haiku-4.5.");
+    is("/models then shows every pick that is not a chat's", (await from("/models"))?.text.split("\n").slice(0, 2), ["This chat: openai/gpt-6-luna", "nightly: anthropic/claude-haiku-4.5"]);
+    is("default takes a chat's pick back", (await from("/model default"))?.text, "This chat is back on the default, anthropic/claude-haiku-4.5.");
     is("and says what a job is back on", (await from("/model default for nightly"))?.text, "nightly is back on the default, anthropic/claude-haiku-4.5.");
-    is("a call with no conversation has nowhere to keep a pick", (await from("/model openai/gpt-6-luna", ""))?.text, "This call has no conversation to remember a pick for. Say for everything, or for a job.");
+    is("a call with no conversation has nowhere to keep a pick", (await from("/model openai/gpt-6-luna", ""))?.text, "This call has no conversation to remember a pick for. Say for a job instead.");
     settings.model.models = ["openai/gpt-6-luna via gateway"];
     is("a model on a route of its own is picked whole, with for", (await from("/model openai/gpt-6-luna via gateway for nightly"))?.text, "nightly now uses openai/gpt-6-luna via gateway.");
     await from("/model default for nightly");
@@ -811,9 +810,9 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
       receive(agent, { channel: "api", chat: "test/api-token", thread: "test/api-token", from: { id: "1", name: "me" }, text, private: true, fromOwner: false });
     is("a token may read the list", ((await asToken("/models"))?.text ?? "").split("\n")[0], "This chat: anthropic/claude-haiku-4.5 (the default)");
     is("but may not pick for the chat", (await asToken("/model openai/gpt-6-luna"))?.text, "Only the owner picks the model.");
-    is("nor for everything", (await asToken("/model openai/gpt-6-luna for everything"))?.text, "Only the owner picks the model.");
-    is("nor take a pick back", (await asToken("/model default for everything"))?.text, "Only the owner picks the model.");
-    is("and nothing was picked or taken back", [chosen("test", "agent"), chosen("test", "chat:test/api-token")], [undefined, undefined]);
+    is("nor pick for a job", (await asToken("/model openai/gpt-6-luna for nightly"))?.text, "Only the owner picks the model.");
+    is("nor take a pick back", (await asToken("/model default"))?.text, "Only the owner picks the model.");
+    is("and nothing was picked or taken back", [chosen("test", "job:nightly"), chosen("test", "chat:test/api-token")], [undefined, undefined]);
     choose("test", "chat:test/api-pick", "");
   } finally {
     settings.model.models = listBefore;

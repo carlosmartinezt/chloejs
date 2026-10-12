@@ -485,7 +485,12 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
   if (message.thread) message = { ...message, thread: current(message.thread) };
 
   const picking = rules.strangers || rules.job ? undefined : modelCommand(text);
-  if (picking) return { ...bound(agent, message, picking), steps: 0, cost: 0 };
+  if (picking) {
+    // Listing is a read. Picking, or taking one back, changes it, and only the
+    // owner does that: a token, or anybody else allowed in, may not.
+    if (picking.pick && !ownerOf(message, rules).mayChangeAgent) return said("Only the owner picks the model.");
+    return { ...bound(agent, message, picking), steps: 0, cost: 0 };
+  }
 
   const signingIn = text && !rules.strangers && !rules.job ? neededBy(agent).find((one) => one.signIn?.answers(text)) : undefined;
   if (signingIn) return during(working, () => signedIn(agent, message, signingIn, rules, whileWorking));
@@ -544,16 +549,17 @@ export function commands(agent: Agent): { command: string; description: string }
       .filter((job) => !job.channels)
       .map((job) => ({ command: job.id.replace(/-/g, "_").toLowerCase(), description: (job.description || job.id).slice(0, 256) }))
       .filter((one) => /^[a-z0-9_]{1,32}$/.test(one.command)),
-    { command: "models", description: "Which model answers here, and the ones to pick from" },
+    { command: "models", description: "Which model answers here, and the ones to pick from. The agent's own file decides it." },
     { command: "clear", description: "Start a new conversation" },
   ];
 }
 
 /**
  * `/models` lists the models and what is chosen. `/model <name>` picks one
- * for this chat, `/model <name> via <route>` the same on another route, `/model <name> for everything` for the whole agent, and
+ * for this chat, `/model <name> via <route>` the same on another route, and
  * `/model <name> for <job>` for one job. `/model default` takes a pick back,
- * with the same `for`. `/model` alone lists too.
+ * with the same `for`. `/model` alone lists too. What an agent runs on is only
+ * in its own definition: there is no pick for the whole agent.
  */
 function modelCommand(text: string): { pick?: string; target?: string } | undefined {
   const asked = text.trim().match(/^\/models?(?:@\w+)?(?:\s+(.*))?$/i);
@@ -582,7 +588,7 @@ function bound(agent: Agent, message: Incoming, asked: { pick?: string; target?:
     const some = offered.slice(0, SHOWN);
     const lines = [
       `This chat: ${here ?? modelFor(agent)}${here ? "" : " (the default)"}`,
-      ...made.map((one) => `${one.scope === "agent" ? "Everything" : one.scope.slice(4)}: ${one.model}`),
+      ...made.map((one) => `${one.scope.slice(4)}: ${one.model}`),
       "",
       offered.length ? "I can run:" : "There is nothing to pick from: nothing this box is set up for runs the models on offer.",
       ...some.map((one) => `• ${one.model}`),
@@ -590,7 +596,7 @@ function bound(agent: Agent, message: Incoming, asked: { pick?: string; target?:
         ? [`...and ${offered.length - some.length} more. Name any of them, or set model.models in chloe.config.ts to choose what shows here.`]
         : []),
       "",
-      "Pick one for this chat, or write /model <name>, /model <name> for everything, /model <name> for <job>, or /model default.",
+      "Pick one for this chat, or write /model <name>, /model <name> for <job>, or /model default.",
     ];
     return { text: lines.join("\n"), buttons: some.map((one) => ({ label: one.model, sends: `/model ${one.model}` })) };
   }
@@ -598,12 +604,11 @@ function bound(agent: Agent, message: Incoming, asked: { pick?: string; target?:
   let scope: Scope;
   let where: string;
   if (!asked.target) {
-    if (!thread) return { text: "This call has no conversation to remember a pick for. Say for everything, or for a job." };
+    if (!thread) return { text: "This call has no conversation to remember a pick for. Say for a job instead." };
     scope = `chat:${thread}`;
     where = "This chat";
   } else if (/^everything$/i.test(asked.target)) {
-    scope = "agent";
-    where = `Everything ${agent.label ?? agent.id} does`;
+    return { text: "There is no pick for the whole agent: what it runs on is the model in its own definition." };
   } else {
     const id = asked.target.toLowerCase();
     const job = agent.jobs.find((one) => one.id === id || one.id === id.replace(/_/g, "-"));
@@ -614,14 +619,13 @@ function bound(agent: Agent, message: Incoming, asked: { pick?: string; target?:
 
   if (/^default$/i.test(asked.pick)) {
     choose(agent.id, scope, "");
-    const now = scope === "agent" ? modelFor(agent) : scope.startsWith("job:") ? modelFor(agent, agent.jobs.find((one) => one.id === scope.slice(4))) : modelFor(agent);
+    const now = scope.startsWith("job:") ? modelFor(agent, agent.jobs.find((one) => one.id === scope.slice(4))) : modelFor(agent);
     return { text: `${where} is back on the default, ${now}.` };
   }
   const model = offered.find((one) => one.model.toLowerCase() === asked.pick!.toLowerCase());
   if (!model) return { text: `I cannot run ${asked.pick}. /models lists what I can.` };
   choose(agent.id, scope, model.model);
-  const aside = scope === "agent" ? ", apart from a job that names its own" : "";
-  return { text: `${where} now uses ${model.model}${aside}.` };
+  return { text: `${where} now uses ${model.model}.` };
 }
 
 /**

@@ -399,6 +399,11 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   const trial = await fetch(`${at}/api/agents/test/trial/reading?customer=x`, { method: "POST", headers: { authorization: `Bearer ${secret}` } });
   is("a token may not start a trial: that is the account's", [trial.status === 401 || trial.status === 403, fired.length], [true, 3]);
 
+  // What a chat understands as a slash command, for a client building a menu.
+  const listed = await fetch(`${at}/api/agents/test/commands`, { headers: { authorization: `Bearer ${secret}` } });
+  is("a token reads what commands the agent understands", [listed.status, ((await listed.json()) as { command: string }[]).map((one) => one.command)], [200, ["reading", "models", "clear"]]);
+  is("and with no token it is nobody's", (await fetch(`${at}/api/agents/test/commands`)).status, 401);
+
   server.close();
 }
 

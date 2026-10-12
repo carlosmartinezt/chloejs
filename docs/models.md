@@ -18,7 +18,6 @@ The first of these that is set wins.
 | A pick for one job | `/model <name> for <job>` in a chat |
 | One job | `model` in `defineJob`, or in a markdown job's frontmatter |
 | A pick for one chat | `/model <name>` in that chat (chat turns only) |
-| A pick for the agent | `/model <name> for everything` |
 | The agent | `model` in `defineAgent` |
 | Every agent | `model.defaultModel` in settings, which `npx chloe setup` writes |
 
@@ -129,10 +128,12 @@ chat's dollar limit cannot be kept on them.
 `/models` lists what may be picked, with a button each on Telegram. A model
 that more than one route here can run is listed once for each, the others as
 `<name> via <route>`, and so it is on the dashboard.
-`/model <name>` picks one for that chat, `/model <name> for everything` for the
-agent, `/model <name> for <job>` for one job, and `/model default` takes a pick
-back, with the same `for`. The run record still says which model made each run.
+`/model <name>` picks one for that chat, `/model <name> for <job>` for one job,
+and `/model default` takes a pick back, with the same `for`. A pick is a trial
+and is not how an agent's model is set: what it runs on is `model` in its own
+definition, and there is no pick for the whole agent. The run record still says
+which model made each run.
 
 Over the API: `GET /api/models`, and `POST /api/agents/<id>/model` with
-`{ "scope", "model" }`, where scope is `agent`, `job:<id>` or `chat:<thread>`
+`{ "scope", "model" }`, where scope is `job:<id>` or `chat:<thread>`
 and an empty model takes the pick back.

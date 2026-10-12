@@ -21,6 +21,7 @@ import { settings } from "#chloe/core/settings";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
 import { tryJob, type Clock } from "#chloe/core/clock";
 import { choices, choose, modelFor, type Scope } from "#chloe/model/choices";
+import { commands } from "#chloe/channels/shared";
 import { forget } from "#chloe/model/memory";
 import { models } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
@@ -223,11 +224,11 @@ export function summary(agent: Agent) {
     id: agent.id,
     label: agent.label,
     description: agent.description,
-    /** What its runs go to now: a choice made on the fly, else what its definition names. */
+    /** What its runs go to. */
     model: modelFor(agent),
     /** What its definition names. */
     declaredModel: agent.model,
-    /** Every choice made on the fly: for everything it does, for one job, or for one chat. */
+    /** Every choice made on the fly: for one job, or for one chat. */
     chosen: choices(agent.id),
     channels: agent.channels.map((one) => one.name).sort(),
     /** Whether a token may chat to it or run its jobs. */
@@ -612,6 +613,13 @@ export const routes: Route[] = [
   },
   {
     method: "GET",
+    path: "/api/agents/:id/commands",
+    does: "What a chat with that agent understands as a command: one per job, then /models and /clear. The same list Telegram is given.",
+    token: true,
+    handle: ({ response, context, params }) => json(response, commands(context.agent(params.id))),
+  },
+  {
+    method: "GET",
     path: "/api/runs",
     does: "Every agent's runs, newest first. Takes ?agent= and ?limit=. Somebody invited gets only their own.",
     token: true,
@@ -778,13 +786,13 @@ export const routes: Route[] = [
   {
     method: "POST",
     path: "/api/agents/:id/model",
-    does: 'Pick a model on the fly: for everything the agent does, one job, or one chat. An empty model takes the pick back.',
-    takes: '{"scope": "agent" | "job:<id>" | "chat:<thread>", "model": "..." or ""}',
+    does: "Pick a model on the fly: for one job, or one chat. An empty model takes the pick back.",
+    takes: '{"scope": "job:<id>" | "chat:<thread>", "model": "..." or ""}',
     handle: async ({ request, response, context, params }) => {
       const agent = context.agent(params.id);
       const { scope, model } = await body(
         request,
-        z.object({ scope: z.string().regex(/^(agent|job:.+|chat:.+)$/, 'agent, job:<id> or chat:<thread>'), model: z.string().trim() }),
+        z.object({ scope: z.string().regex(/^(job:.+|chat:.+)$/, "job:<id> or chat:<thread>"), model: z.string().trim() }),
       );
       if (scope.startsWith("job:") && !agent.jobs.some((one) => one.id === scope.slice(4))) {
         throw new BadRequest(`${agent.id} has no job called ${scope.slice(4)}.`);
