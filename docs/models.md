@@ -90,10 +90,11 @@ off, so every tool call is chloe's and is written down.
   `ANTHROPIC_API_KEY`, so a key in `.env` cannot quietly pay for a subscription
   run.
 - **antigravity** describes the tools in the prompt too, like codex: the CLI
-  refuses every tool of its own in headless mode, and real MCP tools would need
-  an allow-rule in the person's own `agy` settings, so none are used. The prompt
-  goes in over stdin (`agy -p` hangs in a pipe), and it carries about 12k tokens
-  of its own instructions on every call.
+  refuses every tool of its own in headless mode, so the route runs it as a
+  custom agent with `tools: []` and real MCP tools are not used (they would need
+  an allow-rule in the person's own `agy` settings). The prompt goes in over
+  stdin (`agy -p` hangs in a pipe), and the custom agent also keeps the CLI's own
+  instructions out of the call.
 - **opencode** hands the tools over as real tools too. For each step it starts
   an opencode server of its own, reachable from this machine only, and closes it
   after. It needs opencode 2 or later, and adds a second or two to each step.

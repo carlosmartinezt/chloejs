@@ -5,20 +5,25 @@
 // there is nothing to put in a bearer header. The route "antigravity" in
 // settings picks it, and it runs Google models only.
 //
-// The CLI's own tools are switched off the only way it allows headless: it
-// cannot prompt, so every tool that would need approval is refused, and chloe
-// hands its own tools over by describing them in the prompt and reading the
-// calls back out of the reply, the same as codex (see cli.ts for why the loop
-// is chloe's). Real MCP tools are not used here: agy denies a tool it cannot
+// The CLI's own tools are switched off with a custom agent written into the run
+// folder: `.agents/agents/chloe/agent.md` with `tools: []` and
+// `commandExecutionPolicy: off`, which is the only way it offers the model
+// nothing of its own. Without that the model tries a shell command, headless
+// cannot ask to allow it, and the run ends with no answer at all.
+//
+// chloe hands its own tools over by describing them in the prompt and reading
+// the calls back out of the reply, the same as codex (see cli.ts for why the
+// loop is chloe's). Real MCP tools are not used: agy denies a tool it cannot
 // prompt for unless the account's own settings allow it, and that file is the
 // person's, not chloe's.
 //
 // Two traps, both found by running it:
 // - `agy -p` hangs in a pipe, so the prompt goes in over stdin in the CLI's
 //   stream-json shape and the answer comes back as stream-json too.
-// - the CLI carries about 12k tokens of its own instructions on every call, so
-//   a step here is heavier than it looks.
-import { mkdtemp, rm } from "node:fs/promises";
+// - a custom agent with no tools is what keeps the CLI's own instructions and
+//   tools out of the call, which also makes a step here about a fifth as heavy
+//   as agy's default.
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,6 +31,9 @@ import { settings } from "#chloe/core/settings";
 
 import { asText, invoke, readReply } from "./cli.ts";
 import { type Answer, type Ask, UsageLimit } from "./model.ts";
+
+/** The custom agent written into the run folder, and the name `--agent` is given. */
+const AGENT = "chloe";
 
 /** "google/gemini-3.8-flash-high" is "gemini-3.8-flash-high" to the CLI. Another provider is refused here rather than by the CLI. */
 export function antigravityModel(model: string): string {
@@ -104,18 +112,45 @@ function isLimit(problem: string): boolean {
   return /RESOURCE_EXHAUSTED|quota|usage limit|rate limit|\b429\b/i.test(problem);
 }
 
+/**
+ * Writes the custom agent the run uses, into the folder it runs in. `tools: []`
+ * is what leaves the model with nothing of the CLI's own to reach for; the
+ * instructions become its system prompt.
+ */
+async function writeAgent(folder: string, system: string): Promise<void> {
+  const dir = join(folder, ".agents", "agents", AGENT);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "agent.md"),
+    [
+      "---",
+      `name: ${AGENT}`,
+      "description: Answers for chloe, whose tools chloe runs.",
+      "tools: []",
+      "mainAgent: true",
+      "subagent: false",
+      "commandExecutionPolicy: off",
+      "---",
+      "",
+      system || "Answer the conversation below.",
+      "",
+    ].join("\n"),
+  );
+}
+
 export async function viaAntigravity({ model, messages, tools, signal }: Ask): Promise<Answer> {
-  // The instructions, the tools described in words, then the conversation. Its
-  // own tools are refused because it cannot prompt headless, so what it may ask
-  // for is only what the prompt describes.
+  // The instructions and the tools described in words are the agent's system
+  // prompt; the conversation is what goes in over stdin.
   const { system, transcript } = asText({ messages, tools });
   const folder = await mkdtemp(join(tmpdir(), "chloe-antigravity-"));
   try {
-    const prompt = system ? `${system}\n\n${transcript}` : transcript;
+    await writeAgent(folder, system);
     // One user message in the CLI's stream-json stdin shape: `agy -p` hangs in a
     // pipe, this does not.
-    const input = `${JSON.stringify({ event: "user", message: { content: prompt } })}\n`;
+    const input = `${JSON.stringify({ event: "user", message: { content: transcript } })}\n`;
     const args = [
+      "--agent",
+      AGENT,
       "--input-format",
       "stream-json",
       "--output-format",

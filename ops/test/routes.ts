@@ -504,13 +504,18 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
 
     const antigravityTools = [{ name: "gmailReadEmail", description: "Read mail.", parameters: { type: "object", properties: { days: { type: "number" } } } }];
     await writeFile(join(bin, "antigravity.jsonl"), `${antigravityStream}\n`);
-    pin(anyCli, anyCli, opencodeCli, await fake("agy-stream", `cat >/dev/null; cat "${join(bin, "antigravity.jsonl")}"`));
+    const agyArgs = join(bin, "agy-args.txt");
+    const agyAgent = join(bin, "agy-agent.md");
+    pin(anyCli, anyCli, opencodeCli, await fake("agy-stream", `printf '%s' "$*" > "${agyArgs}"; cat ".agents/agents/chloe/agent.md" > "${agyAgent}" 2>/dev/null; cat >/dev/null; cat "${join(bin, "antigravity.jsonl")}"`));
     settings.model.preferredRoute = ["claude", "codex", "antigravity", "opencode", "direct", "gateway"];
     is("google goes to the antigravity route when it is set up", routeFor("google/gemini-3.8-flash-high"), "antigravity");
     const antigravityAnswer = await viaAntigravity({ model: "google/gemini-3.8-flash-high", messages: [{ role: "user", content: "mail?" }], tools: antigravityTools } as any);
     is("and a run on it reads the tool it asked for back out of the reply, with no price",
       [antigravityAnswer.text, antigravityAnswer.toolCalls.map((c) => [c.function.name, c.function.arguments]), antigravityAnswer.cost],
       ["Look", [["gmailReadEmail", '{"days":7}']], undefined]);
+    is("it runs as a custom agent with no tools of the CLI's own, which headless would refuse",
+      [(await readFile(agyArgs, "utf8")).includes("--agent chloe"), (await readFile(agyAgent, "utf8")).includes("tools: []")],
+      [true, true]);
 
     await writeFile(join(bin, "agy-models.txt"), "Fetching available models...\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.1-pro-low\tGemini 3.1 Pro (Low)\n");
     pin(anyCli, anyCli, opencodeCli, await fake("agy-listing", `cat "${join(bin, "agy-models.txt")}"`));
