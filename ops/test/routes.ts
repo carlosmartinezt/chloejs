@@ -639,6 +639,12 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     );
     is("and the newest turn alone is the prompt", turns.find((one) => one.path?.endsWith("/prompt"))?.body.text, "and again");
     is("the import names the model asked for", imported.info.model, { providerID: "opencode-go", id: "calls" });
+    const kept = turns.find((one) => one.what === "imported");
+    is(
+      "and opencode keeps the assistant's turn, not only the user's, so a model sees what it did",
+      [kept?.sent, kept?.kept, kept?.types],
+      [2, 2, ["user", "assistant"]],
+    );
 
     await writeFile(standInLog, "");
     await viaOpencode({

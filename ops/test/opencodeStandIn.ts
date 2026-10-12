@@ -156,6 +156,12 @@ const server = createServer((request, response) => {
     if (request.method === "POST" && path === "/api/experimental/session/import") {
       // A model named refuse stands for an opencode too old for this endpoint.
       if (body.info?.model?.id === "refuse") return reply(404, { _tag: "NotFound" });
+      // What opencode 2.0.22 keeps of an imported transcript: an assistant
+      // message is a finished turn only when its time says so, and one without
+      // `completed` is dropped whole. A run whose past turns vanish has the
+      // model redo its first move, so the tests assert against this count.
+      const kept = (body.messages ?? []).filter((one: { type?: string; time?: { completed?: number } }) => one.type !== "assistant" || typeof one.time?.completed === "number");
+      note("imported", { sent: (body.messages ?? []).length, kept: kept.length, types: kept.map((one: { type?: string }) => one.type) });
       ours = body.info.id;
       model = body.info.model?.id ?? "";
       return reply(200, { data: body.info });

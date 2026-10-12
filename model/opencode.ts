@@ -368,7 +368,13 @@ interface ToolPart {
 interface Imported {
   id: string;
   type: "user" | "assistant";
-  time: { created: number };
+  /**
+   * An imported assistant message without `completed` is read as a turn still
+   * in progress and silently dropped by opencode (2.0.22): every past turn
+   * vanishes, and a model asked to carry on redoes its first move forever.
+   * `completed` is required on an assistant message; nothing else is.
+   */
+  time: { created: number; completed?: number };
   text?: string;
   files?: { data: string; mime: string; source: { type: "inline" }; name?: string }[];
   agent?: string;
@@ -404,7 +410,7 @@ function history(messages: Message[], model: { providerID: string; id: string })
         byCall.set(call.id, part);
         content.push(part);
       }
-      turns.push({ id: fresh("msg_"), type: "assistant", time: { created: at++ }, agent: AGENT, model, content, finish: one.tool_calls?.length ? "tool-calls" : "stop" });
+      turns.push({ id: fresh("msg_"), type: "assistant", time: { created: at, completed: ++at }, agent: AGENT, model, content, finish: one.tool_calls?.length ? "tool-calls" : "stop" });
     } else if (one.tool_call_id) {
       // A tool's result belongs to the call that asked for it.
       const part = byCall.get(one.tool_call_id);
