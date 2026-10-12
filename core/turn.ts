@@ -2,6 +2,7 @@
 // Every step is written to the run as it happens, because a job that goes
 // wrong at four in the morning is only debuggable if that record exists.
 import { randomUUID } from "node:crypto";
+import { readdirSync, statSync } from "node:fs";
 
 import { isStepCount, tool, type StopCondition, type ToolApprovalConfiguration } from "ai";
 import { z } from "zod";
@@ -10,7 +11,7 @@ import { duringRun, holdBack, inTrial } from "#chloe/core/current";
 import { CUT_OFF, db } from "#chloe/core/db";
 import { oneLineSummary } from "#chloe/core/markdown";
 import { settings } from "#chloe/core/settings";
-import { ownFileRules, type Agent, type ChatHistory, type Skill } from "#chloe/load/load";
+import { ownFileRules, type Agent, type ChatHistory } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
@@ -18,6 +19,9 @@ import { userNotes } from "#chloe/model/tools/memory";
 import { selfFolderTools, selfReadTools, selfTrialTools } from "#chloe/model/tools/self";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
+import { receivedFolder } from "#chloe/services/receivedService";
+import { scriptsIn } from "#chloe/services/scriptsService";
+import { chatSendFile, type FileToSend } from "#chloe/model/tools/chat";
 import { guides, ownFiles } from "#chloe/services/selfService";
 import { NeedsSignIn } from "#chloe/connections/connection";
 
@@ -122,6 +126,13 @@ export interface Ask {
    */
   mayChangeAgent?: boolean;
   /**
+   * Sends a file into the conversation this message came from. A channel that
+   * can send files passes it, and with it the model gets `chatSendFile`, for a
+   * file in the agent's memory or one somebody sent it. Never for a stranger.
+   * Default: none.
+   */
+  sendFile?: (file: FileToSend) => Promise<void>;
+  /**
    * Who this message is from, as `channel:id`, like "telegram:12345". Every
    * tool gets it as `context.user`. For an agent with `memoryPerUser`, it also
    * picks whose note the model is shown. Default: none.
@@ -202,7 +213,7 @@ function stopWhenOf(agent: Agent): StopCondition<any>[] {
  * the run: the model is told what went wrong. Throws when asking the model
  * fails.
  */
-export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, stranger, fromOwner, mayChangeAgent, user, instead, signal, trial }: Ask): Promise<Result> {
+export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, stranger, fromOwner, mayChangeAgent, sendFile, user, instead, signal, trial }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? modelFor(agent);
 
@@ -211,7 +222,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
     "insert into runs (id, agent, started, source, job, model, prompt, asked, kind, owner, thread, held) values (?, ?, ?, ?, ?, ?, ?, ?, 'turn', ?, ?, ?)",
   ).run(runId, agent.id, started, source, job ?? null, using, prompt, asked ?? null, owner ?? null, thread ?? null, trial || inTrial() ? "[]" : null);
 
-  const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent });
+  const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent, sendFile, stranger });
   const overviews = await overviewsOf(tools);
   // In the instructions rather than the message, so it is not kept in the conversation again each turn.
   const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
@@ -225,7 +236,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   db.prepare("update runs set context = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), runId);
   if (thread) remember(thread, "user", prompt);
 
-  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, stranger, fromOwner, mayChangeAgent, user, instead, signal });
+  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, stranger, fromOwner, mayChangeAgent, sendFile, user, instead, signal });
 }
 
 /**
@@ -382,6 +393,7 @@ async function go(options: {
   stranger?: boolean;
   fromOwner?: boolean;
   mayChangeAgent?: boolean;
+  sendFile?: Ask["sendFile"];
   user?: string;
   instead?: Ask["instead"];
   /** Steps already taken, which the agent's `stopWhen` counts. */
@@ -732,8 +744,8 @@ async function runTool(
 // The model sees each skill's name and one sentence, and opens the body only
 // when it applies. In the system prompt instead, every skill would cost its
 // full text on every step of every turn.
-function skillTool(skills: Skill[]): ChloeTool {
-  const byName = new Map(skills.map((s) => [s.name, s]));
+function skillTool(agent: Agent): ChloeTool {
+  const byName = new Map(agent.skills.map((s) => [s.name, s]));
   return Object.assign(tool({
     description:
       "Open one of your skills and read what it says. A skill tells you when to do something and " +
@@ -742,9 +754,34 @@ function skillTool(skills: Skill[]): ChloeTool {
     execute: ({ name }) => {
       const found = byName.get(name);
       if (!found) throw new Error(`No skill called ${JSON.stringify(name)}. You have: ${[...byName.keys()].join(", ")}`);
-      return found.body;
+      return found.folder ? `${found.body}\n\n${besideSkill(agent, found.folder)}` : found.body;
     },
   }), { own: true, kind: "read" as const });
+}
+
+/** What a skill that is a folder keeps beside its SKILL.md, and which of those files it can run. */
+function besideSkill(agent: Agent, folder: string): string {
+  const files: string[] = [];
+  const walk = (dir: string, at: string, depth: number) => {
+    for (const name of readdirSync(dir).filter((one) => !one.startsWith(".") && one !== "node_modules").sort()) {
+      const info = statSync(`${dir}/${name}`, { throwIfNoEntry: false });
+      if (info?.isDirectory() && depth < 4) walk(`${dir}/${name}`, `${at}${name}/`, depth + 1);
+      else if (info?.isFile() && `${at}${name}` !== "SKILL.md") files.push(`${at}${name}`);
+    }
+  };
+  walk(`${agent.folder}/${folder}`, "", 1);
+  const skill = folder.slice("skills/".length);
+  const scripts = scriptsIn(agent.folder).filter((one) => one.startsWith(`${skill}/`));
+  const lines = [`This skill is the folder ${folder}/ in your own folder.`];
+  if (files.length) lines.push(`Beside SKILL.md it has: ${files.join(", ")}. Read any of them as ${folder}/<file>.`);
+  if (scripts.length) {
+    lines.push(
+      agent.tools?.scriptRun
+        ? `Its scripts, by the names you run them with: ${scripts.join(", ")}. Each runs inside ${folder}/.`
+        : `It has scripts (${scripts.join(", ")}), but you cannot run them: runScripts is not on in your definition.`,
+    );
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -767,13 +804,14 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
  * folder (`selfListFiles`, `selfReadFile`); a turn its owner wrote also reads
  * its runs and the guides, and may try one of its jobs.
  */
-function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean } = {}): Tools {
+function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean; sendFile?: Ask["sendFile"]; stranger?: boolean } = {}): Tools {
   const owner = Boolean(who.fromOwner || who.mayChangeAgent);
   const tools: Tools = {
     ...selfFolderTools(ownFileRules(agent.features))(agent),
     ...(owner ? { ...selfReadTools(ownFileRules(agent.features))(agent), ...selfTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
-    skillRead: skillTool(agent.skills),
+    skillRead: skillTool(agent),
+    ...(who.sendFile && !who.stranger ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id)]) } : {}),
   };
   for (const name of without) delete tools[name];
   for (const [name, one] of Object.entries(tools)) {

@@ -49,6 +49,15 @@ import { answer, waitingOn, WrongArgs } from "#chloe/core/steps";
 import { turn } from "#chloe/core/turn";
 import type { Connection } from "#chloe/connections/connection";
 import { neededBy, type ChloeTool, type Tools } from "#chloe/model/tool";
+import type { FileToSend } from "#chloe/model/tools/chat";
+import { keepReceived } from "#chloe/services/receivedService";
+
+/** The files on one message, as a channel fetches them. See `Incoming.files`. */
+export interface Files {
+  attachments?: Attachment[];
+  text?: string;
+  notes?: string[];
+}
 
 /**
  * One message, in the form `receive()` takes from every channel. Your channel
@@ -103,7 +112,7 @@ export interface Incoming {
    * - `text`: the text of text files, added after the message.
    * - `notes`: short lines added after the message, like "(Attached: plan.pdf)".
    */
-  files?: () => Promise<{ attachments?: Attachment[]; text?: string; notes?: string[] }>;
+  files?: () => Promise<Files>;
   /** The model to use for this one reply, when the channel lets the sender pick one. */
   model?: string;
   /** The names of tools the agent may not use in this one reply, even though it has them. */
@@ -378,6 +387,12 @@ export interface While {
   working?: () => () => void;
   /** Sends one message to the chat. `sendWhileWorking` uses it. */
   send?: (text: string) => Promise<void>;
+  /**
+   * Sends one file to the chat, as an attachment. With it, the model can send
+   * a file from the agent's memory, or one somebody sent it, back into this
+   * chat (`chatSendFile`). Leave it out on a channel that cannot.
+   */
+  sendFile?: (file: FileToSend) => Promise<void>;
   /** Called as each tool starts, with the tool's name, and its title if it has one. */
   calling?: (tool: { name: string; title?: string }) => void;
   /**
@@ -805,7 +820,7 @@ async function signedIn(agent: Agent, message: Incoming, connection: Connection,
 }
 
 async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorking: While = {}): Promise<Handled> {
-  const { send, calling, writing } = whileWorking;
+  const { send, sendFile, calling, writing } = whileWorking;
   // One after another, in the order they happened, and all of them out before
   // the answer is.
   let sending: Promise<unknown> = Promise.resolve();
@@ -821,7 +836,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
         }
       : undefined;
   try {
-    const files = (await message.files?.()) ?? {};
+    const files = await saved(agent, (await message.files?.()) ?? {}, rules);
     const facts = message.context && { from: message.from.name, ...message.context };
     const context = facts && [`<${message.channel}_context>`, ...Object.entries(facts).map(([k, v]) => `${k}: ${v}`), `</${message.channel}_context>`].join("\n");
     const result = await turn({
@@ -841,6 +856,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
       without: [...(message.withoutTools ?? []), ...leftOut(agent, rules)],
       stranger: rules.strangers,
       ...ownerOf(message, rules),
+      sendFile,
       user: `${message.channel}:${message.from.id}`,
       signal: message.signal,
     });
@@ -851,6 +867,21 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
     if (error instanceof UsageLimit) return { text: error.message, steps: 0, cost: 0 };
     return { text: "Something went wrong on my end. It is in the logs on the box.", steps: 0, cost: 0 };
   }
+}
+
+/**
+ * A message's files, each also saved to disk when the agent can run scripts,
+ * with its path added to the message so a script can be handed it. Never for
+ * a stranger.
+ */
+async function saved(agent: Agent, files: Files, rules: Rules): Promise<Files> {
+  if (rules.strangers || !agent.tools?.scriptRun || !files.attachments?.length) return files;
+  const notes = [...(files.notes ?? [])];
+  for (const one of files.attachments) {
+    const path = await keepReceived(agent.id, one.filename, Buffer.from(one.data, "base64"));
+    notes.push(`(${one.filename ?? "The file"} is saved at ${path})`);
+  }
+  return { ...files, notes };
 }
 
 /**

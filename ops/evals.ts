@@ -17,7 +17,6 @@ import { readFile, readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { learnModels, loadAll, type Agent, turn, type TurnResult, settings } from "@chloejs/core";
-import { settingsAndBody } from "#chloe/core/markdown";
 import { spentText } from "#chloe/core/turn";
 import { calls, type ExpectedCalls as Facts, expectations, type ExpectedOutcome as Judged } from "@chloejs/core/scorers";
 
@@ -101,16 +100,12 @@ function answerFrom(one: Case, quiet: string[], skills: Map<string, string>) {
   };
 }
 
-/** Every skill this agent has, by both the names a model might use for it. */
-async function skillsOf(agent: Agent): Promise<Map<string, string>> {
-  const dir = join(agent.folder, "skills");
+/** Every skill this agent has, by both the names a model might use for it: its own, and its file's or folder's. */
+function skillsOf(agent: Agent): Map<string, string> {
   const skills = new Map<string, string>();
-  for (const file of (await readdir(dir).catch(() => [])).filter((f) => f.endsWith(".md"))) {
-    const skill = settingsAndBody(await readFile(join(dir, file), "utf8"));
-    const named = skill.settings.name;
-    for (const key of new Set([named, basename(file, ".md")].filter(Boolean) as string[])) {
-      skills.set(key, skill.body);
-    }
+  for (const skill of agent.skills) {
+    const named = basename(skill.folder ?? skill.file, ".md");
+    for (const key of new Set([skill.name, named])) skills.set(key, skill.body);
   }
   return skills;
 }
@@ -134,7 +129,7 @@ function found(agent: Agent, job: string): string {
 async function runFile(loaded: Agent, file: string): Promise<{ passed: number; failed: number }> {
   const agent = loaded.id;
   const spec = JSON.parse(await readFile(file, "utf8")) as EvalFile;
-  const skills = await skillsOf(loaded);
+  const skills = skillsOf(loaded);
   // Through the loader, so a case runs the prompt the agent wakes up to
   // whether that job is markdown or TypeScript.
   const base = spec.job ? found(loaded, spec.job) : "";

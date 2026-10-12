@@ -88,7 +88,8 @@ tools/            its own tools
 channels/         one file per channel
 services/         plain functions its jobs and tools call
 skills/<name>.md  read by looking: see A prompt with tools
-scripts/          what scriptRun may run
+skills/<name>/    a skill as a folder: SKILL.md and its own scripts
+scripts/          what scriptRun may run, beside the skills' scripts
 evals/            cases that score its prompts
 ```
 

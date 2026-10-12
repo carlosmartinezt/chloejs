@@ -24,8 +24,10 @@ export {
   type Starting,
   type Bound,
   type Incoming,
+  type Files,
   type Rules,
   type While,
   type Handled,
   type Button,
 } from "./shared.ts";
+export type { FileToSend } from "#chloe/model/tools/chat";

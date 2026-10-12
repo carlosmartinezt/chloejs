@@ -13,7 +13,7 @@
 // and dist/docs/ in the package, the same place relative to this file in both.
 import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, extname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,8 +66,9 @@ export function whyNot(agent: Home, rules: OwnFileRules | undefined, path: strin
   }
   if ((rules.except ?? []).some((one) => within(agent, one) === at)) return "it is kept back for a person to change";
   // Code imports by path, so a job's code may sit in a folder of its own.
-  if (/^(skills|jobs)\/[^/]+\//.test(at) && !(code && top === "jobs")) return `a file in a folder inside ${top}/ is never read`;
-  if (top === "skills" && at !== "skills" && ending !== "md") return "a skill is one markdown file, and anything else in skills/ is never read";
+  if (/^jobs\/[^/]+\//.test(at) && !code) return "a file in a folder inside jobs/ is never read";
+  // A skill is skills/<name>.md, or a folder skills/<name>/ with SKILL.md and whatever it needs beside it.
+  if (top === "skills" && at.split("/").length === 2 && ending !== "md") return "a skill is skills/<name>.md, or a folder skills/<name>/ with a SKILL.md in it";
   return undefined;
 }
 
@@ -154,9 +155,11 @@ interface Written {
   content: string;
 }
 
+/** Writes one file. A file of code that starts with `#!` is a script, so it is written executable. */
 async function put(one: Written): Promise<void> {
   await mkdir(dirname(one.resolved), { recursive: true });
   await writeFile(one.resolved, one.content);
+  if (one.content.startsWith("#!") && CODE.includes(extname(one.at).slice(1).toLowerCase())) await chmod(one.resolved, 0o755);
 }
 
 /** Where one file goes, or a throw saying why the agent may not write it as it is. */

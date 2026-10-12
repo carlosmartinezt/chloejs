@@ -136,13 +136,14 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   about("an agent's history, in git");
 
   const { execFileSync } = await import("node:child_process");
-  const { chmod, mkdtemp, mkdir: makeDir, readFile: get, writeFile: put } = await import("node:fs/promises");
+  const { chmod, mkdtemp, mkdir: makeDir, readFile: get, rm, writeFile: put } = await import("node:fs/promises");
   const { realpathSync } = await import("node:fs");
   const { jobsOf, loadAll, markdownJob } = await import("#chloe/load/load");
   const { setAgentDirs } = await import("#chloe/core/paths");
   const { change, makeRepo, markSeen, undo } = await import("#chloe/services/historyService");
   const { whyNot, changeOwnFiles } = await import("#chloe/services/selfService");
-  const { runScripts } = await import("#chloe/services/scriptsService");
+  const { listScripts, runScripts } = await import("#chloe/services/scriptsService");
+  const { skillsIn } = await import("#chloe/load/load");
   const { agentChanges } = await import("#chloe/serve/changes");
   const { open, tree } = await import("#chloe/serve/files");
 
@@ -241,11 +242,13 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
     "that is your memory, which you write with memoryWriteFile",
   );
   is("nor what marks its runs", may("evals/status.json"), "evals/ is how your runs are marked");
-  is("nor a file no loader would read", may("skills/deploys/SKILL.md"), "a file in a folder inside skills/ is never read");
+  is("and a skill that is a folder", may("skills/deploys/SKILL.md"), "yes");
+  is("and what that skill keeps beside it", may("skills/deploys/hosts.json"), "yes");
+  is("but not a script in it without code", may("skills/deploys/deploy.sh"), "it is code");
   is(
     "nor a skill that is not markdown",
     may("skills/deploys.txt"),
-    "a skill is one markdown file, and anything else in skills/ is never read",
+    "a skill is skills/<name>.md, or a folder skills/<name>/ with a SKILL.md in it",
   );
   is("nor anything outside its folder", await Promise.resolve().then(() => may("../other/x.md")).catch(failed), `Path is outside ${folder}: ../other/x.md`);
 
@@ -374,6 +377,30 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   );
   is("and will not open a file in it", await open("keeper", "memory/STATUS.md"), null);
   is("a script is told where its agent's memory is", (await runScripts("keeper", "where.sh")).stdout, memory);
+
+  // A skill that is a folder, with its scripts beside it.
+  await makeDir(join(folder, "skills", "forms", "scripts"), { recursive: true });
+  await makeDir(join(folder, "skills", "half-made"), { recursive: true });
+  await put(join(folder, "skills", "forms", "SKILL.md"), "---\ndescription: filling forms\n---\nRun the script.");
+  await put(join(folder, "skills", "forms", "fields.md"), "Longer notes.");
+  await put(join(folder, "skills", "forms", "scripts", "here.sh"), "#!/bin/sh\npwd\n");
+  await chmod(join(folder, "skills", "forms", "scripts", "here.sh"), 0o755);
+  await put(join(folder, "skills", "half-made", "notes.md"), "No SKILL.md yet.");
+  is(
+    "a skill is a markdown file, or a folder with a SKILL.md, named for the folder",
+    (await skillsIn(join(folder, "skills"))).map((one) => [one.name, one.file, one.folder ?? ""]),
+    [["deploys", "skills/deploys.md", ""], ["forms", "skills/forms/SKILL.md", "skills/forms"]],
+  );
+  await put(join(folder, "skills", "forms.md"), "---\nname: forms\n---\nTwice.");
+  is(
+    "two skills with one name stop the agent loading",
+    await skillsIn(join(folder, "skills")).then(() => "", failed),
+    "Two skills are called forms: skills/forms/SKILL.md and skills/forms.md.",
+  );
+  await rm(join(folder, "skills", "forms.md"));
+  is("its executable files are scripts, named from the skill's folder", await listScripts("keeper"), ["where.sh", "forms/scripts/here.sh"]);
+  is("and one runs inside its skill's folder", (await runScripts("keeper", "forms/scripts/here.sh")).stdout.trim(), join(folder, "skills", "forms"));
+  is("a name that is a path is refused", await runScripts("keeper", "forms/fields.md").then(() => "", failed), 'No script called "forms/fields.md". You have: where.sh, forms/scripts/here.sh');
   await loadAll();
 
   identity.forEach((key, i) => {
@@ -385,7 +412,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
 {
   about("an agent with code: true changes its own code, and nothing that does not load is kept");
   const { execFileSync } = await import("node:child_process");
-  const { existsSync, realpathSync } = await import("node:fs");
+  const { existsSync, realpathSync, statSync } = await import("node:fs");
   const { rm, symlink } = await import("node:fs/promises");
   const { fileURLToPath } = await import("node:url");
   const { loadAgain, ownFileRules, checksDone } = await import("#chloe/load/load");
@@ -429,6 +456,8 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   is("and naming it in agent.ts is kept too", kept(await wrote("agent.ts", definition("hello", 'import hello from "./jobs/hello.ts";'))), "a commit");
   is("so the agent has that job", (await loadAgain(home)).jobs.map((one) => one.id), ["hello"]);
   is("each a commit under its name", git("log", "--format=%an", "-2"), "coder\ncoder");
+  is("a script it writes in a skill's folder is a commit", kept(await wrote("skills/greet/hi.sh", "#!/bin/sh\necho hi\n")), "a commit");
+  is("and executable, so it can run", (statSync(join(folder, "skills/greet/hi.sh")).mode & 0o111) !== 0, true);
 
   const broken = definition("hello, missing", 'import hello from "./jobs/hello.ts";\nimport missing from "./jobs/missing.ts";');
   const refused = await wrote("agent.ts", broken);

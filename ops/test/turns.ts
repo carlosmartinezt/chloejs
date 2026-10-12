@@ -273,6 +273,66 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
 }
 
 {
+  about("a file somebody sends is kept for the agent's scripts, and one can be sent back");
+
+  const { receive } = await import("#chloe/channels/shared");
+  const { mkdir, readFile, writeFile } = await import("node:fs/promises");
+  const fake = (description: string) => tool({ description, inputSchema: z.object({}), execute: async () => description });
+  const base = agentFor(codeJob("unused", async () => ({})));
+  await mkdir(base.memory.folder, { recursive: true });
+  await writeFile(`${base.memory.folder}/filled.pdf`, "%PDF filled");
+  const pdf = { mediaType: "application/pdf", data: Buffer.from("%PDF blank").toString("base64"), filename: "form one.pdf" };
+  const message = { channel: "test", chat: "1", thread: "test/files-1", from: { id: "1", name: "Ada" }, text: "fill this in", private: true, files: async () => ({ attachments: [pdf], notes: ["(Attached: form one.pdf)"] }) };
+
+  answers.push("Read it.");
+  await receive({ ...base, tools: { webReadPage: fake("A page.") } }, message, { allowFrom: ["1"] });
+  const told = () => JSON.stringify(lastAsked.at(-1) ?? "");
+  is("an agent that runs no scripts is not told of a saved copy", told().includes("is saved at"), false);
+
+  answers.push("Read it.");
+  await receive({ ...base, tools: { scriptRun: fake("Run a script.") } }, message, { allowFrom: ["1"] });
+  const path = /saved at (\S+)\)/.exec(told())?.[1] ?? "";
+  is("one that does is told where a copy is, in the state folder, under a safe name", /\/received\/test\/[\dT-]+-form-one\.pdf$/.test(path), true);
+  is("and the copy is the file", await readFile(path, "utf8"), "%PDF blank");
+  is("with no way to send it back on a channel that cannot", lastTools.includes("chatSendFile"), false);
+
+  const sent: string[] = [];
+  const sendFile = async (file: { path: string; name: string }) => void sent.push(`${file.name}: ${await readFile(file.path, "utf8")}`);
+  answers.push(
+    { tool_calls: [{ id: "1", type: "function", function: { name: "chatSendFile", arguments: '{"path":"filled.pdf","name":"form-filled.pdf"}' } }] },
+    { tool_calls: [{ id: "2", type: "function", function: { name: "chatSendFile", arguments: '{"path":"/etc/passwd"}' } }] },
+    "Sent.",
+  );
+  await receive({ ...base, tools: { scriptRun: fake("Run a script.") } }, { ...message, files: undefined }, { allowFrom: ["1"] }, { sendFile });
+  is("a channel that can send files gives the turn a way to, and a file in the memory goes", sent, ["form-filled.pdf: %PDF filled"]);
+  is("and nothing outside the memory and the files sent to it does", told().includes("is not in your memory or among the files sent to you"), true);
+
+  const { skillsIn } = await import("#chloe/load/load");
+  const { chmod, mkdtemp } = await import("node:fs/promises");
+  const folder = await mkdtemp(`${(await import("node:os")).tmpdir()}/chloe-skill-`);
+  await mkdir(`${folder}/skills/forms/scripts`, { recursive: true });
+  await writeFile(`${folder}/skills/forms/SKILL.md`, "---\ndescription: forms\n---\nRead the form first.");
+  await writeFile(`${folder}/skills/forms/fields.md`, "More.");
+  await writeFile(`${folder}/skills/forms/scripts/fill.sh`, "#!/bin/sh\n");
+  await chmod(`${folder}/skills/forms/scripts/fill.sh`, 0o755);
+  const skilled = { ...base, folder, skills: await skillsIn(`${folder}/skills`) };
+  answers.push({ tool_calls: [{ id: "1", type: "function", function: { name: "skillRead", arguments: '{"name":"forms"}' } }] }, "Read it.");
+  await receive({ ...skilled, tools: { scriptRun: fake("Run a script.") } }, { ...message, files: undefined }, { allowFrom: ["1"] });
+  is(
+    "opening a skill that is a folder lists what is beside it, and the scripts by the names they run as",
+    [told().includes("Read the form first."), told().includes("Beside SKILL.md it has: fields.md, scripts/fill.sh"), told().includes("forms/scripts/fill.sh. Each runs inside skills/forms/")],
+    [true, true, true],
+  );
+  answers.push({ tool_calls: [{ id: "1", type: "function", function: { name: "skillRead", arguments: '{"name":"forms"}' } }] }, "Read it.");
+  await receive(skilled, { ...message, files: undefined }, { allowFrom: ["1"] });
+  is("and says so when the agent cannot run them", told().includes("runScripts is not on in your definition"), true);
+
+  answers.push("No.");
+  await receive({ ...base, tools: { scriptRun: fake("Run a script.") } }, message, { allowFrom: ["1"], strangers: true }, { sendFile });
+  is("a stranger's file is not kept, and nothing is sent to them", [told().includes("is saved at"), lastTools.includes("chatSendFile")], [false, false]);
+}
+
+{
   about("the owner can ask an agent about its own files and runs");
   const { turn } = await import("#chloe/core/turn");
   const { mkdtemp, writeFile: put } = await import("node:fs/promises");

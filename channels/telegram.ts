@@ -33,11 +33,13 @@
 // Telegram only hands a bot every group message when its privacy mode is off
 // (BotFather, /setprivacy) or it is a group admin.
 import { randomBytes } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe/load/load";
 import { ownedBy, reachBy, unreach } from "#chloe/services/messageService";
 import type { Attachment } from "#chloe/model/model";
+import type { FileToSend } from "#chloe/model/tools/chat";
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { type Bound, type Button, commands, defineChannel, type Incoming, inPieces, isForAgent, receive, rulesOf, type Shared } from "./shared.ts";
 
@@ -278,6 +280,19 @@ export function listen(
     }
   }
 
+  /** Sends one file as a document. Telegram takes up to 50 MB from a bot. */
+  async function sendDocument(chatId: number, file: FileToSend, extra: object = {}): Promise<void> {
+    const size = (await stat(file.path)).size;
+    if (size > 50 * 1024 * 1024) throw new Error(`${file.name} is ${Math.round(size / 1048576)} MB, and Telegram takes 50 MB from a bot.`);
+    const form = new FormData();
+    form.set("chat_id", String(chatId));
+    for (const [key, value] of Object.entries(extra)) form.set(key, typeof value === "object" ? JSON.stringify(value) : String(value));
+    form.set("document", new Blob([await readFile(file.path)]), file.name);
+    const response = await fetch(`${api}/bot${token}/sendDocument`, { method: "POST", body: form, signal: AbortSignal.timeout(120_000) });
+    const reply = (await response.json()) as { ok: boolean; description?: string };
+    if (!reply.ok) throw new Error(`sendDocument: ${reply.description ?? response.status}`);
+  }
+
   // A job of this agent's that stops to ask somebody reaches them through this
   // bot. Answers that can be listed become buttons, and anything
   // else asks for a reply.
@@ -439,6 +454,7 @@ export function listen(
         // Telegram and leave the first running after this turn is over.
         working: showing ? () => () => {} : () => typing(chatId, topic),
         send: (words) => send(chatId, words, extra),
+        sendFile: (file) => sendDocument(chatId, file, extra),
       });
       if (handled?.text) await send(chatId, handled.text, { ...extra, ...keyboard(handled.buttons) }).catch((error) => console.error("telegram:", error.message));
     } finally {

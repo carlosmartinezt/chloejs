@@ -67,17 +67,22 @@ tool even though the channel does not name it.
 
 ### runScripts
 
-`scriptRun` runs any file in the agent's `scripts/` folder and returns what it
-printed, or lists them. Each script must be executable (`chmod +x` and a `#!`
-first line), runs inside `scripts/`, and gets the memory folder in
-`MEMORY_FOLDER`. With this on and `scripts/` empty, the agent does not load.
-Give each script a skill that says when to run it.
+`scriptRun` runs any file in the agent's `scripts/` folder, or any executable
+file inside one of its skill folders (named `<skill>/<path>`), and returns what
+it printed, or lists them. Each script must be executable (`chmod +x` and a
+`#!` first line; one the agent writes itself with a `#!` is made so), runs
+inside `scripts/` or its skill's folder, and gets the memory folder in
+`MEMORY_FOLDER`. With this on and no script in either, the agent does not load.
+Give each script a skill that says when to run it, or keep it in the skill's
+folder. With it on, a file somebody sends is also saved for the scripts
+([Skills and scripts](/docs/prompts#skills-and-scripts)).
 
 ## With no feature
 
 | Tool | Who gets it | What it does |
 |---|---|---|
-| `skillRead` | every turn | Opens one of the agent's skills by name. The agent sees every skill's description and opens the one it needs. |
+| `skillRead` | every turn | Opens one of the agent's skills by name. The agent sees every skill's description and opens the one it needs. A skill that is a folder also lists its files and the scripts it can run. |
+| `chatSendFile` | a conversation on a channel that can send files, never a stranger's | Sends a file from its memory, or one it was sent, into that conversation. Telegram can. |
 | `selfListFiles` | every turn | Lists the files in its own folder, and which it may change. Never its memory. |
 | `selfReadFile` | every turn | Reads any of them, several in one call: its own source code included. |
 | `selfListRuns` | turns its owner wrote | Lists its own runs, newest first: the job or chat, where it came from, when, the cost, and whether it failed. |

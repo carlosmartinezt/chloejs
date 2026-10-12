@@ -156,7 +156,11 @@ in the agent's `agent.ts`, not editing four. `agent.ts` imports every part of
 the agent (instructions, jobs, tools, channels), so it is the one place that
 says what the agent is, and `chloe.config.ts` at the top of the repo lists the
 agents. `skills/` is the one folder read by looking, because a skill is loaded
-only when the model asks for it. Everything else is named: a job, a tool and a
+only when the model asks for it. A skill is `skills/<name>.md`, or a folder
+`skills/<name>/` with a `SKILL.md` and its own scripts beside it, which
+`scriptRun` runs as `<name>/<path>` (`scriptsIn()` in
+`services/scriptsService.ts` is the one list of what an agent may run).
+Everything else is named: a job, a tool and a
 channel exist because `agent.ts` says so. There is no deploy, so an edit is live
 in under a second.
 
@@ -266,9 +270,9 @@ These are for the parts that do stay a prompt.
 
 1. **Words.** Change `instructions.md` or a skill. Most problems are a prompt
    problem, and this is live at once with no code.
-2. **A skill and a script.** A markdown file saying when to do something, and a
-   file in that agent's `scripts/` that does it. This is the normal way to give
-   an agent a new capability.
+2. **A skill and a script.** A skill folder, `skills/<name>/SKILL.md` saying
+   when to do something and how, with the script that does it beside it. This
+   is the normal way to give an agent a new capability.
 3. **A tool.** Only when something must happen exactly the same way every time,
    or when it needs to be reachable with typed arguments.
 4. **A tool in the runtime.** Only when two agents genuinely want the same
@@ -587,8 +591,8 @@ failing job fails `npm run test`. Anything about the runtime itself stays in
 **A tool cannot assume the process was started from the repo.** Paths come from
 `core/paths.ts`, which finds the root by walking up for the folder that holds
 `chloe.config.ts`, and an agent's folder is `agentDir(name)`, which is what
-the agent declared. Scripts in `scripts/` are different: those run as real files with
-their `cwd` set to that folder, and can use relative paths.
+the agent declared. Scripts are different: those run as real files with
+their `cwd` set to `scripts/` or their skill's folder, and can use relative paths.
 
 **An edit to the runtime needs a restart. An agent's own files do not.** The watcher
 covers `chloe.config.ts` and each agent's folder, and on each reload every file
@@ -988,8 +992,16 @@ it. If it genuinely has to be written down, put it where the agent rewrites it,
 never where only a human edits it.
 
 **Do not give an agent a power with nothing telling it when to use that
-power.** Every script in an agent's `scripts/` folder is reachable by that
-agent. If no skill or instruction mentions it, it does not belong there.
+power.** Every script in an agent's `scripts/` folder, and every executable
+file in its skill folders, is reachable by that agent. If no skill or
+instruction mentions it, it does not belong there.
+
+**A file somebody sends reaches a script only through the state folder.** An
+agent with `runScripts` gets each file a message carries saved in
+`received/<agent id>/` (`services/receivedService.ts`, kept 30 days, never for
+a stranger) and the path in the message. `chatSendFile` sends one back only
+from that folder or the agent's memory, and only on a channel that passes
+`sendFile` in `While`.
 
 **Do not let the runtime learn an agent's id.** It is the floor everyone
 stands on. Agent specific code lives in that agent's folder.

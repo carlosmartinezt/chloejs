@@ -1,8 +1,9 @@
 // An agent is declared, not found. Each one is a defineAgent(...) with a name,
 // and chloe.config.ts at the top of the repo lists them. Every job, tool and
 // channel is named in the definition. skills/ is the one folder read by
-// looking, because a skill is loaded only when the model asks for it.
-import { mkdir, readFile, readdir } from "node:fs/promises";
+// looking, because a skill is loaded only when the model asks for it. A skill
+// is a markdown file there, or a folder with a SKILL.md and its own scripts.
+import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { registerHooks } from "node:module";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -422,19 +423,22 @@ export function markdownJobProblem(text: string): string | undefined {
 }
 
 /**
- * One skill: a markdown file in the agent's `skills/` folder. The model sees
- * each skill's name and description, and reads the body only when it needs
- * it.
+ * One skill: a markdown file in the agent's `skills/` folder, or a folder
+ * there with a `SKILL.md` in it and whatever else the skill needs (scripts,
+ * longer notes, templates). The model sees each skill's name and description,
+ * and reads the body only when it needs it.
  */
 export interface Skill {
-  /** The skill's name: `name` in the file's top block, or the file name without `.md`. */
+  /** The skill's name: `name` in the file's top block, else the file name without `.md`, or the folder's name. */
   name: string;
   /** One sentence on when to use the skill: `description` in the file's top block. Empty if not set. */
   description: string;
   /** The text of the skill, under the top block. */
   body: string;
-  /** The file's path inside the agent's folder, like `skills/deploys.md`. */
+  /** The file's path inside the agent's folder, like `skills/deploys.md` or `skills/fill-pdfs/SKILL.md`. */
   file: string;
+  /** For a skill that is a folder, its path inside the agent's folder, like `skills/fill-pdfs`. */
+  folder?: string;
 }
 
 /**
@@ -745,7 +749,7 @@ export interface Agent extends Omit<DefinedAgent, "instructions" | "tools" | "jo
   tools?: Tools;
   /** Where each tool that is not the agent's own comes from, like `features.memory` or `connection github`. */
   toolsFrom?: Record<string, string>;
-  /** The agent's skills, read from the markdown files in its `skills/` folder. */
+  /** The agent's skills, read from its `skills/` folder: each `<name>.md` and each `<name>/SKILL.md`. */
   skills: Skill[];
   /** The agent's jobs, loaded, including the jobs named on its channels. */
   jobs: Job[];
@@ -1063,17 +1067,31 @@ function toolsOf(tools: Tools, where: string): Tools {
   return tools;
 }
 
-async function skillsIn(dir: string): Promise<Skill[]> {
-  const files = await readdir(dir).catch(() => [] as string[]);
+/**
+ * The skills in an agent's `skills/` folder: each `<name>.md`, and each
+ * `<name>/SKILL.md`. A folder without a `SKILL.md` is not a skill. Throws when
+ * two skills have one name.
+ */
+export async function skillsIn(dir: string): Promise<Skill[]> {
+  const names = (await readdir(dir).catch(() => [] as string[])).filter((one) => !one.startsWith(".")).sort();
   const skills: Skill[] = [];
-  for (const file of files.filter((f) => f.endsWith(".md")).sort()) {
-    const { settings, body } = settingsAndBody(await readFile(`${dir}/${file}`, "utf8"));
-    skills.push({
-      name: settings.name ?? file.replace(/\.md$/, ""),
+  for (const name of names) {
+    // stat, not the entry's own type, so a skill linked in from elsewhere counts.
+    const folder = (await stat(`${dir}/${name}`).catch(() => undefined))?.isDirectory();
+    const file = folder ? `${name}/SKILL.md` : name.endsWith(".md") ? name : undefined;
+    const text = file && (await readFile(`${dir}/${file}`, "utf8").catch(() => undefined));
+    if (!file || text === undefined) continue;
+    const { settings, body } = settingsAndBody(text);
+    const skill: Skill = {
+      name: settings.name ?? (folder ? name : name.replace(/\.md$/, "")),
       description: settings.description ?? "",
       body,
       file: `skills/${file}`,
-    });
+      ...(folder && { folder: `skills/${name}` }),
+    };
+    const twin = skills.find((one) => one.name === skill.name);
+    if (twin) throw new Error(`Two skills are called ${skill.name}: ${twin.file} and ${skill.file}.`);
+    skills.push(skill);
   }
   return skills;
 }

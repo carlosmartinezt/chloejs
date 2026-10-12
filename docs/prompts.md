@@ -55,10 +55,32 @@ sees every skill's description and opens the one it needs. Skills are words,
 live with no restart, and the first thing to reach for when the agent should
 handle something better.
 
-A **script** is any executable file in `scripts/`, which the agent runs with
-`scriptRun` when `features: { runScripts: true }` is on. It runs in that folder,
-with the memory folder in `MEMORY_FOLDER`. A script nothing mentions does not
-belong there: give each one a skill that says when to run it.
+A skill can also be a folder, `skills/<name>/SKILL.md`, named for the folder
+unless its top says otherwise, with whatever it needs beside it: longer notes,
+templates, and scripts. Opening it lists those files, so the agent reads the
+notes when the skill says to and knows which scripts it can run. The folder is
+the whole capability, so it can be copied to another agent as it is.
+
+```
+skills/fill-pdfs/
+  SKILL.md          when and how, the words
+  scripts/fill.py   executable, run as fill-pdfs/scripts/fill.py
+```
+
+A **script** is an executable file in `scripts/`, or inside a skill's folder,
+which the agent runs with `scriptRun` when `features: { runScripts: true }` is
+on. One in `scripts/` runs in that folder and is named by its file name; one in
+a skill runs in that skill's folder and is named `<skill>/<path>`. Both get the
+memory folder in `MEMORY_FOLDER`. A script nothing mentions does not belong
+there: give each one a skill that says when to run it, which a skill's own
+scripts have by being in it.
+
+**A file somebody sends is saved for the scripts.** On a channel that takes
+files, an agent with `runScripts` on also gets each file saved in the state
+folder, `received/<agent id>/`, and its full path added to the message, so a
+script can be handed it. A file is kept for 30 days, and never for a stranger.
+On a channel that can send files (Telegram), the agent gets `chatSendFile` in
+that conversation, to send back a file from its memory or one it was sent.
 
 Instructions and skills say what to do, not which of the runtime's tools does
 it: "note it in your memory", "run `deploy.sh`", never `memoryWriteFile` or
