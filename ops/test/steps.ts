@@ -165,14 +165,14 @@ about("an agent written with the AI SDK's own model and tools");
     features: { memory: false },
     model: standIn("pal-1"),
     tools: {
-      weather: tool({
+      weather: Object.assign(tool({
         description: "Get the weather in a location (in Fahrenheit)",
         inputSchema: z.object({ location: z.string() }),
         execute: async ({ location }) => {
           asked_.push(location);
           return { location, temperature: 72 };
         },
-      }),
+      }), { kind: "read" as const }),
       convert: tool({
         description: "Convert Fahrenheit to Celsius",
         inputSchema: jsonSchema<{ temperature: number }>({ type: "object", properties: { temperature: { type: "number" } }, required: ["temperature"] }),
@@ -200,8 +200,9 @@ about("an agent written with the AI SDK's own model and tools");
     "weather was called wrongly: location Invalid input: expected string, received undefined",
   ]);
   is("and answers", result.text, "It is 22 degrees.");
-  const trace = JSON.parse(row(result.runId).trace) as { tool?: string; failed?: boolean }[];
+  const trace = JSON.parse(row(result.runId).trace) as { tool?: string; kind?: string; failed?: boolean }[];
   is("every call is in the record, the wrong one marked", trace.filter((one) => one.tool).map((one) => [one.tool, one.failed ?? false]), [["weather", false], ["convert", false], ["weather", true]]);
+  is("a tool that says what it does has it in the record, and one that does not says nothing", trace.filter((one) => one.tool).map((one) => one.kind ?? ""), ["read", "", "read"]);
   is("under the model's name", row(result.runId).model, "standin/pal-1");
 
   // A provider says tokens, and the gateway's list says what a token costs,

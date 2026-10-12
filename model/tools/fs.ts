@@ -54,7 +54,7 @@ export function listFiles({ root, what }: Folder) {
       "```\n" + tree.join("\n") + "\n```"
     );
   };
-  return Object.assign(list, { overview, onlyReads: true });
+  return Object.assign(list, { overview, onlyReads: true, kind: "list" as const });
 }
 
 /**
@@ -78,7 +78,7 @@ export function readFile({ root, what, limit = 40_000 }: Folder & { limit?: numb
       lines: z.number().int().min(1).optional().describe("How many lines to read from there."),
     }),
     execute: ({ path, from, lines }) => files.readFiles(root, path, { from, lines, limit }),
-  }), { onlyReads: true });
+  }), { onlyReads: true, kind: "read" as const });
 }
 
 /**
@@ -101,7 +101,7 @@ export function searchFiles({ root, what, around = 2 }: Folder & { around?: numb
       folder: z.string().optional().describe("Narrow to one folder. Omit to search everything."),
     }),
     execute: ({ query, folder }) => files.searchFiles(root, query, folder, { around }),
-  }), { onlyReads: true });
+  }), { onlyReads: true, kind: "search" as const });
 }
 
 /**
@@ -125,7 +125,7 @@ export function writeFile({
   author,
   memory = false,
 }: Folder & { commit?: boolean; author?: string; memory?: boolean }) {
-  return tool({
+  return Object.assign(tool({
     description:
       `Write one file in ${what}. This replaces the file, so include everything you want kept: ` +
       `read it first unless it is new. To add to the end of a file, such as a log or a list that only ` +
@@ -139,7 +139,7 @@ export function writeFile({
     }),
     execute: ({ path, content, append, message }) =>
       files.writeFiles(root, path, content, { commit, message, append, author, in: memory ? "memory" : undefined }),
-  });
+  }), { kind: "write" as const });
 }
 
 /**
@@ -156,7 +156,7 @@ export function editFile({
   author,
   memory = false,
 }: Folder & { commit?: boolean; author?: string; memory?: boolean }) {
-  return tool({
+  return Object.assign(tool({
     description:
       `Change one part of a file in ${what}: give the exact text to replace and what replaces it. ` +
       `Use this for any change to a file that exists; write the whole file only when it is new or being ` +
@@ -171,5 +171,5 @@ export function editFile({
     }),
     execute: ({ path, old, new: replacement, message }) =>
       files.editFiles(root, path, old, replacement, { commit, message, author, in: memory ? "memory" : undefined }),
-  });
+  }), { kind: "edit" as const });
 }

@@ -5,6 +5,9 @@ import type { Connection } from "#chloe/connections/connection";
 
 import type { ToolSpec } from "./model.ts";
 
+/** What a tool does, in one word. The word a run's record carries beside each call, for anything that shows a run. */
+export type ToolKind = "read" | "write" | "edit" | "list" | "search" | "run" | "fetch";
+
 /**
  * A tool for the model: a tool made with the AI SDK's `tool()`, plus a few
  * optional fields that chloe reads.
@@ -13,6 +16,15 @@ import type { ToolSpec } from "./model.ts";
  * `Object.assign(tool({ ... }), { needs: google })`.
  */
 export type ChloeTool = Tool & {
+  /**
+   * What the tool does, in one word: `read`, `write`, `edit`, `list`,
+   * `search`, `run` or `fetch`. Each tool that ships says it, and a run's
+   * record carries it beside the call, so anything that shows a run can show
+   * what a call did without a list of tool names to keep. Add one to a tool
+   * of your own when one of the words fits: `Object.assign(tool({ ... }), { kind: "read" })`.
+   * Off by default: a tool without one is shown as plain text.
+   */
+  kind?: ToolKind;
   /**
    * Returns a few lines about what the tool can reach right now, such as the
    * folders in a memory or the tables in a database.

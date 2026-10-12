@@ -14,7 +14,7 @@ import type { Tools } from "#chloe/model/tool";
 
 /** A tool that runs one file from that agent's own `scripts/` folder. */
 export function scriptRun(agent: string) {
-  return tool({
+  return Object.assign(tool({
     description:
       "Run one of your own scripts and return what it printed. Your skills say which script to " +
       "use and what its arguments mean. Use `list` to see what you have.",
@@ -27,7 +27,7 @@ export function scriptRun(agent: string) {
       name === "list"
         ? { scripts: await listScripts(agent) }
         : runOne(agent, name, args, { timeoutMs: (timeoutSeconds ?? 300) * 1000 }),
-  });
+  }), { kind: "run" as const });
 }
 
 /**

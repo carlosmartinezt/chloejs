@@ -80,7 +80,7 @@ export function readEmail({
         ? await readOneEmailMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
         : await readEmailMessages({ search, days: back ?? days, limit: limit ?? 10 }),
   });
-  return Object.assign(read, { needs: google, onlyReads: true });
+  return Object.assign(read, { needs: google, onlyReads: true, kind: "read" as const });
 }
 
 /** The options for `gmail.replyEmail`: the same as `gmail.readEmail`, plus these. */

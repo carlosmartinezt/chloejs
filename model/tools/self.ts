@@ -11,19 +11,19 @@ import { z } from "zod";
 import { tryJob } from "#chloe/core/clock";
 import type { Home, OwnFileRules } from "#chloe/load/load";
 import { changeOwnFiles, guide, ownFile, ownFiles, ownRun, ownRuns } from "#chloe/services/selfService";
-import type { ChloeTool, Tools } from "../tool.ts";
+import type { ChloeTool, Tools, ToolKind } from "../tool.ts";
 
 /**
  * A tool only the owner's turns get. `own` says whether what it answers is the
  * agent's own, so reading it never stops the agent changing itself.
  */
 // Each of these only reads: selfTryJob runs a trial, which holds back whatever goes out.
-const forOwner = (one: ChloeTool, own = true): ChloeTool => Object.assign(one, { forOwner: true, own, onlyReads: true });
+const forOwner = (kind: ToolKind, one: ChloeTool, own = true): ChloeTool => Object.assign(one, { kind, forOwner: true, own, onlyReads: true });
 
 /** selfListFiles, selfReadFile, selfListRuns, selfReadRun and selfReadGuide. `rules` is what they say it may change, none without. */
 export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
   return (agent) => ({
-    selfListFiles: forOwner(
+    selfListFiles: forOwner("list",
       tool({
         description:
           "List the files in your own folder (your instructions, skills and jobs), and which of them you can " +
@@ -32,7 +32,7 @@ export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
         execute: () => ownFiles(agent, rules),
       }),
     ),
-    selfReadFile: forOwner(
+    selfReadFile: forOwner("read",
       tool({
         description:
           "Read files in your own folder, like instructions.md and jobs/morning-run.ts, to say how you do something " +
@@ -43,7 +43,7 @@ export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
         execute: ({ paths }) => Promise.all(paths.map((path) => ownFile(agent, rules, path).catch((error: unknown) => ({ path, error: message(error) })))),
       }),
     ),
-    selfListRuns: forOwner(
+    selfListRuns: forOwner("list",
       tool({
         description:
           "List your own runs, newest first: which job (or chat), where it came from, when, what it cost, and " +
@@ -56,7 +56,7 @@ export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
       }),
     ),
     // What a run read from mail or the web is in it, so it counts as reading from outside.
-    selfReadRun: forOwner(
+    selfReadRun: forOwner("read",
       tool({
         description:
           "Read one of your runs: what started it, what you answered or why it failed, and every step or tool call " +
@@ -67,7 +67,7 @@ export function selfReadTools(rules?: OwnFileRules): (agent: Home) => Tools {
       }),
       false,
     ),
-    selfReadGuide: forOwner(
+    selfReadGuide: forOwner("read",
       tool({
         description:
           "Read the guides for the version of Chloe you run on: what you can be given and how. Connections (Gmail, " +
@@ -92,7 +92,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
  */
 export function selfTrialTools(agent: Home): Tools {
   return {
-    selfTryJob: forOwner(
+    selfTryJob: forOwner("run",
       tool({
         description:
           "Run one of your jobs as a trial, as its files are now, and see what it would have sent. It reads for real " +
@@ -155,6 +155,6 @@ function writeTool(agent: Home, rules: OwnFileRules): ChloeTool {
       }),
       execute: ({ files, message }) => changeOwnFiles(agent, rules, files, message),
     }),
-    { own: true, forOwner: true, changesAgent: true },
+    { kind: "write" as const, own: true, forOwner: true, changesAgent: true },
   );
 }

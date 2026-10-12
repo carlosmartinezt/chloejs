@@ -58,7 +58,7 @@ export async function userNotes(memory: string, user: string): Promise<string> {
  */
 export function userNotesTools(): () => Tools {
   return () => ownTools({
-    memoryWriteUserNotes: tool({
+    memoryWriteUserNotes: Object.assign(tool({
       description:
         "Replace your note on the person you are talking to. This is the whole note, so keep what still matters from " +
         "the one you were shown. Write what will help next time: what they asked about, what they prefer. " +
@@ -72,6 +72,6 @@ export function userNotesTools(): () => Tools {
         await writeFile(file, notes.trim() + "\n");
         return "Kept.";
       },
-    }),
+    }), { kind: "write" as const }),
   });
 }

@@ -16,7 +16,7 @@ import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
 import { userNotes } from "#chloe/model/tools/memory";
 import { selfReadTools, selfTrialTools } from "#chloe/model/tools/self";
-import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type Tools } from "#chloe/model/tool";
+import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { guides, ownFiles } from "#chloe/services/selfService";
 import { NeedsSignIn } from "#chloe/connections/connection";
@@ -474,6 +474,8 @@ export interface LoopStep {
   dropped?: string;
   wants?: string[];
   tool?: string;
+  /** What the tool does, in one word, when the tool says it (`kind` in model/tool.ts). */
+  kind?: ToolKind;
   /** Set on a call to a tool that only touches the agent itself (`own`). */
   own?: boolean;
   args?: unknown;
@@ -613,7 +615,7 @@ export async function loop(options: {
       step.toolCalls.push({ type: "tool-call", toolCallId: call.id, toolName: call.function.name, input: args });
       step.toolResults.push({ type: "tool-result", toolCallId: call.id, toolName: call.function.name, input: args, output });
       calls.push({ toolName: call.function.name, input: args, output, ...(refused && { refused }) });
-      options.onStep?.({ step: steps, at, tool: call.function.name, args, result: clip(output), ...(one?.own && { own: true }), ...(failed && { failed }), ...(refused && { refused }) });
+      options.onStep?.({ step: steps, at, tool: call.function.name, ...(one?.kind && { kind: one.kind }), args, result: clip(output), ...(one?.own && { own: true }), ...(failed && { failed }), ...(refused && { refused }) });
       // Fixed by somebody signing in, which the runtime starts, so the model is
       // not asked again: it would only try to get round it.
       if (signIn) {
@@ -741,7 +743,7 @@ function skillTool(skills: Skill[]): ChloeTool {
       if (!found) throw new Error(`No skill called ${JSON.stringify(name)}. You have: ${[...byName.keys()].join(", ")}`);
       return found.body;
     },
-  }), { own: true });
+  }), { own: true, kind: "read" as const });
 }
 
 /**
