@@ -33,3 +33,9 @@ Besides the [options every channel takes](/docs/channels#options-they-share):
 Telegram's command list allows no hyphens, so `/stuck_orders` runs
 `stuck-orders`, and can be registered with BotFather.
 
+## Sending a message from a chat or a job
+
+A job sends to an address like `telegram:12345` with `deliver()` from
+`@chloejs/core/services`. A chat turn can be given the tool from
+`@chloejs/core/tools/telegram`, bound to the people it may send to.
+

@@ -368,6 +368,25 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "./shar
   is("and the buttons are replaced by what was pressed", calls.find((c) => c.method === "editMessageText")?.body.text, "the list\n\n→ anthropic/claude-haiku-4.5");
   is("the menu offers /models and /clear", calls.find((c) => c.method === "setMyCommands")?.body.commands.slice(-2).map((one: { command: string }) => one.command), ["models", "clear"]);
 
+  // The sendMessage tool uses the running Telegram channel to send to someone.
+  {
+    const { sendMessage } = await import("#chloe/model/tools/telegram");
+    const { reachBy } = await import("@chloejs/core");
+    const toolSends: { to: string; text: string }[] = [];
+    reachBy(
+      "telegram",
+      async (to, text) => {
+        toolSends.push({ to, text });
+      },
+      "test",
+    );
+    const sender = sendMessage({ who: ["12345"], when: "When a test asks you to." });
+    const agent = agentFor(codeJob("noop", async () => ({})));
+    const result = await (sender.execute as any)({ to: "12345", text: "hello from the tool" }, { context: { agent } });
+    is("the telegram tool sends through the channel", toolSends, [{ to: "12345", text: "hello from the tool" }]);
+    is("and says it was sent", result, { sent: true, to: "12345" });
+  }
+
   telegram.close();
 
 }

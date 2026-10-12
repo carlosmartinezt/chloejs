@@ -32,7 +32,7 @@
 import type { Agent, Channel, ChatHistory } from "#chloe/load/load";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { current, remember } from "#chloe/model/memory";
-import { reachBy, unreach } from "#chloe/model/ask";
+import { reachBy, unreach } from "#chloe/services/messageService";
 import type { ChloeTool } from "#chloe/model/tool";
 import { bind, type Answering } from "./shared.ts";
 

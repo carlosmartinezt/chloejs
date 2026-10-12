@@ -36,7 +36,7 @@ import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe/load/load";
-import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
+import { ownedBy, reachBy, unreach } from "#chloe/services/messageService";
 import type { Attachment } from "#chloe/model/model";
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { type Bound, type Button, commands, defineChannel, type Incoming, inPieces, isForAgent, receive, rulesOf, type Shared } from "./shared.ts";

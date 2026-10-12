@@ -29,6 +29,7 @@ Import a set as a whole and bind each tool you want:
 | `drive` | `searchFiles`, `readFile` | A Drive search, like one folder. | Words to look for; which listed file to read. |
 | `resend` | `sendEmail` | The From and To. | The subject and the body. |
 | `email` | `startConversation` | Which email channel. | Who, from the channel's `allowFrom`, and what to say. |
+| `telegram` | `sendMessage` | Which Telegram channel and who it may send to. | Who and what to say. |
 
 The memory, self and script tools are not imported: `features` on the agent
 switches them on. See [Features](/docs/features).

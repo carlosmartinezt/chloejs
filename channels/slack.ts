@@ -36,7 +36,7 @@
 //
 // What happens to a message once it is read is channels/shared.ts, the same
 // for every channel. This file reads Slack, sends to it, and nothing else.
-import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
+import { ownedBy, reachBy, unreach } from "#chloe/services/messageService";
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
 import type { Attachment } from "#chloe/model/model";
 import { settings, whereKeyGoes } from "#chloe/core/settings";

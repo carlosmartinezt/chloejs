@@ -15,7 +15,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const { webChannel } = await import("#chloe/channels/web");
   const { serve } = await import("#chloe/serve/http");
   const { makeToken } = await import("#chloe/serve/tokens");
-  const { deliver } = await import("#chloe/model/ask");
+  const { deliver } = await import("#chloe/services/messageService");
 
   const refusal = (make: () => unknown): string => {
     try {

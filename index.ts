@@ -37,7 +37,7 @@ export { NeedsSignIn, type Connection, type SignIn } from "./connections/connect
 export { learnModels, UsageLimit, type Attachment } from "./model/model.ts";
 
 // Reaching a person, and being reached back.
-export { canReach, deliver, owner, reachBy, split, type Send } from "./model/ask.ts";
+export { canReach, deliver, owner, reachBy, split, type Send } from "./services/messageService.ts";
 
 // The floor: where things are, what the box was told, staying inside a
 // folder, a small file an agent keeps, the history.

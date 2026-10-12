@@ -54,6 +54,11 @@
       "types": "./dist/model/tools/email.d.ts",
       "default": "./dist/model/tools/email.js"
     },
+    "./tools/telegram": {
+      "chloe-source": "./model/tools/telegram.ts",
+      "types": "./dist/model/tools/telegram.d.ts",
+      "default": "./dist/model/tools/telegram.js"
+    },
     "./tools/web": {
       "chloe-source": "./model/tools/web.ts",
       "types": "./dist/model/tools/web.d.ts",

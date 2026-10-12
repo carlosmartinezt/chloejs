@@ -62,7 +62,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { Agent, Channel, ChannelRoute, ChatHistory, Running } from "#chloe/load/load";
-import { ownedBy, reachBy, unreach } from "#chloe/model/ask";
+import { ownedBy, reachBy, unreach } from "#chloe/services/messageService";
 import type { Attachment } from "#chloe/model/model";
 import { nameInEnv, settings, whereKeyGoes } from "#chloe/core/settings";
 import { type Bound, type Button, defineChannel, type Incoming, inPieces, receive, rulesOf, type Shared } from "./shared.ts";

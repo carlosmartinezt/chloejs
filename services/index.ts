@@ -18,3 +18,4 @@ export { editFiles, folderTree, listFiles, readFiles, searchFiles, writeFiles } 
 export { listScripts, runScripts } from "./scriptsService.ts";
 export { readPage, htmlToText, feedToText, isPrivate, type Page } from "./webService.ts";
 export { searchWeb, type Found } from "./searchService.ts";
+export { canReach, deliver, owner, split, type Send } from "./messageService.ts";

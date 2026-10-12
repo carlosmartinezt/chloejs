@@ -64,7 +64,7 @@ import { rawMail } from "#chloe/connections/google/gmailService";
 import { gmailMailbox } from "#chloe/connections/google/mailbox";
 import { passwordMailbox } from "#chloe/connections/mail/mailbox";
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
-import { reachBy, unreach } from "#chloe/model/ask";
+import { reachBy, unreach } from "#chloe/services/messageService";
 import { remember } from "#chloe/model/memory";
 import { holdBack } from "#chloe/core/current";
 import { db } from "#chloe/core/db";

@@ -75,7 +75,7 @@ export interface Clock {
  * The clock this process started, for a channel that needs to run a job.
  *
  * A module-level handle rather than another argument threaded through every
- * channel, the same way model/ask.ts keeps the registry of who can be reached.
+ * channel, the same way services/messageService.ts keeps the registry of who can be reached.
  * Going through it rather than calling work() directly is what keeps the guard
  * against two runs of one job overlapping.
  */

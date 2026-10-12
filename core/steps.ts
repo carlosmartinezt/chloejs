@@ -19,7 +19,7 @@ import { randomUUID } from "node:crypto";
 import { isStepCount, Output as Outputs, type InferGenerateOutput, type OutputInterface as Output, type StopCondition, type ToolApprovalConfiguration } from "ai";
 import { z } from "zod";
 
-import { deliver, owner as whoOwns } from "#chloe/model/ask";
+import { deliver, owner as whoOwns } from "#chloe/services/messageService";
 import { duringRun, inTrial } from "#chloe/core/current";
 import { db } from "#chloe/core/db";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
