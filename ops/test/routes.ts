@@ -242,8 +242,8 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   const standInLog = join(bin, "opencode.log");
   const opencodeCli = await fake("opencode", `exec "${process.execPath}" "${join(import.meta.dirname, "opencodeStandIn.ts")}" "${standInLog}" "$@"`);
 
-  const pin = (claude: string, codex: string, opencode: string, gemini: string = anyCli) => {
-    Object.assign(settings.model.program, { claude, codex, gemini, opencode });
+  const pin = (claude: string, codex: string, opencode: string, antigravity: string = anyCli) => {
+    Object.assign(settings.model.program, { claude, codex, antigravity, opencode });
     forgetOpencodeModels();
   };
 
@@ -475,53 +475,56 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     }
     is("and a failed turn is the error, in its words", failed, "Model call refused: codex: The model is not supported");
 
-    // The gemini route: a subscription at Google. Its tools come back through
-    // the CLI's own MCP support, so the calls are read from its stream as data.
+    // The antigravity route: a subscription at Google. Its tools are described
+    // in the prompt, because the CLI refuses every tool of its own in headless
+    // mode and cannot prompt for one.
     const heldModel = structuredClone(settings.model);
-    const { geminiModel, readGemini, viaGemini } = await import("#chloe/model/gemini");
-    is("the gemini cli is handed the name alone", geminiModel("google/gemini-2.5-pro"), "gemini-2.5-pro");
-    let geminiRefused = "";
+    const { antigravityModel, readAntigravity, viaAntigravity } = await import("#chloe/model/antigravity");
+    is("the antigravity cli is handed the name alone", antigravityModel("google/gemini-3.8-flash-high"), "gemini-3.8-flash-high");
+    let antigravityRefused = "";
     try {
-      geminiModel("anthropic/claude-sonnet-5");
+      antigravityModel("anthropic/claude-sonnet-5");
     } catch (error) {
-      geminiRefused = (error as Error).message;
+      antigravityRefused = (error as Error).message;
     }
-    is("and refuses another provider's model before running anything", geminiRefused.includes("can only run Google models"), true);
+    is("and refuses another provider's model before running anything", antigravityRefused.includes("can only run Google models"), true);
 
-    const geminiStream = [
-      '{"type":"init","session_id":"s","model":"gemini-2.5-pro"}',
-      '{"type":"message","role":"user","content":"mail?"}',
-      '{"type":"message","role":"assistant","content":"Look","delta":true}',
-      '{"type":"tool_use","tool_name":"mcp_chloe_gmailReadEmail","tool_id":"t1","parameters":{"days":7}}',
-      '{"type":"tool_use","tool_name":"run_shell_command","parameters":{"command":"ls"}}',
-      '{"type":"result","status":"success","stats":{"input_tokens":120,"output_tokens":8}}',
+    const antigravityStream = [
+      '{"event":"init","conversation_id":"c","init":{"cwd":"/tmp","tools":[],"permission_mode":"request-review"}}',
+      '{"event":"step_update","step_update":{"conversation_id":"c","step_index":0,"state":"DONE","step_type":"user_input"}}',
+      '{"event":"step_update","step_update":{"conversation_id":"c","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"Look"}}',
+      '{"event":"step_update","step_update":{"conversation_id":"c","step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"","usage":{"input_tokens":120,"output_tokens":8}}}',
+      '{"event":"result","result":{"conversation_id":"c","status":"SUCCESS","response":"Look\\n{ \\"tool\\": \\"gmailReadEmail\\", \\"arguments\\": { \\"days\\": 7 } }","num_turns":1,"usage":{"input_tokens":120,"output_tokens":8}}}',
     ].join("\n");
-    const geminiTools = [{ name: "gmailReadEmail", description: "Read mail.", parameters: { type: "object", properties: { days: { type: "number" } } } }];
-    const read = readGemini(geminiStream, geminiTools.map((one) => one.name));
-    is("gemini's stream is read for the words, the calls and the tokens",
-      [read.said, read.calls.map((c) => [c.function.name, c.function.arguments]), read.tokensIn, read.tokensOut],
-      ["Look", [["gmailReadEmail", '{"days":7}']], 120, 8]);
-    is("a call to a tool it was not handed does not count", read.calls.length, 1);
-    is("and a stop at the turn limit is a reason, not the answer",
-      readGemini('{"type":"result","status":"error","error":{"message":"Reached max session turns for this session."}}').problem,
-      "Reached max session turns for this session.");
+    const read = readAntigravity(antigravityStream);
+    is("antigravity's stream is read for the words and the tokens", [read.said.startsWith("Look"), read.tokensIn, read.tokensOut], [true, 120, 8]);
+    is("and a failed run is its reason, not the words",
+      readAntigravity('{"event":"result","result":{"status":"ERROR","error":"authentication failed or timed out"}}').problem,
+      "authentication failed or timed out");
 
-    await writeFile(join(bin, "gemini.jsonl"), `${geminiStream}\n`);
-    pin(anyCli, anyCli, opencodeCli, await fake("gemini-listing", `cat >/dev/null; cat "${join(bin, "gemini.jsonl")}"`));
-    settings.model.preferredRoute = ["claude", "codex", "gemini", "opencode", "direct", "gateway"];
-    is("google goes to the gemini route when it is set up", routeFor("google/gemini-2.5-pro"), "gemini");
-    const geminiAnswer = await viaGemini({ model: "google/gemini-2.5-pro", messages: [{ role: "user", content: "mail?" }], tools: geminiTools } as any);
-    is("and a run on it is one answer, with its calls and no price",
-      [geminiAnswer.text, geminiAnswer.toolCalls.map((c) => c.function.name), geminiAnswer.cost],
-      ["Look", ["gmailReadEmail"], undefined]);
+    const antigravityTools = [{ name: "gmailReadEmail", description: "Read mail.", parameters: { type: "object", properties: { days: { type: "number" } } } }];
+    await writeFile(join(bin, "antigravity.jsonl"), `${antigravityStream}\n`);
+    pin(anyCli, anyCli, opencodeCli, await fake("agy-stream", `cat >/dev/null; cat "${join(bin, "antigravity.jsonl")}"`));
+    settings.model.preferredRoute = ["claude", "codex", "antigravity", "opencode", "direct", "gateway"];
+    is("google goes to the antigravity route when it is set up", routeFor("google/gemini-3.8-flash-high"), "antigravity");
+    const antigravityAnswer = await viaAntigravity({ model: "google/gemini-3.8-flash-high", messages: [{ role: "user", content: "mail?" }], tools: antigravityTools } as any);
+    is("and a run on it reads the tool it asked for back out of the reply, with no price",
+      [antigravityAnswer.text, antigravityAnswer.toolCalls.map((c) => [c.function.name, c.function.arguments]), antigravityAnswer.cost],
+      ["Look", [["gmailReadEmail", '{"days":7}']], undefined]);
 
-    // The CLI would bill a Google key ahead of the plan, the way the claude
+    await writeFile(join(bin, "agy-models.txt"), "Fetching available models...\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.1-pro-low\tGemini 3.1 Pro (Low)\n");
+    pin(anyCli, anyCli, opencodeCli, await fake("agy-listing", `cat "${join(bin, "agy-models.txt")}"`));
+    const { antigravityModels } = await import("#chloe/model/antigravity");
+    is("each model the antigravity command lists is offered under google",
+      await antigravityModels(), ["google/gemini-3.8-flash-high", "google/gemini-3.1-pro-low"]);
+
+    // The CLI would bill a Gemini key ahead of the plan, the way the claude
     // command does.
-    pin(anyCli, anyCli, opencodeCli, await fake("gemini-keyless", 'cat >/dev/null; printf \'{"type":"message","role":"assistant","content":"[%s]","delta":true}\' "$GEMINI_API_KEY"'));
+    pin(anyCli, anyCli, opencodeCli, await fake("agy-keyless", 'cat >/dev/null; printf \'{"event":"result","result":{"status":"SUCCESS","response":"[%s]","usage":{}}}\\n\' "$GEMINI_API_KEY"'));
     process.env.GEMINI_API_KEY = "gk-in-env";
-    const keylessGemini = await viaGemini({ model: "google/gemini-2.5-pro", messages: [{ role: "user", content: "hi" }] } as any);
+    const keylessAntigravity = await viaAntigravity({ model: "google/gemini-3.8-flash-high", messages: [{ role: "user", content: "hi" }] } as any);
     delete process.env.GEMINI_API_KEY;
-    is("the gemini route is never handed a Google key, so it stays on the plan", keylessGemini.text, "[]");
+    is("the antigravity route is never handed a Google key, so it stays on the plan", keylessAntigravity.text, "[]");
     Object.assign(settings.model, heldModel);
     pin(anyCli, anyCli, opencodeCli);
 

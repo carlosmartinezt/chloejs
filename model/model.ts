@@ -6,7 +6,7 @@
 //
 //   claude    the Claude Code CLI, Anthropic models, on a Claude subscription.
 //   codex     the Codex CLI, OpenAI models, on a ChatGPT plan.
-//   gemini    the Gemini CLI, Google models, on a Google AI Pro plan.
+//   antigravity  the Antigravity CLI, Google models, on a Google AI Pro plan.
 //   opencode  the opencode CLI, whatever it is signed in to.
 //   direct    the provider's own API, on its key in model.keys, charged per
 //             call. An AI SDK model an agent's file gave, like
@@ -28,9 +28,9 @@ import { delimiter, join } from "node:path";
 import type { Agent } from "#chloe/load/load";
 import { ROUTES, settings } from "#chloe/core/settings";
 
+import { antigravityModels, viaAntigravity } from "./antigravity.ts";
 import { claudeModels, viaClaude } from "./claude.ts";
 import { codexModels, viaCodex } from "./codex.ts";
-import { viaGemini } from "./gemini.ts";
 import { anyOwnKey, anySdkModel, fetchingPrices, learnPrices, ownKey, sdkModel, spelling, viaKey } from "./key.ts";
 import { forgetOpencodeModels, opencodeModels, viaOpencode } from "./opencode.ts";
 
@@ -65,7 +65,7 @@ function carries(route: Route, provider: string): boolean {
   if (route === "direct") return Boolean(ownKey(provider));
   if (route === "claude") return provider === "anthropic";
   if (route === "codex") return provider === "openai";
-  if (route === "gemini") return provider === "google";
+  if (route === "antigravity") return provider === "google";
   return opencodeModels().some((model) => providerOf(model) === provider);
 }
 
@@ -132,7 +132,7 @@ function canRun(model: string): boolean {
 /** The gateway's own list, once it has answered. Empty until then, and it is only an offer. */
 let fromGateway: string[] = [];
 
-/** What the claude and codex commands said they run, when last asked. */
+/** What the claude, codex and antigravity commands said they run, when last asked. */
 let fromCli: Partial<Record<Route, string[]>> = {};
 
 /** A route's own list of models, or nothing for one that has none and runs whatever its provider has. */
@@ -177,7 +177,7 @@ function shortlist(): string[] {
   if (settings.model.models.length) return settings.model.models;
   const listed = gatewayKey() ? fromGateway : fromGateway.filter((model) => ownKey(providerOf(model)));
   const cli = (route: Route) => (runnable(route) ? (fromCli[route] ?? []) : []);
-  const all = [...cli("claude"), ...cli("codex"), ...(runnable("opencode") ? opencodeModels() : []), ...listed];
+  const all = [...cli("claude"), ...cli("codex"), ...cli("antigravity"), ...(runnable("opencode") ? opencodeModels() : []), ...listed];
   const seen = new Set<string>();
   return all.filter((model) => !seen.has(spelling(model)) && seen.add(spelling(model))).sort();
 }
@@ -198,12 +198,13 @@ function shortlist(): string[] {
  */
 export async function learnModels(): Promise<void> {
   forgetOpencodeModels();
-  const [claude, codex] = await Promise.all([
+  const [claude, codex, antigravity] = await Promise.all([
     runnable("claude") ? claudeModels() : [],
     runnable("codex") ? codexModels() : [],
+    runnable("antigravity") ? antigravityModels() : [],
     learnGateway(),
   ]);
-  fromCli = { claude, codex };
+  fromCli = { claude, codex, antigravity };
 }
 
 /** A second try at the gateway's list, when the last one failed. */
@@ -347,7 +348,7 @@ export async function ask(request: Ask): Promise<Answer> {
   try {
     if (route === "claude") return await viaClaude(named);
     if (route === "codex") return await viaCodex(named);
-    if (route === "gemini") return await viaGemini(named);
+    if (route === "antigravity") return await viaAntigravity(named);
     if (route === "opencode") return await viaOpencode(named);
     return await viaKey(named, route);
   } catch (error) {

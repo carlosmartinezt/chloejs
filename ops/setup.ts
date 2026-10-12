@@ -330,7 +330,7 @@ async function theModel(): Promise<string> {
   const key = (await askHidden("Paste the key: ")).trim();
   // The gateway first, because somebody who just pasted a key meant to use it,
   // and a subscription on this box would otherwise be ahead of it in the order.
-  return await settle({ defaultModel: model, gatewayUrl: gateway, preferredRoute: "gateway,claude,codex,gemini,opencode,direct" }, key);
+  return await settle({ defaultModel: model, gatewayUrl: gateway, preferredRoute: "gateway,claude,codex,antigravity,opencode,direct" }, key);
 }
 
 /**
@@ -345,7 +345,7 @@ async function onOwnKey(provider: Provider, key: string | undefined, named: stri
   const asked = (await ask(`Which model? (${OWN_DEFAULT[provider]}) `)).trim();
   const model = asked ? (asked.includes("/") ? asked : `${provider}/${asked}`) : OWN_DEFAULT[provider];
   const others: Record<string, string> = provider === "anthropic" ? {} : { judgeModel: model, namingModel: model };
-  return await settle({ defaultModel: model, ...others, preferredRoute: "direct,claude,codex,gemini,opencode,gateway" }, key, named, ["keys", provider]);
+  return await settle({ defaultModel: model, ...others, preferredRoute: "direct,claude,codex,antigravity,opencode,gateway" }, key, named, ["keys", provider]);
 }
 
 /**

@@ -202,7 +202,7 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
     const given = [...new Set([...agents.values()].flatMap((agent) => [agent.model, ...agent.jobs.flatMap((job) => (job.model ? [job.model] : []))]))].filter((one) => sdkModel(one));
     const reached = [...ready.map(byRoute), ...(given.length ? [`${given.join(", ")} by the AI SDK`] : [])];
     lines.push(row("AI models", reached.length ? reached.join("; ") : "not set up"));
-    if (ready[0] === "claude" || ready[0] === "codex" || ready[0] === "gemini") {
+    if (ready[0] === "claude" || ready[0] === "codex" || ready[0] === "antigravity") {
       lines.push(under(
         "A subscription is fine while you build and try agents. Its terms may not cover agents running on their own, " +
           'so for that put "direct" or "gateway" first in model.preferredRoute, with a key.',

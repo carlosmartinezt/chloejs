@@ -90,8 +90,8 @@ export interface AgentConfig {
    *
    * - A name, like `"anthropic/claude-sonnet-5"`. chloe reaches it the first
    *   way that works on this machine, in the order of `model.preferredRoute`
-   *   in settings (a subscription through the `claude`, `codex`, `gemini` or
-   *   `opencode` program, the provider's own API key, or an AI gateway).
+   *   in settings (a subscription through the `claude`, `codex`, `antigravity`
+   *   or `opencode` program, the provider's own API key, or an AI gateway).
    * - An AI SDK model, like `anthropic("claude-opus-5-5")`. It goes straight
    *   to that provider, set up the way you set up its package.
    *
