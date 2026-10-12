@@ -10,6 +10,7 @@ const SWITCHES: { given: Switch; short: string; means: string }[] = [
   { given: "chat", short: "Chat", means: "Talk to it, in conversations of their own." },
   { given: "read", short: "Read", means: "See the runs they started." },
   { given: "run", short: "Run", means: "Start its jobs." },
+  { given: "memory", short: "Memory", means: "Read its memory, but not change it." },
 ];
 
 /** "2 Oct": the day, where the box is. */

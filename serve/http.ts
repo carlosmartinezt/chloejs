@@ -1131,6 +1131,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:id/memory",
     does: "That agent's memory as a tree. Empty when it has never written anything. Recorded like a read.",
+    guest: "memory",
     handle: async ({ request, response, context, params }) =>
       json(response, await memoryTree(context.agent(params.id), from(request))),
   },
@@ -1138,6 +1139,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:id/memory/file",
     does: "One file as text, for editing. Takes ?path=. Written to the audit log before it is sent.",
+    guest: "memory",
     handle: async ({ request, response, context, params, url }) => {
       const path = url.searchParams.get("path");
       if (!path) return json(response, { error: "No path." }, 400);
@@ -1180,6 +1182,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:id/memory/pass",
     does: "A pass to show that memory's files in a frame, for ten minutes. See pass.ts.",
+    guest: "memory",
     handle: ({ request, response, context, params }) => {
       const pass = makePass(context.agent(params.id).id, from(request));
       json(response, { pass, at: `/memory/${encodeURIComponent(pass)}` });

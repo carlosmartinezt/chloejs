@@ -12,7 +12,8 @@ export const may = (given: Given, agent: string, what: Switch): boolean => (give
 
 /**
  * Whether somebody invited may be on this page: a chat with chat, the log with
- * read, an agent's jobs with run or read, and the pages anybody may see.
+ * read, an agent's jobs with run or read, memory with memory, and the pages
+ * anybody may see.
  */
 export function allowed(given: Given, view: View): boolean {
   switch (view.at) {
@@ -22,6 +23,8 @@ export function allowed(given: Given, view: View): boolean {
       return may(given, view.agent, "run") || may(given, view.agent, "read");
     case "log":
       return view.agent ? may(given, view.agent, "read") : Object.keys(given).some((agent) => may(given, agent, "read"));
+    case "memory":
+      return may(given, view.agent, "memory");
     case "signin":
     case "api":
     case "invitation":
@@ -33,18 +36,20 @@ export function allowed(given: Given, view: View): boolean {
 
 /**
  * Where to send somebody invited who is on a page they may not be: somewhere
- * on the agent they were on, if anywhere, then a chat, then jobs, then the log.
- * Null when they were given nothing on any of `agents`.
+ * on the agent they were on, if anywhere, then chat, then memory, then jobs,
+ * then the log. Null when they were given nothing on any of `agents`.
  */
 export function landing(given: Given, agents: string[], from?: string): View | null {
   const pages = (agent: string): View[] => [
     { at: "chat", agent },
+    { at: "memory", agent },
     { at: "jobs", agent },
     { at: "log", agent },
   ];
   const tried = [
     ...(from ? pages(from) : []),
     ...agents.map((agent): View => ({ at: "chat", agent })),
+    ...agents.map((agent): View => ({ at: "memory", agent })),
     ...agents.map((agent): View => ({ at: "jobs", agent })),
     ...agents.map((agent): View => ({ at: "log", agent })),
   ];

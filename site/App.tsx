@@ -167,6 +167,7 @@ export function App() {
   const chats = reach((agent) => !given || may(given, agent, "chat"));
   const jobs = reach((agent) => !given || allowed(given, { at: "jobs", agent }));
   const reads = !given || allowed(given, { at: "log" });
+  const memories = reach((agent) => !given || may(given, agent, "memory"));
 
   const busy = running.length;
   // Everywhere that is inside one agent. Its sidebar and its name in the bar
@@ -226,6 +227,11 @@ export function App() {
               Chat
             </Link>
           )}
+          {given && memories[0] && (
+            <Link to={lastOf("memory", memories, view)} current={view.at === "memory"}>
+              Memory
+            </Link>
+          )}
           {given && jobs[0] && (
             <Link to={lastOf("jobs", jobs, view)} current={view.at === "jobs"}>
               Jobs
@@ -259,7 +265,7 @@ export function App() {
       ) : view.at === "log" ? (
         <Log agent={view.agent} agents={given ? reach((agent) => may(given, agent, "read")) : agents} open={view.run} />
       ) : view.at === "memory" ? (
-        <Memory agents={agents} agent={view.agent} path={view.path} />
+        <Memory agents={agents} agent={view.agent} path={view.path} owner={owner} />
       ) : !railed ? (
         <main className="pane front">
           {view.at === "home" && (

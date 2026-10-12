@@ -321,7 +321,7 @@ export interface Visitor {
 }
 
 /** What somebody invited may be given on an agent. */
-export type Switch = "chat" | "read" | "run";
+export type Switch = "chat" | "read" | "run" | "memory";
 
 /** Each agent somebody invited may reach, with what they were given on it. */
 export type Given = Record<string, Switch[]>;

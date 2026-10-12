@@ -19,7 +19,7 @@ import { db } from "#chloe/core/db";
 import { checkPassword, hashPassword } from "./password.ts";
 
 /** What somebody can be given on an agent. */
-export const SWITCHES = ["chat", "read", "run"] as const;
+export const SWITCHES = ["chat", "read", "run", "memory"] as const;
 export type Switch = (typeof SWITCHES)[number];
 
 /** Each agent a person may reach, with what they were given on it. */

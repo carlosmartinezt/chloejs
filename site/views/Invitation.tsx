@@ -11,6 +11,7 @@ const YOU_MAY: Record<Switch, string> = {
   chat: "talk to it, in conversations of your own",
   read: "see the runs you started",
   run: "start its jobs",
+  memory: "read its memory",
 };
 
 /**

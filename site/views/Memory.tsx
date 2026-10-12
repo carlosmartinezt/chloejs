@@ -38,10 +38,12 @@ export function Memory({
   agents,
   agent,
   path,
+  owner,
 }: {
   agents: AgentSummary[];
   agent: string;
   path?: string;
+  owner: boolean;
 }) {
   const [tree, setTree] = useState<Entry[] | null>(null);
   const [tabs, setTabs] = useState<string[]>(() => loadTabs(agent));
@@ -68,14 +70,14 @@ export function Memory({
 
   const refresh = useCallback(async () => {
     try {
-      const [entries, status] = await Promise.all([api.memory(agent), api.git(agent)]);
+      const [entries, status] = await Promise.all([api.memory(agent), owner ? api.git(agent) : Promise.resolve({ repo: false } as Git)]);
       setTree(entries);
       setGit(status);
       setTrouble("");
     } catch (error) {
       setTrouble((error as Error).message);
     }
-  }, [agent]);
+  }, [agent, owner]);
 
   useEffect(() => {
     void refresh();
@@ -190,19 +192,17 @@ export function Memory({
           { label: open.has(entry.path) ? "Collapse" : "Expand", run: () => toggle(entry.path) },
           { label: "Open as a table", run: () => show(entry.path) },
           "line",
-          { label: "Rename or move", run: () => void renameFrom(entry.path) },
+          ...(owner ? ([{ label: "Rename or move", run: () => void renameFrom(entry.path) }] as Choice[]) : []),
           { label: "Copy path", run: copyPath },
-          "line",
-          { label: "Delete folder", run: () => void remove(entry.path, true), danger: true },
+          ...(owner ? (["line", { label: "Delete folder", run: () => void remove(entry.path, true), danger: true }] as Choice[]) : []),
         ]
       : [
           { label: "Open", run: () => show(entry.path) },
           { label: "Close other tabs", run: () => closeTabs((one) => one === entry.path), disabled: !tabs.includes(entry.path) },
           "line",
-          { label: "Rename or move", run: () => void renameFrom(entry.path) },
+          ...(owner ? ([{ label: "Rename or move", run: () => void renameFrom(entry.path) }] as Choice[]) : []),
           { label: "Copy path", run: copyPath },
-          "line",
-          { label: "Delete", run: () => void remove(entry.path, false), danger: true },
+          ...(owner ? (["line", { label: "Delete", run: () => void remove(entry.path, false), danger: true }] as Choice[]) : []),
         ];
     setMenu({ x: event.clientX, y: event.clientY, choices });
   }
@@ -234,17 +234,21 @@ export function Memory({
             <button className={side === "files" ? "on" : undefined} onClick={() => setSide("files")} title="Files">
               <Icons.Files />
             </button>
-            <button
-              className={side === "changes" ? "on" : undefined}
-              onClick={() => setSide("changes")}
-              title="Source control"
-            >
-              <Icons.Branch />
-              {git?.repo && git.changes.length > 0 && <span className="badge">{git.changes.length}</span>}
-            </button>
-            <button className={side === "record" ? "on" : undefined} onClick={() => setSide("record")} title="What has been read">
-              <Icons.Record />
-            </button>
+            {owner && (
+              <button
+                className={side === "changes" ? "on" : undefined}
+                onClick={() => setSide("changes")}
+                title="Source control"
+              >
+                <Icons.Branch />
+                {git?.repo && git.changes.length > 0 && <span className="badge">{git.changes.length}</span>}
+              </button>
+            )}
+            {owner && (
+              <button className={side === "record" ? "on" : undefined} onClick={() => setSide("record")} title="What has been read">
+                <Icons.Record />
+              </button>
+            )}
             <button className={side === "look" ? "on" : undefined} onClick={() => setSide("look")} title="How it looks">
               <Icons.Look />
             </button>
@@ -335,6 +339,7 @@ export function Memory({
             docStyle={look.docStyle}
             minimap={look.minimap}
             open={(to) => show(to)}
+            owner={owner}
           />
         ) : (
           <div className="folder-page">
@@ -485,6 +490,7 @@ function Shown({
   docStyle,
   minimap,
   open,
+  owner,
 }: {
   agent: string;
   path: string;
@@ -492,6 +498,7 @@ function Shown({
   docStyle: boolean;
   minimap: boolean;
   open: (path: string) => void;
+  owner: boolean;
 }) {
   const [source, setSource] = useState(false);
   const [history, setHistory] = useState(false);
@@ -591,12 +598,12 @@ function Shown({
               History
             </button>
           )}
-          {kept && (
+          {owner && kept && (
             <button title="A new chat, with a link to this file" onClick={() => go({ at: "chat", agent, about: path })}>
               Chat
             </button>
           )}
-          {source && (
+          {owner && source && (
             <>
               <button className="small" disabled={draft === text} onClick={() => void save()}>
                 Save
