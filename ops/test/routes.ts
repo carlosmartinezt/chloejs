@@ -242,8 +242,8 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   const standInLog = join(bin, "opencode.log");
   const opencodeCli = await fake("opencode", `exec "${process.execPath}" "${join(import.meta.dirname, "opencodeStandIn.ts")}" "${standInLog}" "$@"`);
 
-  const pin = (claude: string, codex: string, opencode: string) => {
-    Object.assign(settings.model.program, { claude, codex, opencode });
+  const pin = (claude: string, codex: string, opencode: string, gemini: string = anyCli) => {
+    Object.assign(settings.model.program, { claude, codex, gemini, opencode });
     forgetOpencodeModels();
   };
 
@@ -474,6 +474,56 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
       failed = (error as Error).message;
     }
     is("and a failed turn is the error, in its words", failed, "Model call refused: codex: The model is not supported");
+
+    // The gemini route: a subscription at Google. Its tools come back through
+    // the CLI's own MCP support, so the calls are read from its stream as data.
+    const heldModel = structuredClone(settings.model);
+    const { geminiModel, readGemini, viaGemini } = await import("#chloe/model/gemini");
+    is("the gemini cli is handed the name alone", geminiModel("google/gemini-2.5-pro"), "gemini-2.5-pro");
+    let geminiRefused = "";
+    try {
+      geminiModel("anthropic/claude-sonnet-5");
+    } catch (error) {
+      geminiRefused = (error as Error).message;
+    }
+    is("and refuses another provider's model before running anything", geminiRefused.includes("can only run Google models"), true);
+
+    const geminiStream = [
+      '{"type":"init","session_id":"s","model":"gemini-2.5-pro"}',
+      '{"type":"message","role":"user","content":"mail?"}',
+      '{"type":"message","role":"assistant","content":"Look","delta":true}',
+      '{"type":"tool_use","tool_name":"mcp_chloe_gmailReadEmail","tool_id":"t1","parameters":{"days":7}}',
+      '{"type":"tool_use","tool_name":"run_shell_command","parameters":{"command":"ls"}}',
+      '{"type":"result","status":"success","stats":{"input_tokens":120,"output_tokens":8}}',
+    ].join("\n");
+    const geminiTools = [{ name: "gmailReadEmail", description: "Read mail.", parameters: { type: "object", properties: { days: { type: "number" } } } }];
+    const read = readGemini(geminiStream, geminiTools.map((one) => one.name));
+    is("gemini's stream is read for the words, the calls and the tokens",
+      [read.said, read.calls.map((c) => [c.function.name, c.function.arguments]), read.tokensIn, read.tokensOut],
+      ["Look", [["gmailReadEmail", '{"days":7}']], 120, 8]);
+    is("a call to a tool it was not handed does not count", read.calls.length, 1);
+    is("and a stop at the turn limit is a reason, not the answer",
+      readGemini('{"type":"result","status":"error","error":{"message":"Reached max session turns for this session."}}').problem,
+      "Reached max session turns for this session.");
+
+    await writeFile(join(bin, "gemini.jsonl"), `${geminiStream}\n`);
+    pin(anyCli, anyCli, opencodeCli, await fake("gemini-listing", `cat >/dev/null; cat "${join(bin, "gemini.jsonl")}"`));
+    settings.model.preferredRoute = ["claude", "codex", "gemini", "opencode", "direct", "gateway"];
+    is("google goes to the gemini route when it is set up", routeFor("google/gemini-2.5-pro"), "gemini");
+    const geminiAnswer = await viaGemini({ model: "google/gemini-2.5-pro", messages: [{ role: "user", content: "mail?" }], tools: geminiTools } as any);
+    is("and a run on it is one answer, with its calls and no price",
+      [geminiAnswer.text, geminiAnswer.toolCalls.map((c) => c.function.name), geminiAnswer.cost],
+      ["Look", ["gmailReadEmail"], undefined]);
+
+    // The CLI would bill a Google key ahead of the plan, the way the claude
+    // command does.
+    pin(anyCli, anyCli, opencodeCli, await fake("gemini-keyless", 'cat >/dev/null; printf \'{"type":"message","role":"assistant","content":"[%s]","delta":true}\' "$GEMINI_API_KEY"'));
+    process.env.GEMINI_API_KEY = "gk-in-env";
+    const keylessGemini = await viaGemini({ model: "google/gemini-2.5-pro", messages: [{ role: "user", content: "hi" }] } as any);
+    delete process.env.GEMINI_API_KEY;
+    is("the gemini route is never handed a Google key, so it stays on the plan", keylessGemini.text, "[]");
+    Object.assign(settings.model, heldModel);
+    pin(anyCli, anyCli, opencodeCli);
 
     // The opencode route starts a server of opencode's own for each call and
     // talks to it. The stand-in answers as opencode 2 does, with what the

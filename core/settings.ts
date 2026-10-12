@@ -24,11 +24,11 @@
 import "./env.ts";
 
 /**
- * Every way chloe can reach a model: "claude", "codex", "opencode", "direct"
- * and "gateway". Each one also decides which account pays. See
+ * Every way chloe can reach a model: "claude", "codex", "gemini", "opencode",
+ * "direct" and "gateway". Each one also decides which account pays. See
  * `model.preferredRoute` in `Settings` for what each one means.
  */
-export const ROUTES = ["claude", "codex", "opencode", "direct", "gateway"] as const;
+export const ROUTES = ["claude", "codex", "gemini", "opencode", "direct", "gateway"] as const;
 
 /** The providers you can give your own API key for, in `model.keys`. */
 export const PROVIDERS = ["anthropic", "openai"] as const;
@@ -126,11 +126,12 @@ export interface Settings {
      * this machine (its program is installed, or its key is set). The others
      * are skipped.
      *
-     * Default: `["claude", "codex", "opencode", "direct", "gateway"]`, so a
+     * Default: `["claude", "codex", "gemini", "opencode", "direct", "gateway"]`, so a
      * subscription is used before a key that charges per call.
      *
      * - "claude": the Claude Code CLI, on a Claude subscription. Anthropic models only.
      * - "codex": the Codex CLI, on a ChatGPT plan. OpenAI models only.
+     * - "gemini": the Gemini CLI, on a Google AI Pro plan. Google models only.
      * - "opencode": the opencode CLI, with any provider it is signed in to.
      * - "direct": the provider's own API, with your key in `model.keys`. Charged per call.
      * - "gateway": the gateway at `model.gatewayUrl`, with the key in `model.key`.
@@ -204,13 +205,15 @@ export interface Settings {
      * The command each CLI route runs. Change one if the program has another
      * name, or is not on the PATH (then give its full path). If chloe cannot
      * find a program, it skips that route.
-     * Default: `{ claude: "claude", codex: "codex", opencode: "opencode" }`.
+     * Default: `{ claude: "claude", codex: "codex", gemini: "gemini", opencode: "opencode" }`.
      */
     program: {
       /** The command for the "claude" route. Default: "claude". */
       claude: string;
       /** The command for the "codex" route. Default: "codex". */
       codex: string;
+      /** The command for the "gemini" route. Default: "gemini". */
+      gemini: string;
       /** The command for the "opencode" route. Default: "opencode". */
       opencode: string;
     };
@@ -420,7 +423,7 @@ export const DEFAULTS: Settings = {
     timeLimit: 10,
     judgeModel: "anthropic/claude-sonnet-5",
     namingModel: "anthropic/claude-haiku-4.5",
-    program: { claude: "claude", codex: "codex", opencode: "opencode" },
+    program: { claude: "claude", codex: "codex", gemini: "gemini", opencode: "opencode" },
   },
   email: { provider: "resend" },
   connections: {

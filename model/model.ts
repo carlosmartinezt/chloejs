@@ -6,6 +6,7 @@
 //
 //   claude    the Claude Code CLI, Anthropic models, on a Claude subscription.
 //   codex     the Codex CLI, OpenAI models, on a ChatGPT plan.
+//   gemini    the Gemini CLI, Google models, on a Google AI Pro plan.
 //   opencode  the opencode CLI, whatever it is signed in to.
 //   direct    the provider's own API, on its key in model.keys, charged per
 //             call. An AI SDK model an agent's file gave, like
@@ -29,6 +30,7 @@ import { ROUTES, settings } from "#chloe/core/settings";
 
 import { claudeModels, viaClaude } from "./claude.ts";
 import { codexModels, viaCodex } from "./codex.ts";
+import { viaGemini } from "./gemini.ts";
 import { anyOwnKey, anySdkModel, fetchingPrices, learnPrices, ownKey, sdkModel, spelling, viaKey } from "./key.ts";
 import { forgetOpencodeModels, opencodeModels, viaOpencode } from "./opencode.ts";
 
@@ -63,6 +65,7 @@ function carries(route: Route, provider: string): boolean {
   if (route === "direct") return Boolean(ownKey(provider));
   if (route === "claude") return provider === "anthropic";
   if (route === "codex") return provider === "openai";
+  if (route === "gemini") return provider === "google";
   return opencodeModels().some((model) => providerOf(model) === provider);
 }
 
@@ -344,6 +347,7 @@ export async function ask(request: Ask): Promise<Answer> {
   try {
     if (route === "claude") return await viaClaude(named);
     if (route === "codex") return await viaCodex(named);
+    if (route === "gemini") return await viaGemini(named);
     if (route === "opencode") return await viaOpencode(named);
     return await viaKey(named, route);
   } catch (error) {

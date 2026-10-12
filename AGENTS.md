@@ -429,8 +429,8 @@ npm run evals <agent>  # the prompts: did the model decide well
 
 Which route a call goes by is decided in `model/model.ts` from the provider in
 front of the model's name: the first entry in `model.preferredRoute` that can
-carry the provider and is set up here. Five routes: the Claude Code CLI on a Claude subscription, the Codex CLI on
-a ChatGPT plan, the opencode CLI on whatever it is signed in to, the provider's
+carry the provider and is set up here. Six routes: the Claude Code CLI on a Claude subscription, the Codex CLI on
+a ChatGPT plan, the Gemini CLI on a Google AI Pro plan, the opencode CLI on whatever it is signed in to, the provider's
 own API on its key in `model.keys` (direct), and the gateway on its key. The
 last two are charged per call. The default order is that one, so a subscription
 is spent before a key is, and the gateway is last because it is the only one

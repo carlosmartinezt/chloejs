@@ -28,7 +28,7 @@ API, on whatever key that package reads.
 
 ## How a call reaches it, and who pays
 
-There are five routes. Each call goes by the first route in
+There are six routes. Each call goes by the first route in
 `model.preferredRoute` that can carry the model's provider and is set up on this
 machine. A route with nothing set up is skipped.
 
@@ -36,13 +36,14 @@ machine. A route with nothing set up is skipped.
 |---|---|---|---|---|
 | `claude` | the `claude` command | Anthropic models | your Claude subscription | install Claude Code and sign in |
 | `codex` | the `codex` command | the OpenAI models your plan allows | your ChatGPT plan | install Codex and sign in |
+| `gemini` | the `gemini` command | Google models | your Google AI Pro plan | install the Gemini CLI and sign in with Google |
 | `opencode` | the `opencode` command | whatever it is signed in to | that account | install opencode and sign in |
 | `direct` | the provider's own API | Anthropic and OpenAI | your key, per call | `model.keys.anthropic`, `model.keys.openai` |
 | `gateway` | an AI gateway | any provider it carries | its key, per call | `model.key` |
 
 The default order is the one above, so a subscription is used before a key that
 charges per call. To pay with a key instead, put `direct` first:
-`model: { preferredRoute: ["direct", "claude", "codex", "opencode", "gateway"] }`,
+`model: { preferredRoute: ["direct", "claude", "codex", "gemini", "opencode", "gateway"] }`,
 which is what setup writes when you give it a key.
 
 One model can go by another route than the order says by naming it at the end:
@@ -58,12 +59,12 @@ A key is a secret, so it goes in `.env`, and the config hands it over:
 | Setting | Default | What it controls |
 |---|---|---|
 | `model.defaultModel` | none | The model of an agent that names none. |
-| `model.preferredRoute` | `["claude", "codex", "opencode", "direct", "gateway"]` | The order routes are tried in. |
+| `model.preferredRoute` | `["claude", "codex", "gemini", "opencode", "direct", "gateway"]` | The order routes are tried in. |
 | `model.keys` | none | Anthropic's and OpenAI's own keys, for `direct`. |
 | `model.key` | none | The gateway's key. |
 | `model.gatewayUrl` | the Vercel AI Gateway | Any gateway that speaks the OpenAI chat shape. |
 | `model.models` | ask each route | The shortlist a person may pick from in a chat. Empty offers everything this machine can reach, often hundreds: each command route and the gateway are asked what they run when chloe starts and when the config changes. |
-| `model.program` | `claude`, `codex`, `opencode` | Where each command is, when it is not on the path under that name. |
+| `model.program` | `claude`, `codex`, `gemini`, `opencode` | Where each command is, when it is not on the path under that name. |
 | `model.timeLimit` | `10` | The most minutes one model call may take, on any route. A call still going is stopped, its program killed, and the run fails saying so, instead of holding its job. 0 is no limit. |
 | `model.judgeModel` | `"anthropic/claude-sonnet-5"` | Who marks an eval. |
 | `model.namingModel` | `"anthropic/claude-haiku-4.5"` | Who names a new conversation on the dashboard. Empty leaves them unnamed. |
@@ -88,6 +89,10 @@ off, so every tool call is chloe's and is written down.
 - **claude** hands the tools over as real tools. It is never given
   `ANTHROPIC_API_KEY`, so a key in `.env` cannot quietly pay for a subscription
   run.
+- **gemini** hands the tools over as real tools too, through a tool server and a
+  policy file that denies every tool of the CLI's own. It runs in a folder of
+  its own, with its telemetry and update check off, and is never given
+  `GEMINI_API_KEY`, so a key in `.env` cannot quietly pay for a run on the plan.
 - **opencode** hands the tools over as real tools too. For each step it starts
   an opencode server of its own, reachable from this machine only, and closes it
   after. It needs opencode 2 or later, and adds a second or two to each step.
@@ -97,8 +102,9 @@ off, so every tool call is chloe's and is written down.
 
 A run on the claude route shows what it would have cost on the API, as a price,
 not a charge. opencode names the price its own list gives the model: a charge
-on an account that pays per call, only a price on a plan. codex names no price, so what its runs cost is unknown, and a
-`budget` or a web chat's dollar limit cannot be kept on it.
+on an account that pays per call, only a price on a plan. codex and gemini name
+no price, so what their runs cost is unknown, and a `budget` or a web chat's
+dollar limit cannot be kept on them.
 
 ## Picking one from a chat
 
