@@ -14,7 +14,7 @@ import { orderStatus } from "../tools/orderStatus.ts";
 
 export default webChannel({
   origins: ["https://myshop.com"],
-  tools: [orderStatus],
+  tools: { orderStatus },
   greeting: "Hi, I can tell you where an order is. What is its number?",
   limits: { perVisitor: { messages: 20, dollars: 0.25 }, perDay: { dollars: 3 } },
 });

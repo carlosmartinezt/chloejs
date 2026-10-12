@@ -300,7 +300,7 @@ function tagged(address: string): string {
  */
 export function emailChannel(options: EmailOptions): Channel {
   // Ignored, it would hand every tool to a turn that was meant to have fewer.
-  if ("withoutTools" in options) throw new Error("emailChannel's withoutTools is gone: name the tools its turns may have instead, like tools: [tools.readPage].");
+  if ("withoutTools" in options) throw new Error("emailChannel's withoutTools is gone: name the tools its turns may have instead, like tools: { readPage: tools.readPage }.");
   const channel = defineChannel("email", options, ({ agent, agentId, name, bound }) => {
     if (options.mailbox !== "gmail" && options.mailbox !== "password" && typeof options.mailbox?.receive !== "function") {
       console.error(

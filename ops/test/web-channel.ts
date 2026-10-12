@@ -37,7 +37,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   };
   const site = "https://myshop.com";
   const make = (options: Partial<Parameters<typeof webChannel>[0]> = {}) => {
-    const channel = webChannel({ origins: [site], tools: ["readCv"], greeting: "Hi there.", ...options });
+    const channel = webChannel({ origins: [site], tools: { readCv: agent.tools!.readCv }, greeting: "Hi there.", ...options });
     agent.channels = [channel];
     return channel;
   };
@@ -45,8 +45,8 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
 
   // Checked as the agent loads, so a mistake stops it there rather than in front of a visitor.
   is("naming a tool it has is fine", refusal(() => channel.check!(agent)), "");
-  is("naming its memory is refused", refusal(() => webChannel({ origins: [site], tools: ["memoryReadFile"] }).check!(agent)).includes("not theirs"), true);
-  is("a tool it does not have is said in the log and left out, like a connection that did not answer", refusal(() => webChannel({ origins: [site], tools: ["getOrders"] }).check!(agent)), "");
+  is("naming its memory is refused", refusal(() => webChannel({ origins: [site], tools: { memoryReadFile: agent.tools!.memoryReadFile } }).check!(agent)).includes("not theirs"), true);
+  is("a tool it does not have stops the agent from loading", refusal(() => webChannel({ origins: [site], tools: { getOrders: tool({ description: "Elsewhere.", inputSchema: z.object({}), execute: async () => "" }) } }).check!(agent)).includes("not in its tools"), true);
 
   const closed = { ...agentFor(codeJob("nightly", async () => ({}))), id: "closed" };
   const server = serve({

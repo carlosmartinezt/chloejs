@@ -121,7 +121,7 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
     channel: "email",
     mailbox,
     allowFrom: ["Jenny@Example.com"],
-    bound: bind(agent, "email", { tools: [own.webReadPage] }),
+    bound: bind(agent, "email", { tools: { webReadPage: own.webReadPage } }),
     lookUp: dns,
     agent: () => agent,
   });
@@ -251,7 +251,7 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
     gmail: box,
     every: 30,
     allowFrom: ["Jenny@Example.com"],
-    bound: bind(agent, "email", { tools: [own.webReadPage] }),
+    bound: bind(agent, "email", { tools: { webReadPage: own.webReadPage } }),
     lookUp: dns,
     agent: () => agent,
   });
@@ -406,7 +406,7 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
     gmail: passwordMailbox(signIn),
     every: 30,
     allowFrom: ["Jenny@Example.com"],
-    bound: bind(agent, "email", { tools: [own.webReadPage] }),
+    bound: bind(agent, "email", { tools: { webReadPage: own.webReadPage } }),
     lookUp: dns,
     agent: () => agent,
   });

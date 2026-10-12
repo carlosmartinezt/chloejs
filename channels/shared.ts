@@ -48,7 +48,7 @@ import { settings } from "#chloe/core/settings";
 import { answer, waitingOn, WrongArgs } from "#chloe/core/steps";
 import { turn } from "#chloe/core/turn";
 import type { Connection } from "#chloe/connections/connection";
-import { neededBy, type ChloeTool } from "#chloe/model/tool";
+import { neededBy, type ChloeTool, type Tools } from "#chloe/model/tool";
 
 /**
  * One message, in the form `receive()` takes from every channel. Your channel
@@ -189,19 +189,16 @@ export interface Rules {
 export interface Answering {
   /**
    * The only tools the agent may use when it replies on this channel. Give
-   * each one as the tool itself or as its name in the agent's `tools`, like
-   * `tools: [tools.readPage]` or `tools: ["webReadPage"]`. If not set, the
-   * agent has every tool.
+   * each one as on `defineAgent`, like `tools: { readPage: tools.readPage }`.
+   * If not set, the agent has every tool.
    *
    * The agent also keeps its memory tools and its skills. When the owner
    * writes, it also keeps the tools that read its own files and past runs.
    * `selfWriteFile` is only included when you name it.
    *
-   * A tool given as an object that is not in the agent's `tools` stops the
-   * agent from loading. A name the agent does not have is skipped, with a
-   * line in the log.
+   * A tool that is not in the agent's `tools` stops the agent from loading.
    */
-  tools?: (ChloeTool | string)[];
+  tools?: Tools;
   /**
    * A job that every message on this channel starts, in place of a normal
    * reply. Use it when code should handle the message first, for example to
@@ -344,16 +341,10 @@ export function bind(agent: Agent, channel: string, options: Answering): Bound {
   const bound: Bound = {};
   if (options.tools) {
     const own = Object.entries(agent.tools ?? {});
-    bound.tools = options.tools.map((one) => {
-      if (typeof one === "string") {
-        if (one !== "skillRead" && !agent.tools?.[one]) {
-          console.error(`${agent.id}: its ${channel} channel names ${one}, which it does not have, so a turn there goes without it. It has: ${own.map(([name]) => name).join(", ") || "none"}.`);
-        }
-        return one;
-      }
+    bound.tools = Object.entries(options.tools).map(([name, one]) => {
       const found = own.find(([, tool]) => tool === one);
       if (!found) throw new Error(`its ${channel} channel names a tool that is not in its tools. Add it to tools in agent.ts, and name it from there.`);
-      return found[0];
+      return name;
     });
   }
   // The loader has made it one of the agent's jobs, and checked it.
@@ -370,7 +361,7 @@ export function madeWith(options: object, bound: Bound): string {
   const said = options as Answering;
   return JSON.stringify({
     ...options,
-    ...(said.tools && { tools: bound.tools ?? said.tools.map((one) => (typeof one === "string" ? one : "(a tool)")) }),
+    ...(said.tools && { tools: bound.tools ?? Object.keys(said.tools) }),
     ...(said.job && { job: said.job.id }),
   });
 }

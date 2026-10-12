@@ -481,7 +481,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const own = { shopOrders: fake("Orders."), ownerMail: fake("The owner's mail."), memoryReadFile: fake("A note."), selfWriteFile: fake("Its own file.") };
   const shop = { ...agentFor(codeJob("unused", async () => ({}))), tools: own };
 
-  is("a tool is named by the tool itself, and read as its name", bind(shop, "email", { tools: [own.shopOrders, "ownerMail"] }).tools, ["shopOrders", "ownerMail"]);
+  is("a tool is named by the key it is given", bind(shop, "email", { tools: { shopOrders: own.shopOrders, ownerMail: own.ownerMail } }).tools, ["shopOrders", "ownerMail"]);
   const refusal = (options: Parameters<typeof bind>[2]) => {
     try {
       bind(shop, "email", options);
@@ -490,7 +490,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
       return (error as Error).message;
     }
   };
-  is("a tool that is not one of the agent's stops it loading", refusal({ tools: [fake("Elsewhere.")] }).includes("not in its tools"), true);
+  is("a tool that is not one of the agent's stops it loading", refusal({ tools: { elsewhere: fake("Elsewhere.") } }).includes("not in its tools"), true);
 
   // A channel's job is named on the channel, and the agent loads it from there.
   const { defineAgent, defineJob } = await import("@chloejs/core");

@@ -2,7 +2,7 @@
 //
 //   // agents/<id>/agent.ts
 //   import { webChannel } from "@chloejs/core/channels";
-//   channels: [webChannel({ origins: ["https://myshop.com"], tools: ["getOrders"] })],
+//   channels: [webChannel({ origins: ["https://myshop.com"], tools: { getOrders } })],
 //
 // Nothing reaches it unless the site's own server lets it in. That server
 // holds a token made for this one agent, gives each visitor an id of its own,
@@ -33,7 +33,7 @@ import type { Agent, Channel, ChatHistory } from "#chloe/load/load";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { current, remember } from "#chloe/model/memory";
 import { reachBy, unreach } from "#chloe/services/messageService";
-import type { ChloeTool } from "#chloe/model/tool";
+import type { Tools } from "#chloe/model/tool";
 import { bind, type Answering } from "./shared.ts";
 
 /** The options for `webChannel()`: the sites that may show the chat box, the tools visitors get, and what they may spend. */
@@ -46,8 +46,7 @@ export interface WebOptions {
   origins: string[];
   /**
    * The only tools the agent may use when it replies to a visitor. Give each
-   * one as the tool itself or as its name in the agent's `tools`. Default:
-   * none.
+   * one as on `defineAgent`, like `tools: { orderStatus }`. Default: none.
    *
    * A visitor is a stranger, so unlike other channels the agent does not keep
    * its memory tools or skills here unless you name them. Naming a memory or
@@ -55,7 +54,7 @@ export interface WebOptions {
    * `memoryPerUser` on, a visitor's reply also gets `memoryWriteUserNotes`,
    * for the agent's note on that visitor.
    */
-  tools?: (ChloeTool | string)[];
+  tools?: Tools;
   /** A job that every visitor's message starts, in place of a normal reply. See `Answering`. */
   job?: Answering["job"];
   /** What the chat box shows before anybody has written. Default: nothing. */
@@ -122,7 +121,7 @@ export function visitorThread(agent: string, visitor: string): string {
  * in the agent's `agent.ts`:
  *
  * ```ts
- * channels: [webChannel({ origins: ["https://myshop.com"], tools: ["getOrders"] })],
+ * channels: [webChannel({ origins: ["https://myshop.com"], tools: { getOrders } })],
  * ```
  *
  * Nothing reaches it unless your site's own server lets the visitor in. Your
@@ -143,7 +142,7 @@ export function webChannel(options: WebOptions): Channel & { web: Web } {
   if (!origins.length) throw new Error('webChannel needs origins: the sites that may show the chat box, like ["https://myshop.com"].');
   const web: Web = {
     origins,
-    tools: (options.tools ?? []).map((one) => (typeof one === "string" ? one : "(a tool)")),
+    tools: Object.keys(options.tools ?? {}),
     job: options.job?.id,
     greeting: options.greeting ?? "",
     limits: {
@@ -163,7 +162,7 @@ export function webChannel(options: WebOptions): Channel & { web: Web } {
     job: options.job,
     web,
     check(agent) {
-      web.tools = bind(agent, "web", { tools: options.tools ?? [] }).tools ?? [];
+      web.tools = bind(agent, "web", { tools: options.tools }).tools ?? [];
       for (const name of web.tools) {
         if (/^(memory|self)[A-Z]/.test(name)) {
           throw new Error(`its web channel cannot have ${name}. A visitor is a stranger, and what the agent remembers and its own files are not theirs.`);
