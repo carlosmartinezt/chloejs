@@ -109,6 +109,11 @@ off, so every tool call is chloe's and is written down.
 - **opencode** hands the tools over as real tools too. For each step it starts
   an opencode server of its own, reachable from this machine only, and closes it
   after. It needs opencode 2 or later, and adds a second or two to each step.
+  The conversation so far goes over as real past turns (opencode's
+  `session/import`), so past calls are calls to the model and not text it might
+  copy; only the newest turn is sent as the prompt. That endpoint is marked
+  experimental, and an opencode without it gets the whole conversation as one
+  block of text instead.
 - **codex** describes the tools in the prompt and reads the calls back from the
   reply, which is a little less reliable and costs about 500 tokens a step. It
   adds about 7,000 tokens of its own instructions to every call.

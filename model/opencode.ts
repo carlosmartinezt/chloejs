@@ -10,18 +10,23 @@
 //
 // Each call starts a server of its own, `opencode serve --stdio`, on loopback
 // with a password made for the call, in an empty folder whose config names one
-// agent, and talks to it over its HTTP API. A turn's tools are handed over as
-// real ones through `toolServer.ts`, which runs nothing: opencode asks before it
-// runs one, chloe refuses every time, and opencode stops after the model's first
-// answer, so the calls are read from its events as data. Its own tools are all
-// refused, so the model never sees them.
+// agent, and talks to it over its HTTP API. The conversation so far is imported
+// as real past turns, `POST /api/experimental/session/import`, so a past call is
+// a real tool call and a model has no words of it to copy, and only the newest
+// turn is sent as the prompt. That endpoint is experimental, so a refusal (an
+// older opencode) falls back to sending the whole conversation as one block of
+// text. A turn's tools are handed over as real ones through `toolServer.ts`,
+// which runs nothing: opencode asks before it runs one, chloe refuses every
+// time, and opencode stops after the model's first answer, so the calls are read
+// from its events as data. Its own tools are all refused, so the model never
+// sees them.
 //
 // `opencode run` cannot do this. It sends the first request before the tool
 // server has connected, so the model answers with no tools, and when it is
 // refused a tool it carries on and asks the model again.
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -29,7 +34,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { settings } from "#chloe/core/settings";
 
 import { asText, copiedTranscript, TOOL_SERVER } from "./cli.ts";
-import { type Answer, type Ask, type Message, type ToolCall, type ToolSpec, TryAgain, UsageLimit } from "./model.ts";
+import { type Answer, type Ask, type Attachment, type Message, type ToolCall, type ToolSpec, TryAgain, UsageLimit } from "./model.ts";
 
 /** The CLI names a model provider first, the same way chloe does, so nothing is rewritten. */
 export function opencodeModel(model: string): string {
@@ -170,7 +175,7 @@ function failure(error: { type?: string; message?: string } = {}): Error {
 /** The calls a model asked for, as tools it was handed. A call to any other tool does not count, and the same call twice counts once. */
 function handed(asked: Reading["calls"], tools: ToolSpec[] = []): ToolCall[] {
   // opencode lists a tool with anything but a letter, digit, _ or - made a _.
-  const byName = new Map(tools.flatMap((one) => [[`${PREFIX}${one.name.replace(/[^\w-]/g, "_")}`, one.name], [one.name, one.name]]));
+  const byName = new Map(tools.flatMap((one) => [[listed(one.name), one.name], [one.name, one.name]]));
   const calls: ToolCall[] = [];
   for (const call of asked) {
     const name = byName.get(call.name);
@@ -325,6 +330,136 @@ function attached(messages: Message[]): { files: { uri: string; name?: string }[
   return { files, notes };
 }
 
+/** A fresh id: opencode's message ids must be unique across its whole store, not just the session they are imported into. */
+function fresh(prefix: string): string {
+  return `${prefix}${randomUUID().replace(/-/g, "")}`;
+}
+
+/** The name opencode lists a tool by, which is the name a past call must use. */
+function listed(name: string): string {
+  return `${PREFIX}${name.replace(/[^\w-]/g, "_")}`;
+}
+
+function argsOf(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+/** A photo or a PDF as opencode carries one inside a message, rather than as a prompt's file. */
+function inline(files: Attachment[] | undefined): { data: string; mime: string; source: { type: "inline" }; name?: string }[] {
+  return (files ?? [])
+    .filter((one) => one.mediaType.startsWith("image/") || one.mediaType === "application/pdf")
+    .map((one) => ({ data: one.data, mime: one.mediaType, source: { type: "inline" as const }, ...(one.filename && { name: one.filename }) }));
+}
+
+/** A tool opencode asked a model for, and what came back, as opencode carries it inside the assistant's message. */
+interface ToolPart {
+  type: "tool";
+  id: string;
+  name: string;
+  state?: { status: string; input: unknown; content?: unknown[] };
+  time: { created: number };
+}
+
+/** A message as opencode projects one, which is what the import endpoint takes. */
+interface Imported {
+  id: string;
+  type: "user" | "assistant";
+  time: { created: number };
+  text?: string;
+  files?: { data: string; mime: string; source: { type: "inline" }; name?: string }[];
+  agent?: string;
+  model?: { providerID: string; id: string };
+  content?: ({ type: "text"; text: string } | ToolPart)[];
+  finish?: string;
+}
+
+/**
+ * The conversation as opencode's own messages, for the import endpoint: a past
+ * call is a real tool call and its result is that call's own result, so a model
+ * has no text pattern to copy. The instructions are the session's already, so
+ * system messages are left out. The newest turn comes back as what to send as
+ * the prompt once the rest is imported: its words, or nothing when the
+ * conversation ends on a tool's result and the model has only to carry on.
+ */
+function history(messages: Message[], model: { providerID: string; id: string }): { messages: Imported[]; text: string; files: { uri: string; name?: string }[] } {
+  const kept = messages.filter((one) => one.role !== "system");
+  const last = kept.at(-1);
+  const prompt = last?.role === "user" ? last : undefined;
+  const past = prompt ? kept.slice(0, -1) : kept;
+  const turns: Imported[] = [];
+  const byCall = new Map<string, ToolPart>();
+  let at = Date.now() - past.length;
+  for (const one of past) {
+    if (one.role === "user") {
+      const files = inline(one.attachments);
+      turns.push({ id: fresh("msg_"), type: "user", time: { created: at++ }, text: [one.content, ...attached([one]).notes].join("\n\n"), ...(files.length && { files }) });
+    } else if (one.role === "assistant") {
+      const content: NonNullable<Imported["content"]> = one.content ? [{ type: "text", text: one.content }] : [];
+      for (const call of one.tool_calls ?? []) {
+        const part: ToolPart = { type: "tool", id: fresh("call_"), name: listed(call.function.name), state: { status: "running", input: argsOf(call.function.arguments) }, time: { created: at } };
+        byCall.set(call.id, part);
+        content.push(part);
+      }
+      turns.push({ id: fresh("msg_"), type: "assistant", time: { created: at++ }, agent: AGENT, model, content, finish: one.tool_calls?.length ? "tool-calls" : "stop" });
+    } else if (one.tool_call_id) {
+      // A tool's result belongs to the call that asked for it.
+      const part = byCall.get(one.tool_call_id);
+      if (part) part.state = { status: "completed", input: part.state?.input, content: [{ type: "text", text: one.content }] };
+    }
+  }
+  const { files, notes } = attached(prompt ? [prompt] : []);
+  return { messages: turns, text: [prompt?.content ?? "", ...notes].join("\n\n"), files };
+}
+
+/** The id opencode files this folder under, which an import must name. */
+async function projectOf(server: Server, folder: string, signal?: AbortSignal): Promise<string | undefined> {
+  const real = await realpath(folder).catch(() => folder);
+  const projects = await call<{ id?: string; canonical?: string }[]>(server, "GET", "/api/project", undefined, signal).catch(() => []);
+  return projects.find((one) => one.canonical === real || one.canonical === folder)?.id;
+}
+
+/**
+ * Imports the conversation as real past turns, and returns the session it made
+ * and the new turn to send after it. Nothing when opencode refuses the import,
+ * because the endpoint is experimental and a version without it is expected:
+ * the route then falls back to the whole conversation as one block of text. A
+ * dropped connection is not a refusal, so it is asked again instead.
+ */
+async function importHistory(
+  server: Server,
+  folder: string,
+  messages: Message[],
+  model: { providerID: string; id: string },
+  signal?: AbortSignal,
+): Promise<{ session: string; text: string; files: { uri: string; name?: string }[] } | undefined> {
+  const projectID = await projectOf(server, folder, signal);
+  if (!projectID) return undefined;
+  const { messages: past, text, files } = history(messages, model);
+  const id = fresh("ses_");
+  const now = Date.now();
+  try {
+    await call(
+      server,
+      "POST",
+      "/api/experimental/session/import",
+      {
+        info: { id, projectID, agent: AGENT, model, cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: now, updated: now }, permissions: RULES, location: { directory: folder } },
+        messages: past,
+        location: { directory: folder },
+      },
+      signal,
+    );
+  } catch (error) {
+    if (error instanceof TryAgain) throw error;
+    return undefined;
+  }
+  return { session: id, text, files };
+}
+
 /** Closes the session and the server, which takes the tool server with it, killing it when it does not go within three seconds. */
 async function stop(server: Server, session?: string): Promise<void> {
   if (session) await call(server, "DELETE", `/api/session/${session}`, undefined, AbortSignal.timeout(2_000)).catch(() => {});
@@ -354,16 +489,31 @@ export async function viaOpencode({ model, messages, tools, signal }: Ask): Prom
     if (specs) await connected(live, folder, signal);
     const named = opencodeModel(model);
     const at = named.indexOf("/");
-    const made = await call<{ data?: { id?: string } }>(live, "POST", "/api/session", {
-      agent: AGENT,
-      model: { providerID: named.slice(0, at), id: named.slice(at + 1) },
-      location: { directory: folder },
-      permissions: RULES,
-    }, signal);
-    session = made.data?.id;
-    if (!session) throw new Error("Model call refused: opencode made no session.");
-    const { files, notes } = attached(messages);
-    await call(live, "POST", `/api/session/${session}/prompt`, { text: [transcript, ...notes].join("\n\n"), ...(files.length && { files }) }, signal);
+    const ref = { providerID: named.slice(0, at), id: named.slice(at + 1) };
+
+    // The past as opencode's own turns, so a model reads past calls as calls
+    // and not as words it can copy. Where it will not take that, the whole
+    // conversation goes as one block of text instead.
+    let text: string;
+    let files: { uri: string; name?: string }[];
+    const imported = await importHistory(live, folder, messages, ref, signal);
+    if (imported) {
+      session = imported.session;
+      ({ text, files } = imported);
+    } else {
+      const made = await call<{ data?: { id?: string } }>(live, "POST", "/api/session", {
+        agent: AGENT,
+        model: ref,
+        location: { directory: folder },
+        permissions: RULES,
+      }, signal);
+      session = made.data?.id;
+      if (!session) throw new Error("Model call refused: opencode made no session.");
+      const attachedNow = attached(messages);
+      text = [transcript, ...attachedNow.notes].join("\n\n");
+      files = attachedNow.files;
+    }
+    await call(live, "POST", `/api/session/${session}/prompt`, { text, ...(files.length && { files }) }, signal);
     const read = await readAnswer(events(stream), session, (path, body) => call(live, "POST", `/api/session/${session}${path}`, body, signal, [404]));
     if (copiedTranscript(read.said.join("\n\n"))) throw new TryAgain("Model call refused: opencode wrote tool calls as text instead of making them.");
     return { text: read.said.join("\n\n"), toolCalls: handed(read.calls, tools), cost: read.cost, tokensIn: read.tokensIn, tokensOut: read.tokensOut };

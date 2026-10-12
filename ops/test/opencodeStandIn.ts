@@ -53,7 +53,7 @@ const streams: ServerResponse[] = [];
 const send = (type: string, data: Record<string, unknown>) => {
   for (const stream of streams) stream.write(`data: ${JSON.stringify({ id: `evt_${Date.now()}`, type, data })}\n\n`);
 };
-const ours = "ses_standin";
+let ours = "ses_standin";
 let model = "";
 let interrupted = false;
 let lastPrompt = "";
@@ -81,7 +81,7 @@ function answer(): void {
     send("session.execution.failed", { sessionID: ours, error: { type: "provider.error", message: "OpenAI Chat stream ended without finish_reason" } });
     return;
   }
-  if (model === "words" || model === "gpt-5.5") {
+  if (model === "words" || model === "gpt-5.5" || model === "refuse") {
     send("session.text.ended", { ...mine, ordinal: 0, text: "Five." });
     send("session.step.ended", { ...mine, finish: "stop", cost: 0.004, tokens: { input: 58, output: 5 } });
     send("session.execution.succeeded", { sessionID: ours });
@@ -149,6 +149,16 @@ const server = createServer((request, response) => {
       startTools();
       const status = listed ? "connected" : "pending";
       return reply(200, { location: { directory: process.cwd() }, data: tools ? [{ name: "chloe", status: { status } }] : [] });
+    }
+    if (request.method === "GET" && path === "/api/project") {
+      return reply(200, [{ id: "proj_standin", canonical: process.cwd(), time: { created: Date.now(), updated: Date.now() }, sandboxes: [] }]);
+    }
+    if (request.method === "POST" && path === "/api/experimental/session/import") {
+      // A model named refuse stands for an opencode too old for this endpoint.
+      if (body.info?.model?.id === "refuse") return reply(404, { _tag: "NotFound" });
+      ours = body.info.id;
+      model = body.info.model?.id ?? "";
+      return reply(200, { data: body.info });
     }
     if (request.method === "POST" && path === "/api/session") {
       model = body.model.id;

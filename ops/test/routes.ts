@@ -602,6 +602,73 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     is("on the password made for the call", sent.some((one) => one.what === "refused"), false);
     is("and then the session and the server are gone", [sent.some((one) => one.method === "DELETE"), sent.at(-1)?.what], [true, "stopped"]);
 
+    // The conversation goes to opencode as real past turns, so a model reads a
+    // past call as a call and has no words of it to copy. The newest turn is
+    // the only thing sent as a prompt.
+    await writeFile(standInLog, "");
+    await viaOpencode({
+      model: "opencode-go/calls",
+      tools: mail,
+      messages: [
+        { role: "system", content: "Be brief." },
+        { role: "user", content: "read my mail" },
+        { role: "assistant", content: "Looking.", tool_calls: [{ id: "call_1", type: "function", function: { name: "gmailReadEmail", arguments: '{"days":7}' } }] },
+        { role: "tool", tool_call_id: "call_1", content: "[]" },
+        { role: "user", content: "and again" },
+      ],
+    } as any);
+    const turns = await logged();
+    const imported = turns.find((one) => one.path === "/api/experimental/session/import")?.body;
+    is(
+      "a past call is imported as a real call with its own result, never as words",
+      [imported.messages.length, imported.messages[1].type, imported.messages[1].content],
+      [
+        2,
+        "assistant",
+        [
+          { type: "text", text: "Looking." },
+          {
+            type: "tool",
+            id: imported.messages[1].content[1].id,
+            name: "chloe_gmailReadEmail",
+            state: { status: "completed", input: { days: 7 }, content: [{ type: "text", text: "[]" }] },
+            time: imported.messages[1].content[1].time,
+          },
+        ],
+      ],
+    );
+    is("and the newest turn alone is the prompt", turns.find((one) => one.path?.endsWith("/prompt"))?.body.text, "and again");
+    is("the import names the model asked for", imported.info.model, { providerID: "opencode-go", id: "calls" });
+
+    await writeFile(standInLog, "");
+    await viaOpencode({
+      model: "opencode-go/calls",
+      tools: mail,
+      messages: [
+        { role: "user", content: "read my mail" },
+        { role: "assistant", content: "Looking.", tool_calls: [{ id: "call_1", type: "function", function: { name: "gmailReadEmail", arguments: '{"days":7}' } }] },
+        { role: "tool", tool_call_id: "call_1", content: "[]" },
+      ],
+    } as any);
+    const carried = await logged();
+    is(
+      "a history that ends on a tool's result is imported whole, and the model is asked only to carry on",
+      [carried.find((one) => one.path === "/api/experimental/session/import")?.body.messages.length, carried.find((one) => one.path?.endsWith("/prompt"))?.body.text],
+      [2, ""],
+    );
+
+    // The endpoint is experimental, so an opencode without it falls back to the
+    // whole conversation as one block of text.
+    await writeFile(standInLog, "");
+    const fell = await viaOpencode({ model: "opencode-go/refuse", messages: [{ role: "user", content: "mail?" }] } as any);
+    const tried = await logged();
+    is(
+      "when opencode will not take the import the conversation goes as one block of text",
+      [tried.some((one) => one.path === "/api/experimental/session/import"), tried.find((one) => one.path?.endsWith("/prompt"))?.body.text],
+      [true, "[user]\nmail?"],
+    );
+    is("and the answer comes back all the same", fell.text, "Five.");
+
     await writeFile(standInLog, "");
     const plain = await viaOpencode({ model: "opencode-go/words", messages: [{ role: "user", content: "2+3?" }] } as any);
     is("with no tools the answer is its words, its cost and its tokens", [plain.text, plain.toolCalls, plain.cost, plain.tokensIn, plain.tokensOut], ["Five.", [], 0.004, 58, 5]);
@@ -715,7 +782,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   const listBefore = settings.model.models;
   settings.model.models = ["openai/gpt-6-luna"];
   const from = (text: string, thread = "test/api-pick") =>
-    receive(agent, { channel: "api", chat: thread, thread, from: { id: "1", name: "me" }, text, private: true });
+    receive(agent, { channel: "api", chat: thread, thread, from: { id: "1", name: "me" }, text, private: true, fromOwner: true });
   try {
     const list = await from("/models");
     is("/models says what this chat uses and lists the rest", list?.text.split("\n").slice(0, 5), ["This chat: anthropic/claude-haiku-4.5 (the default)", "", "I can run:", "• openai/gpt-6-luna", "• anthropic/claude-haiku-4.5"]);
@@ -738,6 +805,15 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     settings.model.models = ["openai/gpt-6-luna via gateway"];
     is("a model on a route of its own is picked whole, with for", (await from("/model openai/gpt-6-luna via gateway for nightly"))?.text, "nightly now uses openai/gpt-6-luna via gateway.");
     await from("/model default for nightly");
+    // A token chats as itself and not as the owner, which is what the API says
+    // with `fromOwner: false`. It may read the list and may change nothing.
+    const asToken = (text: string) =>
+      receive(agent, { channel: "api", chat: "test/api-token", thread: "test/api-token", from: { id: "1", name: "me" }, text, private: true, fromOwner: false });
+    is("a token may read the list", ((await asToken("/models"))?.text ?? "").split("\n")[0], "This chat: anthropic/claude-haiku-4.5 (the default)");
+    is("but may not pick for the chat", (await asToken("/model openai/gpt-6-luna"))?.text, "Only the owner picks the model.");
+    is("nor for everything", (await asToken("/model openai/gpt-6-luna for everything"))?.text, "Only the owner picks the model.");
+    is("nor take a pick back", (await asToken("/model default for everything"))?.text, "Only the owner picks the model.");
+    is("and nothing was picked or taken back", [chosen("test", "agent"), chosen("test", "chat:test/api-token")], [undefined, undefined]);
     choose("test", "chat:test/api-pick", "");
   } finally {
     settings.model.models = listBefore;
