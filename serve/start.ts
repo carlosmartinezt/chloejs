@@ -161,6 +161,7 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
     }
     if (route === "claude") return "Claude, on a subscription";
     if (route === "codex") return "Codex, on a ChatGPT plan";
+    if (route === "antigravity") return "Antigravity, on a Google AI Pro plan";
     return "opencode, on whatever it is signed in to";
   }
 
