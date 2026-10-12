@@ -18,7 +18,7 @@ import { join } from "node:path";
 
 import { settings } from "#chloe/core/settings";
 
-import { asText, invoke, TOOL_SERVER } from "./cli.ts";
+import { asText, copiedTranscript, invoke, TOOL_SERVER } from "./cli.ts";
 import { type Answer, type Ask, type ToolCall, TryAgain, UsageLimit } from "./model.ts";
 
 /** What the CLI calls a tool from the server it is handed, which is named "chloe". */
@@ -224,6 +224,7 @@ async function asked({ model, system, parts, messages, tools, signal, folder }: 
   if (!answer || (!asking && (answer.is_error || typeof answer.result !== "string"))) {
     throw new Error(`Model call refused: ${answer?.subtype ?? "no result"}: ${String(answer?.result ?? "").slice(0, 500)}`);
   }
+  if (tools?.length && copiedTranscript(read.said)) throw new TryAgain("Model call refused: claude wrote tool calls as text instead of making them.");
 
   return {
     // With tools the words are those of the answer itself, never the result

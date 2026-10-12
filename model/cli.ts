@@ -60,10 +60,15 @@ function render(message: Message, names: Map<string, string>, native: string | u
   if (message.role === "assistant") {
     // Where tools are real calls, a past one is said in words: a request
     // written out the way a transcript shows it would be copied as text, and
-    // text asks for nothing. It is the name the route lists it by, so the
-    // model does not copy a shorter one it has no tool for.
+    // text asks for nothing. Its arguments are left out: a model shown them
+    // copied whole calls into its reply, edits and all, and said they were
+    // done. It is the name the route lists it by, so the model does not copy
+    // a shorter one it has no tool for.
     if (native !== undefined) {
-      const asked = (message.tool_calls ?? []).map((c) => `(called ${native}${c.function.name} with ${c.function.arguments || "{}"})`);
+      const asked = (message.tool_calls ?? []).map((c) => {
+        const path = (parsedArguments(c.function.arguments) as { path?: unknown } | null)?.path;
+        return `(you used ${native}${c.function.name}${typeof path === "string" ? ` on ${path}` : ""})`;
+      });
       return [`[you]`, message.content, ...asked].filter(Boolean).join("\n");
     }
     // Written exactly as protocol() asks for one. A model copies the shape it
@@ -83,6 +88,16 @@ function parsedArguments(raw: string): unknown {
   } catch {
     return raw;
   }
+}
+
+/**
+ * Whether an answer on a route with real tools has a line only render()
+ * writes: a past call, a result, or a turn's heading. Such a model is writing
+ * the transcript on rather than answering, and it has called tools in words
+ * and said they were done, so the answer is no use to anyone.
+ */
+export function copiedTranscript(text: string): boolean {
+  return /^(\(you used \S|\[result( of [^\]\n]+)?\]$|\[(you|user)\]$)/m.test(text);
 }
 
 /**

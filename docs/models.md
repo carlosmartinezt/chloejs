@@ -71,7 +71,8 @@ A key is a secret, so it goes in `.env`, and the config hands it over:
 
 A call that fails in a way a fresh try might fix, such as the provider
 cutting the stream or dropping the connection, is tried again twice, a few
-seconds apart, before the run fails. A refusal in words, a missing credential
+seconds apart, before the run fails. So is an answer on the claude or
+opencode route that writes tool calls out as text instead of making them. A refusal in words, a missing credential
 and a usage limit fail at once. The direct and gateway routes also retry a
 busy or failing provider four times within each call.
 

@@ -28,7 +28,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import { settings } from "#chloe/core/settings";
 
-import { asText, TOOL_SERVER } from "./cli.ts";
+import { asText, copiedTranscript, TOOL_SERVER } from "./cli.ts";
 import { type Answer, type Ask, type Message, type ToolCall, type ToolSpec, TryAgain, UsageLimit } from "./model.ts";
 
 /** The CLI names a model provider first, the same way chloe does, so nothing is rewritten. */
@@ -242,11 +242,15 @@ async function start(folder: string, signal?: AbortSignal): Promise<Server> {
 
 /** One request to the server, answered as JSON. A status in `fine` is not an error. */
 async function call<T = unknown>(server: Server, method: string, path: string, body?: unknown, signal?: AbortSignal, fine: number[] = []): Promise<T> {
+  // A server that dropped the connection is asked again from the start: it
+  // runs no tool, so a fresh one does nothing twice.
   const response = await fetch(server.url + path, {
     method,
     headers: body === undefined ? server.headers : { ...server.headers, "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
+  }).catch((error: Error) => {
+    throw signal?.aborted ? error : new TryAgain(`Model call refused: opencode dropped the connection: ${(error.cause as Error)?.message ?? error.message}`);
   });
   const text = await response.text();
   if (!response.ok && !fine.includes(response.status)) {
@@ -361,6 +365,7 @@ export async function viaOpencode({ model, messages, tools, signal }: Ask): Prom
     const { files, notes } = attached(messages);
     await call(live, "POST", `/api/session/${session}/prompt`, { text: [transcript, ...notes].join("\n\n"), ...(files.length && { files }) }, signal);
     const read = await readAnswer(events(stream), session, (path, body) => call(live, "POST", `/api/session/${session}${path}`, body, signal, [404]));
+    if (copiedTranscript(read.said.join("\n\n"))) throw new TryAgain("Model call refused: opencode wrote tool calls as text instead of making them.");
     return { text: read.said.join("\n\n"), toolCalls: handed(read.calls, tools), cost: read.cost, tokensIn: read.tokensIn, tokensOut: read.tokensOut };
   } finally {
     quit.abort();

@@ -121,11 +121,34 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     messages: [
       { role: "system", content: "Use `memoryListFiles` first." },
       { role: "user", content: "look" },
-      { role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "memoryListFiles", arguments: "{}" } }] },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          { id: "1", type: "function", function: { name: "memoryListFiles", arguments: "{}" } },
+          { id: "2", type: "function", function: { name: "memoryEditFile", arguments: '{"path":"notes.html","old":"a","new":"b"}' } },
+        ],
+      },
       { role: "tool", tool_call_id: "1", content: "[]" },
+      { role: "tool", tool_call_id: "2", content: "{}" },
     ],
   });
-  is("where the route lists tools longer, a past call has the listed name", listed.transcript.includes("(called mcp__chloe__memoryListFiles with {})"), true);
+  is("where the route lists tools longer, a past call has the listed name", listed.transcript.includes("(you used mcp__chloe__memoryListFiles)"), true);
+  is(
+    "a past call names its file and leaves out the rest, so it is not copied as text",
+    [listed.transcript.includes("(you used mcp__chloe__memoryEditFile on notes.html)"), listed.transcript.includes('"old"')],
+    [true, false],
+  );
+  const { copiedTranscript } = await import("#chloe/model/cli");
+  is(
+    "an answer that writes the transcript on is caught, and one that talks about it is not",
+    [
+      copiedTranscript("(you used mcp__chloe__memoryEditFile on notes.html)\n\n[result of mcp__chloe__memoryEditFile]\n(done)\n\n[you]\nLogged."),
+      copiedTranscript("[you]\nLogged."),
+      copiedTranscript("Logged. I used the edit tool on notes.html.\n\n[1] a footnote"),
+    ],
+    [true, true, false],
+  );
   is("and the instructions say a short name is the listed one", listed.system.includes("it is the one listed as `mcp__chloe__memoryListFiles`"), true);
   // The claude route sends a part a block, and the cache matches a block only if it is the same one.
   const before = asText({ messages: [{ role: "user", content: "look" }, { role: "assistant", content: "seen" }] });
