@@ -517,6 +517,23 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
       [(await readFile(agyArgs, "utf8")).includes("--agent chloe"), (await readFile(agyAgent, "utf8")).includes("tools: []")],
       [true, true]);
 
+    // agy prints its own note after the calls when there are several, and the
+    // model copies it: words after the JSON, which would stop the call being read.
+    const notedStream = JSON.stringify({
+      event: "result",
+      result: {
+        status: "SUCCESS",
+        response: '{"tool":"gmailReadEmail","arguments":{"days":7}}\n\n<CALLING_TOOLS_IN_PARALLEL>\nNote: Calling gmailReadEmail.\n</CALLING_TOOLS_IN_PARALLEL>',
+        usage: { input_tokens: 10, output_tokens: 2 },
+      },
+    });
+    await writeFile(join(bin, "antigravity-noted.jsonl"), `${notedStream}\n`);
+    pin(anyCli, anyCli, opencodeCli, await fake("agy-noted", `cat >/dev/null; cat "${join(bin, "antigravity-noted.jsonl")}"`));
+    const noted = await viaAntigravity({ model: "google/gemini-3.8-flash-high", messages: [{ role: "user", content: "mail?" }], tools: antigravityTools } as any);
+    is("a call agy's own note trails is still read, and the note is not the answer",
+      [noted.toolCalls.map((c) => [c.function.name, c.function.arguments]), noted.text],
+      [[["gmailReadEmail", '{"days":7}']], ""]);
+
     await writeFile(join(bin, "agy-models.txt"), "Fetching available models...\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.1-pro-low\tGemini 3.1 Pro (Low)\n");
     pin(anyCli, anyCli, opencodeCli, await fake("agy-listing", `cat "${join(bin, "agy-models.txt")}"`));
     const { antigravityModels } = await import("#chloe/model/antigravity");

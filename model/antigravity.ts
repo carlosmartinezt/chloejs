@@ -113,6 +113,17 @@ function isLimit(problem: string): boolean {
 }
 
 /**
+ * The answer without agy's own harness notes. When it asks for several calls at
+ * once agy prints a `<CALLING_TOOLS_IN_PARALLEL>` block after them, and the
+ * model copies it, which puts words after the JSON and stops the calls being
+ * read at all. It is agy's, not the answer's, so it is taken out before the
+ * reply is read.
+ */
+function withoutHarnessNotes(said: string): string {
+  return said.replace(/<CALLING_TOOLS_IN_PARALLEL>[\s\S]*?<\/CALLING_TOOLS_IN_PARALLEL>/g, "").trim();
+}
+
+/**
  * Writes the custom agent the run uses, into the folder it runs in. `tools: []`
  * is what leaves the model with nothing of the CLI's own to reach for; the
  * instructions become its system prompt.
@@ -186,7 +197,7 @@ export async function viaAntigravity({ model, messages, tools, signal }: Ask): P
     // tools and stopped, not something to hand on as words.
     if (!read.said) throw new Error(`Model call refused: antigravity wrote no answer: ${(err || out).slice(0, 500)}`);
 
-    const { said, calls, dropped } = tools?.length ? readReply(read.said, tools) : { said: read.said, calls: [] };
+    const { said, calls, dropped } = tools?.length ? readReply(withoutHarnessNotes(read.said), tools) : { said: read.said, calls: [] };
     // A plan is not billed per call and the CLI names no price, so what a run on
     // this route cost is unknown, the same as codex.
     return { text: said, toolCalls: calls, ...(dropped && { dropped }), tokensIn: read.tokensIn, tokensOut: read.tokensOut };
