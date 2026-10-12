@@ -270,26 +270,36 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal, 
       tokensOut: result.usage.outputTokens ?? 0,
     };
   } catch (error) {
-    const message = explained(error, where);
-    // A stream cut short or a dropped connection is asked again. An answered
-    // refusal is not, and neither is a failure the SDK already tried
-    // maxRetries times, nor a stop the caller asked for. After a streamed
-    // answer died halfway, the retry's words follow the part already sent.
-    const fresh = !RetryError.isInstance(error) && !APICallError.isInstance(error) && (error as Error)?.name !== "AbortError";
-    throw fresh ? new TryAgain(message, { cause: error }) : new Error(message, { cause: error });
+    const again = error instanceof TryAgain;
+    const cause = again ? error.cause : error;
+    throw again ? new TryAgain(explained(cause, where), { cause }) : new Error(explained(cause, where), { cause });
   }
 }
 
 /**
  * One call streamed, its words handed to `onText` as they arrive, and the same
  * four things generateText would have answered once it ends. A failure in the
- * middle is thrown, not left as a short answer.
+ * middle is thrown, not left as a short answer. A stream cut before any words
+ * were handed on is thrown as TryAgain; after, it is not, because the retry
+ * would hand them on a second time.
  */
 async function streamed(call: Parameters<typeof streamText>[0], onText: (delta: string) => void) {
   let failed: unknown;
+  let handed = false;
   const result = streamText({ ...call, onError: ({ error }) => void (failed = error) });
-  for await (const delta of result.textStream) onText(delta);
-  if (failed) throw failed;
+  try {
+    for await (const delta of result.textStream) {
+      handed = true;
+      onText(delta);
+    }
+  } catch (error) {
+    failed ??= error;
+  }
+  // A body cut short is a retryable APICallError the SDK does not retry. An
+  // answered refusal, a failure the SDK already tried maxRetries times and a
+  // stop the caller asked for fail the same way on a fresh try.
+  const cut = APICallError.isInstance(failed) ? failed.isRetryable : !RetryError.isInstance(failed) && (failed as Error)?.name !== "AbortError";
+  if (failed) throw cut && !handed ? new TryAgain("the stream was cut", { cause: failed }) : failed;
   const [text, toolCalls, usage, providerMetadata] = await Promise.all([result.text, result.toolCalls, result.usage, result.providerMetadata]);
   return { text, toolCalls, usage, providerMetadata };
 }

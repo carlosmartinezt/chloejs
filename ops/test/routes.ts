@@ -720,3 +720,30 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     settings.model.models = listBefore;
   }
 }
+
+{
+  about("a streamed answer cut short");
+  const { settings } = await import("#chloe/core/settings");
+  const { ask } = await import("#chloe/model/model");
+  const { gatewayUrl, startCounting } = await import("./shared.ts");
+  const before = { ...settings.model };
+  Object.assign(settings.model, { preferredRoute: ["gateway"], key: "test", gatewayUrl });
+  try {
+    const heard: string[] = [];
+    const streaming = { model: "anthropic/claude-haiku-4.5", messages: [{ role: "user" as const, content: "hi" }], onText: (delta: string) => void heard.push(delta) };
+
+    startCounting();
+    answers.push({ content: "", cut: true }, "Five.");
+    const again = await ask(streaming);
+    is("one cut before any words is asked again", [again.text, heard.join(""), (await import("./shared.ts")).asked], ["Five.", "Five.", 2]);
+
+    heard.length = 0;
+    startCounting();
+    answers.push({ content: "Twelve and more.", cut: true }, "Five.");
+    const halfway = await ask(streaming).then(() => "", (error: Error) => error.constructor.name);
+    is("one cut after words were handed on fails, so they are not said twice", [halfway, heard.join(""), (await import("./shared.ts")).asked], ["Error", "Twelve a", 1]);
+    answers.length = 0;
+  } finally {
+    Object.assign(settings.model, before);
+  }
+}
