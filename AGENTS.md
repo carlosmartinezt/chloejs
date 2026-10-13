@@ -781,7 +781,8 @@ does not compile. Do not answer a path anywhere else.
 calls, which check a visitor pass instead, `token` is another system, and everything else is
 the account. A route with `origins` answers a page on another site, from those
 sites only, and `api()` answers the browser's asking-first (OPTIONS) for it. A token may read, and may chat to and fire the
-jobs of the agents that bind an api channel. It may never write a file, read
+jobs of the agents that bind an api channel, and name the conversations it
+started there. It may never write a file, read
 the notes, or touch the tokens.
 
 **A web page reaches an agent because its `agent.ts` says `channels: { web:

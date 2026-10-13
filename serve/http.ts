@@ -195,6 +195,11 @@ function threadFor(who: Caller, thread: string, claim = false): string {
   return thread;
 }
 
+/** Names a conversation, or with an empty label gives it back the name it started with. */
+function label(thread: string, label: string): void {
+  db.prepare("insert into threads (thread, label) values (?, ?) on conflict (thread) do update set label = excluded.label").run(thread, label || null);
+}
+
 /** Why a guest may not have this route, or nothing when they may. */
 function refusedGuest(route: Route, params: Record<string, string>, given: Given): string | undefined {
   if (route.guest === "filtered") return undefined;
@@ -855,6 +860,23 @@ export const routes: Route[] = [
   },
   {
     method: "POST",
+    path: "/api/agents/:id/threads/:thread/rename",
+    does: "Give a conversation started over the API a name, by the thread it was started with. An empty one goes back to the name it was given when it started.",
+    takes: '{"label": "..."}',
+    token: true,
+    needsApiChannel: true,
+    handle: async ({ request, response, context, params }) => {
+      const agent = context.agent(params.id);
+      // Where the chat route keeps a token's thread, so a token names only a
+      // conversation started over the API, never one from the page or a channel.
+      const thread = `${agent.id}/api-${decodeURIComponent(params.thread)}`;
+      const { label: named } = await body(request, z.object({ label: z.string().trim().max(200) }));
+      label(thread, named);
+      json(response, { thread, label: named || null });
+    },
+  },
+  {
+    method: "POST",
     path: "/api/agents/:id/model",
     does: "Pick a model on the fly: for one job, or one chat. An empty model takes the pick back.",
     takes: '{"scope": "job:<id>" | "chat:<thread>", "model": "..." or ""}',
@@ -1063,9 +1085,9 @@ export const routes: Route[] = [
     handle: async ({ request, response, params, who }) => {
       const thread = threadFor(who, decodeURIComponent(params.thread));
       if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
-      const { label } = await body(request, z.object({ label: z.string().trim().max(200) }));
-      db.prepare("insert into threads (thread, label) values (?, ?) on conflict (thread) do update set label = excluded.label").run(thread, label || null);
-      json(response, { thread, label: label || null });
+      const { label: named } = await body(request, z.object({ label: z.string().trim().max(200) }));
+      label(thread, named);
+      json(response, { thread, label: named || null });
     },
   },
   {

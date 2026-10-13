@@ -72,6 +72,11 @@ import { agentFor, answers, codeJob, row } from "./shared.ts";
   answers.push("Four now.");
   await asToken("/api/agents/test/chat", '{"prompt":"and now?","thread":"mine"}');
   is("a named thread is remembered under the agent", recall("test/api-mine").map((m) => m.content), ["and now?", "Four now."]);
+  // Named by the thread it was started with, so it can only be one of a token's own.
+  is("a token names its own conversation", (await asToken("/api/agents/test/threads/mine/rename", '{"label":"Late orders"}')).status, 200);
+  is("which the list shows", ((await (await asToken("/api/agents/test/threads")).json()) as { thread: string; label: string }[]).find((one) => one.thread === "test/api-mine")?.label, "Late orders");
+  is("but not one the page started", (await asToken(`/api/threads/${encodeURIComponent("test/mine")}/rename`, '{"label":"x"}')).status, 403);
+  is("nor name one on an agent with no api channel", (await asToken("/api/agents/closed/threads/mine/rename", '{"label":"x"}')).status, 403);
 
   // The point of the whole arrangement: binding the channel is what opens it.
   const refused = await asToken("/api/agents/closed/chat", '{"prompt":"hello"}');
