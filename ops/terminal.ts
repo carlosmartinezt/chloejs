@@ -7,7 +7,7 @@
 // Nothing here imports a file that reads a setting as it loads, because setup
 // runs before there is a chloe.config.ts to find, and reading a setting needs
 // one.
-import { cyan, dim } from "#chloe/core/style";
+import { accent, cyan, dim } from "#chloe/core/style";
 
 /**
  * Whatever was typed past the end of the line just read, kept for the next
@@ -133,16 +133,26 @@ export async function yes(question: string, unsaid: boolean): Promise<boolean> {
   }
 }
 
+/** One line of a list to pick from. `above` is a line printed before it, for a group that starts there; "" is a blank line. */
+export interface Choice<K extends string> {
+  key: K;
+  what: string;
+  above?: string;
+}
+
 /**
- * One of a numbered list, asked again until it is one of them. Returns the
- * chosen entry's key, and Enter takes the first. An entry's `above` is a dim
- * line printed before it, for a group that starts there.
+ * One of a list, and returns the chosen entry's key. In a terminal it is a
+ * list with an arrow on one line, moved with the arrow keys and taken with
+ * Enter. Otherwise, which is piped answers or a run that takes every default,
+ * it is numbered and asked again until the answer is one of them, and Enter
+ * takes the first.
  */
-export async function pick<K extends string>(question: string, options: { key: K; what: string; above?: string }[]): Promise<K> {
+export async function pick<K extends string>(question: string, options: Choice<K>[]): Promise<K> {
+  if (process.stdin.isTTY && process.stdout.isTTY && !unattended && !spare) return await choose(question, options);
   const width = String(options.length).length;
   console.log(`${question}\n`);
   for (const [at, one] of options.entries()) {
-    if (one.above) console.log(`\n  ${dim(one.above)}`);
+    if (one.above !== undefined) console.log(one.above ? `\n  ${dim(one.above)}` : "");
     console.log(`  ${cyan(String(at + 1).padStart(width))}  ${one.what}`);
   }
   console.log();
@@ -153,6 +163,80 @@ export async function pick<K extends string>(question: string, options: { key: K
     if (Number.isInteger(at) && at >= 1 && at <= options.length) return options[at - 1].key;
     console.log(`  a number from 1 to ${options.length}.`);
   }
+}
+
+/** How many rows of the terminal a line takes, once its colours are left out and it wraps. */
+function rows(text: string): number {
+  const width = text.replace(/\u001b\[[0-9;]*m/g, "").length;
+  return Math.max(1, Math.ceil(width / (process.stdout.columns || 80)));
+}
+
+/**
+ * The arrow list. It is drawn again on every key, over itself, and once one is
+ * chosen only the question and the answer are left on the screen. Esc and
+ * Ctrl+C stop, the same as Ctrl+C at a typed question.
+ */
+function choose<K extends string>(question: string, options: Choice<K>[]): Promise<K> {
+  const out = process.stdout;
+  const input = process.stdin;
+  let at = 0;
+  let drawn = 0;
+
+  function draw(chosen: boolean): void {
+    const lines = chosen
+      ? [question, `${accent("❯")} ${accent(options[at].what)}`]
+      : [
+          question,
+          "",
+          ...options.flatMap((one, here) => [
+            ...(one.above === undefined ? [] : one.above ? ["", `  ${dim(one.above)}`] : [""]),
+            here === at ? `${accent("❯")} ${accent(one.what)}` : `  ${one.what}`,
+          ]),
+          "",
+          dim("↑ ↓ to move · Enter to choose · Esc to stop"),
+        ];
+    // Back to the first row of the last drawing, and clear from there down.
+    if (drawn) out.write(`\u001b[${drawn}F\u001b[0J`);
+    out.write(`${lines.join("\n")}\n`);
+    drawn = lines.reduce((sum, one) => sum + rows(one), 0);
+  }
+
+  return new Promise((done, fail) => {
+    const wasRaw = input.isRaw;
+
+    function finish(error?: Error): void {
+      input.off("data", pressed);
+      input.setRawMode(Boolean(wasRaw));
+      input.pause();
+      out.write("\u001b[?25h");
+      if (error) fail(error);
+      else done(options[at].key);
+    }
+
+    function pressed(chunk: string): void {
+      // One chunk can hold several keys, as when one is held down.
+      for (let from = 0; from < chunk.length; ) {
+        const escape = chunk[from] === "\u001b" && "[O".includes(chunk[from + 1] ?? "");
+        const key = escape ? chunk.slice(from, from + 3) : chunk[from]!;
+        from += key.length;
+        if (key === "\u001b[A" || key === "\u001bOA" || key === "k") at = (at + options.length - 1) % options.length;
+        else if (key === "\u001b[B" || key === "\u001bOB" || key === "j") at = (at + 1) % options.length;
+        else if (key === "\r" || key === "\n") {
+          draw(true);
+          return finish();
+        } else if (key === "\u001b" || key === "\u0003") return finish(new Error("Stopped."));
+        else continue;
+        draw(false);
+      }
+    }
+
+    out.write("\u001b[?25l");
+    draw(false);
+    input.setRawMode(true);
+    input.setEncoding("utf8");
+    input.resume();
+    input.on("data", pressed);
+  });
 }
 
 /** How many names a typed word may match before the answer is "type more of one". */

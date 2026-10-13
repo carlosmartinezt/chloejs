@@ -56,9 +56,11 @@ const { findConfig, NO_CONFIG } = await import("#chloe/core/find");
 
 if (!findConfig()) {
   if (word !== "setup") {
-    process.stderr.write(`chloe: no chloe.config.ts at or above ${process.cwd()}. ${NO_CONFIG}\n`);
     const { yes } = await import("./terminal.ts");
-    if (!process.stdin.isTTY || !(await yes("\nSet this folder up now?", true))) {
+    // A person at a keyboard is asked in plain words; anything else gets the
+    // full reason, because it is usually a script in the wrong folder.
+    if (!process.stdin.isTTY) process.stderr.write(`chloe: no chloe.config.ts at or above ${process.cwd()}. ${NO_CONFIG}\n`);
+    if (!process.stdin.isTTY || !(await yes("This folder has no chloe project yet. Set one up here?", true))) {
       process.stderr.write('Setting up is "npx chloe setup".\n');
       process.exit(1);
     }

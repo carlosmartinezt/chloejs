@@ -11,6 +11,7 @@ import { basename, dirname } from "node:path";
 
 import { loadEnv } from "#chloe/core/env";
 import { ROOT } from "#chloe/core/paths";
+import { banner } from "#chloe/core/banner";
 import { bold, dim } from "#chloe/core/style";
 import { PROVIDERS, settings, unclaimed } from "#chloe/core/settings";
 import { closeCutOff, going, trim } from "#chloe/core/db";
@@ -172,7 +173,7 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
    * reading this is usually about to go looking for one.
    */
   function startup(outside: { names: string[]; missing: string[] }): string[] {
-    const lines = ["", bold("Chloe is running."), ""];
+    const lines = process.stdout.isTTY ? [banner(["is running in", dim(ROOT)])] : ["", bold("Chloe is running."), ""];
 
     lines.push(row("Agents", [...agents.keys()].join(", ") || dim("none yet. Write one in agents/, and list it in chloe.config.ts")));
 

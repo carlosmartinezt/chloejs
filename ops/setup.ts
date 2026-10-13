@@ -31,6 +31,7 @@ import { firstCommit, hasGit, hasGitName, repositoryOf } from "./git.ts";
 import { DEV_PACKAGES, GUIDES, modelLine, STARTER_AGENT, STARTER_MODEL_LINE, starterFiles, withModel, withSetting } from "./starter.ts";
 import { ask, askHidden, pick, pickNamed, takeDefaults, yes } from "./terminal.ts";
 import type { Provider } from "#chloe/core/settings";
+import { banner } from "#chloe/core/banner";
 import { bold, cyan, dim, green, red, yellow } from "#chloe/core/style";
 
 /** The folder being set up: where the person ran the command. */
@@ -47,6 +48,13 @@ const LATER = { defaultModel: "openrouter/free", gatewayUrl: OPENROUTER, judgeMo
 
 /** How each provider is called in a sentence. */
 const SAID: Record<Provider, string> = { anthropic: "Anthropic", openai: "OpenAI" };
+
+/** How a key already in the environment is called in a sentence, by the name it is under. */
+const HELD_SAID: Record<string, string> = {
+  AI_GATEWAY_API_KEY: "Vercel AI Gateway key",
+  OPENROUTER_API_KEY: "OpenRouter key",
+  CHLOE_MODEL_KEY: "Model key",
+};
 
 /** The name each provider's own tools read its key from, which is where somebody who has one already keeps it. */
 const OWN_KEY_NAMES: Record<Provider, string> = { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY" };
@@ -113,7 +121,7 @@ const given = (() => {
 if (given.yes || nobodyHere) takeDefaults();
 
 // What is done before the first question is said in lines indented under this one.
-console.log(`\n${bold(`Setting chloe up in ${HERE}`)}`);
+console.log(banner(["Setting up this folder:", dim(HERE)]));
 if (nobodyHere) console.log("  Nobody is at a keyboard here, so every question takes its default.");
 
 // One line and not a stack: whatever went wrong, the person reading it is
@@ -277,20 +285,22 @@ async function theModel(): Promise<string> {
   section("Model");
   // The three keys come first and never move when a program is installed or
   // removed: what is already on this box is offered under them.
+  // A subscription's terms allow it for a person's own use, not a product
+  // built on it, which is what "for dev purposes only" says in fewer words.
   const subscriptions: { key: "claude" | "codex" | "antigravity" | "opencode"; what: string }[] = [
-    ...(runnable("claude") ? [{ key: "claude" as const, what: "your Claude subscription, through the claude command" }] : []),
-    ...(runnable("codex") ? [{ key: "codex" as const, what: "your ChatGPT plan, through the codex command" }] : []),
-    ...(runnable("antigravity") ? [{ key: "antigravity" as const, what: "your Google AI Pro plan, through the Antigravity CLI" }] : []),
-    ...(runnable("opencode") ? [{ key: "opencode" as const, what: "whatever opencode is signed in to" }] : []),
+    ...(runnable("claude") ? [{ key: "claude" as const, what: "Claude subscription (for dev purposes only)" }] : []),
+    ...(runnable("codex") ? [{ key: "codex" as const, what: "ChatGPT subscription (for dev purposes only)" }] : []),
+    ...(runnable("antigravity") ? [{ key: "antigravity" as const, what: "Google AI Pro subscription (for dev purposes only)" }] : []),
+    ...(runnable("opencode") ? [{ key: "opencode" as const, what: "opencode subscription (for dev purposes only)" }] : []),
   ];
-  const choice = await pick("How should your agents reach a model? You can set this up later.", [
-    { key: "free" as const, what: "a free key from OpenRouter: no card, and rate limited to a few runs an hour" },
-    { key: "own" as const, what: "a key from Anthropic or OpenAI, charged per call to that account" },
-    { key: "key" as const, what: "a gateway key of your own (Vercel AI Gateway, OpenRouter, anything of that shape)" },
-    ...heldOwn.map(({ provider, name }) => ({ key: provider, what: `your ${SAID[provider]} key, already in ${name} in your environment, charged per call` })),
-    ...(held ? [{ key: "held" as const, what: `the key already in ${held} in your environment` }] : []),
-    ...subscriptions.map((one, at) => (at === 0 ? { ...one, above: "already set up on this box:" } : one)),
-    { key: "later" as const, what: "nothing yet: I'll run npx chloe setup again when I have a key" },
+  const choice = await pick("How will your agents think?", [
+    { key: "free" as const, what: "OpenRouter account (free, but slow)" },
+    { key: "own" as const, what: "Anthropic or OpenAI key (pay as you go)" },
+    { key: "key" as const, what: "Vercel AI Gateway key, or one like it" },
+    ...heldOwn.map(({ provider }) => ({ key: provider, what: `${SAID[provider]} key already on this computer (pay as you go)` })),
+    ...(held ? [{ key: "held" as const, what: `${HELD_SAID[held]} already on this computer` }] : []),
+    ...subscriptions.map((one, at) => (at === 0 ? { ...one, above: "already on this computer:" } : one)),
+    { key: "later" as const, what: "Skip for now (you can change this later)", above: "" },
   ]);
 
   // No `preferredRoute` written for these: a subscription is already ahead of a key in
