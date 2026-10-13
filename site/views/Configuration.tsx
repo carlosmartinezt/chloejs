@@ -6,11 +6,26 @@ import { CodeEditor } from "./components/CodeEditor.tsx";
 import { type Ask, Fields } from "./components/Fields.tsx";
 import { GoogleSetup } from "./components/GoogleSetup.tsx";
 
+/** The page's sections in the order chloe.config.ts says them, as the list down the left. */
+const PARTS: [id: string, title: string, inside?: boolean][] = [
+  ["model", "Model"],
+  ["email", "Email"],
+  ["connections", "Connections"],
+  ["resend", "Resend", true],
+  ["google", "Google", true],
+  ["brave", "Brave Search", true],
+  ["serve", "Serve"],
+  ["owner", "Owner"],
+  ["keys", "Keys"],
+  ["file", "chloe.config.ts"],
+];
+
 /**
  * The whole copy's settings, as forms: what chloe.config.ts and .env say,
- * changed where they say it. A form changes a plain value in the file, and a
- * key goes into .env with the file naming it. Anything the forms do not cover,
- * or the file says as code, is the file itself, at the bottom.
+ * changed where they say it, in the order the file says them. A form changes
+ * a plain value in the file, and a key goes into .env with the file naming it.
+ * Anything the forms do not cover, or the file says as code, is the file
+ * itself, at the bottom.
  */
 export function Configuration() {
   const [fields, setFields] = useState<Field[] | null>(null);
@@ -29,77 +44,119 @@ export function Configuration() {
   };
 
   return (
-    <>
-      <div className="head">
-        <h1>Configuration</h1>
+    <div className="config">
+      <nav className="config-nav" aria-label="Sections">
+        {PARTS.map(([id, title, inside]) => (
+          <a key={id} href={`#${id}`} className={inside ? "inside" : undefined}>
+            {title}
+          </a>
+        ))}
+      </nav>
+
+      <div>
+        <div className="head">
+          <h1>Configuration</h1>
+        </div>
+        <p className="empty">
+          Settings for every agent. They are saved in <code>chloe.config.ts</code>, and keys in <code>.env</code>. If a
+          save breaks something, the old file stays.
+        </p>
+        {trouble && <p className="empty frame bad">{trouble}</p>}
+
+        {fields && (
+          <>
+            <section className="setting" id="model">
+              <h2>Model</h2>
+              <Fields fields={fields} saved={saved} asks={MODEL} />
+            </section>
+
+            <section className="setting" id="email">
+              <h2>Email</h2>
+              <Fields fields={fields} saved={saved} asks={EMAIL} />
+            </section>
+
+            <hr className="part" />
+            <section className="setting" id="connections">
+              <h2>Connections</h2>
+              <p className="empty">The outside services that tools and channels work through.</p>
+
+              <section className="setting" id="resend">
+                <h3>Resend</h3>
+                <p className="empty">
+                  Sends email, and the alerts: someone signed in from a new place, or a job started or stopped failing.
+                </p>
+                <Fields fields={fields} saved={saved} asks={RESEND} />
+              </section>
+
+              <section className="setting" id="google">
+                <h3>Google</h3>
+                <p className="empty">Get Gmail, Google Calendar and Google Drive.</p>
+                <GoogleSetup
+                  done={() => {
+                    refresh();
+                    setRound((n) => n + 1);
+                  }}
+                />
+              </section>
+
+              <section className="setting" id="brave">
+                <h3>Brave Search</h3>
+                <Fields fields={fields} saved={saved} asks={BRAVE} />
+              </section>
+            </section>
+
+            <hr className="part" />
+            <section className="setting" id="serve">
+              <h2>Serve</h2>
+              <Fields fields={fields} saved={saved} asks={SERVE} />
+            </section>
+
+            <section className="setting" id="owner">
+              <h2>Owner</h2>
+              <Fields fields={fields} saved={saved} asks={OWNER} />
+            </section>
+          </>
+        )}
+
+        <hr className="part" />
+        <section className="setting" id="keys">
+          <h2>Keys</h2>
+          <Keys key={round} />
+        </section>
+
+        <section className="setting" id="file">
+          <h2>chloe.config.ts</h2>
+          <details>
+            <summary>The file as text</summary>
+            <Config key={round} loaded={refresh} />
+          </details>
+        </section>
       </div>
-      <p className="empty">
-        Settings for every agent. They are saved in <code>chloe.config.ts</code>, and keys in <code>.env</code>. If a
-        save breaks something, the old file stays.
-      </p>
-      {trouble && <p className="empty frame bad">{trouble}</p>}
-
-      {fields && (
-        <>
-          <section className="setting" id="google">
-            <h2>Google</h2>
-            <p className="empty">Get Gmail, Google Calendar and Google Drive.</p>
-            <GoogleSetup
-              done={() => {
-                refresh();
-                setRound((n) => n + 1);
-              }}
-            />
-          </section>
-
-          <section className="setting" id="models">
-            <h2>Models</h2>
-            <Fields fields={fields} saved={saved} asks={MODELS} />
-          </section>
-
-          <section className="setting" id="alerts">
-            <h2>Email and alerts</h2>
-            <p className="empty">
-              Get an email when someone signs in from a new place, or when a job starts or stops failing. Sent with
-              Resend.
-            </p>
-            <Fields fields={fields} saved={saved} asks={MAIL} />
-          </section>
-
-          <section className="setting" id="search">
-            <h2>Web search</h2>
-            <Fields fields={fields} saved={saved} asks={SEARCH} />
-          </section>
-
-          <section className="setting" id="owner">
-            <h2>Owner</h2>
-            <Fields fields={fields} saved={saved} asks={OWNER} />
-          </section>
-        </>
-      )}
-
-      <section className="setting" id="keys">
-        <h2>Keys</h2>
-        <Keys key={round} />
-      </section>
-
-      <section className="setting" id="file">
-        <h2>chloe.config.ts</h2>
-        <details>
-          <summary>The file as text</summary>
-          <Config key={round} loaded={refresh} />
-        </details>
-      </section>
-    </>
+    </div>
   );
 }
 
-const MODELS: Ask[] = [
+const MODEL: Ask[] = [
   {
     path: "model.defaultModel",
     label: "Default model",
     placeholder: "anthropic/claude-sonnet-5",
     about: "Used by any agent that does not pick its own.",
+  },
+  {
+    path: "model.preferredRoute",
+    label: "Ways to reach a model, in order",
+    kind: "list",
+    placeholder: "claude, codex, antigravity, opencode, direct, gateway",
+    about:
+      "Each call takes the first one that can run the model and is set up here. Any of claude, codex, antigravity, opencode, direct and gateway. Empty is all of them, in that order.",
+  },
+  {
+    path: "model.models",
+    label: "Models to pick from",
+    kind: "list",
+    placeholder: "anthropic/claude-sonnet-5, openai/gpt-5.5",
+    about: "What /models in a chat offers. Empty lists every model this machine can reach.",
   },
   {
     path: "model.keys.anthropic",
@@ -114,9 +171,32 @@ const MODELS: Ask[] = [
     about: "The same for OpenAI models. Without one, Chloe uses Codex on your ChatGPT plan.",
   },
   { path: "model.key", label: "Gateway key", kind: "secret", about: "For a gateway that reaches any model." },
+  {
+    path: "model.gatewayUrl",
+    label: "Gateway address",
+    placeholder: "https://ai-gateway.vercel.sh/v1/chat/completions",
+    about: "Any gateway that takes OpenAI-style requests. It ends in /chat/completions.",
+  },
+  {
+    path: "model.timeLimit",
+    label: "Longest call, in minutes",
+    kind: "number",
+    about: "A call still going then is stopped and its run fails. 0 is no limit.",
+  },
+  {
+    path: "model.namingModel",
+    label: "Model that names a chat",
+    placeholder: "anthropic/claude-haiku-4.5",
+    about: "Gives each new chat a short name from its first message.",
+  },
+  {
+    path: "model.judgeModel",
+    label: "Model that grades evals",
+    placeholder: "anthropic/claude-sonnet-5",
+  },
 ];
 
-const MAIL: Ask[] = [
+const EMAIL: Ask[] = [
   {
     path: "email.provider",
     label: "Send mail with",
@@ -126,7 +206,11 @@ const MAIL: Ask[] = [
       ["gmail", "Gmail, as the Google account"],
       ["none", "Nothing: only write it to the log"],
     ],
+    about: "For a job that sends mail without naming a service. Alerts always go through Resend.",
   },
+];
+
+const RESEND: Ask[] = [
   { path: "connections.resend.api_key", label: "Resend API key", kind: "secret" },
   { path: "connections.resend.alerts", label: "Send alerts", kind: "switch" },
   { path: "connections.resend.email_to", label: "Alerts go to", placeholder: "you@example.com" },
@@ -138,12 +222,22 @@ const MAIL: Ask[] = [
   },
 ];
 
-const SEARCH: Ask[] = [
+const BRAVE: Ask[] = [
   {
     path: "connections.brave.api_key",
     label: "Brave Search API key",
     kind: "secret",
     about: "Optional. Without one, Chloe searches DuckDuckGo, which can stop answering if you search a lot.",
+  },
+];
+
+const SERVE: Ask[] = [
+  {
+    path: "serve.url",
+    label: "Address of this page",
+    placeholder: "https://chloe.example.com",
+    about:
+      "Where this page is opened from other machines, so an agent can send a link to a file. Where the server listens is changed in the file, because a wrong one loses this page.",
   },
 ];
 

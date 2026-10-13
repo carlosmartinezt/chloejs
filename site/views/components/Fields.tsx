@@ -7,8 +7,11 @@ import type { Field } from "../../lib/types.ts";
 export interface Ask {
   path: string;
   label: string;
-  /** Words by default. A secret is pasted, goes into .env and is never shown again. */
-  kind?: "words" | "secret" | "switch" | "choice";
+  /**
+   * Words by default. A secret is pasted, goes into .env and is never shown
+   * again. A list is typed as words with commas between them.
+   */
+  kind?: "words" | "secret" | "switch" | "choice" | "list" | "number";
   /** For a choice: each value and what to call it. */
   choices?: [string, string][];
   placeholder?: string;
@@ -52,7 +55,7 @@ export function Fields({ fields, asks, saved }: { fields: Field[]; asks: Ask[]; 
   function save(event: React.FormEvent) {
     event.preventDefault();
     // Words left empty put the default back, rather than writing "" into the file.
-    void send(changed.map((ask) => ({ path: ask.path, value: draft[ask.path] === "" ? null : draft[ask.path] })));
+    void send(changed.map((ask) => ({ path: ask.path, value: draft[ask.path] === "" ? null : sent(ask, draft[ask.path]) })));
   }
 
   return (
@@ -95,6 +98,7 @@ export function Fields({ fields, asks, saved }: { fields: Field[]; asks: Ask[]; 
               <span className="with">
                 <input
                   type={ask.kind === "secret" ? "password" : "text"}
+                  inputMode={ask.kind === "number" ? "decimal" : undefined}
                   autoComplete="off"
                   spellCheck={false}
                   value={String(draft[ask.path] ?? "")}
@@ -137,5 +141,15 @@ export function Fields({ fields, asks, saved }: { fields: Field[]; asks: Ask[]; 
 function shown(ask: Ask, field: Field | undefined): string | boolean {
   if (ask.kind === "secret") return "";
   if (ask.kind === "switch") return field?.value === true;
+  if (ask.kind === "list") return Array.isArray(field?.value) ? field.value.join(", ") : "";
   return typeof field?.value === "string" ? field.value : field?.value === undefined ? "" : String(field.value);
+}
+
+/** What a box's text is saved as: a list split at its commas, a number as a number, anything else as it is. */
+function sent(ask: Ask, value: string | boolean): unknown {
+  if (typeof value !== "string") return value;
+  if (ask.kind === "list") return value.split(",").map((one) => one.trim()).filter(Boolean);
+  // A number that is not one is sent as typed, and the server says what it takes.
+  if (ask.kind === "number") return Number.isFinite(Number(value)) ? Number(value) : value;
+  return value;
 }

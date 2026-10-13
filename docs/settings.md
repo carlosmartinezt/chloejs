@@ -59,9 +59,12 @@ message saying a key is missing gives both the name and the config line.
 Every setting with its default is in [the settings reference](/reference/settings),
 and your editor shows each one's explanation as you type it.
 
-The dashboard's Configuration page (`/configuration`) changes them as forms:
-Google, the default model and the provider keys, mail and alerts, web search
-and the owner. A form changes the one value in `chloe.config.ts` and leaves
+The dashboard's Configuration page (`/configuration`) changes them as forms,
+in the order the config says them: the model settings and keys, which service
+sends mail, the connections (Resend and its alerts, Google, Brave Search), the
+address the dashboard is reached at (`serve.url`), and the owner. Where the
+server listens, `serve.host` and `serve.port`, is changed in the file only,
+because a wrong one loses the page. A form changes the one value in `chloe.config.ts` and leaves
 the rest of the file, comments included, as it was. A key goes into `.env`,
 under the name the config already reads it from, or the suggested one, and the
 config names it as `process.env.<name>`. A value the file says as code (a
