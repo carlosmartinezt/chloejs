@@ -1,4 +1,4 @@
-// Chloe's hat, drawn in the terminal, with a few lines beside it. Printed at the
+// Chloe's name, drawn in the terminal, with a few lines beside it. Printed at the
 // top of setup and when the server starts in a terminal.
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -6,38 +6,36 @@ import { fileURLToPath } from "node:url";
 
 import { accent, bold, dim, rgb } from "./style.ts";
 
-/** One letter a pixel: c the hat, g the ribbon, h the hair, . nothing. Two rows make one line of text. */
-const HAT = [
-  "......cccccc......",
-  ".....cccccccc.....",
-  ".gg..cccccccc.....",
-  "..ggggggggggg.....",
-  ".gg.gcccccccc.....",
-  ".cccgcccccccccccc.",
-  "ccccccccccccccccc.",
-  "..hhhh.......hhhh.",
-  ".hhhh.........hhh.",
-  ".hh............hhh",
-];
+/** One letter a pixel: # is lit, . is nothing. Seven rows tall, bottom aligned. */
+const LETTERS: Record<string, string[]> = {
+  C: [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."],
+  h: ["#....", "#....", "#.##.", "##..#", "#...#", "#...#", "#...#"],
+  l: ["#", "#", "#", "#", "#", "#", "#"],
+  o: [".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###."],
+  e: [".....", ".....", ".###.", "#...#", "#####", "#....", ".####"],
+};
 
-const COLOURS: Record<string, string> = { c: "#f7ecd8", g: "#4a9d5b", h: "#1d7a5c" };
+const WORD = Array.from({ length: 8 }, (_, row) =>
+  [..."Chloe"].map((letter) => LETTERS[letter]![row] ?? ".".repeat(LETTERS[letter]![0]!.length)).join("."),
+);
+
+const COLOUR = "#f7ecd8";
 
 /**
- * The hat as lines of text. Each character is two pixels, one above the other:
- * the top one in the character's colour and the bottom one in its background.
+ * The word as lines of text. Each character is two pixels, one above the other:
+ * the top one in the foreground colour and the bottom one in its background.
  */
-function hat(): string[] {
+function word(): string[] {
   const lines: string[] = [];
-  for (let row = 0; row < HAT.length; row += 2) {
+  for (let row = 0; row < WORD.length; row += 2) {
     let line = "";
-    for (let column = 0; column < HAT[row]!.length; column++) {
-      const top = COLOURS[HAT[row]![column]!];
-      const bottom = COLOURS[HAT[row + 1]?.[column] ?? "."];
-      if (!top && !bottom) line += " ";
-      else if (!top) line += `${rgb(bottom!, 38)}▄\u001b[0m`;
-      else if (!bottom) line += `${rgb(top, 38)}▀\u001b[0m`;
-      else if (top === bottom) line += `${rgb(top, 38)}█\u001b[0m`;
-      else line += `${rgb(top, 38)}${rgb(bottom, 48)}▀\u001b[0m`;
+    for (let column = 0; column < WORD[row]!.length; column++) {
+      const top = WORD[row]![column] === "#";
+      const bottom = WORD[row + 1]?.[column] === "#";
+      if (top && bottom) line += `${rgb(COLOUR, 38)}█\u001b[0m`;
+      else if (top) line += `${rgb(COLOUR, 38)}▀\u001b[0m`;
+      else if (bottom) line += `${rgb(COLOUR, 38)}▄\u001b[0m`;
+      else line += " ";
     }
     lines.push(line);
   }
@@ -56,20 +54,20 @@ function version(): string {
 }
 
 /**
- * "chloe" and its version, then `lines`, beside the hat. With no colour (a
- * pipe, a journal, NO_COLOR) it is those lines alone, because the hat is
+ * "chloe" and its version, then `lines`, beside the name. With no colour (a
+ * pipe, a journal, NO_COLOR) it is those lines alone, because the name is
  * nothing but colour.
  */
 export function banner(lines: string[]): string {
   const title = `${bold(accent("chloe"))} ${dim(`v${version()}`)}`;
   const said = [title, ...lines];
   if (!process.stdout.isTTY || process.env.NO_COLOR) return `\n${said.join("\n")}\n`;
-  const drawn = hat();
+  const drawn = word();
   const first = Math.max(0, Math.floor((drawn.length - said.length) / 2));
   const rows = Math.max(drawn.length, first + said.length);
   const out: string[] = [];
   for (let at = 0; at < rows; at++) {
-    out.push(`${drawn[at] ?? " ".repeat(HAT[0]!.length)}   ${said[at - first] ?? ""}`.trimEnd());
+    out.push(`${drawn[at] ?? " ".repeat(WORD[0]!.length)}   ${said[at - first] ?? ""}`.trimEnd());
   }
   return `\n${out.join("\n")}\n`;
 }
