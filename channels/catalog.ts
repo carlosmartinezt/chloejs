@@ -76,6 +76,14 @@ export const CHANNELS: ChannelKind[] = [
     ],
   },
   {
+    name: "discord",
+    fn: "discordChannel",
+    label: "Discord",
+    does: "A Discord bot. It answers in a direct message, or in a server when it is mentioned.",
+    fields: [allowFrom("Discord user ids, like 123456789012345678. Leave it empty at first: the bot tells a stranger their id."), inGroups, sendWhileWorking],
+    secrets: [{ path: "discord", label: "Bot token, from the Developer Portal" }],
+  },
+  {
     name: "whatsapp",
     fn: "whatsappChannel",
     label: "WhatsApp",

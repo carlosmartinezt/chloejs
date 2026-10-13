@@ -61,5 +61,5 @@ Every run records each step, what it returned and what it cost, so you can see
 which line asked a model and what that came to.
 
 Next: [run it on a schedule](/docs/schedules), put it on
-[Telegram, Slack, WhatsApp or email](/docs/channels), or read
+[Telegram, Slack, Discord, WhatsApp or email](/docs/channels), or read
 [the examples](/examples).

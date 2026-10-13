@@ -36,6 +36,10 @@ const FOR: { has: (agent: AgentSummary) => boolean; say: (agent: AgentSummary) =
     say: () => ["Post in Slack when something needs me."],
   },
   {
+    has: (agent) => agent.channels.some((name) => name.startsWith("discord")),
+    say: () => ["Message me on Discord when a job needs an answer."],
+  },
+  {
     has: (agent) => agent.channels.some((name) => name.startsWith("whatsapp")),
     say: () => ["Send me a WhatsApp message when a job needs an answer."],
   },

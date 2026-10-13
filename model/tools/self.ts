@@ -82,7 +82,7 @@ export function ownReadTools(): (agent: Home) => Tools {
       tool({
         description:
           "Read the guides for the version of Chloe you run on: what you can be given and how. Connections (Gmail, " +
-          "Calendar, Drive, sending mail), channels (Telegram, Slack, WhatsApp, email, a chat box on a website), " +
+          "Calendar, Drive, sending mail), channels (Telegram, Slack, Discord, WhatsApp, email, a chat box on a website), " +
           "tools like reading web pages, jobs and their schedules, settings. Give every guide you need in one call: " +
           "the list of them is in your purpose.",
         inputSchema: z.object({

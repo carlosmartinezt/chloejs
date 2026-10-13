@@ -14,7 +14,7 @@ chloe is built for one person running their own agents. What that means today:
   account in settings, whoever asked.
 - **Every run has an owner**: whoever started it, or for a run the clock
   started, `owner` in settings, or else the first person in the agent's
-  Telegram, Slack or WhatsApp `allowFrom`. A job's question goes to the owner
+  Telegram, Slack, Discord or WhatsApp `allowFrom`. A job's question goes to the owner
   unless its `who` says otherwise.
 - **You can invite people** to one agent or more, from People on the page.
 

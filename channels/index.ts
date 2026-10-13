@@ -9,6 +9,7 @@
 
 export { telegramChannel, type TelegramOptions } from "./telegram.ts";
 export { slackChannel, type SlackOptions } from "./slack.ts";
+export { discordChannel, type DiscordOptions } from "./discord.ts";
 export { whatsappChannel, type WhatsAppOptions } from "./whatsapp.ts";
 export { emailChannel, openEmail, type EmailOptions, type Mailbox, type OutgoingMail, type Started } from "./email.ts";
 export { apiChannel } from "./api.ts";

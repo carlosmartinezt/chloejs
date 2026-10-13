@@ -61,6 +61,11 @@ export interface AgentSettings {
     app_token: string;
   };
   /**
+   * The token of the agent's Discord bot, from the Bot page of an application
+   * at discord.com/developers/applications. Default: "" (no Discord bot).
+   */
+  discord: string;
+  /**
    * The agent's WhatsApp number, on WhatsApp's own API. You find all three
    * values on your app's pages at developers.facebook.com. Default: all "".
    */
@@ -441,6 +446,7 @@ export const DEFAULTS: Settings = {
 const AGENT_DEFAULTS: AgentSettings = {
   telegram: "",
   slack: { bot_token: "", app_token: "" },
+  discord: "",
   whatsapp: { phone_number_id: "", token: "", app_secret: "" },
   email: { address: "", password: "", imap: "", smtp: "" },
 };

@@ -104,7 +104,8 @@ export function ownedBy(agent: string, address: string): void {
  * questions and approvals go to this person when no one else is named.
  *
  * It is `owner` in settings, if set. If not, it is the first id in
- * `allowFrom` of the agent's Telegram, Slack or WhatsApp channel. Returns
+ * `allowFrom` of the agent's Telegram, Slack, Discord or WhatsApp channel.
+ * Returns
  * `""` if there is neither.
  */
 export function owner(agent = ""): string {

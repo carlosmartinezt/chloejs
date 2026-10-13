@@ -1,6 +1,6 @@
 ---
 name: chloejs
-description: Install Chloe (chloejs.org, the @chloejs/core TypeScript agent runtime) and build agents on it, with tools (Gmail, Calendar, Drive, web pages, files), chat channels (Slack, Telegram, WhatsApp, email, a chat box on a website) and scheduled jobs. Use when someone asks to install chloejs or Chloe, to make or change a Chloe agent, job, tool or channel, or works in a folder with a chloe.config.ts.
+description: Install Chloe (chloejs.org, the @chloejs/core TypeScript agent runtime) and build agents on it, with tools (Gmail, Calendar, Drive, web pages, files), chat channels (Slack, Telegram, Discord, WhatsApp, email, a chat box on a website) and scheduled jobs. Use when someone asks to install chloejs or Chloe, to make or change a Chloe agent, job, tool or channel, or works in a folder with a chloe.config.ts.
 ---
 
 # Chloe

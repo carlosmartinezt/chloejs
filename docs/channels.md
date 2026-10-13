@@ -1,7 +1,7 @@
 ---
 title: Channels
 order: 6
-summary: Putting an agent on Telegram, Slack, WhatsApp or email, in a chat box on your website, or opening it to another system over HTTP. What to set for each, and every option.
+summary: Putting an agent on Telegram, Slack, Discord, WhatsApp or email, in a chat box on your website, or opening it to another system over HTTP. What to set for each, and every option.
 ---
 
 A channel is how people reach an agent, and how a job's question reaches a
@@ -20,6 +20,7 @@ page of its own.
 |---|---|---|---|
 | [Telegram](/docs/channels-telegram) | Telegram user ids in `allowFrom` | a bot token | no |
 | [Slack](/docs/channels-slack) | Slack member ids in `allowFrom` | two app tokens | no |
+| [Discord](/docs/channels-discord) | Discord user ids in `allowFrom` | a bot token | no |
 | [WhatsApp](/docs/channels-whatsapp) | numbers in `allowFrom`, or anybody when unset | a number registered with Meta | a route your web server passes on |
 | [Email](/docs/channels-email) | addresses in `allowFrom`, and only once the agent wrote first | the Google sign-in, or a mailbox of your own | no |
 | [A web page](/docs/channels-web) | visitors to the sites in `origins` | a token on your site's server | a few routes your web server passes on |
@@ -35,12 +36,12 @@ Saving the config or `.env` starts the channel, with no restart.
 
 ## Options they share
 
-Telegram, Slack, WhatsApp and email take these. A web page and HTTP have their
+Telegram, Slack, Discord, WhatsApp and email take these. A web page and HTTP have their
 own, on their pages.
 
 | Option | Default | What it controls |
 |---|---|---|
-| `allowFrom` | nobody (anybody on WhatsApp; required on email) | Who may reach the agent, as the platform names them. While the list is empty, a private message is answered with the sender's id, which is what goes in it. On Telegram, Slack and WhatsApp, the first entry is who the agent's jobs ask when they name nobody. |
+| `allowFrom` | nobody (anybody on WhatsApp; required on email) | Who may reach the agent, as the platform names them. While the list is empty, a private message is answered with the sender's id, which is what goes in it. On Telegram, Slack, Discord and WhatsApp, the first entry is who the agent's jobs ask when they name nobody. |
 | `name` | the kind, like `"telegram"` | Only needed when an agent has two of one kind. It is the start of every address on the channel: `telegram:12345`. |
 | `chatHistory` | `{ messages: 10 }` | How much of a conversation each turn is shown: the last `messages`, none older than `days`. Nothing is deleted. |
 | `sendWhileWorking` | off | Sends what the model writes on its way to an answer, not only the answer. Not on email. |

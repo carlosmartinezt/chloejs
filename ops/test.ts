@@ -28,6 +28,7 @@ for (const part of [
   "files",
   "telegram",
   "slack",
+  "discord",
   "whatsapp",
   "email",
   "api-channel",

@@ -176,7 +176,7 @@ loopback (`serve.host` moves it, for a container behind a proxy, and nothing
 else should). `npx chloe --remote` is the one exception, for a server reached
 over SSH: HTTPS on every address with a certificate chloe makes
 (`serve/certificate.ts`), and plain HTTP from loopback only (`bothWays()` in
-`serve/http.ts`). Telegram, Slack and email work because chloe calls out to them.
+`serve/http.ts`). Telegram, Slack, Discord and email work because chloe calls out to them.
 A channel that can only be pushed to, which is what WhatsApp is, answers on its
 own route, which the owner's own web server passes on. Reaching the dashboard
 from elsewhere is the owner's tunnel, private network or web server, never a
@@ -685,6 +685,16 @@ and an allowlist of its own.
 
 **Slack is the same shape**: `slackChannel({ allowFrom: [...] })`, with Slack member ids. It uses Socket Mode only,
 chloe connecting out to Slack, so it adds no path past the login at all.
+
+**Discord is the same shape again**: `discordChannel({ allowFrom: [...] })`,
+with Discord user ids as strings (they do not fit a JavaScript number). chloe
+connects out to Discord's gateway and takes the session up again when Discord
+closes it, so a message sent in between is not lost. It asks for Message
+Content Intent, which the owner turns on in the Developer Portal: without it
+Discord refuses the connection with 4014, and the log says what to switch on.
+Nothing it sends may ping anybody (`allowed_mentions` is empty), because the
+words are the model's. A job runs from `/<job id>` typed as a message; it
+registers no slash commands.
 
 **WhatsApp is WhatsApp's own API, and nothing else.** `whatsappChannel()` needs
 no library: a number registered with Meta, a token, and one route past the login

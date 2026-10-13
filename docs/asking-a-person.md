@@ -29,17 +29,18 @@ without asking.
 |---|---|
 | `telegram:12345` | a Telegram user id |
 | `slack:U0123ABCD` | a Slack member id |
+| `discord:123456789012345678` | a Discord user id, in a direct message |
 | `whatsapp:+447700900123` | a WhatsApp number, if they wrote in the last 24 hours |
 | `email:someone@example.com` | a new email conversation, with someone in that channel's `allowFrom` |
 | `web:<visitor>` | a visitor, next time the chat box loads |
 
 The run's owner is whoever started it. For a run the clock started, it is
 `owner` in settings, or else the first entry in `allowFrom` of the agent's
-Telegram, Slack or WhatsApp channel.
+Telegram, Slack, Discord or WhatsApp channel.
 
 **The answer is read by code, not a model.** "yes" against `z.boolean()` is a
 yes. An answer that does not fit is asked again in plain words. A yes or no
-question arrives with two buttons on Telegram and Slack, and up to three
+question arrives with two buttons on Telegram, Slack and Discord, and up to three
 choices arrive as buttons on WhatsApp. Pressing one answers and removes the
 buttons, so nobody answers twice.
 
