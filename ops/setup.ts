@@ -4,7 +4,7 @@
 //   npx chloe setup --yes            takes every default and asks nothing
 //
 // It writes the files a project needs, with a first agent that has nothing but
-// instructions, so there is something to talk to on the page that changes
+// purpose, so there is something to talk to on the page that changes
 // itself when asked. It installs TypeScript, puts the server on a free port,
 // and asks which model to use and checks that model actually answers. Every
 // answer has a default, so holding Enter through it works. It sets no

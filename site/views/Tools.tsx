@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react";
 
 import { api, missing } from "../lib/api.ts";
-import { labelOf, words } from "../lib/format.ts";
+import { nameOf, words } from "../lib/format.ts";
 import { Link } from "./components/Link.tsx";
 import { Options } from "./components/Options.tsx";
-import type { AgentFeature, AgentTool } from "../lib/types.ts";
+import type { AgentAbility, AgentTool } from "../lib/types.ts";
 
 /**
- * What an agent can do, by where each tool comes from: each feature with its
+ * What an agent can do, by where each tool comes from: each ability with its
  * switch, then the agent's own tools, then each connection's. A tool opens to
  * the words the model is given for it and what it takes, so what is here is
- * what it knows. A switch changes `features` in the agent's agent.ts.
+ * what it knows. A switch changes `abilities` in the agent's agent.ts.
  */
 export function Tools({ agent }: { agent: string }) {
   const [tools, setTools] = useState<AgentTool[] | null>(null);
-  const [features, setFeatures] = useState<AgentFeature[]>([]);
+  const [abilities, setAbilities] = useState<AgentAbility[]>([]);
   const [trouble, setTrouble] = useState("");
   const [busy, setBusy] = useState("");
 
@@ -26,21 +26,21 @@ export function Tools({ agent }: { agent: string }) {
       (all) => !stale && setTools(all),
       (error: Error) => !stale && setTrouble(missing(error, "tools")),
     );
-    // Somebody who may not read the features still sees the tools.
-    api.features(agent).then(
-      (all) => !stale && setFeatures(all),
-      () => !stale && setFeatures([]),
+    // Somebody who may not read the abilities still sees the tools.
+    api.abilities(agent).then(
+      (all) => !stale && setAbilities(all),
+      () => !stale && setAbilities([]),
     );
     return () => void (stale = true);
   }, [agent]);
 
-  const flip = async (key: string, save: () => Promise<{ features: AgentFeature[]; tools: AgentTool[] }>) => {
+  const flip = async (key: string, save: () => Promise<{ abilities: AgentAbility[]; tools: AgentTool[] }>) => {
     setBusy(key);
     setTrouble("");
     try {
       // The agent as it now loads: asking again now could still find the one before.
       const now = await save();
-      setFeatures(now.features);
+      setAbilities(now.abilities);
       setTools(now.tools);
     } catch (error) {
       setTrouble((error as Error).message);
@@ -48,14 +48,14 @@ export function Tools({ agent }: { agent: string }) {
       setBusy("");
     }
   };
-  const flipFeature = (feature: AgentFeature) => flip(feature.name, () => api.setFeature(agent, { name: feature.name, on: !feature.on }));
-  const fillIn = (feature: AgentFeature, set: Record<string, unknown>) => flip(feature.name, () => api.setFeature(agent, { name: feature.name, set }));
+  const flipAbility = (ability: AgentAbility) => flip(ability.name, () => api.setAbility(agent, { name: ability.name, on: !ability.on }));
+  const fillIn = (ability: AgentAbility, set: Record<string, unknown>) => flip(ability.name, () => api.setAbility(agent, { name: ability.name, set }));
   const flipTool = (tool: AgentTool) => flip(tool.name, () => api.setTool(agent, tool.name, !tool.on));
 
   const from = (source?: string) => (tools ?? []).filter((tool) => tool.from === source);
   const connections = [
     ...new Set(
-      (tools ?? []).map((tool) => tool.from).filter((one): one is string => !!one && one !== "always" && !one.startsWith("features.")),
+      (tools ?? []).map((tool) => tool.from).filter((one): one is string => !!one && one !== "always" && !one.startsWith("abilities.")),
     ),
   ].sort();
   const each = (list: AgentTool[], switches: boolean) => <Each tools={list} busy={busy} flip={switches ? flipTool : undefined} />;
@@ -66,7 +66,7 @@ export function Tools({ agent }: { agent: string }) {
         <h1>Tools</h1>
       </div>
       <p className="empty">
-        What {labelOf(agent)} can do. Open a tool to read what the model is told about it. A switch changes{" "}
+        What {nameOf(agent)} can do. Open a tool to read what the model is told about it. A switch changes{" "}
         <code>agent.ts</code>, and the agent is loaded again with the change.
       </p>
       {trouble && <p className="empty frame bad">{trouble}</p>}
@@ -83,23 +83,23 @@ export function Tools({ agent }: { agent: string }) {
             <li>{each(from("always"), false)}</li>
           </ul>
 
-          <h2>Features</h2>
+          <h2>Abilities</h2>
           <ul className="ways tools">
-            {features.map((feature) => (
-              <li key={feature.name} className={feature.on ? "" : "off"}>
+            {abilities.map((ability) => (
+              <li key={ability.name} className={ability.on ? "" : "off"}>
                 <span className="line">
-                  <b>{feature.label}</b>
-                  <Switch on={feature.on} saving={busy === feature.name} disabled={busy !== ""} flip={() => flipFeature(feature)} />
+                  <b>{ability.label}</b>
+                  <Switch on={ability.on} saving={busy === ability.name} disabled={busy !== ""} flip={() => flipAbility(ability)} />
                 </span>
-                <span className="does">{feature.does}</span>
-                {feature.needs && feature.needs.missing.length > 0 && (
+                <span className="does">{ability.does}</span>
+                {ability.needs && ability.needs.missing.length > 0 && (
                   <span className="needs">
-                    Needs {feature.needs.name}: {feature.needs.missing.join(" ")} <Link to={{ at: "connections", agent }}>Connections</Link>
+                    Needs {ability.needs.name}: {ability.needs.missing.join(" ")} <Link to={{ at: "connections", agent }}>Connections</Link>
                   </span>
                 )}
-                {each(from(`features.${feature.name}`), feature.on && feature.tools.length > 1 && !feature.fields)}
-                {feature.on && feature.fields && (
-                  <Options fields={feature.fields} busy={busy !== ""} save={(set) => fillIn(feature, set)} />
+                {each(from(`abilities.${ability.name}`), ability.on && ability.tools.length > 1 && !ability.fields)}
+                {ability.on && ability.fields && (
+                  <Options fields={ability.fields} busy={busy !== ""} save={(set) => fillIn(ability, set)} />
                 )}
               </li>
             ))}

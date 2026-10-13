@@ -18,7 +18,7 @@ npx chloe setup       # the files, a model, a free port: it asks, and checks
 npx chloe             # the agents, the cron lines, one port, and a link that opens the page
 ```
 
-`setup` writes `chloe.config.ts` and a first agent, with instructions and
+`setup` writes `chloe.config.ts` and a first agent, with a purpose and
 nothing else, which changes itself when you ask it to on the page. It asks which
 model to use and makes one call to be sure it answers. Run it again later and it
 leaves what is already there alone.
@@ -72,7 +72,7 @@ what each message is about, and the ones that need looking into get an agent.
 export default defineJob({
   id: "order-issues",
   cron: every(15).minutes,
-  description: "Reads what customers wrote in and looks into the ones that need looking into.",
+  identity: "Reads what customers wrote in and looks into the ones that need looking into.",
   run: async (work) => {
     const messages = await work.step("load messages", () => unread());
 
@@ -177,7 +177,7 @@ resume, so it must not send, write or spend.
 | Human approvals | A run parks for days and carries on when somebody answers. |
 | Channels | Telegram, Slack, WhatsApp, email and a chat box on your website, one file each, and no dependency of their own. A question goes out where the person is. |
 | Memory | A folder of notes per agent, in one git repository of their own: one commit per run, under the agent's id. |
-| Self-improvement | An agent can rewrite its skills, jobs and instructions if you let it, never its code. Every change can be undone. |
+| Self-improvement | An agent can rewrite its purpose, skills and jobs if you let it, never its code. Every change can be undone. |
 | Run history | Every step of every run, with its arguments and its answer. |
 | Cost tracking | Per step, per run, per job. |
 | Structured output | Zod on every model and agent answer, retried once. |
@@ -215,7 +215,7 @@ Either way, `node morning.ts` starts it. See
 [the examples](https://chloejs.org/examples).
 
 An agent written for the AI SDK's `ToolLoopAgent` moves across as it is: its
-`id`, `model`, `instructions`, `tools`, `stopWhen` and `toolApproval` go into
+`id`, `model`, `purpose`, `tools`, `stopWhen` and `toolApproval` go into
 `defineAgent` unchanged, and chloe's own loop runs them, so each
 call is approved, budgeted and written down like any other.
 
@@ -227,8 +227,8 @@ import { z } from "zod";
 
 export default defineAgent({
   id: "weather",
-  description: "Says what the weather is.",
-  instructions: "Answer about the weather.",
+  identity: "Says what the weather is.",
+  purpose: "Answer about the weather.",
   model: anthropic("claude-opus-5-5"),
   tools: {
     weather: tool({

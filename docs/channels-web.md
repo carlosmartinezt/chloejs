@@ -94,7 +94,7 @@ const { text } = await chat.send("Where is my order?", {
 **What the agent knows about a visitor.** Each message reaches the model with
 their id, the site, when they first came, how many messages before, their
 country and browser, and your `facts`, never their IP address. With
-`features: { memoryPerUser: true }` it keeps a note on each visitor.
+`abilities: { memoryPerUser: true }` it keeps a note on each visitor.
 `GET /api/agents/<id>/web/visitors` lists them.
 
 **What you see.** Each visitor's conversation is in the agent's chat list,

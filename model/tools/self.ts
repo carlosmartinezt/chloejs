@@ -5,7 +5,7 @@
 // and nothing in it came from outside. Its runs, and the guides and selfTryJob,
 // are the runtime's, added only to a turn its owner wrote (`forOwner` in
 // model/tool.ts), because a run holds what other people said. selfWriteFile is
-// in every agent's tools while `features.selfImprovement` is on, and in a turn only
+// in every agent's tools while `abilities.selfImprovement` is on, and in a turn only
 // when the owner asked and may change it (`changesAgent`).
 import { tool } from "ai";
 import { z } from "zod";
@@ -31,7 +31,7 @@ export function selfFolderTools(may: boolean): (agent: Home) => Tools {
     selfListFiles: ownRead("List files", "list",
       tool({
         description:
-          "List the files in your own folder (your instructions, skills and jobs), and which of them you can " +
+          "List the files in your own folder (your purpose, skills and jobs), and which of them you can " +
           "change. Your memory is not in it: that is memoryListFiles.",
         inputSchema: z.object({}),
         execute: () => ownFiles(agent, may),
@@ -40,10 +40,10 @@ export function selfFolderTools(may: boolean): (agent: Home) => Tools {
     selfReadFile: ownRead("Read file", "read",
       tool({
         description:
-          "Read files in your own folder, like instructions.md, agent.ts and jobs/morning-run.ts: to say how you do " +
+          "Read files in your own folder, like purpose.md, agent.ts and jobs/morning-run.ts: to say how you do " +
           "something, to read your own source code, or before you change it. Give every file you need in one call.",
         inputSchema: z.object({
-          paths: z.array(z.string()).min(1).max(30).describe("Paths inside your folder, from the list in your instructions."),
+          paths: z.array(z.string()).min(1).max(30).describe("Paths inside your folder, from the list in your purpose."),
         }),
         execute: ({ paths }) => Promise.all(paths.map((path) => ownFile(agent, may, path).catch((error: unknown) => ({ path, error: message(error) })))),
       }),
@@ -84,7 +84,7 @@ export function selfReadTools(): (agent: Home) => Tools {
           "Read the guides for the version of Chloe you run on: what you can be given and how. Connections (Gmail, " +
           "Calendar, Drive, sending mail), channels (Telegram, Slack, WhatsApp, email, a chat box on a website), " +
           "tools like reading web pages, jobs and their schedules, settings. Give every guide you need in one call: " +
-          "the list of them is in your instructions.",
+          "the list of them is in your purpose.",
         inputSchema: z.object({
           pages: z.array(z.string()).min(1).max(10).describe('Guides\' names from the list, like "connections".'),
         }),
@@ -132,7 +132,7 @@ function writeTool(agent: Home): ChloeTool {
   return Object.assign(
     tool({
       description:
-        "Change files in your own folder: your instructions, skills, jobs and code. Each replaces the whole file, so read it " +
+        "Change files in your own folder: your purpose, skills, jobs and code. Each replaces the whole file, so read it " +
         "first and include everything you want kept. Give every file one change needs in one call: they are " +
         "written together and committed as one change, with your message. A markdown file directly in skills/ is a " +
         "skill, with name and description at the top: keep it short and about how to do the job, and write down only " +

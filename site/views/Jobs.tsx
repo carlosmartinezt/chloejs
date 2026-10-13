@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { api } from "../lib/api.ts";
-import { kindOf, labelOf } from "../lib/format.ts";
+import { kindOf, nameOf } from "../lib/format.ts";
 import { go } from "../lib/route.ts";
 import type { AgentSummary } from "../lib/types.ts";
 import { Link } from "./components/Link.tsx";
@@ -47,7 +47,7 @@ export function Jobs({
       <div className="head">
         <h1>Jobs</h1>
       </div>
-      <p className="empty">What {labelOf(id)} runs on a clock, and what it will run when asked.</p>
+      <p className="empty">What {nameOf(id)} runs on a clock, and what it will run when asked.</p>
       {trouble && <p className="bad">{trouble}</p>}
       {agent.jobs.length === 0 ? (
         <p className="empty frame">

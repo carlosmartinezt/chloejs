@@ -328,12 +328,12 @@ describe("a connection, and what it is missing", () => {
 });
 
 describe("things to ask under an empty chat box", () => {
-  const plain = { id: "a", description: "", model: "", declaredModel: "", chosen: [], channels: [], api: false, memory: "", tools: [], toolsFrom: {}, skills: [], jobs: [] };
+  const plain = { id: "a", identity: "", model: "", declaredModel: "", chosen: [], channels: [], api: false, memory: "", tools: [], toolsFrom: {}, skills: [], jobs: [] };
   test("an agent with nothing turned on gets the one that fits any agent", () => {
     deepStrictEqual(ideasFor(plain), ["What can you do?"]);
   });
   test("what it has turned on decides the rest, three at most", () => {
-    const self = { ...plain, toolsFrom: { selfWriteFile: "features.selfImprovement" }, channels: ["telegram"] };
+    const self = { ...plain, toolsFrom: { selfWriteFile: "abilities.selfImprovement" }, channels: ["telegram"] };
     const said = ideasFor(self, 3, () => 0);
     strictEqual(said.length, 3);
     const every = ideasFor(self, 99);

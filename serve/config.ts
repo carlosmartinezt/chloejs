@@ -1,4 +1,4 @@
-// chloe.config.ts, and the features in an agent's agent.ts, read and written
+// chloe.config.ts, and the abilities in an agent's agent.ts, read and written
 // from the page. A save is loaded as the next reload would load it, and type
 // checked when the project has TypeScript, and put back with the reason when
 // either fails.
@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { envNames, writeEnv } from "#chloe/core/env";
 import { DEFAULTS, KEYS, nameInEnv, settings } from "#chloe/core/settings";
-import { checkFirst, CONFIG, FEATURES, loadAgain, loadAll, type Agent, type Home } from "#chloe/load/load";
+import { checkFirst, CONFIG, ABILITIES, loadAgain, loadAll, type Agent, type Home } from "#chloe/load/load";
 import { defaultOf, fits, takes, type OptionSpec } from "#chloe/load/options";
 import { typeProblems } from "#chloe/services/selfService";
 import { BadRequest, NotFound } from "./errors.ts";
@@ -169,17 +169,17 @@ export async function changeSettings(changes: { path: string; value: unknown }[]
 }
 
 /**
- * Changes one of an agent's features in its agent.ts, and hands back the
+ * Changes one of an agent's abilities in its agent.ts, and hands back the
  * agent as it now loads: `on` switches it, and `set` gives its fields, each a
- * value or `null` to put the default back. The file says a feature only where
- * it differs from what the feature is unsaid. Refused as `InCode` where the
+ * value or `null` to put the default back. The file says an ability only where
+ * it differs from what the ability is unsaid. Refused as `InCode` where the
  * file writes it as code.
  */
-export async function changeFeature(agent: Home, name: string, change: { on?: boolean; set?: Record<string, unknown> }): Promise<Agent> {
-  const feature = FEATURES.find((one) => one.name === name);
-  if (!feature) throw new BadRequest(`There is no feature called ${name}. There are ${FEATURES.map((one) => one.name).join(", ")}.`);
-  const set = checked(feature.fields ?? [], change.set, `features.${name}`);
-  return changeAgentFile(agent, (text) => setOptionsIn(text, "features", name, { on: change.on, set }, feature.on));
+export async function changeAbility(agent: Home, name: string, change: { on?: boolean; set?: Record<string, unknown> }): Promise<Agent> {
+  const ability = ABILITIES.find((one) => one.name === name);
+  if (!ability) throw new BadRequest(`There is no ability called ${name}. There are ${ABILITIES.map((one) => one.name).join(", ")}.`);
+  const set = checked(ability.fields ?? [], change.set, `abilities.${name}`);
+  return changeAgentFile(agent, (text) => setOptionsIn(text, "abilities", name, { on: change.on, set }, ability.on));
 }
 
 /**
@@ -263,7 +263,7 @@ function agentObject(text: string): number {
   return open.index + open[0].length - 1;
 }
 
-/** How agent.ts says a feature or a channel: nothing, true or false, its fields written out, or as code. */
+/** How agent.ts says an ability or a channel: nothing, true or false, its fields written out, or as code. */
 export type Said =
   | { kind: "absent" }
   | { kind: "flag"; on: boolean }
@@ -276,7 +276,7 @@ export type Said =
     }
   | { kind: "code" };
 
-/** How agent.ts's text says `<root>.<name>`, root being `features` or `channels`. */
+/** How agent.ts's text says `<root>.<name>`, root being `abilities` or `channels`. */
 export function saidIn(text: string, root: string, name: string): Said {
   const at = agentObject(text);
   const group = entries(text, at).find((one) => one.key === root);
@@ -314,7 +314,7 @@ const typed = (value: unknown): string => (Array.isArray(value) ? `[${value.map(
 
 /**
  * agent.ts's text with `<root>.<name>` changed: `on` switches it, and `set`
- * gives its fields, each a value or `null` to take it out. A feature or
+ * gives its fields, each a value or `null` to take it out. A ability or
  * channel that is on with no field to say is written `true`, and one that is
  * off is written `false` when it is on unless said (`defaultOn`) and taken
  * out otherwise. A field that is code is never touched: `InCode` when the
@@ -322,7 +322,7 @@ const typed = (value: unknown): string => (Array.isArray(value) ? `[${value.map(
  */
 export function setOptionsIn(
   text: string,
-  root: "features" | "channels",
+  root: "abilities" | "channels",
   name: string,
   change: { on?: boolean; set?: Record<string, unknown> },
   defaultOn: boolean,

@@ -1,7 +1,7 @@
 // What changed in an agent's folders, as git history.
 //
 // Two places can hold it: the agent's memory, a folder in the repository every
-// memory shares, and the agent's own folder (instructions, skills, jobs),
+// memory shares, and the agent's own folder (purpose, skills, jobs),
 // usually inside the repository the agents are written in. So a place is a
 // folder inside a repository and never a repository, and everything here is
 // scoped to that folder: what is listed, what is shown, and above all what is

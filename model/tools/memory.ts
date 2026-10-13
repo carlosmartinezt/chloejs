@@ -1,7 +1,7 @@
 // An agent's memory, as tools: memoryListFiles, memoryReadFile, memorySearchFiles
 // and memoryEditFile, all inside the one folder its definition's `memory` names
 // (memory/ in its own folder when it names none). The loader adds them
-// unless `features.memory` is false, so an agent's `tools` never lists them.
+// unless `abilities.memory` is false, so an agent's `tools` never lists them.
 import { mkdirSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";

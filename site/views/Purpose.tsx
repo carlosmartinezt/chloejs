@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api, missing } from "../lib/api.ts";
-import { ago, labelOf } from "../lib/format.ts";
+import { ago, nameOf } from "../lib/format.ts";
 import { Live } from "./components/Live.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 
@@ -14,7 +14,7 @@ import { Markdown } from "./components/Markdown.tsx";
  * frontmatter with it, because that is the file. Words written into the
  * definition have no file to write: that one is code, and is edited as code.
  */
-export function Instructions({ agent }: { agent: string }) {
+export function Purpose({ agent }: { agent: string }) {
   const [said, setSaid] = useState<{ text: string; path?: string } | null>(null);
   const [again, setAgain] = useState(0);
   const [trouble, setTrouble] = useState("");
@@ -29,9 +29,9 @@ export function Instructions({ agent }: { agent: string }) {
   useEffect(() => {
     let stale = false;
     setTrouble("");
-    api.instructions(agent).then(
+    api.purpose(agent).then(
       (found) => !stale && setSaid(found),
-      (error: Error) => !stale && setTrouble(missing(error, "instructions")),
+      (error: Error) => !stale && setTrouble(missing(error, "purpose")),
     );
     return () => void (stale = true);
   }, [agent, again]);
@@ -80,7 +80,7 @@ export function Instructions({ agent }: { agent: string }) {
   return (
     <>
       <div className="head">
-        <h1>Instructions</h1>
+        <h1>Purpose</h1>
         {said?.path && (
           <div className="ends">
             {editing ? (
@@ -125,7 +125,7 @@ export function Instructions({ agent }: { agent: string }) {
           </section>
         ) : (
           <p className="empty frame">
-            {labelOf(agent)} is told nothing. It runs on its description and its tools alone.
+            {nameOf(agent)} is told nothing. It runs on its identity and its tools alone.
           </p>
         ))
       )}

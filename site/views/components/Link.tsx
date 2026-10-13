@@ -1,6 +1,6 @@
 import type { MouseEvent, ReactNode } from "react";
 
-import { labelOf } from "../../lib/format.ts";
+import { nameOf } from "../../lib/format.ts";
 import { go, href, type View } from "../../lib/route.ts";
 
 /**
@@ -30,7 +30,7 @@ export function Trail({ agent, steps }: { agent: string; steps: { name: string; 
   return (
     <nav className="trail">
       <Link to={{ at: "agent", agent }} className="who-ran">
-        {labelOf(agent)}
+        {nameOf(agent)}
       </Link>
       {steps.map((step, at) => (
         <span key={at}>

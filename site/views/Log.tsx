@@ -2,7 +2,7 @@ import { type CSSProperties, Fragment, type PointerEvent, type ReactNode, useEff
 
 import type { AgentSummary, Held, Run, RunRow, Step, Visitor } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
-import { ago, clock, dayOf, kindOf, labelOf, many, spent, text, threadName, when } from "../lib/format.ts";
+import { ago, clock, dayOf, kindOf, nameOf, many, spent, text, threadName, when } from "../lib/format.ts";
 import { gist } from "./Chat.tsx";
 import { ChangeCard } from "./components/Changes.tsx";
 import { rich } from "./components/Markdown.tsx";
@@ -50,7 +50,7 @@ export function LogTable({
             </td>
             {!agent && (
               <td>
-                <span className="who-ran">{labelOf(run.agent)}</span>
+                <span className="who-ran">{nameOf(run.agent)}</span>
               </td>
             )}
             <td className="num dim">{run.source}</td>
@@ -143,7 +143,7 @@ export function Log({
       if (!looking) return true;
       // What a person would search for: who ran, what woke it, what it said,
       // and what went wrong.
-      const hay = `${run.agent} ${labelOf(run.agent)} ${run.source} ${run.job ?? ""} ${run.model ?? ""} ${run.asked ?? ""} ${run.summary ?? ""} ${run.reply ?? ""} ${run.error ?? ""}`;
+      const hay = `${run.agent} ${nameOf(run.agent)} ${run.source} ${run.job ?? ""} ${run.model ?? ""} ${run.asked ?? ""} ${run.summary ?? ""} ${run.reply ?? ""} ${run.error ?? ""}`;
       return hay.toLowerCase().includes(looking);
     });
   }, [rows, word, channel, job, from, to, archived]);
@@ -203,7 +203,7 @@ export function Log({
     <div className={open ? "log-split reading" : "log-split"} style={{ "--list-w": `${share * 100}%` } as CSSProperties}>
       <section className="runs" aria-label="Runs">
         <div className="runs-head">
-          <h1>{agent ? `${labelOf(agent)}'s log` : "Every agent's log"}</h1>
+          <h1>{agent ? `${nameOf(agent)}'s log` : "Every agent's log"}</h1>
           <span className="num dim">{rows ? (narrowed ? `${shown.length} of ${rows.length}` : rows.length) : ""}</span>
         </div>
         <div className="filters" ref={filters}>
@@ -220,7 +220,7 @@ export function Log({
                   <option value="">Every agent</option>
                   {agents.map((one) => (
                     <option key={one.id} value={one.id}>
-                      {labelOf(one.id)}
+                      {nameOf(one.id)}
                     </option>
                   ))}
                 </select>
@@ -300,7 +300,7 @@ export function Log({
                       <span className="line">
                         <span className={run.archived ? "headline dim" : "headline"}>{headline(run)}</span>
                         <span className="about">
-                          <span className="agent">{labelOf(run.agent)}</span>
+                          <span className="agent">{nameOf(run.agent)}</span>
                           {[run.source, run.job, run.trial && "trial"].filter(Boolean).map((one) => `, ${one}`)}
                           {answered(run)}
                         </span>
@@ -385,7 +385,7 @@ function dayName(iso: string): string {
 function RunTip({ run, top, left }: { run: RunRow; top: number; left: number }) {
   const facts: [string, string][] = [
     ["time", `${when(run.started)}, ${ago(run.started)}`],
-    ["agent", labelOf(run.agent)],
+    ["agent", nameOf(run.agent)],
     ["channel", run.source],
     ...(run.job ? [["job", run.job] as [string, string]] : []),
     ...(run.model ? [["model", run.model] as [string, string]] : []),
@@ -575,7 +575,7 @@ function JobLine({ run, job }: { run: Run; job?: AgentSummary["jobs"][number] })
  * hover, so the words themselves are what you read.
  */
 function RunThread({ run }: { run: Run }) {
-  const agent = labelOf(run.agent);
+  const agent = nameOf(run.agent);
   // A job's last model answer is often its reply too, so that is not said twice.
   const said = run.trace.map((step) => step.say ?? (step.kind === "model" ? step.result : undefined)).filter(Boolean);
   const parts: Part[] = [];

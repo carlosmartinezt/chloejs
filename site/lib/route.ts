@@ -12,7 +12,7 @@ export type View =
    */
   | { at: "chat"; agent: string; thread?: string; about?: string }
   /** What it is told to do, and the words it reaches for when it needs them. */
-  | { at: "instructions"; agent: string }
+  | { at: "purpose"; agent: string }
   | { at: "skills"; agent: string }
   /** What it runs on a clock, and what it can do. */
   | { at: "jobs"; agent: string }
@@ -65,7 +65,7 @@ export function href(view: View): string {
     case "chat":
       if (view.about) return `/agents/${view.agent}?about=${encodeURIComponent(view.about)}`;
       return view.thread ? `/agents/${view.agent}/chat/${encodeURIComponent(conversation(view.agent, view.thread))}` : `/agents/${view.agent}`;
-    case "instructions":
+    case "purpose":
     case "skills":
     case "jobs":
     case "tools":
@@ -120,7 +120,7 @@ export function read(path = window.location.pathname, search = window.location.s
     if (what === "chat" && !rest.length) return { at: "chat", agent, thread };
     if (
       !rest.length &&
-      (what === "instructions" ||
+      (what === "purpose" ||
         what === "skills" ||
         what === "jobs" ||
         what === "tools" ||

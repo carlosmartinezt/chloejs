@@ -32,8 +32,8 @@ const digest = defineJob({
 
 const reader = defineAgent({
   id: "reader",
-  description: "Reads the web so you don't have to.",
-  instructions: "Pick less, not more. Say why in one line.",
+  identity: "Reads the web so you don't have to.",
+  purpose: "Pick less, not more. Say why in one line.",
   model: "anthropic/claude-sonnet-5",
   jobs: [digest],
 });

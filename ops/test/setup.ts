@@ -20,7 +20,7 @@ import { about, is } from "#chloe/ops/check";
   is(
     "setup writes a first agent beside the config",
     files.map((one) => one.path),
-    ["chloe.config.ts", `agents/${STARTER_AGENT}/agent.ts`, `agents/${STARTER_AGENT}/instructions.md`, "tsconfig.json", ".gitignore"],
+    ["chloe.config.ts", `agents/${STARTER_AGENT}/agent.ts`, `agents/${STARTER_AGENT}/purpose.md`, "tsconfig.json", ".gitignore"],
   );
   is("only with a config it writes, which lists it", files.filter((one) => one.withConfig).length, 2);
   is("and chloe.config.ts does", config.includes(`agents: [${STARTER_AGENT}],`), true);
@@ -61,7 +61,7 @@ import { about, is } from "#chloe/ops/check";
   const { resolveAgent } = await import("#chloe/load/load");
   // The model is setup's to write into the settings, which this config has not been given.
   const agent = await resolveAgent({ ...declared.agents[0], model: "m" });
-  is("and the agent loads, with its instructions read from its folder", agent.instructions.startsWith("You were set up"), true);
+  is("and the agent loads, with its purpose read from its folder", agent.purpose.startsWith("You were set up"), true);
   is("and may change itself", Boolean(agent.tools?.selfWriteFile), true);
   await rm(folder, { recursive: true, force: true });
 }
@@ -111,7 +111,7 @@ import { about, is } from "#chloe/ops/check";
   is("git is here, which the rest of these need", hasGit(), true);
   const project = realpathSync(await mkdtemp(join(tmpdir(), "setup-git-")));
   await mkdir(join(project, "agents/watcher"), { recursive: true });
-  await writeFile(join(project, "agents/watcher/instructions.md"), "You are watcher.\n");
+  await writeFile(join(project, "agents/watcher/purpose.md"), "You are watcher.\n");
   await writeFile(join(project, ".gitignore"), "data\n");
   await mkdir(join(project, "data"), { recursive: true });
   await writeFile(join(project, "data/runs.db"), "x");
@@ -129,7 +129,7 @@ import { about, is } from "#chloe/ops/check";
   const author = spawnSync("git", ["log", "-1", "--format=%an"], { cwd: project, encoding: "utf8" }).stdout.trim();
   is("under setup's name when git has none", author, "npx chloe setup");
   const tracked = spawnSync("git", ["ls-files"], { cwd: project, encoding: "utf8" }).stdout.trim().split("\n");
-  is("and nothing .gitignore leaves out", tracked, [".gitignore", "agents/watcher/instructions.md"]);
+  is("and nothing .gitignore leaves out", tracked, [".gitignore", "agents/watcher/purpose.md"]);
   for (const key of Object.keys(process.env)) if (!(key in was)) delete process.env[key];
   Object.assign(process.env, was);
   await rm(project, { recursive: true, force: true });

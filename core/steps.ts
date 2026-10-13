@@ -1045,7 +1045,7 @@ async function waitFor(ctx: Ctx, name: string, waiting: { calls: ToolCall[]; rea
   const tool = waiting.calls[0].function.name;
   const input = JSON.stringify(waiting.input, null, 2);
   const question =
-    `${ctx.agent.label ?? ctx.agent.id} wants to use ${tool} in ${JSON.stringify(name)}` +
+    `${ctx.agent.name ?? ctx.agent.id} wants to use ${tool} in ${JSON.stringify(name)}` +
     `${waiting.reason ? `, which needs a yes: ${waiting.reason}` : ""}.\n` +
     `${input.length > 1500 ? `${input.slice(0, 1500)}…` : input}\nShould it go ahead?`;
   if (ctx.trial) await endTrial(ctx, ctx.owner, question, z.boolean());

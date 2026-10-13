@@ -66,7 +66,7 @@ copies on one machine is how somebody tries chloe beside one already running.
 It sets no password: the server prints a link as it starts, which works once
 and only within the hour, so the one a coding agent reads and passes on is
 dead once used, where a password would not be. It writes one agent,
-`agents/assistant`, with instructions and nothing else, so there is something
+`agents/assistant`, with a purpose and nothing else, so there is something
 to talk to on the page as soon as chloe runs, and it changes itself into what
 its owner asks for. Setup's last lines tell a coding agent to make it into
 what the person asked for, from the guides. A config that was already there
@@ -153,7 +153,7 @@ setting is read when it is needed, never copied at import.
 
 **Plug and play.** Adding a capability should be writing a file and naming it
 in the agent's `agent.ts`, not editing four. `agent.ts` imports every part of
-the agent (instructions, jobs, tools, channels), so it is the one place that
+the agent (purpose, jobs, tools, channels), so it is the one place that
 says what the agent is, and `chloe.config.ts` at the top of the repo lists the
 agents. `skills/` is the one folder read by looking, because a skill is loaded
 only when the model asks for it. A skill is `skills/<name>.md`, or a folder
@@ -193,14 +193,14 @@ every turn (`selfFolderTools` in `model/tools/self.ts`, added by `toolsFor()` in
 `core/turn.ts` like `skillRead`), and its runs, the guides and trying its jobs
 are its owner's turns' (`selfReadTools`), so neither half is in the agent's
 `tools`. Unless it says `selfImprovement: false`, it may also
-change its own folder, `whyNot()` in `services/selfService.ts`: its instructions,
+change its own folder, `whyNot()` in `services/selfService.ts`: its purpose,
 its skills, its jobs, and its code (its tools, services, channels and scripts,
 `agent.ts`, anything ending in .ts, .js, .py or .sh). There is no narrower
-setting: a feature is on or off, because code an agent writes is code it then
+setting: an ability is on or off, because code an agent writes is code it then
 runs as itself and could get round any file kept back. `selfWriteFile` takes every file one
 change needs and commits them as one, after committing what a person changed
 by hand in those files under the box's own git name. An owner's turn lists the
-agent's files and the guides in its instructions, and `selfReadFile` and
+agent's files and the guides in its purpose, and `selfReadFile` and
 `selfReadGuide` take several at once, so a change is one call to read and one
 to write. With code among them,
 `loadsOrPutBack()` in `services/selfService.ts` writes them all, loads the
@@ -266,7 +266,7 @@ which are a judgement, and which are autonomous.
 
 These are for the parts that do stay a prompt.
 
-1. **Words.** Change `instructions.md` or a skill. Most problems are a prompt
+1. **Words.** Change `purpose.md` or a skill. Most problems are a prompt
    problem, and this is live at once with no code.
 2. **A skill and a script.** A skill folder, `skills/<name>/SKILL.md` saying
    when to do something and how, with the script that does it beside it. This
@@ -284,7 +284,7 @@ Going straight to step 3 or 4 is the most common mistake made here.
 `agents/` holds agents and nothing else: one folder per agent, each with an
 `agent.ts`, and an agent runs only if `chloe.config.ts` lists it. An agent's
 folder is the one its `agent.ts` is in, and could be anywhere. Its `id` is
-what its run history is filed under, so it does not change; `label` is what
+what its run history is filed under, so it does not change; `name` is what
 the page shows and can. Its memory is inside its folder unless it says
 otherwise, so the two move together. Anything every
 agent might want lives in the runtime instead, because there is one floor and not
@@ -487,7 +487,7 @@ thing to reach for, and they are also the easiest thing to
 make worse without noticing. An eval file in an agent's `evals/` folder is one
 job of that agent's, with a case per situation: what every tool answers, and
 what the agent should and should not have done about it. Run it before and
-after you rewrite instructions or a skill. What a case may say is in
+after you rewrite a purpose or a skill. What a case may say is in
 `ops/evals.ts`, which is the only thing that reads one.
 
 Nothing in a case runs for real. A tool the case does not answer is refused,
@@ -735,7 +735,7 @@ is named on the channel only: the loader adds it to the agent's jobs with
 `channels` set (`channelJobs` in `load/load.ts`), and nothing but a message
 there starts it, so it is kept out of the command menu, `/<job>` and
 `POST /api/agents/:id/job/:job`. A channel
-gets no further options for instructions, skills or memory: past a tool list
+gets no further options for purpose, skills or memory: past a tool list
 it is a job, or a second agent. A tool is named by the object itself and read
 to its name in `check`, as the agent loads, because a reload makes new tool
 objects and a running channel keeps the names; `madeWith` writes the names,
@@ -1006,16 +1006,16 @@ stands on. Agent specific code lives in that agent's folder.
 **Do not add a per-agent file for something every agent has.** Write it once
 in `model/tools/` and let each agent name it in its `agent.ts`. What any
 agent may want switched on (its memory tools, the self tools, scriptRun) is
-a `features` flag in its definition instead, and the loader adds the tools.
-A flag is `true` or `false`, or for a feature that reaches something outside
+an `abilities` flag in its definition instead, and the loader adds the tools.
+A flag is `true` or `false`, or for an ability that reaches something outside
 (`email`, `calendar`, `drive`) its fields as plain values, so the Tools page can
-switch it and fill them in by changing agent.ts (`changeFeature()` in
-`serve/config.ts`). `FEATURES` in `load/features.ts` is the list: each one's
+switch it and fill them in by changing agent.ts (`changeAbility()` in
+`serve/config.ts`). `ABILITIES` in `load/abilities.ts` is the list: each one's
 default, its fields (`OptionSpec`, shared with the channels), the tools it makes
 from them, and a test holds the list to what the loader adds. A tool says its
 own `title`, so the page never works one out from a name. One tool is
 switched off by name in `without` (`changeTool()` beside it), so a tool keeps
-the options it was bound with; a feature's tool may be named while its feature
+the options it was bound with; an ability's tool may be named while its ability
 is off.
 
 **A channel says its own name, and nothing else may say it for it.** Every

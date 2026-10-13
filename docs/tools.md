@@ -31,8 +31,8 @@ Import a set as a whole and bind each tool you want:
 | `email` | `startConversation` | Which email channel. | Who, from the channel's `allowFrom`, and what to say. |
 | `telegram` | `sendMessage` | Which Telegram channel and who it may send to. | Who and what to say. |
 
-The memory, self and script tools are not imported: `features` on the agent
-switches them on. See [Features](/docs/features).
+The memory, self and script tools are not imported: `abilities` on the agent
+switches them on. See [Abilities](/docs/abilities).
 
 ### Sending an email
 

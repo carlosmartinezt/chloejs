@@ -11,7 +11,7 @@ import { Markdown } from "./components/Markdown.tsx";
 import { Minimap } from "./components/Minimap.tsx";
 import { api, frameAt, type MemoryRead } from "../lib/api.ts";
 import { copy } from "../lib/copy.ts";
-import { labelOf, when } from "../lib/format.ts";
+import { nameOf, when } from "../lib/format.ts";
 import { go } from "../lib/route.ts";
 import * as prefs from "../lib/prefs.ts";
 import { loadOpen, loadTabs, saveLast, saveOpen, saveTabs, tabName } from "../lib/tabs.ts";
@@ -57,7 +57,7 @@ export function Memory({
 
   const me = agents.find((one) => one.id === agent);
   const label = me?.memory ?? "Memory";
-  const whose = labelOf(agent);
+  const whose = nameOf(agent);
 
   // Switching agent is switching everything: its tree, its tabs, its folders.
   useEffect(() => {
@@ -357,7 +357,7 @@ export function Memory({
             )}
             {!path && (
               <p className="dim pad">
-                Everything opened here is written to {labelOf(agent)}&rsquo;s audit log before it is shown. Reading
+                Everything opened here is written to {nameOf(agent)}&rsquo;s audit log before it is shown. Reading
                 the same file from a shell on the box is not.
               </p>
             )}

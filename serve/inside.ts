@@ -13,7 +13,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { FEATURES, featureOn, featureToolSet, featureValues, type Agent } from "#chloe/load/load";
+import { ABILITIES, abilityOn, abilityToolSet, abilityValues, type Agent } from "#chloe/load/load";
 import { defaultOf, valueAtName, type OptionSpec } from "#chloe/load/options";
 import { webOf } from "#chloe/channels/web";
 import { alwaysOnTools, money, spentText } from "#chloe/core/turn";
@@ -128,7 +128,7 @@ export interface ToolShown {
   title?: string;
   /** What the model is told it is for. */
   does: string;
-  /** Where it comes from, like "features.memory", "always" for one every agent has, or absent for the agent's own. */
+  /** Where it comes from, like "abilities.memory", "always" for one every agent has, or absent for the agent's own. */
   from?: string;
   /** Whether the agent has it. A tool in `without` is shown, switched off. */
   on: boolean;
@@ -159,16 +159,16 @@ export async function toolsOf(agent: Agent): Promise<ToolShown[]> {
   const from = agent.toolsFrom ?? {};
   const mine = Object.entries(agent.tools ?? {}).map(([name, tool]) => shown(name, tool, { on: true, ...(from[name] && { from: from[name] }) }));
   const off = Object.entries(agent.toolsOff ?? {}).map(([name, tool]) => shown(name, tool, { on: false, ...(from[name] && { from: from[name] }) }));
-  // What a feature that is off would bring, so what switching it on does is plain.
-  const brings = FEATURES.filter((one) => !featureOn(agent.features, one.name)).flatMap((one) =>
-    Object.entries(featureToolSet(agent, one.name, agent.features, true)).map(([name, tool]) => shown(name, tool, { on: false, from: `features.${one.name}` })),
+  // What an ability that is off would bring, so what switching it on does is plain.
+  const brings = ABILITIES.filter((one) => !abilityOn(agent.abilities, one.name)).flatMap((one) =>
+    Object.entries(abilityToolSet(agent, one.name, agent.abilities, true)).map(([name, tool]) => shown(name, tool, { on: false, from: `abilities.${one.name}` })),
   );
   const always = alwaysOnTools(agent).map((one) => shown(one.name, one.tool, { on: true, from: "always", ...(one.ownerOnly && { ownerOnly: true }) }));
   return (await Promise.all([...mine, ...off, ...brings, ...always])).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** One feature as the page shows it. */
-export interface FeatureShown {
+/** One ability as the page shows it. */
+export interface AbilityShown {
   name: string;
   /** What the page calls it. */
   label: string;
@@ -178,7 +178,7 @@ export interface FeatureShown {
   tools: string[];
   /** The connection it works through, and what that still needs before it works. */
   needs?: { name: string; missing: string[] };
-  /** The fields it takes, with what each is now. Absent for a feature that is only on or off. */
+  /** The fields it takes, with what each is now. Absent for an ability that is only on or off. */
   fields?: {
     name: string;
     label: string;
@@ -191,23 +191,23 @@ export interface FeatureShown {
     /** The file writes it as code, so it is shown and left alone. */
     code: boolean;
   }[];
-  /** The file writes the whole feature as code, so its fields are shown and left alone. */
+  /** The file writes the whole ability as code, so its fields are shown and left alone. */
   code?: boolean;
 }
 
-/** Every feature, whether this agent has it on, its fields as they are now and what each does. */
-export async function featuresOf(agent: Agent): Promise<FeatureShown[]> {
+/** Every ability, whether this agent has it on, its fields as they are now and what each does. */
+export async function abilitiesOf(agent: Agent): Promise<AbilityShown[]> {
   const file = join(agent.folder, "agent.ts");
   const text = existsSync(file) ? await readFile(file, "utf8").catch(() => "") : "";
   return Promise.all(
-    FEATURES.map(async (one): Promise<FeatureShown> => {
-      const said = text ? safely(() => saidIn(text, "features", one.name)) : ({ kind: "code" } as Said);
-      const values = one.fields ? featureValues(agent.features, one.name) : {};
+    ABILITIES.map(async (one): Promise<AbilityShown> => {
+      const said = text ? safely(() => saidIn(text, "abilities", one.name)) : ({ kind: "code" } as Said);
+      const values = one.fields ? abilityValues(agent.abilities, one.name) : {};
       const missing = one.needs ? await one.needs.missing().catch((error: Error) => [error.message]) : [];
       return {
         name: one.name,
         label: one.label,
-        on: featureOn(agent.features, one.name),
+        on: abilityOn(agent.abilities, one.name),
         does: one.does,
         tools: one.tools,
         ...(one.needs && { needs: { name: one.needs.name, missing } }),
@@ -230,9 +230,9 @@ export async function featuresOf(agent: Agent): Promise<FeatureShown[]> {
   );
 }
 
-/** The labels of the features that are on, for the agent's own page. */
-export function featureNames(agent: Agent): { name: string; label: string; on: boolean }[] {
-  return FEATURES.map((one) => ({ name: one.name, label: one.label, on: featureOn(agent.features, one.name) }));
+/** The labels of the abilities that are on, for the agent's own page. */
+export function abilityNames(agent: Agent): { name: string; label: string; on: boolean }[] {
+  return ABILITIES.map((one) => ({ name: one.name, label: one.label, on: abilityOn(agent.abilities, one.name) }));
 }
 
 const safely = <T,>(work: () => T): T | { kind: "code" } => {
@@ -268,7 +268,7 @@ export interface ChannelShown {
   settings: { name: string; value: string }[];
 }
 
-/** One field of a feature or a channel, as the page's form takes it. */
+/** One field of an ability or a channel, as the page's form takes it. */
 export interface OptionShown {
   name: string;
   label: string;
@@ -289,7 +289,7 @@ const plain = (value: unknown): unknown =>
     ? value
     : undefined;
 
-/** The form of a feature's or a channel's fields, from what agent.ts says now. */
+/** The form of an ability's or a channel's fields, from what agent.ts says now. */
 function optionsShown(specs: OptionSpec[], said: Said, value: (name: string) => unknown): OptionShown[] {
   return specs.map((spec) => {
     const code = said.kind === "code" || (said.kind === "fields" && (said.fields[spec.name] === "code" || "..." in said.fields));

@@ -114,7 +114,7 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
     gmailReadEmail: { description: "Read the owner's mail.", inputSchema: z.object({}), execute: async () => "mail" },
     webReadPage: { description: "Read a page.", inputSchema: z.object({}), execute: async () => "page" },
   };
-  const agent = { ...agentFor(codeJob("unused", async () => ({}))), label: "Chloe", tools: own } as unknown as Agent;
+  const agent = { ...agentFor(codeJob("unused", async () => ({}))), name: "Chloe", tools: own } as unknown as Agent;
   const { bind } = await import("#chloe/channels/shared");
   const running = listen({
     agentId: "test",

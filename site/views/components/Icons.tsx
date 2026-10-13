@@ -36,7 +36,7 @@ export const Inspect = () => (
   </Icon>
 );
 
-/** Changing what it is: its instructions, its skills, its jobs. */
+/** Changing what it is: its purpose, its skills, its jobs. */
 export const Edit = () => (
   <Icon>
     <path d="M2.6 13.4h3.1l7-7a1.6 1.6 0 0 0 0-2.2l-.9-.9a1.6 1.6 0 0 0-2.2 0l-7 7Z" />

@@ -37,8 +37,8 @@ function unquote(value: string): string {
   return quoted ? quoted[1] : value;
 }
 
-// Words kept in a markdown file, pointed at from code: an agent's instructions
-// or a job's prompt. The path is inside the agent's folder, "instructions.md"
+// Words kept in a markdown file, pointed at from code: an agent's purpose
+// or a job's prompt. The path is inside the agent's folder, "purpose.md"
 // or "jobs/morning-run.md", whichever file names it.
 
 /**
@@ -53,7 +53,7 @@ export interface Prompt {
 }
 
 /**
- * Points at words kept in a markdown file: an agent's `instructions`, or a
+ * Points at words kept in a markdown file: an agent's `purpose`, or a
  * job's `markdown` prompt. The path is inside the agent's folder unless it is
  * a full path. If the file starts with a settings block between two `---`
  * lines, only the text under it is used.
@@ -63,7 +63,7 @@ export interface Prompt {
  * somewhere else:
  *
  * ```ts
- * prompt("instructions.md", { include: { cv: "/home/you/cv.md" } })
+ * prompt("purpose.md", { include: { cv: "/home/you/cv.md" } })
  * ```
  *
  * gives the words, then `<cv>`, the text of the file, and `</cv>`. Each key
@@ -104,7 +104,7 @@ export async function readPrompt(
     throw new Error(`${options.where} points at ${JSON.stringify(from.file)}, which is not there.`);
   });
   // Only the body, so a file that kept a settings block at the top does not
-  // read it out to a model as if it were instructions.
+  // read it out to a model as if it were purpose.
   const words = settingsAndBody(text).body;
   if (!words.trim()) throw new Error(`${options.where} points at ${JSON.stringify(from.file)}, which is empty.`);
   const included = await Promise.all(

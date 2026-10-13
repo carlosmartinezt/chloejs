@@ -1,5 +1,5 @@
 // The files a new project starts with, as text, for `npx chloe setup` to write:
-// the config, a first agent with nothing but instructions, tsconfig.json and
+// the config, a first agent with nothing but purpose, tsconfig.json and
 // .gitignore. The agent is there to be talked to on the page and asked to
 // change itself into whatever its owner wants.
 //
@@ -24,7 +24,7 @@ export function starterFiles(): Starter[] {
   return [
     { path: "chloe.config.ts", body: CONFIG },
     { path: `agents/${STARTER_AGENT}/agent.ts`, body: AGENT, withConfig: true },
-    { path: `agents/${STARTER_AGENT}/instructions.md`, body: INSTRUCTIONS, withConfig: true },
+    { path: `agents/${STARTER_AGENT}/purpose.md`, body: INSTRUCTIONS, withConfig: true },
     { path: "tsconfig.json", body: TSCONFIG },
     { path: ".gitignore", body: IGNORE, add: "lines" },
   ];
@@ -110,14 +110,14 @@ export default defineConfig({
 `;
 
 const AGENT = `// Your first agent. Talk to it on the page and ask it to change: its
-// instructions, its jobs, its code. Each change it makes is a commit you can
+// purpose, its jobs, its code. Each change it makes is a commit you can
 // read and undo there.
 import { defineAgent, prompt } from "@chloejs/core";
 
 export default defineAgent({
   id: "${STARTER_AGENT}",
-  description: "Just set up. Tell it what you want done, and it changes itself to do it.",
-  instructions: prompt("instructions.md"),
+  identity: "Just set up. Tell it what you want done, and it changes itself to do it.",
+  purpose: prompt("purpose.md"),
 });
 `;
 
@@ -125,10 +125,10 @@ const INSTRUCTIONS = `You were set up a moment ago, and you do nothing yet: you 
 tools of your own.
 
 When your owner asks for something, do it with what you have. When you cannot
-yet, change yourself so you can: these instructions, a job, a tool, whatever
+yet, change yourself so you can: these purpose, a job, a tool, whatever
 it takes. Say what you changed.
 
-Once you know what you are for, rewrite these instructions to say so.
+Once you know what you are for, rewrite these purpose to say so.
 
 Keep replies short.
 `;

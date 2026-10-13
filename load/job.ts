@@ -62,7 +62,7 @@ export interface JobConfig<
   /**
    * The job's prompt, for a job that is a prompt: a string, or
    * `prompt("jobs/morning.md")` for a file inside the agent's folder. The
-   * agent answers it with its instructions and its tools. Give either
+   * agent answers it with its purpose and its tools. Give either
    * `markdown` or `run`, not both.
    */
   markdown?: string | Prompt;

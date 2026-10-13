@@ -26,7 +26,7 @@ import { forget } from "#chloe/model/memory";
 import { models } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
-import { changeChannel, changeFeature, changeSettings, changeTool, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
+import { changeChannel, changeAbility, changeSettings, changeTool, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
 import { editable, open, save, tree } from "./files.ts";
 import {
   memoryCommit,
@@ -47,7 +47,7 @@ import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound, Refused } from "./errors.ts";
 import { finish as finishSignIn, setupSteps, signInState } from "#chloe/connections/google/googleService";
 import { googleSignIn } from "#chloe/connections/google/signIn";
-import { channelsOf, connectionsOf, featureNames, featuresOf, signInOf, toolsOf } from "./inside.ts";
+import { channelsOf, connectionsOf, abilityNames, abilitiesOf, signInOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import {
   type Caller,
@@ -222,8 +222,8 @@ function onTheApi(agent: Agent): boolean {
 export function summary(agent: Agent) {
   return {
     id: agent.id,
-    label: agent.label,
-    description: agent.description,
+    name: agent.name,
+    identity: agent.identity,
     /** What its runs go to. */
     model: modelFor(agent),
     /** What its definition names. */
@@ -238,9 +238,9 @@ export function summary(agent: Agent) {
     tools: Object.keys(agent.tools ?? {}).sort(),
     /** What the page calls each tool that has a title of its own. */
     titles: Object.fromEntries(Object.entries(agent.tools ?? {}).flatMap(([name, one]) => ((one as { title?: string }).title ? [[name, (one as { title: string }).title]] : []))),
-    /** Every feature, and whether it is on. */
-    features: featureNames(agent),
-    /** Where each tool it did not write itself comes from, like "features.memory". */
+    /** Every ability, and whether it is on. */
+    abilities: abilityNames(agent),
+    /** Where each tool it did not write itself comes from, like "abilities.memory". */
     toolsFrom: agent.toolsFrom ?? {},
     skills: agent.skills.map((s) => s.name),
     jobs: agent.jobs.map((s) => ({
@@ -443,7 +443,7 @@ export const routes: Route[] = [
     handle: ({ response, params, context }) => {
       const found = invitation(params.code);
       if (!found) return json(response, { error: "That invitation is used, out of date, or was never made." }, 404);
-      json(response, { ...found, label: context.agents().get(found.agent)?.label ?? found.agent });
+      json(response, { ...found, agentName: context.agents().get(found.agent)?.name ?? found.agent });
     },
   },
   {
@@ -480,12 +480,12 @@ export const routes: Route[] = [
   },
   {
     method: "GET",
-    path: "/api/agents/:id/instructions",
+    path: "/api/agents/:id/purpose",
     does: "What it is told to do, as the model is given it, and which file it is in when it is in one.",
     token: true,
     handle: ({ response, context, params }) => {
       const agent = context.agent(params.id);
-      return json(response, { text: agent.instructions, path: agent.instructionsFile });
+      return json(response, { text: agent.purpose, path: agent.purposeFile });
     },
   },
   {
@@ -510,23 +510,23 @@ export const routes: Route[] = [
   },
   {
     method: "GET",
-    path: "/api/agents/:id/features",
-    does: "Every feature, whether it is on for this agent, what it does and the tools it adds.",
+    path: "/api/agents/:id/abilities",
+    does: "Every ability, whether it is on for this agent, what it does and the tools it adds.",
     token: true,
-    handle: async ({ response, context, params }) => json(response, await featuresOf(context.agent(params.id))),
+    handle: async ({ response, context, params }) => json(response, await abilitiesOf(context.agent(params.id))),
   },
   {
     method: "POST",
-    path: "/api/agents/:id/features",
-    does: "Switch one of its features on or off, in its agent.ts. Hands back every feature and tool as the agent now loads.",
+    path: "/api/agents/:id/abilities",
+    does: "Switch one of its abilities on or off, in its agent.ts. Hands back every ability and tool as the agent now loads.",
     takes: '{"name": "memory", "on": true} or {"name": "email", "set": {"days": 3, "reply": true}}, a field set to null takes it out',
     handle: async ({ request, response, context, params }) => {
       const agent = context.agent(params.id);
       const change = await body(request, z.object({ name: z.string(), on: z.boolean().optional(), set: z.record(z.string(), z.unknown()).optional() }));
       try {
         // From the agent as it now loads: the server's own reload comes a moment later.
-        const now = await changeFeature(agent, change.name, change);
-        json(response, { features: await featuresOf(now), tools: await toolsOf(now) });
+        const now = await changeAbility(agent, change.name, change);
+        json(response, { abilities: await abilitiesOf(now), tools: await toolsOf(now) });
       } catch (error) {
         if (error instanceof NotFound || error instanceof BadRequest) throw error;
         throw new BadRequest((error as Error).message);
@@ -536,14 +536,14 @@ export const routes: Route[] = [
   {
     method: "POST",
     path: "/api/agents/:id/tools",
-    does: "Switch one tool off or on, in the without list of its agent.ts. Hands back every feature and tool as the agent now loads.",
+    does: "Switch one tool off or on, in the without list of its agent.ts. Hands back every ability and tool as the agent now loads.",
     takes: '{"name": "memoryEditFile", "on": false}',
     handle: async ({ request, response, context, params }) => {
       const agent = context.agent(params.id);
       const { name, on } = await body(request, z.object({ name: z.string(), on: z.boolean() }));
       try {
         const now = await changeTool(agent, name, on);
-        json(response, { features: await featuresOf(now), tools: await toolsOf(now) });
+        json(response, { abilities: await abilitiesOf(now), tools: await toolsOf(now) });
       } catch (error) {
         if (error instanceof NotFound || error instanceof BadRequest) throw error;
         throw new BadRequest((error as Error).message);
@@ -634,7 +634,7 @@ export const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents/:id/files",
-    does: "That agent's own folder as a tree: its instructions, skills, scripts and jobs.",
+    does: "That agent's own folder as a tree: its purpose, skills, scripts and jobs.",
     token: true,
     handle: async ({ response, context, params }) => {
       context.agent(params.id);
@@ -725,7 +725,7 @@ export const routes: Route[] = [
       const guest = guestOf(who);
       if (guest) {
         // Their own turn, as they said it and as it was answered. The prompt,
-        // the context and the steps carry the agent's instructions and what its
+        // the context and the steps carry the agent's purpose and what its
         // tools read, which are the owner's.
         if (row.owner?.slice(row.owner.indexOf(":") + 1).toLowerCase() !== guest) throw new NotFound("No run with that id.");
         const { prompt, context, trace, state, args, input, parked, owner, ...rest } = row as Record<string, unknown>;

@@ -28,7 +28,7 @@ npx chloe evals <agent>
 
 An eval file in the agent's `evals/` folder is one job, with a case per
 situation: what each tool answers, and what the agent should and should not have
-done. Run it before and after you change instructions or a skill, because words
+done. Run it before and after you change a purpose or a skill, because words
 are the easiest thing to make worse without noticing.
 
 Nothing in a case runs for real. A tool the case does not answer is refused, so

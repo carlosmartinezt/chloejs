@@ -25,8 +25,8 @@ import { cannotRun, type Tools } from "#chloe/model/tool";
 import type { Connection } from "#chloe/connections/connection";
 import type { McpConnection } from "#chloe/connections/mcp";
 import { makeRepo } from "#chloe/services/historyService";
-import { FEATURES, featureTools, type Features } from "./features.ts";
-export { FEATURES, featureOn, featureToolSet, featureValues, type Feature, type Features, type EmailFeature, type CalendarFeature, type DriveFeature } from "./features.ts";
+import { ABILITIES, abilityTools, type Abilities } from "./abilities.ts";
+export { ABILITIES, abilityOn, abilityToolSet, abilityValues, type Ability, type Abilities, type EmailAbility, type CalendarAbility, type DriveAbility } from "./abilities.ts";
 import { work, type Data, type Envelope, type Result as RunResult, type Work } from "#chloe/core/steps";
 import { turn, type Result as TurnResult } from "#chloe/core/turn";
 
@@ -57,8 +57,8 @@ export interface Home {
 }
 
 /**
- * The options you give `defineAgent`. Only `id`, `description` and
- * `instructions` are required.
+ * The options you give `defineAgent`. Only `id`, `identity` and
+ * `purpose` are required.
  */
 export interface AgentConfig {
   /**
@@ -67,7 +67,7 @@ export interface AgentConfig {
    * in settings. Required.
    *
    * Do not change it after the agent has run: its old runs and memory stay
-   * under the old id. To change the name people see, use `label`.
+   * under the old id. To change the name people see, use `name`.
    */
   id: string;
   /**
@@ -75,9 +75,9 @@ export interface AgentConfig {
    * told it is its name at the top of every turn, and the email channel sends
    * mail under it. You can change it at any time. Default: the `id`.
    */
-  label?: string;
+  name?: string;
   /**
-   * The agent's folder, which holds its instructions, skills, jobs, scripts
+   * The agent's folder, which holds its purpose, skills, jobs, scripts
    * and evals. Paths you give `prompt()` and `markdownJob()` start here.
    * Default: the folder of the file that calls `defineAgent`.
    *
@@ -100,7 +100,7 @@ export interface AgentConfig {
    */
   model?: string | SdkModel;
   /** One line on what the agent does. The dashboard shows it wherever agents are listed. Required. */
-  description: string;
+  identity: string;
   /**
    * The agent's memory: a folder it reads and writes between runs. You can
    * browse and edit it on the dashboard. See `Memory`.
@@ -110,25 +110,25 @@ export interface AgentConfig {
    * changed as a commit. Set this only to use another folder, for example one
    * you share with a person.
    *
-   * The memory tools read and write it (see `features.memory`). Each time the
+   * The memory tools read and write it (see `abilities.memory`). Each time the
    * dashboard reads a file from it, chloe first writes that down in the
    * agent's audit log.
    */
   memory?: Memory;
   /**
    * Turns on tools that chloe has built in: the memory tools,
-   * `selfWriteFile`, `scriptRun` and `memoryWriteUserNotes`. See `Features`.
+   * `selfWriteFile`, `scriptRun` and `memoryWriteUserNotes`. See `Abilities`.
    */
-  features?: Features;
+  abilities?: Abilities;
   /**
-   * The agent's instructions: what it is and how it works. The model reads
-   * them before it answers a message or runs a markdown job. Required.
+   * The agent's purpose: what it is and how it works. The model reads
+   * it before it answers a message or runs a markdown job. Required.
    *
-   * Give `prompt("instructions.md")` to keep them in a file inside the
+   * Give `prompt("purpose.md")` to keep it in a file inside the
    * agent's folder, or a string with the words themselves. A plain string is
    * always used as the words, never as a file path.
    */
-  instructions: string | Prompt;
+  purpose: string | Prompt;
   /**
    * The tools the model can call, keyed by the name the model sees:
    * `{ weather, gmailReadEmail: gmail.readEmail({ ... }) }`. Make your own
@@ -137,7 +137,7 @@ export interface AgentConfig {
    * Every tool gets the agent in its `context`. Read it with
    * `agentOf(context)`.
    *
-   * Do not list the tools that `features` and `connections` add: chloe adds
+   * Do not list the tools that `abilities` and `connections` add: chloe adds
    * them for you. A tool here with the same name replaces the added one. You
    * also add nothing for signing in: when a tool needs an outside account
    * (like Google for `gmail.readEmail`), chloe handles the sign-in.
@@ -145,7 +145,7 @@ export interface AgentConfig {
   tools?: Tools;
   /**
    * Tools the agent has switched off, by the name each has in `tools` or the
-   * name its feature gives it, like `["memoryEditFile"]`. A feature's tools
+   * name its ability gives it, like `["memoryEditFile"]`. A ability's tools
    * can be named whether it is on or not. The dashboard's Tools page writes
    * this list when you switch one tool off, so a tool keeps the options it
    * was bound with. Default: none.
@@ -236,7 +236,7 @@ export interface DefinedAgent extends AgentConfig {
   run<ArgsIn>(options: RunOptions<ArgsIn>): Promise<RunResult>;
   /**
    * Asks this agent one thing and waits for its answer, the same way as a
-   * message on a channel: with its instructions, its tools and its memory.
+   * message on a channel: with its purpose, its tools and its memory.
    * The model keeps calling tools until it has an answer.
    *
    * ```ts
@@ -625,11 +625,11 @@ export interface ChannelRoute {
 }
 
 /**
- * One agent after chloe has loaded it: its instructions read, its tools
+ * One agent after chloe has loaded it: its purpose read, its tools
  * ready, and its skills and jobs loaded. `load` and `loadAll` return these,
  * and a channel's `check` and `start` get one.
  */
-export interface Agent extends Omit<DefinedAgent, "instructions" | "tools" | "jobs" | "channels" | "memory" | "model" | "connections" | "run" | "ask"> {
+export interface Agent extends Omit<DefinedAgent, "purpose" | "tools" | "jobs" | "channels" | "memory" | "model" | "connections" | "run" | "ask"> {
   /**
    * The model the agent uses: its own `model`, or `model.defaultModel` from
    * settings. Always set. An AI SDK model shows here by its name, like
@@ -638,19 +638,19 @@ export interface Agent extends Omit<DefinedAgent, "instructions" | "tools" | "jo
   model: string;
   /** The agent's memory, with `folder` and `commit` always filled in. See `Memory`. */
   memory: Memory & { folder: string };
-  /** The agent's instructions as text, read from their file when they are in one. */
-  instructions: string;
-  /** The file the instructions were read from, as a path inside the agent's folder. Not set when they were written as a string. */
-  instructionsFile?: string;
+  /** The agent's purpose as text, read from its file when it is in one. */
+  purpose: string;
+  /** The file the purpose was read from, as a path inside the agent's folder. Not set when it was written as a string. */
+  purposeFile?: string;
   /**
-   * The full paths of the files that the instructions and the jobs' prompts
+   * The full paths of the files that the purpose and the jobs' prompts
    * add with `prompt(file, { include })`. chloe watches them like the agent's
    * own folder.
    */
   included?: string[];
-  /** Every tool the agent has: its own `tools`, plus the ones `features` and `connections` add. */
+  /** Every tool the agent has: its own `tools`, plus the ones `abilities` and `connections` add. */
   tools?: Tools;
-  /** Where each tool that is not the agent's own comes from, like `features.memory` or `connection github`. */
+  /** Where each tool that is not the agent's own comes from, like `abilities.memory` or `connection github`. */
   toolsFrom?: Record<string, string>;
   /** The tools `without` took out, so the page can show them switched off. */
   toolsOff?: Tools;
@@ -820,7 +820,7 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
   const where = `${id} (${shown(folder)})`;
   const model = definition.model ? nameOf(definition.model) : configured.model.defaultModel;
   if (!model) throw new Error(`${where} does not say which model, and model.defaultModel in settings names none.`);
-  if (!definition.instructions) throw new Error(`${where} has no instructions. Add instructions: prompt("instructions.md").`);
+  if (!definition.purpose) throw new Error(`${where} has no purpose. Add purpose: prompt("purpose.md").`);
 
   const { tools, without, jobs, channels, connections, run, ask, ...rest } = definition;
   // Worked out once, here, so the site, the memory tool and a job's
@@ -846,13 +846,13 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
     ...rest,
     model,
     memory,
-    instructions: await readPrompt(definition.instructions, { dir: folder, where }),
-    instructionsFile: isPrompt(definition.instructions) ? definition.instructions.file : undefined,
+    purpose: await readPrompt(definition.purpose, { dir: folder, where }),
+    purposeFile: isPrompt(definition.purpose) ? definition.purpose.file : undefined,
     included: [
-      ...includedIn(definition.instructions, folder),
+      ...includedIn(definition.purpose, folder),
       ...(jobs ?? []).flatMap((one) => includedIn((one as { markdown?: unknown }).markdown, folder)),
     ],
-    ...withTools({ ...(await connectionTools(connections ?? [], where)), ...brought }, featureTools(definition.features, home, where), tools ?? {}, without, where),
+    ...withTools({ ...(await connectionTools(connections ?? [], where)), ...brought }, abilityTools(definition.abilities, home, where), tools ?? {}, without, where),
     skills: await skillsIn(`${folder}/skills`),
     jobs: await channelJobs(id, folder, await jobsOf(id, folder, jobs ?? []), bound),
     channels: bound,
@@ -892,17 +892,17 @@ async function connectionTools(connections: McpConnection[], where: string): Pro
 }
 
 /**
- * Every tool, the agent's own winning over a connection's or a feature's of the
+ * Every tool, the agent's own winning over a connection's or an ability's of the
  * same name, and where each one it did not write itself comes from.
  */
 function withTools(
   connected: Record<string, Tools>,
-  featured: Record<string, Tools>,
+  abilityBuilt: Record<string, Tools>,
   own: Tools,
   without: string[] = [],
   where: string,
 ): { tools: Tools; toolsFrom: Record<string, string>; toolsOff: Tools } {
-  const added = { ...connected, ...featured };
+  const added = { ...connected, ...abilityBuilt };
   const toolsFrom: Record<string, string> = {};
   for (const [from, tools] of Object.entries(added)) for (const name of Object.keys(tools)) toolsFrom[name] = from;
   const tools = toolsOf({ ...Object.assign({}, ...Object.values(added)), ...own }, where);
@@ -910,8 +910,8 @@ function withTools(
   if (!Array.isArray(without) || without.some((one) => typeof one !== "string")) {
     throw new Error(`${where}: without is a list of tool names, like ["memoryEditFile"].`);
   }
-  // A feature's tool may be named while the feature is off, so it stays named when it is switched on again.
-  const known = new Set([...Object.keys(tools), ...FEATURES.flatMap((one) => one.tools)]);
+  // A ability's tool may be named while the ability is off, so it stays named when it is switched on again.
+  const known = new Set([...Object.keys(tools), ...ABILITIES.flatMap((one) => one.tools)]);
   const unknown = without.find((one) => !known.has(one));
   if (unknown) throw new Error(`${where}: without names ${JSON.stringify(unknown)}, which is no tool of this agent. Its tools are ${[...known].sort().join(", ")}.`);
   const toolsOff: Tools = {};

@@ -17,7 +17,7 @@
 // with no chloe.config.ts calls it with its own agents.
 
 // An agent, and the jobs it runs.
-export { defineAgent, defineConfig, markdownJob, load, loadAll, loadSettings, agentIds, type Agent, type AgentConfig, type Channel, type ChannelRoute, type Config, type DefinedAgent, type RunOptions, type AskOptions, type Running, type Job, type MarkdownJob, type Skill, type Features, type Memory, type ChatHistory } from "./load/load.ts";
+export { defineAgent, defineConfig, markdownJob, load, loadAll, loadSettings, agentIds, type Agent, type AgentConfig, type Channel, type ChannelRoute, type Config, type DefinedAgent, type RunOptions, type AskOptions, type Running, type Job, type MarkdownJob, type Skill, type Abilities, type Memory, type ChatHistory } from "./load/load.ts";
 export { defineJob, type JobConfig } from "./load/job.ts";
 export { startChloe } from "./serve/start.ts";
 export { prompt, isPrompt, oneLineSummary, type Prompt } from "./core/markdown.ts";

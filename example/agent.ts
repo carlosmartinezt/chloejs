@@ -27,12 +27,12 @@ import { orderStatus } from "./tools/orderStatus.ts";
 
 export default defineAgent({
   id: "shop",
-  label: "Shop",
+  name: "Shop",
   // Any model the gateway or the CLI can reach. A job can name a different one
   // for itself, which is the point of choosing here rather than in the runtime.
   model: "anthropic/claude-sonnet-5",
-  description: "Watches the orders, the inbox, the shelves and the customers who stopped buying.",
-  instructions: prompt("instructions.md"),
+  identity: "Watches the orders, the inbox, the shelves and the customers who stopped buying.",
+  purpose: prompt("purpose.md"),
   tools: { orderStatus },
   // A channel's job is named on its channel, not here: answer-whatsapp-customer
   // is in channels/whatsapp.ts.

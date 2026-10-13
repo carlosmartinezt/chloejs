@@ -10,7 +10,7 @@ import { duringRun, holdBack, inTrial } from "#chloe/core/current";
 import { CUT_OFF, db } from "#chloe/core/db";
 import { oneLineSummary } from "#chloe/core/markdown";
 import { settings } from "#chloe/core/settings";
-import { featureOn, type Agent, type ChatHistory } from "#chloe/load/load";
+import { abilityOn, type Agent, type ChatHistory } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
@@ -203,7 +203,7 @@ function stopWhenOf(agent: Agent): StopCondition<any>[] {
  * tools: each time it does, the tools run and their answers go back to the
  * model, until it answers without calling a tool.
  *
- * The model gets the agent's instructions, its tools and its skills. Each
+ * The model gets the agent's purpose, its tools and its skills. Each
  * step is saved to the run history as it happens.
  *
  * The run stops early when the agent's `stopWhen` is met (default: 40 rounds
@@ -222,7 +222,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
 
   const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent, sendFile, stranger });
   const overviews = await overviewsOf(tools);
-  // In the instructions rather than the message, so it is not kept in the conversation again each turn.
+  // In the purpose rather than the message, so it is not kept in the conversation again each turn.
   const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
   const messages: Message[] = [
     { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools), await whatYouRunOn(agent, tools), memoryLinks(agent, stranger)) },
@@ -740,7 +740,7 @@ async function runTool(
 }
 
 /**
- * The agent's own instructions talk about people in the third person, because
+ * The agent's own purpose talk about people in the third person, because
  * they describe them. This is what stops that carrying over into a
  * conversation with one of them.
  */
@@ -762,7 +762,7 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
 function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean; sendFile?: Ask["sendFile"]; stranger?: boolean } = {}): Tools {
   const owner = Boolean(who.fromOwner || who.mayChangeAgent);
   const tools: Tools = {
-    ...selfFolderTools(featureOn(agent.features, "selfImprovement"))(agent),
+    ...selfFolderTools(abilityOn(agent.abilities, "selfImprovement"))(agent),
     ...(owner ? { ...selfReadTools()(agent), ...selfTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
     ...(who.sendFile && !who.stranger ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id)]) } : {}),
@@ -792,17 +792,17 @@ export function alwaysOnTools(agent: Agent): { name: string; tool: ChloeTool; ow
  * or never could.
  */
 function cannotChange(agent: Agent, tools: Tools): string {
-  if (!featureOn(agent.features, "selfImprovement") || Object.values(tools).some((one) => one.changesAgent)) return "";
+  if (!abilityOn(agent.abilities, "selfImprovement") || Object.values(tools).some((one) => one.changesAgent)) return "";
   return (
     "## Changing yourself\n\n" +
-    "You cannot change your own instructions, skills or jobs in this turn: only your owner can ask for that, in a " +
+    "You cannot change your own purpose, skills or jobs in this turn: only your owner can ask for that, in a " +
     "message to you. " +
-    (!featureOn(agent.features, "memory") ? "When" : "Keep what you learned in your memory, and when") +
+    (!abilityOn(agent.abilities, "memory") ? "When" : "Keep what you learned in your memory, and when") +
     " it should change one of those files, say which and how in one line, so they can ask."
   );
 }
 
-/** The most of its own files an agent is shown by name in its instructions. */
+/** The most of its own files an agent is shown by name in its purpose. */
 const FILES_SHOWN = 100;
 
 /**
@@ -812,7 +812,7 @@ const FILES_SHOWN = 100;
  * Empty for any other turn.
  */
 async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
-  if (!featureOn(agent.features, "selfImprovement") || !tools.selfReadGuide) return "";
+  if (!abilityOn(agent.abilities, "selfImprovement") || !tools.selfReadGuide) return "";
   const { files } = await ownFiles(agent, true, FILES_SHOWN + 1);
   const shown = files.slice(0, FILES_SHOWN).map((one) => `- ${one.path}${one.canWrite ? "" : ` (not yours to write: ${one.why})`}`);
   if (files.length > FILES_SHOWN) shown.push("- and more, which selfListFiles lists");
@@ -848,7 +848,7 @@ function dashboard(): string {
  * stranger's turn and for an agent without its memory tools.
  */
 function memoryLinks(agent: Agent, stranger: boolean | undefined): string {
-  if (stranger || !featureOn(agent.features, "memory")) return "";
+  if (stranger || !abilityOn(agent.abilities, "memory")) return "";
   const at = `${dashboard()}/agents/${agent.id}/memory`;
   return (
     "## Links to your memory\n\n" +
@@ -859,7 +859,7 @@ function memoryLinks(agent: Agent, stranger: boolean | undefined): string {
 
 function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = "", cannot = "", runsOn = "", links = ""): string {
   // Without its own name, the only name a model is shown is Chloe's, and it answers to that.
-  const parts = [`Your name is ${agent.label ?? agent.id}.`, agent.instructions];
+  const parts = [`Your name is ${agent.name ?? agent.id}.`, agent.purpose];
   if (person) parts.push(talkingWith(person));
   if (runsOn) parts.push(runsOn);
   if (links) parts.push(links);

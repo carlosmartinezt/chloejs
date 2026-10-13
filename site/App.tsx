@@ -6,7 +6,7 @@ import { ContextMenu, type Choice } from "./views/components/ContextMenu.tsx";
 import { Link } from "./views/components/Link.tsx";
 import { Dot, Rail } from "./views/components/Tree.tsx";
 import { api, EVERYTHING, NeedsSignIn, servesFrom, type Serves } from "./lib/api.ts";
-import { labelOf, many, shareLabels, words } from "./lib/format.ts";
+import { nameOf, many, shareNames, words } from "./lib/format.ts";
 import { allowed, landing, may, NOT_GIVEN } from "./lib/given.ts";
 import { announceMenu, watchMenu } from "./lib/menus.ts";
 import { go, href, read, type View } from "./lib/route.ts";
@@ -19,7 +19,7 @@ import { Open } from "./views/Files.tsx";
 import { Channels } from "./views/Channels.tsx";
 import { Connections } from "./views/Connections.tsx";
 import { Home } from "./views/Home.tsx";
-import { Instructions } from "./views/Instructions.tsx";
+import { Purpose } from "./views/Purpose.tsx";
 import { Invitation } from "./views/Invitation.tsx";
 import { Jobs } from "./views/Jobs.tsx";
 import { Skills } from "./views/Skills.tsx";
@@ -102,7 +102,7 @@ export function App() {
     if (!serves?.agents) return;
     try {
       const [all, history, waiting, health] = await Promise.all([api.agents(), api.runs(150), api.parked(), api.health()]);
-      shareLabels(all);
+      shareNames(all);
       setAgents(all);
       setRuns(history);
       setParked(waiting);
@@ -284,7 +284,7 @@ export function App() {
         <Rail agent={here!} view={view} files={files} />
 
         <main className="pane">
-          {view.at === "instructions" && <Instructions agent={view.agent} />}
+          {view.at === "purpose" && <Purpose agent={view.agent} />}
           {view.at === "skills" && <Skills agent={view.agent} />}
           {view.at === "jobs" && jobsOf(view.agent)}
           {view.at === "tools" && <Tools agent={view.agent} />}
@@ -346,12 +346,12 @@ function WhichAgent({ here, all, view, given }: { here?: string; all: AgentSumma
   const sameKind = (agent: string): View =>
     !given || allowed(given, kind(agent)) ? kind(agent) : (landing(given, [agent], agent) ?? kind(agent));
   return (
-    <Picker label={here ? labelOf(here) : given ? "Agents" : "All agents"} className="which">
+    <Picker label={here ? nameOf(here) : given ? "Agents" : "All agents"} className="which">
       {[
         { head: "Agent" } as Choice,
         ...(given ? [] : [{ label: "All agents", run: () => go({ at: "home" }), current: !here } as Choice, "line" as Choice]),
         ...all.map((one) => ({
-          label: labelOf(one.id),
+          label: nameOf(one.id),
           run: () => go(sameKind(one.id)),
           current: one.id === here,
         })),
@@ -465,13 +465,13 @@ function Agent({
   return (
     <>
       <div className="head">
-        <h1>{labelOf(agent.id)}</h1>
+        <h1>{nameOf(agent.id)}</h1>
         <Link to={{ at: "chat", agent: id }} className="button talk">
           <Icons.Chat />
-          Chat with {labelOf(agent.id)}
+          Chat with {nameOf(agent.id)}
         </Link>
       </div>
-      <p>{agent.description}</p>
+      <p>{agent.identity}</p>
 
       <dl className="facts">
         <dt>model</dt>
@@ -481,9 +481,9 @@ function Agent({
           <Names names={agent.skills} agent={id} held={held} folder="skills" ending=".md" />
         </dd>
         <dt>
-          <Link to={{ at: "tools", agent: id }}>features</Link>
+          <Link to={{ at: "tools", agent: id }}>abilities</Link>
         </dt>
-        <dd>{(agent.features ?? []).filter((one) => one.on).map((one) => one.label).join(", ") || "none"}</dd>
+        <dd>{(agent.abilities ?? []).filter((one) => one.on).map((one) => one.label).join(", ") || "none"}</dd>
         {/* The tools its agent.ts names, and a connection's, each under where it comes from. */}
         {own.length > 0 && (
           <>
@@ -495,7 +495,7 @@ function Agent({
             </dd>
           </>
         )}
-        {[...new Set(Object.values(from))].filter((source) => !source.startsWith("features.")).sort().map((source) => (
+        {[...new Set(Object.values(from))].filter((source) => !source.startsWith("abilities.")).sort().map((source) => (
           <Fragment key={source}>
             <dt className="from">
               <Link to={{ at: "tools", agent: id }}>{source}</Link>

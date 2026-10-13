@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api, missing } from "../lib/api.ts";
-import { ago, labelOf } from "../lib/format.ts";
+import { ago, nameOf } from "../lib/format.ts";
 import type { Skill } from "../lib/types.ts";
 import * as Icons from "./components/Icons.tsx";
 import { Live } from "./components/Live.tsx";
@@ -65,7 +65,7 @@ export function Skills({ agent }: { agent: string }) {
       {skills === null && !trouble && <p className="dim">Loading</p>}
       {skills?.length === 0 && (
         <p className="empty frame">
-          {labelOf(agent)} has none. Put a markdown file in its skills folder and it has one.
+          {nameOf(agent)} has none. Put a markdown file in its skills folder and it has one.
         </p>
       )}
       {skills?.length && shown?.length === 0 ? <p className="empty frame">No skill says that.</p> : null}

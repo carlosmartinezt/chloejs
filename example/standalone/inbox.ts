@@ -4,8 +4,8 @@ import { telegramChannel } from "@chloejs/core/channels";
 
 const inbox = defineAgent({
   id: "inbox",
-  description: "Answers questions about your email.",
-  instructions: "You help me keep on top of my email. Be brief.",
+  identity: "Answers questions about your email.",
+  purpose: "You help me keep on top of my email. Be brief.",
   model: "anthropic/claude-sonnet-5",
   tools: { gmailReadEmail: gmail.readEmail() },
   channels: { telegram: telegramChannel({ allowFrom: [123456789] }) },

@@ -1,25 +1,25 @@
 ---
-title: Features
+title: Abilities
 order: 1.6
-summary: The tools chloe brings to an agent: which feature adds each one, what it does, what is on by default, and the tools every agent has with no feature.
+summary: The tools chloe brings to an agent: which ability adds each one, what it does, what is on by default, and the tools every agent has with no ability.
 ---
 
-# Features
+# Abilities
 
-A feature is a set of tools chloe has built in. Each is `true` or `false` in
-`features` in the agent's `agent.ts`, with nothing to import:
-`features: { memoryPerUser: true, runScripts: true }`. The Tools page on the
+An ability is a set of tools chloe has built in. Each is `true` or `false` in
+`abilities` in the agent's `agent.ts`, with nothing to import:
+`abilities: { memoryPerUser: true, runScripts: true }`. The Tools page on the
 dashboard switches them too: it writes the same line, says only what differs
 from the default, and puts the file back with the reason when the agent would
 not load.
 
-The tool names here are the ones the model sees. Your instructions and skills
+The tool names here are the ones the model sees. Your purpose and skills
 should say what to do ("note it in your memory"), not name these tools, so a
 rename breaks nothing ([A prompt with tools](/docs/prompts#skills-and-scripts)).
 
-## The features
+## The abilities
 
-| Feature | Default | Tools it adds |
+| Ability | Default | Tools it adds |
 |---|---|---|
 | `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles`, `memoryEditFile` |
 | `web` | off | `webReadPage` |
@@ -52,26 +52,26 @@ a page's JavaScript. Searching the web is `web.search()`, bound in `tools`.
 
 ### email, calendar and drive
 
-Google, as three features that share the one sign-in (see
+Google, as three abilities that share the one sign-in (see
 [Connections](/docs/connections#the-google-tools)). Each is `true` for its
 narrowest reach, or its fields written out, which the Tools page shows as a form.
 The model never chooses what a field fixes.
 
-| Feature | Fields | Tools |
+| Ability | Fields | Tools |
 |---|---|---|
 | `email` | `search` (a Gmail search, default `in:inbox`), `days` (7), `about`, `reply` (false), `sendTo` (none), `sendFrom`, `sendWhen` | `emailReadMail`; with `reply`, `emailReplyMail`; with a `sendTo`, `emailSendMail`, which writes only the subject and the body |
 | `calendar` | `calendars` (`["primary"]`), `days` (7), `about`, `add` (false) | `calendarListEvents`; with `add`, `calendarAddEvent`, which invites nobody |
 | `drive` | `search` (all of Drive), `about` | `driveSearchFiles`, `driveReadFile` |
 
-`features: { email: { search: "label:orders", days: 3, reply: true } }`. What a
-feature cannot hold (a copy folder for sent mail, several calendars to add to,
+`abilities: { email: { search: "label:orders", days: 3, reply: true } }`. What a
+ability cannot hold (a copy folder for sent mail, several calendars to add to,
 a limit worked out in code) is bound with the tool functions in `tools`, which
 are on [Tools](/docs/tools). An email channel that may write first brings
 `emailStartConversation` itself: see `start` in [Email](/docs/channels-email).
 
 ### selfImprovement
 
-`selfWriteFile` changes files in the agent's own folder: its instructions,
+`selfWriteFile` changes files in the agent's own folder: its purpose,
 skills and jobs, and its code (`agent.ts`, tools, services, channels,
 scripts). It writes every file one change needs in one call, and that is one
 commit you can read and undo from the dashboard. With code among them, the
@@ -110,14 +110,14 @@ folder. With it on, a file somebody sends is also saved for the scripts
 
 ## Switching one tool off
 
-A feature is all of its tools. To keep a feature but not one of its tools, or
+An ability is all of its tools. To keep an ability but not one of its tools, or
 to switch off a tool you bound yourself without losing the options you gave it,
 list its name in `without`: `without: ["memoryEditFile"]`. The dashboard's
 Tools page writes that list when you switch a single tool. A name that is no
-tool of the agent stops it loading, saying what there is. A feature's tool may
-be named while the feature is off.
+tool of the agent stops it loading, saying what there is. An ability's tool may
+be named while the ability is off.
 
-## With no feature
+## With no ability
 
 | Tool | Who gets it | What it does |
 |---|---|---|
@@ -127,7 +127,7 @@ be named while the feature is off.
 | `selfListRuns` | turns its owner wrote | Lists its own runs, newest first: the job or chat, where it came from, when, the cost, and whether it failed. |
 | `selfReadRun` | turns its owner wrote | Reads one run: what started it, the answer or the error, and each step on the way. |
 | `selfTryJob` | turns its owner wrote | Runs one of its jobs as a [trial](/docs/jobs#a-trial-run), as its files are now: it reads for real, sends nothing, and answers with every message and email it would have sent. |
-| `selfReadGuide` | turns its owner wrote | Reads these guides, several in one call, for the version installed, so it can say what it could be given (Gmail, a channel, web pages) and how. Its files and the list of guides are in its instructions in those turns, and an agent that may change itself is told to read what a change needs at once and never to ask for a secret in a chat. |
+| `selfReadGuide` | turns its owner wrote | Reads these guides, several in one call, for the version installed, so it can say what it could be given (Gmail, a channel, web pages) and how. Its files and the list of guides are in its purpose in those turns, and an agent that may change itself is told to read what a change needs at once and never to ask for a secret in a chat. |
 
 The owner is `owner` in settings, the first entry in a channel's `allowFrom`,
 or the account on the dashboard. Reading its own folder is on for every turn,

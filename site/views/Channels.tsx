@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api, missing } from "../lib/api.ts";
-import { labelOf } from "../lib/format.ts";
+import { nameOf } from "../lib/format.ts";
 import type { ChannelShown } from "../lib/types.ts";
 import { Link } from "./components/Link.tsx";
 import { Options } from "./components/Options.tsx";
@@ -45,7 +45,7 @@ export function Channels({ agent }: { agent: string }) {
         <h1>Channels</h1>
       </div>
       <p className="empty">
-        The ways in: how a person or another system reaches {labelOf(agent)}. A switch or a form changes{" "}
+        The ways in: how a person or another system reaches {nameOf(agent)}. A switch or a form changes{" "}
         <code>channels</code> in its <code>agent.ts</code>, and the agent is loaded again with the change. A token goes to{" "}
         <code>.env</code>.
       </p>

@@ -5,7 +5,7 @@ summary: An AI agent in Chloe is a TypeScript file listing its jobs, tools and c
 ---
 
 An agent here is not one long prompt. It is a TypeScript file listing its
-instructions, its jobs, the tools it may hand a model, and the chats it answers
+purpose, its jobs, the tools it may hand a model, and the chats it answers
 on. Each job is an async function, and asking a model is one kind of step
 inside it, used only where a step needs judgement.
 
@@ -17,7 +17,7 @@ npx chloe setup
 ```
 
 Setup asks for a model and writes the config, with a first agent that has only
-instructions: ask it to change itself, or have your coding agent make it into
+purpose: ask it to change itself, or have your coding agent make it into
 what you want. See [Start](/docs/start).
 
 ## The agent

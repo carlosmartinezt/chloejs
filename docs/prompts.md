@@ -37,13 +37,13 @@ keys, all optional, and no others:
 Paths in `prompt()` and `markdownJob()` are inside the agent's folder. A plain
 string in `markdown` is the words themselves, not a path.
 
-The job runs with the agent's instructions, tools, skills and memory, and stops
+The job runs with the agent's purpose, tools, skills and memory, and stops
 at the agent's `stopWhen`, 40 steps unless it says.
 
 ## Files kept somewhere else
 
 Instructions can carry a file from outside the agent's folder, like a price
-list or a FAQ: `prompt("instructions.md", { include: { prices: "/home/you/prices.md" } })`.
+list or a FAQ: `prompt("purpose.md", { include: { prices: "/home/you/prices.md" } })`.
 Each goes after the words, in a tag of its name (`<prices>`). An edit to it is
 live in a second, and a missing one stops the agent loading, saying which.
 
@@ -68,7 +68,7 @@ skills/fill-pdfs/
 ```
 
 A **script** is an executable file in `scripts/`, or inside a skill's folder,
-which the agent runs with `scriptRun` when `features: { runScripts: true }` is
+which the agent runs with `scriptRun` when `abilities: { runScripts: true }` is
 on. One in `scripts/` runs in that folder and is named by its file name; one in
 a skill runs in that skill's folder and is named `<skill>/<path>`. Both get the
 memory folder in `MEMORY_FOLDER`. A script nothing mentions does not belong
@@ -90,11 +90,11 @@ defines itself is yours, so name it as you like.
 
 ## What an agent may change about itself
 
-Every agent may rewrite its own instructions, skills and jobs, and its code:
+Every agent may rewrite its own purpose, skills and jobs, and its code:
 `agent.ts`, its tools, services, channels and scripts. `selfImprovement: false`
 turns that off, which suits an agent that already does what you want. Every change is a
 commit under its name, which you can read and undo from the dashboard. It never
-writes its evals or its memory. See [Features](/docs/features).
+writes its evals or its memory. See [Abilities](/docs/abilities).
 
 So "every morning at 7, tell me
 what is most urgent in my mail" can end as a job it wrote. It writes every
@@ -110,7 +110,7 @@ it must never change belongs in code it cannot reach, not in a file in its
 folder.
 
 Any agent can read its own folder in any turn (`selfListFiles`,
-`selfReadFile`): its instructions, skills, jobs and code, to say how it does
+`selfReadFile`): its purpose, skills, jobs and code, to say how it does
 something or to read its own source. When its owner asks, it also gets its
 runs (`selfListRuns`, `selfReadRun`), which hold what other people said, the
 guides for the version installed (`selfReadGuide`), and it can try one of its
@@ -126,4 +126,4 @@ reply, because what it read may be what asked for the change. The owner's
 next message may ask for it, and every change is a commit that can be read and
 undone. In a turn without `selfWriteFile`, an agent that may change itself
 is told so by the runtime, and to keep what it learned in its memory and say
-which file it would change, so its instructions need not say it.
+which file it would change, so its purpose need not say it.

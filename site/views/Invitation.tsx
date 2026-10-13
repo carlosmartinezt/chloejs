@@ -78,7 +78,7 @@ export function Invitation({ code }: { code: string }) {
   return (
     <main className="doorway">
       {mark}
-      <h1>You have been invited to {found.label}</h1>
+      <h1>You have been invited to {found.agentName}</h1>
       <p className="empty">
         You may {found.given.map((one) => YOU_MAY[one]).join(", and ")}.
       </p>

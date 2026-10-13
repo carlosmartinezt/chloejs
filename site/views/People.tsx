@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../lib/api.ts";
 import { copy } from "../lib/copy.ts";
-import { labelOf, ZONE } from "../lib/format.ts";
+import { nameOf, ZONE } from "../lib/format.ts";
 import type { AgentSummary, People as Everybody, Switch } from "../lib/types.ts";
 
 /** Each thing somebody can be given on an agent: a short name for its toggle, and what it means. */
@@ -113,7 +113,7 @@ export function People({ agents }: { agents: AgentSummary[] }) {
       ) : (
         groups.map((agent) => (
           <section key={agent}>
-            <h2 className="group">{labelOf(agent)}</h2>
+            <h2 className="group">{nameOf(agent)}</h2>
             <ul className="rows">
               {rows
                 .filter((one) => one.agent === agent)
@@ -160,7 +160,7 @@ export function People({ agents }: { agents: AgentSummary[] }) {
                       onClick={() => {
                         const what = one.invited
                           ? `Stop the invitation to ${one.email}? The link stops working.`
-                          : `Take ${one.email} off ${labelOf(one.agent)}? They lose it at once.`;
+                          : `Take ${one.email} off ${nameOf(one.agent)}? They lose it at once.`;
                         if (window.confirm(what)) void tried(() => api.removePerson(one.email, one.agent));
                       }}
                     >
@@ -258,7 +258,7 @@ function Invite({ agents, done, made }: { agents: AgentSummary[]; done: () => vo
             <select value={agent} onChange={(event) => setAgent(event.target.value)}>
               {agents.map((one) => (
                 <option key={one.id} value={one.id}>
-                  {labelOf(one.id)}
+                  {nameOf(one.id)}
                 </option>
               ))}
             </select>

@@ -1,6 +1,6 @@
-// The features an agent can switch on: tools that chloe brings, each `true`
-// or `false` in the agent's `features`, and a few with fields that say what
-// they may reach. This is the one list: the loader adds each feature's tools
+// The abilities an agent can switch on: tools that chloe brings, each `true`
+// or `false` in the agent's `abilities`, and a few with fields that say what
+// they may reach. This is the one list: the loader adds each ability's tools
 // from it, and the dashboard draws its switches and forms from it.
 import { settings } from "#chloe/core/settings";
 import { google } from "#chloe/connections/google/connection";
@@ -19,13 +19,13 @@ import { defaultOf, readOptions, type OptionSpec } from "./options.ts";
 
 /**
  * Tools that chloe can add to an agent, each switched on or off with `true`
- * or `false`, for example `features: { runScripts: true }`. A few take their
+ * or `false`, for example `abilities: { runScripts: true }`. A few take their
  * fields instead of `true`, like `email: { search: "in:inbox", days: 3 }`; the
  * file says only what differs from the default. The page's Tools view
  * switches them and fills the fields in, by changing this object in
- * `agent.ts`. `FEATURES` is the list, with what each one is when unsaid.
+ * `agent.ts`. `ABILITIES` is the list, with what each one is when unsaid.
  */
-export interface Features {
+export interface Abilities {
   /**
    * Adds the memory tools: `memoryListFiles`, `memoryReadFile`,
    * `memorySearchFiles` and `memoryEditFile`. They work on
@@ -40,7 +40,7 @@ export interface Features {
   web?: boolean;
   /**
    * Adds the tool `selfWriteFile`, which lets the agent change its own files:
-   * its instructions, skills and jobs, and its code (`agent.ts`, jobs, tools,
+   * its purpose, skills and jobs, and its code (`agent.ts`, jobs, tools,
    * services, channels, scripts). On by default, which suits an agent that is
    * still being shaped; switch it off once it does what you want.
    *
@@ -91,23 +91,23 @@ export interface Features {
    * days and nothing else. Give fields to say which mail, and to let it reply
    * or send. Needs the Google sign-in.
    */
-  email?: boolean | EmailFeature;
+  email?: boolean | EmailAbility;
   /**
    * Adds the tool `calendarListEvents` for a Google calendar, and with
    * `add`, `calendarAddEvent`. Off by default. `true` reads the signed-in
    * account's own calendar for the next 7 days. Needs the Google sign-in.
    */
-  calendar?: boolean | CalendarFeature;
+  calendar?: boolean | CalendarAbility;
   /**
    * Adds the tools `driveSearchFiles` and `driveReadFile`, which find and read
    * files in Google Drive as text. Off by default. `true` reaches all of
    * Drive: give `search` to keep it to some files. Needs the Google sign-in.
    */
-  drive?: boolean | DriveFeature;
+  drive?: boolean | DriveAbility;
 }
 
-/** The fields of `features.email`. The model chooses only how far back and which listed message to answer. */
-export interface EmailFeature {
+/** The fields of `abilities.email`. The model chooses only how far back and which listed message to answer. */
+export interface EmailAbility {
   /** A Gmail search that sets which mail the model can see, like `"in:inbox label:orders"`. It cannot change it. Default: `"in:inbox"`. */
   search?: string;
   /** How many days back it looks when it does not say. Default: 7. */
@@ -124,8 +124,8 @@ export interface EmailFeature {
   sendWhen?: string;
 }
 
-/** The fields of `features.calendar`. */
-export interface CalendarFeature {
+/** The fields of `abilities.calendar`. */
+export interface CalendarAbility {
   /** The ids of the calendars it can see; `"primary"` is the signed-in account's own. Default: `["primary"]`. */
   calendars?: string[];
   /** How many days ahead it looks when it does not say. Default: 7. */
@@ -136,17 +136,17 @@ export interface CalendarFeature {
   add?: boolean;
 }
 
-/** The fields of `features.drive`. */
-export interface DriveFeature {
+/** The fields of `abilities.drive`. */
+export interface DriveAbility {
   /** A Drive search that sets which files the model can see, like `"'folder-id' in parents"`. It cannot change it. Default: all of Drive. */
   search?: string;
   /** A few words for those files, like `"the shared proposals"`, said to the model. Default: none. */
   about?: string;
 }
 
-/** One feature: what it is when unsaid, what it does in a line, the tools it adds and the fields it takes. */
-export interface Feature {
-  name: keyof Features;
+/** One ability: what it is when unsaid, what it does in a line, the tools it adds and the fields it takes. */
+export interface Ability {
+  name: keyof Abilities;
   /** What the dashboard calls it. */
   label: string;
   on: boolean;
@@ -169,13 +169,13 @@ const about = (what: string): OptionSpec => ({
   default: "",
 });
 
-/** Every feature, in the order the page shows them: self improvement first, then memory, scripts and notes per person, then what reaches outside. A test holds `tools` to what each one adds. */
-export const FEATURES: Feature[] = [
+/** Every ability, in the order the page shows them: self improvement first, then memory, scripts and notes per person, then what reaches outside. A test holds `tools` to what each one adds. */
+export const ABILITIES: Ability[] = [
   {
     name: "selfImprovement",
     label: "Self improvement",
     on: true,
-    does: "Changes its own instructions, skills, jobs and code when you ask it to. Each change is a commit you can undo.",
+    does: "Changes its own purpose, skills, jobs and code when you ask it to. Each change is a commit you can undo.",
     tools: ["selfWriteFile"],
   },
   {
@@ -253,24 +253,24 @@ export const FEATURES: Feature[] = [
   },
 ];
 
-/** The feature of this name. */
-export const featureNamed = (name: keyof Features): Feature => FEATURES.find((one) => one.name === name)!;
+/** The ability of this name. */
+export const abilityNamed = (name: keyof Abilities): Ability => ABILITIES.find((one) => one.name === name)!;
 
-/** Whether this feature is on for an agent with these `features`: true, or its fields written out, unless it says false. */
-export function featureOn(features: Features | undefined, name: keyof Features): boolean {
-  const said = features?.[name];
-  return said === undefined ? featureNamed(name).on : said !== false;
+/** Whether this ability is on for an agent with these `abilities`: true, or its fields written out, unless it says false. */
+export function abilityOn(abilities: Abilities | undefined, name: keyof Abilities): boolean {
+  const said = abilities?.[name];
+  return said === undefined ? abilityNamed(name).on : said !== false;
 }
 
-/** The fields `features.<name>` says, with every default filled in. Refused when one is not what its field takes. */
-export function featureValues(features: Features | undefined, name: keyof Features, where = "features"): Record<string, unknown> {
-  const feature = featureNamed(name);
-  const said = features?.[name];
-  return readOptions(feature.fields ?? [], typeof said === "object" ? said : undefined, `${where}.${name}`, true);
+/** The fields `abilities.<name>` says, with every default filled in. Refused when one is not what its field takes. */
+export function abilityValues(abilities: Abilities | undefined, name: keyof Abilities, where = "abilities"): Record<string, unknown> {
+  const ability = abilityNamed(name);
+  const said = abilities?.[name];
+  return readOptions(ability.fields ?? [], typeof said === "object" ? said : undefined, `${where}.${name}`, true);
 }
 
-/** What each feature adds, made for one agent from its fields. */
-const MAKERS: Record<keyof Features, (home: Home, values: Record<string, unknown>) => Tools> = {
+/** What each ability adds, made for one agent from its fields. */
+const MAKERS: Record<keyof Abilities, (home: Home, values: Record<string, unknown>) => Tools> = {
   memory: (home) => memoryTools()(home),
   web: () => ({ webReadPage: readPage() }),
   selfImprovement: (home) => selfWriteTools()(home),
@@ -305,34 +305,34 @@ const MAKERS: Record<keyof Features, (home: Home, values: Record<string, unknown
 };
 
 /**
- * The tools a feature adds for this agent, from the fields `features` says.
+ * The tools an ability adds for this agent, from the fields `abilities` says.
  * With `preview`, from the fields that bring every tool, so the page can show
  * what switching it on, or filling its fields in, would add.
  */
-export function featureToolSet(home: Home, name: keyof Features, features?: Features, preview = false): Tools {
-  const feature = featureNamed(name);
-  const values = featureValues(preview ? undefined : features, name);
-  return MAKERS[name](home, preview ? { ...values, ...feature.preview } : values);
+export function abilityToolSet(home: Home, name: keyof Abilities, abilities?: Abilities, preview = false): Tools {
+  const ability = abilityNamed(name);
+  const values = abilityValues(preview ? undefined : abilities, name);
+  return MAKERS[name](home, preview ? { ...values, ...ability.preview } : values);
 }
 
 /**
- * What an agent's `features` turn on, as tools, under where each comes from,
- * like `features.memory`. A value that is not what its feature takes is
+ * What an agent's `abilities` turn on, as tools, under where each comes from,
+ * like `abilities.memory`. A value that is not what its ability takes is
  * refused, and so is `runScripts` with nothing to run.
  */
-export function featureTools(features: Features = {}, home: Home, where: string): Record<string, Tools> {
-  for (const [name, value] of Object.entries(features)) {
-    const feature = FEATURES.find((one) => one.name === name);
-    if (!feature) throw new Error(`${where}: features has no ${name}. There are ${FEATURES.map((one) => one.name).join(", ")}.`);
+export function abilityTools(abilities: Abilities = {}, home: Home, where: string): Record<string, Tools> {
+  for (const [name, value] of Object.entries(abilities)) {
+    const ability = ABILITIES.find((one) => one.name === name);
+    if (!ability) throw new Error(`${where}: abilities has no ${name}. There are ${ABILITIES.map((one) => one.name).join(", ")}.`);
     if (value === undefined || typeof value === "boolean") continue;
-    if (!feature.fields) throw new Error(`${where}: features.${name} is true or false.`);
-    featureValues(features, feature.name, `${where}: features`);
+    if (!ability.fields) throw new Error(`${where}: abilities.${name} is true or false.`);
+    abilityValues(abilities, ability.name, `${where}: abilities`);
   }
-  if (featureOn(features, "runScripts") && scriptsIn(home.folder).length === 0) {
-    throw new Error(`${where} has features.runScripts on, and no scripts: neither ${home.folder}/scripts nor an executable file in a skill folder.`);
+  if (abilityOn(abilities, "runScripts") && scriptsIn(home.folder).length === 0) {
+    throw new Error(`${where} has abilities.runScripts on, and no scripts: neither ${home.folder}/scripts nor an executable file in a skill folder.`);
   }
   return Object.fromEntries(
-    FEATURES.filter((one) => featureOn(features, one.name)).map((one) => [`features.${one.name}`, featureToolSet(home, one.name, features)]),
+    ABILITIES.filter((one) => abilityOn(abilities, one.name)).map((one) => [`abilities.${one.name}`, abilityToolSet(home, one.name, abilities)]),
   );
 }
 

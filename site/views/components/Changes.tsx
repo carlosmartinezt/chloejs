@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../../lib/api.ts";
-import { ago, labelOf, many, when } from "../../lib/format.ts";
+import { ago, nameOf, many, when } from "../../lib/format.ts";
 import type { Change, Changes, Place, RunCommit } from "../../lib/types.ts";
 import { Link } from "./Link.tsx";
 
@@ -128,7 +128,7 @@ export function ChangeCard({
         <b>{PLACE[change.in]}</b>
         <span className="gist">{change.subject}</span>
         <span className="kind">
-          {about.by ? `${labelOf(about.by)}, ` : ""}
+          {about.by ? `${nameOf(about.by)}, ` : ""}
           {about.at ? ago(about.at) : change.id.slice(0, 7)}
         </span>
       </summary>

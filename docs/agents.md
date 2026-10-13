@@ -16,15 +16,15 @@ tool or channel exists only because it names it.
 | Option | Default | What it controls |
 |---|---|---|
 | `id` | required | What its runs and memory are filed under. Do not change it once it has run. |
-| `description` | required | One line, shown wherever agents are listed. |
-| `instructions` | required | What it is told on every turn: `prompt("instructions.md")` for a file in its folder, or the words themselves. |
-| `label` | the `id` | Its name: what the dashboard calls it, what it is told it is called on every turn, and the name its emails are sent under. Free to change. |
+| `identity` | required | One line, shown wherever agents are listed. |
+| `purpose` | required | What it is told on every turn: `prompt("purpose.md")` for a file in its folder, or the words themselves. |
+| `name` | the `id` | Its name: what the dashboard calls it, what it is told it is called on every turn, and the name its emails are sent under. Free to change. |
 | `model` | `model.defaultModel` in settings | The model it asks, like `"anthropic/claude-sonnet-5"`. A job or a step can name its own. See [Models](/docs/models). |
 | `tools` | none | What a model may call, keyed by the name it sees. See [Tools](/docs/tools). |
 | `jobs` | none | Its jobs: each one imported, or `markdownJob("jobs/<id>.md")` for a prompt. See [A job is a workflow](/docs/jobs). |
 | `channels` | none | Where people reach it, keyed by name: `{ telegram: telegramChannel({ allowFrom: [123] }) }`. See [Channels](/docs/channels). |
 | `connections` | none | MCP servers only this agent reaches. See [Connections](/docs/connections). |
-| `features` | memory on, the rest off | Built-in tools to switch on. Below. |
+| `abilities` | memory on, the rest off | Built-in tools to switch on. Below. |
 | `memory` | its own folder in `data/memory` | Where it keeps notes between runs. Below. |
 | `folder` | the folder `agent.ts` is in | Where its skills, scripts, prompts and evals are. |
 | `stopWhen` | 40 steps | When a turn has to stop, as the AI SDK's `stopWhen`, like `isStepCount(20)`. |
@@ -34,23 +34,23 @@ A turn is one answer to a message, or one run of a job that is a prompt. A
 job's code sets its own limits on each step: see
 [Step, model, agent](/docs/primitives).
 
-## features
+## abilities
 
 Switched on in the definition, with nothing to import:
-`features: { memoryPerUser: true, runScripts: true }`. Each is `true` or `false`, or for `email`, `calendar` and `drive` its fields, and the dashboard's Tools page switches them and fills the fields in. Every tool each one
-adds, and the ones an agent has with no feature, are on
-[Features](/docs/features).
+`abilities: { memoryPerUser: true, runScripts: true }`. Each is `true` or `false`, or for `email`, `calendar` and `drive` its fields, and the dashboard's Tools page switches them and fills the fields in. Every tool each one
+adds, and the ones an agent has with no ability, are on
+[Abilities](/docs/abilities).
 
-| Feature | Default | What it adds |
+| Ability | Default | What it adds |
 |---|---|---|
 | `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles` and `memoryEditFile`, inside its memory folder and nowhere else. |
 | `memoryPerUser` | off | `memoryWriteUserNotes`: a note per person it talks to, `users/<channel>-<id>.md` in its memory, shown at the top of that person's turns. Whose note it is comes from who sent the message, never from the model. |
 | `web` | off | `webReadPage`, to read a public web page as plain text. |
-| `email`, `calendar`, `drive` | off | Gmail, Google Calendar and Google Drive, each limited by its fields. See [Features](/docs/features#email-calendar-and-drive). |
-| `selfImprovement` | on | `selfWriteFile`, to change its own folder: instructions, skills, jobs, and its code. `false` turns it off, once the agent does what you want. Never evals or memory, and a job it changes must still load and run at most once an hour. Every write is a commit you can undo from the dashboard, and what you changed by hand in a file it writes is committed first, under your own git name. It writes only when its owner asks, and not once a tool in the same conversation read from outside ([what an agent may change](/docs/prompts#what-an-agent-may-change-about-itself)). |
+| `email`, `calendar`, `drive` | off | Gmail, Google Calendar and Google Drive, each limited by its fields. See [Abilities](/docs/abilities#email-calendar-and-drive). |
+| `selfImprovement` | on | `selfWriteFile`, to change its own folder: purpose, skills, jobs, and its code. `false` turns it off, once the agent does what you want. Never evals or memory, and a job it changes must still load and run at most once an hour. Every write is a commit you can undo from the dashboard, and what you changed by hand in a file it writes is committed first, under your own git name. It writes only when its owner asks, and not once a tool in the same conversation read from outside ([what an agent may change](/docs/prompts#what-an-agent-may-change-about-itself)). |
 | `runScripts` | off | `scriptRun`, to run a file in its own `scripts/` folder. The agent is refused as it loads if that folder is empty. |
 
-Every agent also has six tools that need no feature. `selfListFiles` and
+Every agent also has six tools that need no ability. `selfListFiles` and
 `selfReadFile` read its own folder (never its memory), in every turn, so you
 can ask any agent "how does `readAnalytics` work?" and it can read its own
 source to answer. `selfListRuns` and `selfReadRun` read its own runs, but only
@@ -59,7 +59,7 @@ without a visitor or a token seeing what other people said. `selfTryJob` runs
 one of its jobs as a [trial](/docs/jobs#a-trial-run), which sends nothing and
 answers with what it would have sent, and `selfReadGuide` reads these guides,
 so it can tell you what it could be given. The owner's turns also list its
-files and these guides in its instructions, so it reads what a change needs in
+files and these guides in its purpose, so it reads what a change needs in
 one call and writes it in the next.
 A job, a token and a visitor never get them, because a run holds what
 other people said. Who the owner is: `owner` in settings, the first entry in a
@@ -84,7 +84,7 @@ The memory tools, the dashboard, a job's `work.memory` and a script's
 
 ```
 agent.ts          the definition
-instructions.md   what instructions points at
+purpose.md   what purpose points at
 jobs/             its jobs, code or markdown
 tools/            its own tools
 channels/         one file per channel

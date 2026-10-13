@@ -164,7 +164,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   const folder = join(repo, "agents", "keeper");
   await makeDir(join(folder, "jobs"), { recursive: true });
   await makeDir(join(folder, "skills"), { recursive: true });
-  await put(join(folder, "instructions.md"), "Be brief.");
+  await put(join(folder, "purpose.md"), "Be brief.");
   await put(join(folder, "PERMISSIONS.md"), "| deploy | no |");
   await put(join(folder, "skills", "deploys.md"), "---\nname: deploys\ndescription: how\n---\nDo it.");
   await put(join(folder, "jobs", "build.ts"), "// a job made of code");
@@ -233,7 +233,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   // What it may change of its own folder.
   const home = { id: "keeper", folder, memory: { folder: memory } };
   const may = (path: string) => whyNot(home, true, path) ?? "yes";
-  is("it may change its instructions", may("instructions.md"), "yes");
+  is("it may change its purpose", may("purpose.md"), "yes");
   is("and a skill", may("skills/deploys.md"), "yes");
   is("and its code", [may("jobs/build.ts"), may("tools/check.ts"), may("agent.ts")], ["yes", "yes", "yes"]);
   is(
@@ -247,7 +247,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
     "that is your memory, which you change with memoryEditFile",
   );
   is("nor what marks its runs", may("evals/status.json"), "evals/ is how your runs are marked");
-  is("nor anything with selfImprovement off", (whyNot(home, false, "instructions.md") ?? "yes").includes("switched off"), true);
+  is("nor anything with selfImprovement off", (whyNot(home, false, "purpose.md") ?? "yes").includes("switched off"), true);
   is("and a skill that is a folder", may("skills/deploys/SKILL.md"), "yes");
   is("and what that skill keeps beside it", [may("skills/deploys/hosts.json"), may("skills/deploys/deploy.sh")], ["yes", "yes"]);
   is(
@@ -275,7 +275,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
     'A job you write runs at most once an hour: give its cron line one minute, like "0 7 * * *".',
   );
   is("and JSON that does not parse", (await wrote("targets.json", "{ nope")).startsWith("targets.json is not valid JSON"), true);
-  is("and a file with nothing in it", await wrote("instructions.md", "  \n"), "instructions.md would be empty. Write what it should say.");
+  is("and a file with nothing in it", await wrote("purpose.md", "  \n"), "purpose.md would be empty. Write what it should say.");
   const made = await wrote("jobs/weekly.md", "---\ncron: 0 9 * * 1\ntimezone: America/New_York\n---\nLook back at the week.");
   is("a job that loads is written and committed", /^[0-9a-f]{12}$/.test(made), true);
   is("under the agent's id, with its message", git(repo, "log", "-1", "--format=%an: %s"), "keeper: a change worth making");
@@ -290,14 +290,14 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
     (await jobsOf("keeper", folder, [markdownJob("jobs/weekly.md")])).map((one) => [one.id, one.cron]),
     [["weekly", "0 9 * * 1"]],
   );
-  await put(join(folder, "instructions.md"), "Be brief, and say so.");
-  await wrote("instructions.md", "Be long.");
+  await put(join(folder, "purpose.md"), "Be brief, and say so.");
+  await wrote("purpose.md", "Be long.");
   is(
     "what somebody changed by hand is committed first, under their name, and the agent's change after it",
-    git(repo, "log", "-2", "--format=%an: %s", "--", "agents/keeper/instructions.md").split("\n"),
+    git(repo, "log", "-2", "--format=%an: %s", "--", "agents/keeper/purpose.md").split("\n"),
     ["keeper: a change worth making", "a person: Changed by hand, before keeper changed it"],
   );
-  is("so going back one change gives the hand's version", git(repo, "show", "HEAD~1:agents/keeper/instructions.md"), "Be brief, and say so.");
+  is("so going back one change gives the hand's version", git(repo, "show", "HEAD~1:agents/keeper/purpose.md"), "Be brief, and say so.");
 
   // A change made during a run belongs to that run.
   const improve = codeJob("improve", async ({ step }) =>
@@ -372,7 +372,7 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   is(
     "the site's view of an agent's folder leaves its memory out",
     (await tree("keeper")).map((one) => one.name),
-    ["jobs", "scripts", "skills", "instructions.md", "PERMISSIONS.md"],
+    ["jobs", "scripts", "skills", "PERMISSIONS.md", "purpose.md"],
   );
   is("and will not open a file in it", await open("keeper", "memory/STATUS.md"), null);
   is("a script is told where its agent's memory is", (await runScripts("keeper", "where.sh")).stdout, memory);
@@ -426,8 +426,8 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   const memory = await mkdtemp(join(tmpdir(), "coder-memory-"));
   const git = (...args: string[]) => execFileSync("git", args, { cwd: folder, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "a person", GIT_AUTHOR_EMAIL: "p@example.com", GIT_COMMITTER_NAME: "a person", GIT_COMMITTER_EMAIL: "p@example.com" } }).trim();
   const definition = (jobs: string, imports = "") =>
-    `import { defineAgent } from "@chloejs/core";\n${imports}\nexport default defineAgent({ id: "coder", description: "", ` +
-    `instructions: "Be brief.", model: "anthropic/claude-haiku-4.5", memory: { folder: ${JSON.stringify(memory)} }, jobs: [${jobs}] });\n`;
+    `import { defineAgent } from "@chloejs/core";\n${imports}\nexport default defineAgent({ id: "coder", identity: "", ` +
+    `purpose: "Be brief.", model: "anthropic/claude-haiku-4.5", memory: { folder: ${JSON.stringify(memory)} }, jobs: [${jobs}] });\n`;
   await writeFile(join(folder, "agent.ts"), definition(""));
   git("init", "-q", "-b", "main");
   git("add", "-A");

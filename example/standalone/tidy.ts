@@ -37,8 +37,8 @@ const tidy = defineJob({
 
 const housekeeper = defineAgent({
   id: "housekeeper",
-  description: "Keeps the Downloads folder tidy.",
-  instructions: "Be brief.",
+  identity: "Keeps the Downloads folder tidy.",
+  purpose: "Be brief.",
   model: "anthropic/claude-haiku-4.5",
   jobs: [tidy],
   channels: { telegram: telegramChannel({ allowFrom: [123456789] }) },

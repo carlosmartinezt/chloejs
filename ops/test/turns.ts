@@ -245,7 +245,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const told = () => lastAsked.find((m) => m.role === "system")?.content ?? "";
   const improving = agent;
   answers.push("No.");
-  await turn({ agent: { ...agent, features: { selfImprovement: false } }, prompt: "improve yourself", source: "schedule", job: "nightly" });
+  await turn({ agent: { ...agent, abilities: { selfImprovement: false } }, prompt: "improve yourself", source: "schedule", job: "nightly" });
   is("an agent with selfImprovement off is not told about changing itself", told().includes("## Changing yourself"), false);
   answers.push("No.");
   await turn({ agent: improving, prompt: "improve yourself", source: "schedule", job: "nightly" });
@@ -333,7 +333,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const { join } = await import("node:path");
   const { tmpdir } = await import("node:os");
   const folder = await mkdtemp(join(tmpdir(), "own-runs-"));
-  await put(join(folder, "instructions.md"), "Be brief.");
+  await put(join(folder, "purpose.md"), "Be brief.");
   const agent = { ...agentFor(codeJob("unused", async () => ({}))), id: "reader", folder, memory: { folder: join(folder, "memory") } };
   const readsFolder = ["selfListFiles", "selfReadFile"];
   const readsRuns = ["selfListRuns", "selfReadRun"];
@@ -390,13 +390,13 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("nor an eval's", refused("r-eval").startsWith("You have no run"), true);
 
   const { ownFile } = await import("#chloe/services/selfService");
-  const own = await ownFile(agent, false, "instructions.md");
+  const own = await ownFile(agent, false, "purpose.md");
   is("with selfImprovement off it reads its files and is told it cannot change them", [own.content, own.canWrite, own.why?.includes("selfImprovement")], ["Be brief.", false, true]);
 
   const written: string[] = [];
   const writer = { ...agent, tools: { selfWriteFile: Object.assign(tool({ description: "Change a file.", inputSchema: z.object({}), execute: async () => (written.push("x"), "Written.") }), { own: true, forOwner: true, changesAgent: true }) } };
   const call = (id: string, name: string, args: unknown) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
-  answers.push({ content: "", tool_calls: [call("l", "selfListRuns", {}), call("f", "selfReadFile", { path: "instructions.md" }), call("w", "selfWriteFile", {})] }, "Done.");
+  answers.push({ content: "", tool_calls: [call("l", "selfListRuns", {}), call("f", "selfReadFile", { path: "purpose.md" }), call("w", "selfWriteFile", {})] }, "Done.");
   await turn({ agent: writer, prompt: "change it", source: "test", mayChangeAgent: true });
   is("listing its runs and reading its files does not stop a change", written.length, 1);
   answers.push({ content: "", tool_calls: [call("r", "selfReadRun", { id: "r-chat" }), call("w2", "selfWriteFile", {})] }, "Could not.");
@@ -426,7 +426,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   await put(
     join(folder, "agent.ts"),
     `import { defineAgent } from "@chloejs/core";\nimport tell from "./jobs/tell.ts";\n` +
-      `export default defineAgent({ id: "trier", description: "", instructions: "Be brief.", model: "anthropic/claude-haiku-4.5", ` +
+      `export default defineAgent({ id: "trier", identity: "", purpose: "Be brief.", model: "anthropic/claude-haiku-4.5", ` +
       `memory: { folder: ${JSON.stringify(memory)} }, jobs: [tell] });\n`,
   );
   const job = (words: string) =>
@@ -558,8 +558,8 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
     resolveAgent(
       defineAgent({
         id: "desk",
-        description: "",
-        instructions: "Hello.",
+        identity: "",
+        purpose: "Hello.",
         model: "m",
         folder: tmpdir(),
         jobs: jobs as never,

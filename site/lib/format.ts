@@ -18,15 +18,15 @@ export const ago = (iso: string | null): string => {
   return when(iso);
 };
 
-/** What the page calls an agent: its label if it has one, or its id. */
-const labels = new Map<string, string>();
+/** What the page calls an agent: its name if it has one, or its id. */
+const names = new Map<string, string>();
 
-export function shareLabels(agents: { id: string; label?: string }[]): void {
-  labels.clear();
-  for (const one of agents) if (one.label) labels.set(one.id, one.label);
+export function shareNames(agents: { id: string; name?: string }[]): void {
+  names.clear();
+  for (const one of agents) if (one.name) names.set(one.id, one.name);
 }
 
-export const labelOf = (id: string): string => labels.get(id) ?? id;
+export const nameOf = (id: string): string => names.get(id) ?? id;
 
 /**
  * What a file is, for the tree. Markdown is words an agent reads, .ts is code

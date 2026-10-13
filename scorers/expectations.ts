@@ -40,8 +40,8 @@ One check per expectation, in the order they are given.`;
  * - `prompt`: what the agent was asked.
  * - `result`: the run, with its reply and its tool calls.
  * - `model`: the model that judges, such as `"anthropic/claude-haiku-4.5"`.
- * - `instructions`: the agent's own instructions. Optional. Give them when an
- *   expectation depends on them, such as "invents nothing the instructions do
+ * - `purpose`: the agent's own purpose. Optional. Give them when an
+ *   expectation depends on them, such as "invents nothing the purpose do
  *   not say".
  *
  * Each call costs one model call, or two if the judge's first answer is not
@@ -53,7 +53,7 @@ export async function expectations(
   result: Result,
   expected: Expected,
   model: string,
-  instructions?: string,
+  purpose?: string,
 ): Promise<Mark> {
   const lines = [
     ...(expected.should ?? []).map((s) => `It should: ${s}`),
@@ -75,7 +75,7 @@ export async function expectations(
       role: "user",
         content: `An agent was asked to do a job. Here is what it was told, what was true at the
 time, what it said, and what it did. Grade it against the expectations below.
-${instructions ? `\nITS INSTRUCTIONS\n${instructions}\n` : ""}
+${purpose ? `\nITS INSTRUCTIONS\n${purpose}\n` : ""}
 WHAT IT WAS ASKED
 ${prompt}
 

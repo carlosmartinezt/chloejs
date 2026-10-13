@@ -4,8 +4,8 @@
 export interface AgentSummary {
   id: string;
   /** What to call it on the page, when that is not its id. */
-  label?: string;
-  description: string;
+  name?: string;
+  identity: string;
   /** What its runs go to now: what its definition names. */
   model: string;
   /** What its definition names. */
@@ -21,9 +21,9 @@ export interface AgentSummary {
   tools: string[];
   /** What the page calls each tool that has a title of its own. The others are said by their name in words. */
   titles?: Record<string, string>;
-  /** Every feature, and whether it is on. */
-  features?: { name: string; label: string; on: boolean }[];
-  /** Where each tool it did not write itself comes from, like "features.memory". A runtime older than 0.34 sends none. */
+  /** Every ability, and whether it is on. */
+  abilities?: { name: string; label: string; on: boolean }[];
+  /** Where each tool it did not write itself comes from, like "abilities.memory". A runtime older than 0.34 sends none. */
   toolsFrom?: Record<string, string>;
   skills: string[];
   /** `channels` is set for a job only a message on those channels starts. */
@@ -146,7 +146,7 @@ export interface Trial {
   unpriced?: number;
 }
 
-/** Where an agent's changes are: its memory, or its own folder of instructions, skills and jobs. */
+/** Where an agent's changes are: its memory, or its own folder of purpose, skills and jobs. */
 export type Place = "memory" | "folder";
 
 /** A commit a run made, as its record keeps it. */
@@ -244,7 +244,7 @@ export interface AgentTool {
   /** What the page calls it, like "Read file". Absent for a tool the agent wrote itself. */
   title?: string;
   does: string;
-  /** Where it comes from, like "features.memory", "always" for one every agent has, or absent for the agent's own. */
+  /** Where it comes from, like "abilities.memory", "always" for one every agent has, or absent for the agent's own. */
   from?: string;
   /** Whether the agent has it. A tool switched off is listed, off. */
   on: boolean;
@@ -253,7 +253,7 @@ export interface AgentTool {
   takes: { name: string; about: string; required: boolean }[];
 }
 
-/** One field of a feature or a channel, with what it is now. */
+/** One field of an ability or a channel, with what it is now. */
 export interface OptionShown {
   name: string;
   label: string;
@@ -286,8 +286,8 @@ export interface ChannelShown {
   settings: { name: string; value: string }[];
 }
 
-/** A feature: tools chloe adds to an agent, switched on or off in its agent.ts, some with fields. */
-export interface AgentFeature {
+/** A ability: tools chloe adds to an agent, switched on or off in its agent.ts, some with fields. */
+export interface AgentAbility {
   name: string;
   label: string;
   on: boolean;
@@ -297,7 +297,7 @@ export interface AgentFeature {
   /** The connection it works through, and what that still needs. */
   needs?: { name: string; missing: string[] };
   fields?: OptionShown[];
-  /** The file writes the whole feature as code. */
+  /** The file writes the whole ability as code. */
   code?: boolean;
 }
 
@@ -403,7 +403,7 @@ export interface Invitation {
   name: string;
   agent: string;
   /** What the agent is called on the page. */
-  label: string;
+  agentName: string;
   given: Switch[];
   /** That address already has a password here, from an earlier invitation. */
   known: boolean;

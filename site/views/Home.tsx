@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { AgentSummary, ParkedRun, RunRow } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
-import { ago, labelOf, many, stateOf, when } from "../lib/format.ts";
+import { ago, nameOf, many, stateOf, when } from "../lib/format.ts";
 import { Code } from "./components/Code.tsx";
 import { Link } from "./components/Link.tsx";
 import { Standing } from "./components/Tree.tsx";
@@ -19,8 +19,8 @@ import { defineAgent } from "@chloejs/core";
 
 export default defineAgent({
   id: "helper",
-  description: "Answers my questions, briefly.",
-  instructions: "Answer in a few lines.",
+  identity: "Answers my questions, briefly.",
+  purpose: "Answer in a few lines.",
 });
 
 // chloe.config.ts
@@ -86,7 +86,7 @@ export function Home({
             {agents.map((agent) => (
               <Link to={{ at: "chat", agent: agent.id }} className="tile" key={agent.id}>
                 <span className="name">
-                  {labelOf(agent.id)}
+                  {nameOf(agent.id)}
                   <Standing state={stateOf(agent.id, { runs, parked, running })} />
                 </span>
                 <span className="num model">{agent.model}</span>

@@ -19,8 +19,8 @@ const digest = defineJob({
 
 const morning = defineAgent({
   id: "morning",
-  description: "Sends a morning note.",
-  instructions: "Be brief.",
+  identity: "Sends a morning note.",
+  purpose: "Be brief.",
   model: "anthropic/claude-sonnet-5",
   jobs: [digest],
 });

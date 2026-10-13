@@ -1,4 +1,4 @@
-// The fields of a feature or a channel: what each one is called, what kind of
+// The fields of an ability or a channel: what each one is called, what kind of
 // value it takes and what it is when unsaid. The loader checks an agent.ts
 // against them, and the dashboard draws its form from them, so the two cannot
 // disagree about what may be written.
@@ -6,7 +6,7 @@
 /** The kinds of value a field takes. `list` is a list of words, or of numbers when `numbers` is set. */
 export type OptionKind = "words" | "number" | "yesno" | "list" | "pick";
 
-/** One field: a plain value a feature or a channel reads from agent.ts. */
+/** One field: a plain value an ability or a channel reads from agent.ts. */
 export interface OptionSpec {
   /** What the file calls it. A name with a dot is inside a group, like `start.when` for `start: { when }`. */
   name: string;
@@ -21,7 +21,7 @@ export interface OptionSpec {
   pick?: string[];
   /** For `list`: the entries are numbers, like Telegram ids. */
   numbers?: boolean;
-  /** It must be said for the feature or channel to work. */
+  /** It must be said for the ability or channel to work. */
   required?: boolean;
 }
 
@@ -73,7 +73,7 @@ export function valueAtName(given: unknown, name: string): unknown {
  * for each field, with the default where it says nothing, as one flat object
  * keyed by the field's name. A value that is not what its field takes is
  * refused, saying what it takes. With `only`, a key that names no field is
- * refused too, and says which there are: a feature has no option beyond its
+ * refused too, and says which there are: an ability has no option beyond its
  * fields, where a channel passes the others on to its own code.
  */
 export function readOptions(specs: OptionSpec[], given: unknown, where: string, only = false): Record<string, unknown> {

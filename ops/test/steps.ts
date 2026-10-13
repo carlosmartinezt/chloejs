@@ -160,9 +160,9 @@ about("an agent written with the AI SDK's own model and tools");
   const definition = defineAgent({
     id: "sdk",
     folder: await mkdtemp(join(tmpdir(), "chloe-sdk-")),
-    description: "",
-    instructions: "Answer about the weather.",
-    features: { memory: false },
+    identity: "",
+    purpose: "Answer about the weather.",
+    abilities: { memory: false },
     model: standIn("pal-1"),
     tools: {
       weather: Object.assign(tool({

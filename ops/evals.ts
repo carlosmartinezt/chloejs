@@ -154,7 +154,7 @@ async function runFile(loaded: Agent, file: string): Promise<{ passed: number; f
     }
 
     const fact = calls(result, one);
-    const judged = await expectations(prompt, result, one, judge(), loaded.instructions);
+    const judged = await expectations(prompt, result, one, judge(), loaded.purpose);
     const ok = fact.score >= PASS.calls && judged.score >= PASS.expectations;
     ok ? passed++ : failed++;
 

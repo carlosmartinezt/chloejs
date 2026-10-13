@@ -3,7 +3,7 @@
 //
 // Its folder is anything except its memory, which has tools of its own.
 // Changing it is narrower, and every rule is here in code rather than in a
-// prompt: only with `features.selfImprovement` on, only the endings in
+// prompt: only with `abilities.selfImprovement` on, only the endings in
 // `WRITABLE`, and never its evals. A change is one commit
 // under the agent's name, so it can be read and undone, and what a person
 // changed by hand in those files is committed first, under their own. Code is loaded first, as the next reload
@@ -162,7 +162,7 @@ async function checkOne(agent: Home, path: string, content: string): Promise<{ a
   const why = whyNot(agent, true, path);
   if (why) throw new Error(`You cannot write ${path}: ${why}.`);
   const at = within(agent, path);
-  // An empty instructions file stops the agent loading, and so every reload after it.
+  // An empty purpose file stops the agent loading, and so every reload after it.
   if (!content.trim()) throw new Error(`${at} would be empty. Write what it should say.`);
   const resolved = confine(agent.folder, at);
 

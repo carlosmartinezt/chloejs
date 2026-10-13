@@ -18,7 +18,7 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   // for as long as nobody looked. Loading them all is the cheapest way to
   // notice.
   const { defineAgent } = await import("@chloejs/core");
-  const here = defineAgent({ id: "here", model: "m", description: "", instructions: "Hello." });
+  const here = defineAgent({ id: "here", model: "m", identity: "", purpose: "Hello." });
   is("an agent's folder is the one it is written in, unless it says", here.folder, import.meta.dirname);
   is("and it can say", defineAgent({ ...here, id: here.id, folder: "/elsewhere" }).folder, "/elsewhere");
 
@@ -250,7 +250,7 @@ const hello = defineJob({
   cron: "0 8 * * 1-5",
   run: async (work) => ({ said: await work.step("say it", () => "hello") }),
 });
-const agent = defineAgent({ id: "one", description: "One file.", instructions: "Be brief.", model: "m", jobs: [hello] });
+const agent = defineAgent({ id: "one", identity: "One file.", purpose: "Be brief.", model: "m", jobs: [hello] });
 export default defineConfig({ agents: [agent], settings: { email: { provider: "none" } } });
 if (import.meta.main) {
   const { text } = await agent.run({ job: hello });
@@ -287,7 +287,7 @@ const digest = defineJob({
   description: "Says good morning.",
   run: async (work) => ({ said: await work.step("say it", () => "good morning") }),
 });
-const morning = defineAgent({ id: "morning", description: "One script.", instructions: "Be brief.", jobs: [digest] });
+const morning = defineAgent({ id: "morning", identity: "One script.", purpose: "Be brief.", jobs: [digest] });
 const { text } = await morning.run({ job: digest, settings: { model: { defaultModel: "m" }, email: { provider: "none" } } });
 console.log(JSON.stringify({ text, provider: settings.email.provider, state: STATE }));
 `,
@@ -308,7 +308,7 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   // Beside a chloe.config.ts the settings are that file's, so a script's own
   // would be a second place for them. Refused before anything starts.
   const { startChloe, defineAgent } = await import("@chloejs/core");
-  const one = defineAgent({ id: "aside", description: "", instructions: "Hello.", model: "m" });
+  const one = defineAgent({ id: "aside", identity: "", purpose: "Hello.", model: "m" });
   const refused = await startChloe({ agents: [one] }).then(() => "", (error: Error) => error.message);
   is("a script's agents are refused where a chloe.config.ts is", refused.includes("holds this project's"), true);
 }
@@ -319,22 +319,22 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   const { prompt, readPrompt, includedIn } = await import("#chloe/core/markdown");
   const dir = await mkdtemp(join(tmpdir(), "chloe-include-"));
   const elsewhere = await mkdtemp(join(tmpdir(), "chloe-cv-"));
-  await writeFile(join(dir, "instructions.md"), "Answer from the CV.\n");
+  await writeFile(join(dir, "purpose.md"), "Answer from the CV.\n");
   await writeFile(join(elsewhere, "cv.md"), "# Ada\n\nEngineer.\n");
   await writeFile(join(dir, "faq.md"), "Opening hours: nine to five.\n");
 
-  const words = prompt("instructions.md", { include: { cv: join(elsewhere, "cv.md"), faq: "faq.md" } });
+  const words = prompt("purpose.md", { include: { cv: join(elsewhere, "cv.md"), faq: "faq.md" } });
   is(
     "each comes after the words, in a tag of its name, a short path being the agent's folder's",
     await readPrompt(words, { dir, where: "shop" }),
     "Answer from the CV.\n\n<cv>\n# Ada\n\nEngineer.\n</cv>\n\n<faq>\nOpening hours: nine to five.\n</faq>",
   );
   is("and they are named in full, to be watched", includedIn(words, dir), [join(elsewhere, "cv.md"), join(dir, "faq.md")]);
-  const missing = await readPrompt(prompt("instructions.md", { include: { cv: "gone.md" } }), { dir, where: "shop" }).then(() => "", (error: Error) => error.message);
+  const missing = await readPrompt(prompt("purpose.md", { include: { cv: "gone.md" } }), { dir, where: "shop" }).then(() => "", (error: Error) => error.message);
   is("one that is not there stops the agent loading, saying which", missing, "shop includes gone.md as cv, which is not there.");
   const named = (() => {
     try {
-      prompt("instructions.md", { include: { "my cv": "cv.md" } });
+      prompt("purpose.md", { include: { "my cv": "cv.md" } });
       return "";
     } catch (error) {
       return (error as Error).message;
@@ -346,39 +346,39 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
 }
 
 {
-  about("features are switched on and off, and FEATURES says what each adds");
+  about("abilities are switched on and off, and ABILITIES says what each adds");
   const { defineAgent } = await import("@chloejs/core");
-  const { FEATURES, resolveAgent } = await import("#chloe/load/load");
+  const { ABILITIES, resolveAgent } = await import("#chloe/load/load");
   const { chmod } = await import("node:fs/promises");
-  const folder = await realpath(await mkdtemp(join(tmpdir(), "chloe-features-")));
+  const folder = await realpath(await mkdtemp(join(tmpdir(), "chloe-abilities-")));
   await mkdir(join(folder, "scripts"));
   await writeFile(join(folder, "scripts/hi.sh"), "#!/bin/sh\necho hi\n");
   await chmod(join(folder, "scripts/hi.sh"), 0o755);
-  const agent = (features: Record<string, unknown>) =>
-    resolveAgent(defineAgent({ id: "switches", folder, model: "m", description: "", instructions: "Hi.", features: features as never }));
-  const from = (await agent(Object.fromEntries(FEATURES.map((one) => [one.name, one.preview ?? true])))).toolsFrom ?? {};
+  const agent = (abilities: Record<string, unknown>) =>
+    resolveAgent(defineAgent({ id: "switches", folder, model: "m", identity: "", purpose: "Hi.", abilities: abilities as never }));
+  const from = (await agent(Object.fromEntries(ABILITIES.map((one) => [one.name, one.preview ?? true])))).toolsFrom ?? {};
   is(
-    "each feature adds the tools the list says",
-    FEATURES.map((one) => [one.name, Object.keys(from).filter((name) => from[name] === `features.${one.name}`).sort()]),
-    FEATURES.map((one) => [one.name, [...one.tools].sort()]),
+    "each ability adds the tools the list says",
+    ABILITIES.map((one) => [one.name, Object.keys(from).filter((name) => from[name] === `abilities.${one.name}`).sort()]),
+    ABILITIES.map((one) => [one.name, [...one.tools].sort()]),
   );
   is(
     "unsaid, each is what the list says",
     [...new Set(Object.values((await agent({})).toolsFrom ?? {}))].sort(),
-    FEATURES.filter((one) => one.on).map((one) => `features.${one.name}`).sort(),
+    ABILITIES.filter((one) => one.on).map((one) => `abilities.${one.name}`).sort(),
   );
-  const refused = (features: Record<string, unknown>) => agent(features).then(() => "loaded", (error: Error) => error.message);
-  is("an object is refused", (await refused({ selfImprovement: { code: false } })).endsWith("features.selfImprovement is true or false."), true);
-  is("and a name that is not a feature", (await refused({ scripts: true })).includes("features has no scripts."), true);
+  const refused = (abilities: Record<string, unknown>) => agent(abilities).then(() => "loaded", (error: Error) => error.message);
+  is("an object is refused", (await refused({ selfImprovement: { code: false } })).endsWith("abilities.selfImprovement is true or false."), true);
+  is("and a name that is not an ability", (await refused({ scripts: true })).includes("abilities has no scripts."), true);
   is("web adds only the page reader", Object.keys((await agent({ web: true })).tools ?? {}).filter((name) => name === "webReadPage"), ["webReadPage"]);
 
-  // Tools switched off by name, for a feature's tools or the agent's own.
-  const tool = (name: string) => defineAgent({ id: "switches", folder, model: "m", description: "", instructions: "Hi.", without: [name] });
+  // Tools switched off by name, for an ability's tools or the agent's own.
+  const tool = (name: string) => defineAgent({ id: "switches", folder, model: "m", identity: "", purpose: "Hi.", without: [name] });
   const off = await resolveAgent(tool("memoryEditFile"));
   is("a tool in without is not the agent's", Object.keys(off.tools ?? {}).includes("memoryEditFile"), false);
-  is("its feature's others are", Object.keys(off.tools ?? {}).includes("memoryReadFile"), true);
+  is("its ability's others are", Object.keys(off.tools ?? {}).includes("memoryReadFile"), true);
   is("and it is kept, so the page can show it off", Object.keys(off.toolsOff ?? {}), ["memoryEditFile"]);
-  is("a feature's tool may be named while its feature is off", Object.keys((await resolveAgent(tool("webReadPage"))).tools ?? {}).includes("webReadPage"), false);
+  is("an ability's tool may be named while its ability is off", Object.keys((await resolveAgent(tool("webReadPage"))).tools ?? {}).includes("webReadPage"), false);
   const typo = await resolveAgent(tool("memoryEdit")).then(() => "loaded", (error: Error) => error.message);
   is("a name that is no tool is refused, saying what there is", typo.includes('without names "memoryEdit"') && typo.includes("memoryEditFile"), true);
   await rm(folder, { recursive: true, force: true });
@@ -391,7 +391,7 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   const { resolveAgent } = await import("#chloe/load/load");
   const folder = await realpath(await mkdtemp(join(tmpdir(), "chloe-channels-")));
   const agent = (channels: unknown, more: Record<string, unknown> = {}) =>
-    resolveAgent(defineAgent({ id: "doors", folder, model: "m", description: "", instructions: "Hi.", channels: channels as never, ...more }));
+    resolveAgent(defineAgent({ id: "doors", folder, model: "m", identity: "", purpose: "Hi.", channels: channels as never, ...more }));
   const said = (channels: unknown) => agent(channels).then(() => "loaded", (error: Error) => error.message);
 
   const made = await agent({ telegram: telegramChannel({ allowFrom: [1], sendWhileWorking: true }), api: apiChannel() });
@@ -408,12 +408,12 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   is("the email channel that may start a conversation brings the tool for it", [Object.keys(started.tools ?? {}).includes("emailStartConversation"), started.toolsFrom?.emailStartConversation], [true, "channel email"]);
   is("and one that may not does not", Object.keys((await agent({ email: emailChannel({ allowFrom: ["a@b.co"], mailbox: "gmail" }) })).tools ?? {}).includes("emailStartConversation"), false);
 
-  // A feature that takes fields.
-  const mail = await agent({}, { features: { memory: false, selfImprovement: false, email: { reply: true, sendTo: ["a@b.co"], search: "label:orders" } } });
-  is("a feature's fields decide its tools", Object.keys(mail.tools ?? {}).sort(), ["emailReadMail", "emailReplyMail", "emailSendMail"]);
-  const asked = (features: unknown) => agent({}, { features }).then(() => "loaded", (error: Error) => error.message);
+  // A ability that takes fields.
+  const mail = await agent({}, { abilities: { memory: false, selfImprovement: false, email: { reply: true, sendTo: ["a@b.co"], search: "label:orders" } } });
+  is("an ability's fields decide its tools", Object.keys(mail.tools ?? {}).sort(), ["emailReadMail", "emailReplyMail", "emailSendMail"]);
+  const asked = (abilities: unknown) => agent({}, { abilities }).then(() => "loaded", (error: Error) => error.message);
   is("a field that is not there is refused, saying which there are", (await asked({ email: { sent: true } })).includes("has no field sent. It has search"), true);
   is("one of the wrong kind", (await asked({ email: { days: "three" } })).includes("days takes a number"), true);
-  is("a feature with no fields takes no object", (await asked({ web: { x: 1 } })).includes("is true or false"), true);
+  is("an ability with no fields takes no object", (await asked({ web: { x: 1 } })).includes("is true or false"), true);
   await rm(folder, { recursive: true, force: true });
 }

@@ -3,7 +3,7 @@
 import type {
   Account,
   AgentSummary,
-  AgentFeature,
+  AgentAbility,
   ChannelShown,
   AgentTool,
   Change,
@@ -151,16 +151,16 @@ export const api = {
   tryOut: (agent: string, job: string) => call<Trial>(`/agents/${agent}/trial/${job}`, {}),
   files: (agent: string) => call<Entry[]>(`/agents/${agent}/files`),
   /** `path` is the file the words are in, when they are in one and not written into the agent's definition. */
-  instructions: (agent: string) => call<{ text: string; path?: string }>(`/agents/${agent}/instructions`),
+  purpose: (agent: string) => call<{ text: string; path?: string }>(`/agents/${agent}/purpose`),
   agentSkills: (agent: string) => call<Skill[]>(`/agents/${agent}/skills`),
   agentTools: (agent: string) => call<AgentTool[]>(`/agents/${agent}/tools`),
-  features: (agent: string) => call<AgentFeature[]>(`/agents/${agent}/features`),
-  /** Switch a feature on or off in the agent's agent.ts, and get every feature and tool back as it now loads. */
-  setFeature: (agent: string, change: { name: string; on?: boolean; set?: Record<string, unknown> }) =>
-    call<{ features: AgentFeature[]; tools: AgentTool[] }>(`/agents/${agent}/features`, change),
-  /** Switch one tool off or on, in the agent's agent.ts, and get every feature and tool back as it now loads. */
+  abilities: (agent: string) => call<AgentAbility[]>(`/agents/${agent}/abilities`),
+  /** Switch an ability on or off in the agent's agent.ts, and get every ability and tool back as it now loads. */
+  setAbility: (agent: string, change: { name: string; on?: boolean; set?: Record<string, unknown> }) =>
+    call<{ abilities: AgentAbility[]; tools: AgentTool[] }>(`/agents/${agent}/abilities`, change),
+  /** Switch one tool off or on, in the agent's agent.ts, and get every ability and tool back as it now loads. */
   setTool: (agent: string, name: string, on: boolean) =>
-    call<{ features: AgentFeature[]; tools: AgentTool[] }>(`/agents/${agent}/tools`, { name, on }),
+    call<{ abilities: AgentAbility[]; tools: AgentTool[] }>(`/agents/${agent}/tools`, { name, on }),
   channels: (agent: string) => call<ChannelShown[]>(`/agents/${agent}/channels`),
   /** Switch a channel, fill in its options, or give it its tokens, and get every channel back as the agent now loads. */
   setChannel: (agent: string, change: { name: string; on?: boolean; set?: Record<string, unknown>; secrets?: Record<string, string> }) =>

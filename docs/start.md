@@ -38,7 +38,7 @@ as `serve: { port }` in `chloe.config.ts`.
 
 ## The first agent
 
-Setup writes one, `agents/assistant`, with instructions and nothing else. Run
+Setup writes one, `agents/assistant`, with a purpose and nothing else. Run
 `npx chloe`, open the link it prints, and tell it what you want done: it changes
 itself to do it, its words, its jobs and its code, and each change is a commit
 you can read and undo on the dashboard. See
@@ -58,7 +58,7 @@ for later, if you want one.
 | File | What it is |
 |---|---|
 | `chloe.config.ts` | The list of agents, with the first one on it, and every [setting](/docs/settings). An agent not on it does not run. |
-| `agents/assistant/` | The first agent: `agent.ts`, which says what it is, and `instructions.md`, its words. Only a config setup writes gets one, because that config is what lists it. |
+| `agents/assistant/` | The first agent: `agent.ts`, which says what it is, and `purpose.md`, its words. Only a config setup writes gets one, because that config is what lists it. |
 | `.env` | Every password, key and token, mode 600, never committed. |
 | `tsconfig.json` | How your editor and `tsc` read the project's TypeScript. Node runs it as it is, so nothing is compiled. Setup also installs `typescript` and `@types/node`: chloe runs without them, but then an agent's change to its own code is not type checked before it goes live. |
 

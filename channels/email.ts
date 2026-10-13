@@ -355,7 +355,7 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
    * message it is threaded under it, with that message quoted below.
    */
   async function send(row: Row, subject: string, text: string, answering?: Email, threadId?: string): Promise<void> {
-    const label = displayName(options.agent()?.label ?? agentId);
+    const label = displayName(options.agent()?.name ?? agentId);
     const quote = answering?.text ? quoted(answering) : { text: "", html: "" };
     if (gmail) {
       const references = answering ? `${answering.references} ${answering.messageId}`.trim() : "";
@@ -405,7 +405,7 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
   };
   starters.set(`${agentId}/${channel}`, start);
   // A job that stops to ask somebody by email starts a conversation with them.
-  reachBy(channel, async (to, text) => void (await start(to, `A question from ${options.agent()?.label ?? agentId}`, text)), agentId);
+  reachBy(channel, async (to, text) => void (await start(to, `A question from ${options.agent()?.name ?? agentId}`, text)), agentId);
 
   /** Message ids already dealt with, so one delivered twice is answered once. */
   const seen = new Set<string>();

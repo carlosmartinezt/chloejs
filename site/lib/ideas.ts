@@ -2,8 +2,8 @@
 // agent has turned on, from fixed lists: no model is asked. No React.
 import type { AgentSummary } from "./types.ts";
 
-/** Whether the agent has a tool from this feature, like "features.memory". */
-const turnedOn = (agent: AgentSummary, feature: string) => Object.values(agent.toolsFrom ?? {}).includes(feature);
+/** Whether the agent has a tool from this ability, like "abilities.memory". */
+const turnedOn = (agent: AgentSummary, ability: string) => Object.values(agent.toolsFrom ?? {}).includes(ability);
 
 /** What to suggest for each thing an agent may have. A channel is matched by the start of its name. */
 const FOR: { has: (agent: AgentSummary) => boolean; say: (agent: AgentSummary) => string[] }[] = [
@@ -12,14 +12,14 @@ const FOR: { has: (agent: AgentSummary) => boolean; say: (agent: AgentSummary) =
     say: () => ["What can you do?"],
   },
   {
-    has: (agent) => turnedOn(agent, "features.memory"),
+    has: (agent) => turnedOn(agent, "abilities.memory"),
     say: () => ["Remember that I like short answers.", "What have you written down so far?"],
   },
   {
-    has: (agent) => turnedOn(agent, "features.selfImprovement"),
+    has: (agent) => turnedOn(agent, "abilities.selfImprovement"),
     say: () => [
       "Add a job that checks on something for me every weekday at 9.",
-      "Change your instructions so you answer in one paragraph.",
+      "Change your purpose so you answer in one paragraph.",
       "Write yourself a skill for how I like things explained.",
     ],
   },
@@ -66,6 +66,6 @@ export function ideasFor(agent: AgentSummary, few = 3, random: () => number = Ma
     const other = Math.floor(random() * (at + 1));
     [all[at], all[other]] = [all[other], all[at]];
   }
-  const writes = turnedOn(agent, "features.selfImprovement");
+  const writes = turnedOn(agent, "abilities.selfImprovement");
   return [...(writes ? [A_JOB] : []), ...all].slice(0, few);
 }

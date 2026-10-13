@@ -77,7 +77,7 @@ export type ChloeTool = Tool & {
    */
   forOwner?: boolean;
   /**
-   * Set to `true` when the tool changes the agent itself: its instructions,
+   * Set to `true` when the tool changes the agent itself: its purpose,
    * skills or jobs. Off by default.
    *
    * The model gets it only when the agent's owner sent the message and is

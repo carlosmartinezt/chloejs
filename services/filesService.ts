@@ -6,7 +6,7 @@
 // nothing. The tools over them are model/tools/files.ts.
 //
 // They know nothing about what is in the folder: no list of subfolders, no
-// file format, no house rules. All of that is an agent's instructions or a
+// file format, no house rules. All of that is an agent's purpose or a
 // skill, which is text you can edit, not code that needs a restart.
 //
 // What they do enforce is the edge of the folder, through confine().

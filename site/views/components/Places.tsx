@@ -1,4 +1,4 @@
-import { labelOf } from "../../lib/format.ts";
+import { nameOf } from "../../lib/format.ts";
 import type { View } from "../../lib/route.ts";
 import * as Icons from "./Icons.tsx";
 import { Link } from "./Link.tsx";
@@ -20,11 +20,11 @@ export function Places({ agent, view }: { agent: string; view: View }) {
       {/* The name is the way back to the whole of it, and a heading for the
           rest. The bar switches agents; this only says whose these are. */}
       <Link to={{ at: "agent", agent }} className="whose" current={on("agent") || on("file")}>
-        {labelOf(agent)}
+        {nameOf(agent)}
       </Link>
-      <Link to={{ at: "instructions", agent }} current={on("instructions")}>
+      <Link to={{ at: "purpose", agent }} current={on("purpose")}>
         <Icons.Inspect />
-        Instructions
+        Purpose
       </Link>
       <Link to={{ at: "skills", agent }} current={on("skills")}>
         <Icons.Card />

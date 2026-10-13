@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { AgentSummary, Picture, Said, Step, Thread } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
-import { ago, labelOf, many, money, spent, threadName, when } from "../lib/format.ts";
+import { ago, nameOf, many, money, spent, threadName, when } from "../lib/format.ts";
 import * as Icons from "./components/Icons.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { Trail } from "./components/Link.tsx";
@@ -506,7 +506,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
             <div className="hello">
               <h2>Ready when you are.</h2>
               <p>
-                This conversation is kept, so {labelOf(agent)} remembers it next time, wherever it is
+                This conversation is kept, so {nameOf(agent)} remembers it next time, wherever it is
                 next spoken to.
               </p>
             </div>
@@ -538,7 +538,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                     <Markdown text={line.content} />
                   </div>
                   <div className="meta num">
-                    {[labelOf(agent), line.at && when(line.at), line.cost !== undefined && (line.unpriced ? spent(line.cost, line.unpriced) : money(line.cost))].filter(Boolean).join(", ")}
+                    {[nameOf(agent), line.at && when(line.at), line.cost !== undefined && (line.unpriced ? spent(line.cost, line.unpriced) : money(line.cost))].filter(Boolean).join(", ")}
                   </div>
                 </div>
               ),
@@ -596,7 +596,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
               ref={box}
               rows={1}
               value={prompt}
-              placeholder={`Ask ${labelOf(agent)} something`}
+              placeholder={`Ask ${nameOf(agent)} something`}
               onChange={(event) => setPrompt(event.target.value)}
               onPaste={(event) => {
                 if (!event.clipboardData.files.length) return;
@@ -628,7 +628,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
               </label>
               <button
                 className="go"
-                aria-label={`Send to ${labelOf(agent)}`}
+                aria-label={`Send to ${nameOf(agent)}`}
                 onClick={send}
                 disabled={waiting || (!prompt.trim() && !pictures.length && !file)}
               >

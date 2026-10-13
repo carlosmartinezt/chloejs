@@ -30,7 +30,7 @@ function read(field: OptionShown, said: string | boolean): { value: unknown } | 
 }
 
 /**
- * A form for the fields of a feature or a channel. It saves only what changed,
+ * A form for the fields of an ability or a channel. It saves only what changed,
  * through `save`, which takes the field names and their new values. A field the
  * file writes as code is shown and cannot be edited here.
  */
