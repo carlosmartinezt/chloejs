@@ -56,14 +56,14 @@ import {
   changeAccount,
   firstPassword,
   from,
-  guestSession,
+  memberSession,
   hasName,
   hasPassword,
   overHttps,
   ownName,
   setCookie,
   signIn,
-  signInGuest,
+  signInMember,
   signInWithLink,
 } from "./login.ts";
 import { accept, change, invitation, invite, people, remove, SWITCHES, type Given, type Switch } from "./people.ts";
@@ -129,7 +129,7 @@ export interface At {
  *   open             answered without a session or a token.
  *   token            a token may call it. Without this, only the account may.
  *   needsApiChannel  for a token, only when that agent binds an api channel.
- *   guest            what somebody the owner invited needs on the agent the
+ *   member            what somebody the owner invited needs on the agent the
  *                    path names: "chat", "read" or "run". "filtered" on a
  *                    route whose handler answers them only what they may see.
  *                    Without it, the route is never theirs: everything that
@@ -147,46 +147,46 @@ export interface Route {
   open?: boolean;
   token?: boolean;
   needsApiChannel?: boolean;
-  guest?: Switch | "filtered";
+  member?: Switch | "filtered";
   origins?(at: Pick<At, "params" | "context">): string[];
   handle(at: At): Promise<void> | void;
 }
 
-/** Whether this caller may see that agent at all: anybody but a guest who was not let in to it. */
+/** Whether this caller may see that agent at all: anybody but a member who was not let in to it. */
 function sees(who: Caller, agent: string): boolean {
-  return who?.kind !== "guest" || Object.hasOwn(who.given, agent);
+  return who?.kind !== "member" || Object.hasOwn(who.given, agent);
 }
 
-/** Whether this caller may have `what` on that agent: always, unless it is a guest who was not given it. */
+/** Whether this caller may have `what` on that agent: always, unless it is a member who was not given it. */
 function may(who: Caller, agent: string, what: Switch): boolean {
-  return who?.kind !== "guest" || (who.given[agent] ?? []).includes(what);
+  return who?.kind !== "member" || (who.given[agent] ?? []).includes(what);
 }
 
-/** The agents a guest may read the runs of, or null for anybody who is not a guest. */
+/** The agents a member may read the runs of, or null for anybody who is not a member. */
 function readable(who: Caller): string[] | null {
-  if (who?.kind !== "guest") return null;
+  if (who?.kind !== "member") return null;
   return Object.keys(who.given).filter((agent) => may(who, agent, "read"));
 }
 
 /**
- * The email a guest's runs are under, or null for anybody who is not a guest.
- * A turn's owner is "<channel>:<who wrote>", and a guest writes as their email.
+ * The email a member's runs are under, or null for anybody who is not a member.
+ * A turn's owner is "<channel>:<who wrote>", and a member writes as their email.
  */
-function guestOf(who: Caller): string | null {
-  return who?.kind === "guest" ? who.email : null;
+function memberOf(who: Caller): string | null {
+  return who?.kind === "member" ? who.email : null;
 }
 
-/** The part of a run's owner after its channel, lowercased: a guest's email. */
+/** The part of a run's owner after its channel, lowercased: a member's email. */
 const OWNED_BY = "lower(substr(owner, instr(owner, ':') + 1))";
 
 /**
- * The conversation, when this caller may have it. A guest's are the ones whose
+ * The conversation, when this caller may have it. A member's are the ones whose
  * owner is their email, and with `claim` one nobody has said anything in
  * becomes theirs. Anybody else may have any. One that is not theirs is
  * answered as if it did not exist.
  */
 function threadFor(who: Caller, thread: string, claim = false): string {
-  if (who?.kind !== "guest") return thread;
+  if (who?.kind !== "member") return thread;
   if (claim && !db.prepare("select 1 from messages where thread = ? limit 1").get(thread)) {
     db.prepare("insert into threads (thread, owner) values (?, ?) on conflict (thread) do nothing").run(thread, who.email);
   }
@@ -200,13 +200,13 @@ function label(thread: string, label: string): void {
   db.prepare("insert into threads (thread, label) values (?, ?) on conflict (thread) do update set label = excluded.label").run(thread, label || null);
 }
 
-/** Why a guest may not have this route, or nothing when they may. */
-function refusedGuest(route: Route, params: Record<string, string>, given: Given): string | undefined {
-  if (route.guest === "filtered") return undefined;
-  if (!route.guest || !params.id) return "That is the owner's.";
+/** Why a member may not have this route, or nothing when they may. */
+function refusedMember(route: Route, params: Record<string, string>, given: Given): string | undefined {
+  if (route.member === "filtered") return undefined;
+  if (!route.member || !params.id) return "That is the owner's.";
   const theirs = given[params.id];
   if (!theirs) return `There is no agent called ${JSON.stringify(params.id)}.`;
-  return theirs.includes(route.guest) ? undefined : `You have not been given ${route.guest} on ${params.id}. Its owner can allow it.`;
+  return theirs.includes(route.member) ? undefined : `You have not been given ${route.member} on ${params.id}. Its owner can allow it.`;
 }
 
 /** The most pictures one chat turn takes. */
@@ -288,7 +288,7 @@ export const routes: Route[] = [
     path: "/api",
     does: "This list: every route, what it does and who may call it.",
     open: true,
-    guest: "filtered",
+    member: "filtered",
     handle: async ({ request, response }) => {
       // A browser gets the page, which shows this list. Anything else gets it as JSON.
       if ((request.headers.accept ?? "").includes("text/html")) return void (await servePage(response, "/api"));
@@ -317,7 +317,7 @@ export const routes: Route[] = [
         at.request,
         z.object({ password: z.string(), name: z.string().optional(), email: z.string().trim().optional() }),
       );
-      if (email) return wayIn(at, () => signInGuest(email, password, from(at.request)), false);
+      if (email) return wayIn(at, () => signInMember(email, password, from(at.request)), false);
       wayIn(at, () => signIn(password, from(at.request), name));
     },
   },
@@ -391,9 +391,9 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/me",
     does: "Who is signed in: the owner, or somebody invited, with their email, their name and what they were given on each agent.",
-    guest: "filtered",
+    member: "filtered",
     handle: ({ response, who }) =>
-      json(response, who?.kind === "guest" ? { owner: false, email: who.email, name: who.name, given: who.given } : { owner: true }),
+      json(response, who?.kind === "member" ? { owner: false, email: who.email, name: who.name, given: who.given } : { owner: true }),
   },
 
   // The people the owner invites (people.ts). Inviting, changing and removing
@@ -464,7 +464,7 @@ export const routes: Route[] = [
     open: true,
     handle: async (at) => {
       const { password, name } = await body(at.request, z.object({ password: z.string(), name: z.string().default("") }));
-      wayIn(at, () => guestSession(accept(at.params.code, password, name)), false);
+      wayIn(at, () => memberSession(accept(at.params.code, password, name)), false);
     },
   },
   // Reading. A token may do all of this.
@@ -473,7 +473,7 @@ export const routes: Route[] = [
     path: "/api/agents",
     does: "Every agent that is loaded, with its configuration.",
     token: true,
-    guest: "filtered",
+    member: "filtered",
     handle: ({ response, context, who }) =>
       json(response, [...context.agents().values()].filter((one) => sees(who, one.id)).map(summary)),
   },
@@ -482,7 +482,7 @@ export const routes: Route[] = [
     path: "/api/agents/:id",
     does: "One agent's configuration: its model, tools, skills, channels and jobs.",
     token: true,
-    guest: "filtered",
+    member: "filtered",
     handle: ({ response, context, params, who }) => {
       if (!sees(who, params.id)) throw new NotFound(`There is no agent called ${JSON.stringify(params.id)}.`);
       json(response, summary(context.agent(params.id)));
@@ -616,7 +616,7 @@ export const routes: Route[] = [
     path: "/api/models",
     does: "The models somebody may pick, each with the route it goes by on this box. ?agent= adds what that agent and its jobs name.",
     token: true,
-    guest: "filtered",
+    member: "filtered",
     handle: ({ response, context, url, who }) => {
       const name = url.searchParams.get("agent");
       if (name && !sees(who, name)) throw new NotFound(`There is no agent called ${JSON.stringify(name)}.`);
@@ -628,16 +628,16 @@ export const routes: Route[] = [
     path: "/api/agents/:id/log",
     does: "That agent's runs, newest first. Takes ?limit=, at most 200. Somebody invited gets only their own.",
     token: true,
-    guest: "read",
+    member: "read",
     handle: ({ response, context, params, url, who }) => {
       context.agent(params.id);
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
-      const guest = guestOf(who);
+      const member = memberOf(who);
       json(
         response,
         db
           .prepare(`select ${RUN_COLUMNS} from runs where agent = ? and (? is null or ${OWNED_BY} = ?) order by started desc limit ?`)
-          .all(params.id, guest, guest, limit),
+          .all(params.id, member, member, limit),
       );
     },
   },
@@ -670,10 +670,10 @@ export const routes: Route[] = [
     path: "/api/agents/:id/threads",
     does: "That agent's conversations, newest first, however they were started. Somebody invited gets only their own.",
     token: true,
-    guest: "chat",
+    member: "chat",
     handle: ({ response, context, params, who }) => {
       context.agent(params.id);
-      const guest = guestOf(who);
+      const member = memberOf(who);
       const under = `${params.id}/`;
       const rows = db
         .prepare(
@@ -681,9 +681,9 @@ export const routes: Route[] = [
            from messages m left join threads t on t.thread = m.thread
            where substr(m.thread, 1, ?) = ? and (? is null or t.owner = ?) group by m.thread order by last desc limit 50`,
         )
-        .all(under.length, under, guest, guest) as { owner: string | null }[];
-      // Every one a guest sees is theirs, so whose it is would only be their own email.
-      json(response, guest ? rows.map(({ owner, ...rest }) => rest) : rows);
+        .all(under.length, under, member, member) as { owner: string | null }[];
+      // Every one a member sees is theirs, so whose it is would only be their own email.
+      json(response, member ? rows.map(({ owner, ...rest }) => rest) : rows);
     },
   },
   {
@@ -698,7 +698,7 @@ export const routes: Route[] = [
     path: "/api/runs",
     does: "Every agent's runs, newest first. Takes ?agent= and ?limit=. Somebody invited gets only their own.",
     token: true,
-    guest: "filtered",
+    member: "filtered",
     handle: ({ response, url, who }) => {
       const agent = url.searchParams.get("agent");
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
@@ -710,7 +710,7 @@ export const routes: Route[] = [
           response,
           db
             .prepare(`select ${RUN_COLUMNS} from runs where agent in (${agents.map(() => "?").join(", ")}) and ${OWNED_BY} = ? order by started desc limit ?`)
-            .all(...agents, guestOf(who), limit),
+            .all(...agents, memberOf(who), limit),
         );
       }
       json(
@@ -726,18 +726,18 @@ export const routes: Route[] = [
     path: "/api/runs/:id",
     does: 'One run in full, with every step it took and the commits it made, and whether it can carry on: "cut off" when the service stopped it, "out of steps" when it ran out, false otherwise.',
     token: true,
-    guest: "filtered",
+    member: "filtered",
     handle: ({ response, params, who }) => {
       const row = db.prepare("select * from runs where id = ?").get(params.id) as
         | { agent: string; owner: string | null; trace: string; commits: string | null }
         | undefined;
       if (!row || !may(who, row.agent, "read")) throw new NotFound("No run with that id.");
-      const guest = guestOf(who);
-      if (guest) {
+      const member = memberOf(who);
+      if (member) {
         // Their own turn, as they said it and as it was answered. The prompt,
         // the context and the steps carry the agent's purpose and what its
         // tools read, which are the owner's.
-        if (row.owner?.slice(row.owner.indexOf(":") + 1).toLowerCase() !== guest) throw new NotFound("No run with that id.");
+        if (row.owner?.slice(row.owner.indexOf(":") + 1).toLowerCase() !== member) throw new NotFound("No run with that id.");
         const { prompt, context, trace, state, args, input, parked, owner, ...rest } = row as Record<string, unknown>;
         return json(response, { ...rest, trace: [], commits: [], carryOn: false });
       }
@@ -749,7 +749,7 @@ export const routes: Route[] = [
     path: "/api/threads/:thread",
     does: "What was said in one conversation.",
     token: true,
-    guest: "filtered",
+    member: "filtered",
     handle: ({ response, params, who }) => {
       const thread = threadFor(who, decodeURIComponent(params.thread));
       if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
@@ -765,7 +765,7 @@ export const routes: Route[] = [
     path: "/api/parked",
     does: "Every job waiting on an answer. A question nobody answers is a job that never finishes.",
     token: true,
-    guest: "filtered",
+    member: "filtered",
     handle: ({ response, who }) => json(response, parkedRuns().filter((one) => may(who, one.agent, "read"))),
   },
   {
@@ -773,7 +773,7 @@ export const routes: Route[] = [
     path: "/api/health",
     does: "Which agents are loaded and which jobs are running right now.",
     token: true,
-    guest: "filtered",
+    member: "filtered",
     handle: ({ response, context, who }) =>
       json(response, {
         ok: true,
@@ -790,7 +790,7 @@ export const routes: Route[] = [
     takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}]}',
     token: true,
     needsApiChannel: true,
-    guest: "chat",
+    member: "chat",
     handle: async ({ request, response, context, params, who }) => {
       const agent = context.agent(params.id);
       const { prompt, thread, model, images } = await body(
@@ -805,21 +805,21 @@ export const routes: Route[] = [
       );
       if (!prompt && !images.length) throw new BadRequest("Say something, or send a picture.");
       // A token's threads are kept apart from the ones a person started, and
-      // each guest's from everybody else's, so two callers cannot land in each
+      // each member's from everybody else's, so two callers cannot land in each
       // other's conversation.
       const token = who?.kind === "token";
-      const guest = who?.kind === "guest" ? who : undefined;
+      const member = who?.kind === "member" ? who : undefined;
       let under = token && thread ? `${agent.id}/api-${thread}` : (thread ?? "");
-      if (guest) {
+      if (member) {
         // Picking a model changes it for everybody, and a /command runs a job.
         if (/^\/models?(?:@\w+)?(?:\s|$)/i.test(prompt)) {
           return json(response, { error: "Only the owner picks the model." }, 403);
         }
-        if (prompt.startsWith("/") && !/^\/clear(?:@\w+)?\s*$/i.test(prompt) && !may(guest, agent.id, "run")) {
+        if (prompt.startsWith("/") && !/^\/clear(?:@\w+)?\s*$/i.test(prompt) && !may(member, agent.id, "run")) {
           return json(response, { error: `You have not been given run on ${agent.id}. Its owner can allow it.` }, 403);
         }
         const named = thread ? thread.slice(thread.indexOf("/") + 1) : randomUUID();
-        under = threadFor(guest, `${agent.id}/${named}`, true);
+        under = threadFor(member, `${agent.id}/${named}`, true);
       }
       // The same path as every channel's message, so a /command, or a reply
       // that is one, goes to that job here too. Who may call this is already
@@ -835,16 +835,16 @@ export const routes: Route[] = [
         channel,
         chat: under,
         thread: under,
-        from: token ? { id: who.token.id, name: who.token.name } : guest ? { id: guest.email, name: guest.name } : { id: "account", name: "the account" },
+        from: token ? { id: who.token.id, name: who.token.name } : member ? { id: member.email, name: member.name } : { id: "account", name: "the account" },
         // The page's chat says who wrote, the way a channel's message does, so
         // the agent and whoever reads the run can see it.
-        context: channel === "chat" ? (guest ? { address: guest.email, role: "guest" } : { role: "owner" }) : undefined,
+        context: channel === "chat" ? (member ? { address: member.email, role: "member" } : { role: "owner" }) : undefined,
         text: prompt,
         private: true,
-        model: guest ? undefined : model,
-        // The account is the owner. A guest or a token never is.
-        fromOwner: !token && !guest,
-        mayChangeAgent: !token && !guest,
+        model: member ? undefined : model,
+        // The account is the owner. A member or a token never is.
+        fromOwner: !token && !member,
+        mayChangeAgent: !token && !member,
         // Handed to the model for this turn and dropped: what is kept is the
         // line saying they were attached.
         files: images.length
@@ -903,7 +903,7 @@ export const routes: Route[] = [
     takes: 'whatever the job declares, as JSON or as a query string: {"text": "..."}',
     token: true,
     needsApiChannel: true,
-    guest: "run",
+    member: "run",
     handle: async ({ request, response, context, params, url }) => {
       const agent = context.agent(params.id);
       const job = agent.jobs.find((one: Job) => one.id === params.job);
@@ -1081,7 +1081,7 @@ export const routes: Route[] = [
     path: "/api/threads/:thread/rename",
     does: "Give a conversation a name. An empty one goes back to the name it was given when it started.",
     takes: '{"label": "..."}',
-    guest: "filtered",
+    member: "filtered",
     handle: async ({ request, response, params, who }) => {
       const thread = threadFor(who, decodeURIComponent(params.thread));
       if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
@@ -1095,7 +1095,7 @@ export const routes: Route[] = [
     path: "/api/threads/:thread/archive",
     does: "Archive a conversation, or bring it back. It is kept, and the agent still remembers it.",
     takes: '{"archived": true}',
-    guest: "filtered",
+    member: "filtered",
     handle: async ({ request, response, params, who }) => {
       const thread = threadFor(who, decodeURIComponent(params.thread));
       if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
@@ -1109,7 +1109,7 @@ export const routes: Route[] = [
     method: "POST",
     path: "/api/threads/:thread/forget",
     does: "Forget one conversation.",
-    guest: "filtered",
+    member: "filtered",
     handle: ({ response, params, who }) => {
       const thread = threadFor(who, decodeURIComponent(params.thread));
       if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
@@ -1231,7 +1231,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:id/memory",
     does: "That agent's memory as a tree. Empty when it has never written anything. Recorded like a read.",
-    guest: "memory",
+    member: "memory",
     handle: async ({ request, response, context, params }) =>
       json(response, await memoryTree(context.agent(params.id), from(request))),
   },
@@ -1239,7 +1239,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:id/memory/file",
     does: "One file as text, for editing. Takes ?path=. Written to the audit log before it is sent.",
-    guest: "memory",
+    member: "memory",
     handle: async ({ request, response, context, params, url }) => {
       const path = url.searchParams.get("path");
       if (!path) return json(response, { error: "No path." }, 400);
@@ -1282,7 +1282,7 @@ export const routes: Route[] = [
     method: "GET",
     path: "/api/agents/:id/memory/pass",
     does: "A pass to show that memory's files in a frame, for ten minutes. See pass.ts.",
-    guest: "memory",
+    member: "memory",
     handle: ({ request, response, context, params }) => {
       const pass = makePass(context.agent(params.id).id, from(request));
       json(response, { pass, at: `/memory/${encodeURIComponent(pass)}` });
@@ -1431,7 +1431,7 @@ export function routeList() {
     does: one.does,
     takes: one.takes,
     who: one.open ? "anybody" : one.token ? "account or token" : "account",
-    guest: one.guest,
+    member: one.member,
     needsApiChannel: one.needsApiChannel || undefined,
   }));
 }
@@ -1664,8 +1664,8 @@ async function api(
         403,
       );
     }
-    if (who.kind === "guest") {
-      const refused = refusedGuest(route, params, who.given);
+    if (who.kind === "member") {
+      const refused = refusedMember(route, params, who.given);
       if (refused) return json(response, { error: refused }, 403);
     }
   }

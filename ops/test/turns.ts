@@ -184,9 +184,9 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("a turn on a channel is told who it is talking to, and to say you", system.includes('You are talking with Me on test, directly. Write to them as "you"'), true);
   is("and not that its lines on the way are sent, when they are not", system.includes("sent to them straight away"), false);
   answers.push("Hi.");
-  await receive(brief, { channel: "test", chat: "s", thread: "test/stranger", from: { id: "2", name: "Them" }, text: "hello", private: true }, { strangers: true });
-  await receive(brief, { channel: "test", chat: "s", thread: "test/stranger", from: { id: "2", name: "Them" }, text: "/clear", private: true }, { strangers: true });
-  is("a stranger's /clear keeps their conversation too", recall("test/stranger").length > 0, true);
+  await receive(brief, { channel: "test", chat: "s", thread: "test/guest", from: { id: "2", name: "Them" }, text: "hello", private: true }, { guests: true });
+  await receive(brief, { channel: "test", chat: "s", thread: "test/guest", from: { id: "2", name: "Them" }, text: "/clear", private: true }, { guests: true });
+  is("a guest's /clear keeps their conversation too", recall("test/guest").length > 0, true);
 
   // What the model writes on its way to an answer is sent as it goes only when
   // the channel asks for it, and always before the answer.
@@ -236,8 +236,8 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   await receive(agent, { ...from("1"), mayChangeAgent: false }, { allowFrom: ["1"] });
   is("nor the owner when the caller says not, as a token does", lastTools.includes("selfWriteFile"), false);
   answers.push("No.");
-  await receive(agent, from("1"), { allowFrom: ["1"], strangers: true });
-  is("nor anybody on a channel for strangers", lastTools.includes("selfWriteFile"), false);
+  await receive(agent, from("1"), { allowFrom: ["1"], guests: true });
+  is("nor anybody on a channel for guests", lastTools.includes("selfWriteFile"), false);
   answers.push("No.");
   await turn({ agent, prompt: "improve yourself", source: "schedule", job: "nightly" });
   is("nor a turn nobody said may, like a scheduled one", lastTools.includes("selfWriteFile"), false);
@@ -322,8 +322,8 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   );
 
   answers.push("No.");
-  await receive({ ...base, tools: { scriptRun: fake("Run a script.") } }, message, { allowFrom: ["1"], strangers: true }, { sendFile });
-  is("a stranger's file is not kept, and nothing is sent to them", [told().includes("is saved at"), lastTools.includes("chatSendFile")], [false, false]);
+  await receive({ ...base, tools: { scriptRun: fake("Run a script.") } }, message, { allowFrom: ["1"], guests: true }, { sendFile });
+  is("a guest's file is not kept, and nothing is sent to them", [told().includes("is saved at"), lastTools.includes("chatSendFile")], [false, false]);
 }
 
 {
@@ -591,8 +591,8 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
     [true, true, true, false, false],
   );
   answers.push("Hello.");
-  await receive(shop, { channel: "test", chat: "t", thread: "test/tools-stranger", from: { id: "v", name: "a visitor" }, text: "hi", private: true }, { tools: ["shopOrders"], strangers: true });
-  is("a stranger's turn has only what is named", [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("ownReadFile")], [true, false, false]);
+  await receive(shop, { channel: "test", chat: "t", thread: "test/tools-guest", from: { id: "v", name: "a visitor" }, text: "hi", private: true }, { tools: ["shopOrders"], guests: true });
+  is("a guest's turn has only what is named", [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("ownReadFile")], [true, false, false]);
   const toldNow = () => lastAsked.find((m) => m.role === "system")?.content ?? "";
   is("nor is it told where the memory opens on the dashboard", toldNow().includes("## Links to your memory"), false);
   {

@@ -739,7 +739,7 @@ comes again.
 
 **Every channel takes `tools` and `job`, read once in `channels/shared.ts`**
 (`Answering`, `bind`). `tools` keeps a turn to the tools named, plus memory
-and skills (a stranger: only what is named). `job` hands every message to a
+and skills (a guest: only what is named). `job` hands every message to a
 job, run through the clock once per conversation, not once per job. That job
 is named on the channel only: the loader adds it to the agent's jobs with
 `channels` set (`channelJobs` in `load/load.ts`), and nothing but a message
@@ -797,7 +797,7 @@ the notes, or touch the tokens.
 
 **A web page reaches an agent because its `agent.ts` says `channels: { web:
 webChannel({ origins, tools }) }`**, and the routes under `/api/agents/<id>/web/` are
-`serve/web.ts`. A visitor is a stranger: `strangers` in `receive()`'s rules
+`serve/web.ts`. A visitor is a guest: `guests` in `receive()`'s rules
 takes their message as a turn, `/clear` or an answer to a job that asked them,
 never a command, a model pick or a sign-in, and their turn gets the tools the
 channel names and none of the agent's others. Each turn is refused once the
@@ -821,9 +821,9 @@ more, with any of chat, read and run on each. The owner gets a link once and
 sends it themselves: the runtime sends nothing. Somebody invited signs in with
 their email and their own password, and their session is checked against the
 `people` table on every request, so removing them signs them out at once. What
-they may reach is `guest` on each route in `serve/http.ts`: a route without it
+they may reach is `member` on each route in `serve/http.ts`: a route without it
 is never theirs, which is every write, memory, file, setting, token and
-anything that is no agent's. A new route that a guest should reach says which
+anything that is no agent's. A new route that a member should reach says which
 switch it needs, or "filtered" and filters in its handler. They never count as
 the owner (`fromOwner`, `mayChangeAgent`) and never pick a model.
 
@@ -861,6 +861,13 @@ agent writes is ever inside one. It is worked out once, by `memoryFolder()` in
 everything else reads that: the memory tool, the site, a job's `work.memory`,
 and a script's `MEMORY_FOLDER`. It was briefly a runtime setting called notes,
 and that was wrong: whose folder it is, is the point.
+
+**A folder an agent may only read is not its memory.** `abilities.folders`
+names the owner's folders, like a project's code, and `model/tools/folders.ts`
+reads them and never writes. In a git repository `gitShows()` in
+`services/filesService.ts` leaves out what git ignores, asked again on every
+call. Do not give it a way to write: changing code is a coding agent's work,
+with a build and tests around it.
 
 **The memories are one git repository, committed once a run ends.**
 `commit: "each run"`, the default, makes `MEMORIES` a repository as the first
@@ -1007,7 +1014,7 @@ instruction mentions it, it does not belong there.
 **A file somebody sends reaches a script only through the state folder.** An
 agent with `scripts` gets each file a message carries saved in
 `received/<agent id>/` (`services/receivedService.ts`, kept 30 days, never for
-a stranger) and the path in the message. `chatSendFile` sends one back only
+a guest) and the path in the message. `chatSendFile` sends one back only
 from that folder or the agent's memory, and only on a channel that passes
 `sendFile` in `While`.
 

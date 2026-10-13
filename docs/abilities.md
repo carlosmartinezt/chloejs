@@ -26,6 +26,7 @@ rename breaks nothing ([A prompt with tools](/docs/prompts#skills-and-scripts)).
 | `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles`, `memoryEditFile` |
 | `scripts` | off | `scriptRun` |
 | `memoryPerUser` | off | `memoryWriteUserNotes` |
+| `folders` | off | `folderListFiles`, `folderReadFile`, `folderSearchFiles` |
 | `web` | off | `webReadPage`, `webSearch` |
 | `googleMail` | off | `emailReadMail`, `emailReplyMail`, `emailSendMail` |
 | `googleCalendar` | off | `calendarListEvents`, `calendarAddEvent` |
@@ -45,6 +46,29 @@ The agent's notes between runs, in its memory folder and nowhere else
 | `memoryEditFile` | Changes one piece of text in a file, which must be there exactly once. With no old text it adds to the end of the file, or makes the file. There is no tool that replaces a whole file, because that is how the rest of one gets lost. |
 
 Every run that changes the memory is one git commit under the agent's id.
+
+### folders
+
+Folders the agent may read and never change, like a project's code or the
+docs of a product it answers questions about. They are yours, not its memory.
+`paths` is the full path of each, and the model knows each by the last part of
+its path, so no two may end the same; `about` is a few words for them.
+
+`abilities: { folders: { paths: ["/home/you/shop", "/home/you/shop-site"], about: "the shop's code and its site" } }`
+
+| Tool | What it does |
+|---|---|
+| `folderListFiles` | Lists a folder in one of them. The model is shown each one's layout, two levels down, at the start of each reply. |
+| `folderReadFile` | Reads one file, or some of its lines. |
+| `folderSearchFiles` | Finds some text in one of them, with the lines around each match. |
+
+In a git repository, what git ignores is left out, so `.env.local`, `dist/`
+and anything else in `.gitignore` is never listed, searched or read. A new file
+git would add is seen at once. Any `.env`, `.git`, `secrets` and `node_modules`
+is left out everywhere. A folder that is not there, or a path that is not full,
+stops the agent loading. Somebody you invited gets these tools when you give
+them chat; a guest on a web channel gets them only when the channel names
+them.
 
 ### web
 
@@ -144,7 +168,7 @@ brings all of them back (its tools are taken out of `without`).
 
 | Tool | Who gets it | What it does |
 |---|---|---|
-| `chatSendFile` | a conversation on a channel that can send files, never a stranger's | Sends a file from its memory, or one it was sent, into that conversation. Telegram can. |
+| `chatSendFile` | a conversation on a channel that can send files, never a guest's | Sends a file from its memory, or one it was sent, into that conversation. Telegram can. |
 | `ownListFiles` | every turn | Lists the files in its own folder, and which it may change. Never its memory. |
 | `ownReadFile` | every turn | Reads any of them, several in one call: its own source code and its skills included. The agent is shown every skill's description and the file to read, and reads the one it needs. |
 | `ownListRuns` | turns its owner wrote | Lists its own runs, newest first: the job or chat, where it came from, when, the cost, and whether it failed. |
@@ -163,7 +187,7 @@ conversation is refused.
 
 A channel's `tools` keeps a turn to the tools it names, plus the memory tools,
 `ownListFiles` and `ownReadFile` (an agent may always read its own folder).
-A visitor on a web channel is a stranger and gets only what
+A visitor on a web channel is a guest and gets only what
 the channel names, and `memoryWriteUserNotes` with `memoryPerUser` on. Naming a
 memory or self tool there stops the agent from loading. See
 [Channels](/docs/channels).

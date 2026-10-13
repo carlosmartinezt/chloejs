@@ -1,4 +1,4 @@
-// The web channel: a chat box on a page, for strangers.
+// The web channel: a chat box on a page, for guests.
 
 import { createHmac } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -130,7 +130,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
     ["Where did he work?", "Let me look.", "He was at Meta from 2019."],
   );
 
-  // A visitor is a stranger: a slash is only text.
+  // A visitor is a guest: a slash is only text.
   const before = asked;
   answers.push("I cannot run anything.");
   await turn(first.pass, "/nightly");

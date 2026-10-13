@@ -11,18 +11,47 @@
 //
 // What they do enforce is the edge of the folder, through confine().
 import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
+import { promisify } from "node:util";
 
 import { confine, unreachable } from "#chloe/core/confine";
 import { commitPaths, noteCommit, type Place } from "./historyService.ts";
 import { run } from "./runService.ts";
+
+/** Whether a full path is shown: a file, or a folder with one shown inside it. */
+export type Shows = (path: string) => boolean;
+
+/**
+ * What git shows under `root`: the files it tracks or would add, and the
+ * folders that hold one, so what `.gitignore` leaves out (`.env.local`,
+ * `dist/`, `data/`) is left out here too. Undefined when `root` is in no git
+ * repository, so every file is shown. Asked again on every call, so a new
+ * file is seen at once.
+ */
+export async function gitShows(root: string): Promise<Shows | undefined> {
+  const base = realpathSync(root);
+  const listed = await promisify(execFile)("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
+    cwd: base,
+    maxBuffer: 1024 * 1024 * 64,
+    encoding: "utf8",
+  }).catch(() => undefined);
+  if (!listed) return undefined;
+  const shown = new Set<string>([""]);
+  for (const file of listed.stdout.split("\0").filter(Boolean)) {
+    const parts = file.split("/");
+    for (let i = 1; i <= parts.length; i++) shown.add(parts.slice(0, i).join(sep));
+  }
+  return (path) => shown.has(relative(base, path)) || shown.has(relative(root, path));
+}
 
 /**
  * Lists what is in one folder.
  *
  * - `root`: the folder you allow. Nothing outside it can be listed.
  * - `path`: a folder inside `root`, relative to it. If not set, `root` itself.
+ * - `options.shows`: when given, only what it shows is listed (see `gitShows`).
  *
  * Returns `{ path, entries }`: the full path of the folder it listed, and the
  * names in it, sorted. A folder's name ends with `/`. Hidden names (starting
@@ -32,13 +61,14 @@ import { run } from "./runService.ts";
  * Throws if `path` is outside `root`, goes into `.git`, `.ssh`, `secrets` or
  * `node_modules`, or does not exist.
  */
-export async function listFiles(root: string, path?: string) {
+export async function listFiles(root: string, path?: string, { shows }: { shows?: Shows } = {}) {
   const resolved = path ? confine(root, path) : root;
+  if (shows && !shows(resolved)) throw new Error(`${path} is left out by git, so it is not listed here.`);
   const entries = await readdir(resolved, { withFileTypes: true });
   return {
     path: resolved,
     entries: entries
-      .filter((e) => !e.name.startsWith(".") && !unreachable(e.name, join(resolved, e.name)))
+      .filter((e) => !e.name.startsWith(".") && !unreachable(e.name, join(resolved, e.name)) && (!shows || shows(join(resolved, e.name))))
       .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
       .sort(),
   };
@@ -51,6 +81,7 @@ export async function listFiles(root: string, path?: string) {
  * - `root`: the folder to start from.
  * - `options.depth`: how many levels down to go. Default: 2.
  * - `options.most`: the most folders to show. Default: 200. If there are more, the last line is `(more folders, left out)`.
+ * - `options.shows`: when given, only the folders it shows (see `gitShows`).
  *
  * Files are left out, and so are hidden folders (starting with `.`) and
  * `secrets` and `node_modules`.
@@ -59,12 +90,15 @@ export async function listFiles(root: string, path?: string) {
  * it cannot read is skipped, so it does not throw. If `root` does not exist,
  * the list is empty.
  */
-export async function folderTree(root: string, { depth = 2, most = 200 } = {}): Promise<string[]> {
+export async function folderTree(root: string, { depth = 2, most = 200, shows }: { depth?: number; most?: number; shows?: Shows } = {}): Promise<string[]> {
   const lines: string[] = [];
   let more = false;
   const walk = async (dir: string, level: number): Promise<void> => {
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-    const folders = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && !unreachable(e.name, join(dir, e.name))).map((e) => e.name).sort();
+    const folders = entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith(".") && !unreachable(e.name, join(dir, e.name)) && (!shows || shows(join(dir, e.name))))
+      .map((e) => e.name)
+      .sort();
     for (const name of folders) {
       if (lines.length >= most) {
         more = true;
@@ -87,6 +121,7 @@ export async function folderTree(root: string, { depth = 2, most = 200 } = {}): 
  * - `options.from`: the first line to read, counting from 1.
  * - `options.lines`: how many lines to read.
  * - `options.limit`: the most characters to return, when you give neither `from` nor `lines`.
+ * - `options.shows`: when given, a file it does not show is refused (see `gitShows`).
  *
  * With no options, it returns the whole file as `{ path, bytes, content }`:
  * the full path, the file's length in characters, and its text.
@@ -102,9 +137,10 @@ export async function folderTree(root: string, { depth = 2, most = 200 } = {}): 
 export async function readFiles(
   root: string,
   path: string,
-  { from, lines, limit }: { from?: number; lines?: number; limit?: number } = {},
+  { from, lines, limit, shows }: { from?: number; lines?: number; limit?: number; shows?: Shows } = {},
 ) {
   const resolved = confine(root, path);
+  if (shows && !shows(resolved)) throw new Error(`${path} is left out by git, so it is not readable here.`);
   const content = await readFile(resolved, "utf8");
   const ranged = from !== undefined || lines !== undefined;
   if (!ranged && (limit === undefined || content.length <= limit)) {
@@ -147,6 +183,7 @@ export async function readFiles(
  * - `query`: the words to find. Upper and lower case are the same, and the words are matched exactly as written (not as a pattern).
  * - `folder`: a folder or one file inside `root`, to search only there. If not set, all of `root`.
  * - `options.around`: how many lines before and after each match to show. Default: 0.
+ * - `options.shows`: when given, only the files it shows are searched (see `gitShows`).
  *
  * It looks in every file and folder inside, hidden ones too, except `.git`,
  * `.ssh`, `secrets` and `node_modules`. It skips files that are not text and
@@ -159,12 +196,12 @@ export async function readFiles(
  *
  * Throws if `folder` is outside `root` or does not exist.
  */
-export async function searchFiles(root: string, query: string, folder?: string, { around = 0 }: { around?: number } = {}) {
+export async function searchFiles(root: string, query: string, folder?: string, { around = 0, shows }: { around?: number; shows?: Shows } = {}) {
   const base = realpathSync(root);
   const target = folder ? confine(root, folder) : base;
   const wanted = query.toLowerCase();
   const found: Array<{ path: string; line: number; text: string }> = [];
-  for (const file of await filesUnder(target)) {
+  for (const file of await filesUnder(target, shows)) {
     const text = await readFile(file, "utf8").catch(() => "");
     // A file with a NUL in its start is not text, as grep has it.
     if (text.slice(0, 8000).includes("\0")) continue;
@@ -193,18 +230,18 @@ const SEARCHED = 20_000_000;
 
 /**
  * Every file under `target`, or `target` itself when it is a file, in name
- * order. Links are not followed, and the folders no file tool may open are
- * not searched into.
+ * order. Links are not followed, and the folders no file tool may open, or
+ * that `shows` leaves out, are not searched into.
  */
-async function filesUnder(target: string): Promise<string[]> {
+async function filesUnder(target: string, shows?: Shows): Promise<string[]> {
   const top = await stat(target);
-  if (top.isFile()) return top.size <= SEARCHED ? [target] : [];
+  if (top.isFile()) return top.size <= SEARCHED && (!shows || shows(target)) ? [target] : [];
   const files: string[] = [];
   const entries = await readdir(target, { withFileTypes: true }).catch(() => []);
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     const path = join(target, entry.name);
-    if (unreachable(entry.name, path)) continue;
-    if (entry.isDirectory()) files.push(...(await filesUnder(path)));
+    if (unreachable(entry.name, path) || (shows && !shows(path))) continue;
+    if (entry.isDirectory()) files.push(...(await filesUnder(path, shows)));
     else if (entry.isFile() && (await stat(path)).size <= SEARCHED) files.push(path);
   }
   return files;

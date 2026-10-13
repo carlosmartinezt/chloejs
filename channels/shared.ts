@@ -25,7 +25,7 @@
 //      because the model may have read a page or a mail written to ask for it.
 //      A job starts on its schedule or from a command a person sent.
 //
-// On a channel for strangers (`strangers` in Rules), there is no sign-in in 2
+// On a channel for guests (`guests` in Rules), there is no sign-in in 2
 // and nothing in 4: a slash is only text, and the message is a turn.
 //
 // A channel can narrow 5, or replace it, with the two options every channel
@@ -123,7 +123,7 @@ export interface Incoming {
    *
    * If not set, `receive()` finds it: the sender is the owner when they match
    * `owner` in settings, or when they are the first entry in the channel's
-   * `allowFrom`. Always `false` on a channel for strangers.
+   * `allowFrom`. Always `false` on a channel for guests.
    *
    * Only the owner's messages can use the tools that read the agent's own
    * files and past runs, and other tools only the owner may use.
@@ -172,14 +172,14 @@ export interface Rules {
    */
   sendWhileWorking?: boolean;
   /**
-   * Treats everyone who writes as a stranger, like a visitor on a web page.
+   * Treats everyone who writes as a guest, like a visitor on a web page.
    * Off by default.
    *
-   * A stranger's message gets a reply, starts a new conversation with `/clear`,
+   * A guest's message gets a reply, starts a new conversation with `/clear`,
    * or answers a job that asked them. It is never a `/command`, a model pick
-   * or a sign-in code, and no sign-in is ever started for a stranger.
+   * or a sign-in code, and no sign-in is ever started for a guest.
    */
-  strangers?: boolean;
+  guests?: boolean;
   /**
    * The names of the only tools the agent may use in a reply on this
    * channel. `rulesOf()` fills it from the channel's `tools` option. If not
@@ -484,7 +484,7 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
   }
   if (message.thread) message = { ...message, thread: current(message.thread) };
 
-  const picking = rules.strangers || rules.job ? undefined : modelCommand(text);
+  const picking = rules.guests || rules.job ? undefined : modelCommand(text);
   if (picking) {
     // Listing is a read. Picking, or taking one back, changes it, and only the
     // owner does that: a token, or anybody else allowed in, may not.
@@ -492,7 +492,7 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
     return { ...bound(agent, message, picking), steps: 0, cost: 0 };
   }
 
-  const signingIn = text && !rules.strangers && !rules.job ? neededBy(agent).find((one) => one.signIn?.answers(text)) : undefined;
+  const signingIn = text && !rules.guests && !rules.job ? neededBy(agent).find((one) => one.signIn?.answers(text)) : undefined;
   if (signingIn) return during(working, () => signedIn(agent, message, signingIn, rules, whileWorking));
 
   const waiting = text ? waitingOn(`${channel}:${message.chat}`, agent.id) : undefined;
@@ -502,7 +502,7 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
 
   if (rules.job) return during(working, () => handedTo(agent, message, rules.job!));
 
-  const job = text && !rules.strangers ? jobFor(agent, text) : undefined;
+  const job = text && !rules.guests ? jobFor(agent, text) : undefined;
   if (job && clock()) {
     return during(working, async () => {
       const done = await started(agent, message, job.job, job.text);
@@ -766,7 +766,7 @@ function envelope(message: Incoming): Record<string, string> {
 /**
  * A message on a channel with a `job`: start that job with it, once per
  * conversation, and send back what it returns. What went wrong is the run's
- * and the log's, never the person's: on some channels they are a stranger.
+ * and the log's, never the person's: on some channels they are a guest.
  */
 async function handedTo(agent: Agent, message: Incoming, id: string): Promise<Handled> {
   const job = agent.jobs.find((one) => one.id === id);
@@ -858,7 +858,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
       source: message.channel,
       owner: `${message.channel}:${message.from.id}`,
       without: [...(message.withoutTools ?? []), ...leftOut(agent, rules)],
-      stranger: rules.strangers,
+      guest: rules.guests,
       ...ownerOf(message, rules),
       sendFile,
       user: `${message.channel}:${message.from.id}`,
@@ -876,10 +876,10 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
 /**
  * A message's files, each also saved to disk when the agent can run scripts,
  * with its path added to the message so a script can be handed it. Never for
- * a stranger.
+ * a guest.
  */
 async function saved(agent: Agent, files: Files, rules: Rules): Promise<Files> {
-  if (rules.strangers || !agent.tools?.scriptRun || !files.attachments?.length) return files;
+  if (rules.guests || !agent.tools?.scriptRun || !files.attachments?.length) return files;
   const notes = [...(files.notes ?? [])];
   for (const one of files.attachments) {
     const path = await keepReceived(agent.id, one.filename, Buffer.from(one.data, "base64"));
@@ -890,12 +890,12 @@ async function saved(agent: Agent, files: Files, rules: Rules): Promise<Files> {
 
 /**
  * Whether this message is the agent's owner's, and whether it may change the
- * agent: never on a channel for strangers, else what the caller said, else
+ * agent: never on a channel for guests, else what the caller said, else
  * whether it came from the agent's owner on this channel.
  */
 function ownerOf(message: Incoming, rules: Rules): { fromOwner: boolean; mayChangeAgent: boolean } {
   const fromOwner =
-    !rules.strangers &&
+    !rules.guests &&
     (message.fromOwner ??
       (settings.owner === `${message.channel}:${message.from.id}` ||
         (rules.allowFrom?.length ? String(rules.allowFrom[0]) === message.from.id : false)));
@@ -905,16 +905,16 @@ function ownerOf(message: Incoming, rules: Rules): { fromOwner: boolean; mayChan
 /**
  * The tools a turn goes without because its channel names the ones it may
  * have: everything not named, less the memory tools, which come with the
- * agent. A stranger gets only what is named, and their own note
+ * agent. A guest gets only what is named, and their own note
  * when the agent keeps one per person.
  */
 function leftOut(agent: Agent, rules: Rules): string[] {
   const named = rules.tools;
   if (!named) return [];
   const keeps = (name: string) =>
-    named.includes(name) || (rules.strangers ? name === "memoryWriteUserNotes" : /^memory[A-Z]/.test(name));
-  // A stranger gets none of the agent's own folder, which the web channel's
+    named.includes(name) || (rules.guests ? name === "memoryWriteUserNotes" : /^memory[A-Z]/.test(name));
+  // A guest gets none of the agent's own folder, which the web channel's
   // check also refuses by name. The two self tools that read it are the
   // runtime's, not the agent's, so they are said here rather than in agent.tools.
-  return [...Object.keys(agent.tools ?? {}), ...(rules.strangers ? ["ownListFiles", "ownReadFile"] : [])].filter((name) => !keeps(name));
+  return [...Object.keys(agent.tools ?? {}), ...(rules.guests ? ["ownListFiles", "ownReadFile"] : [])].filter((name) => !keeps(name));
 }

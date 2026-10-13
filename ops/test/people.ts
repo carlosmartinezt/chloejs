@@ -73,7 +73,7 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
   answers.push("Hello Jenny.");
   const said = await call("POST", "/api/agents/test/chat", jenny, { prompt: "Hi", thread: "test/web-jenny" });
   is("they chat with it", [said.status, said.body.text], [200, "Hello Jenny."]);
-  is("and the agent is told who wrote, as somebody invited", lastAsked.at(-1)?.content.includes("role: guest") && lastAsked.at(-1)?.content.includes("jenny@example.com"), true);
+  is("and the agent is told who wrote, as somebody invited", lastAsked.at(-1)?.content.includes("role: member") && lastAsked.at(-1)?.content.includes("jenny@example.com"), true);
   is("the conversation is theirs", (db.prepare("select owner from threads where thread = 'test/web-jenny'").get() as { owner: string }).owner, "jenny@example.com");
   is("a model picked in the chat is not theirs to pick", (await call("POST", "/api/agents/test/chat", jenny, { prompt: "/model x", thread: "test/web-jenny" })).status, 403);
 

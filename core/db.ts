@@ -129,7 +129,7 @@ db.exec("create index if not exists runs_parked on runs (parked) where parked is
 // none, and are the owner's.
 db.exec("create table if not exists threads (thread text primary key, label text, archived text)");
 if (added("threads", "owner", "text")) {
-  // A guest's conversation used to say whose it was in its id,
+  // A member's conversation used to say whose it was in its id,
   // "<agent>/guest-<email>-<the rest>". Those keep their ids and get an owner.
   const rows = db.prepare("select distinct thread from messages where thread like '%/guest-%'").all() as { thread: string }[];
   const own = db.prepare("insert into threads (thread, owner) values (?, ?) on conflict (thread) do update set owner = excluded.owner");

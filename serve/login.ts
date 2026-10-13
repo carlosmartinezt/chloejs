@@ -201,7 +201,7 @@ export function signIn(password: string, from: string, name = ""): string {
  * refused. Wrong passwords count towards the same lockout as the owner's, and
  * the answer is the same whether the address is somebody's or not.
  */
-export function signInGuest(email: string, password: string, from: string): string {
+export function signInMember(email: string, password: string, from: string): string {
   const wait = lockedFor(from);
   if (wait) throw new Error(`Too many tries. Try again in ${Math.ceil(wait / 60)} minutes.`);
   const found = person(email);
@@ -210,23 +210,23 @@ export function signInGuest(email: string, password: string, from: string): stri
     throw new Error("Wrong email or password.");
   }
   failures.delete(from);
-  return guestSession(found.email);
+  return memberSession(found.email);
 }
 
 /** A session for somebody invited, a week long, signed with the account's secret under a purpose of its own. */
-export function guestSession(email: string): string {
-  return seal("guest", { e: email, u: Math.floor(Date.now() / 1000) + LASTS });
+export function memberSession(email: string): string {
+  return seal("member", { e: email, u: Math.floor(Date.now() / 1000) + LASTS });
 }
 
 /**
- * Who a guest session is for, read from the table every time, so somebody
+ * Who a member session is for, read from the table every time, so somebody
  * taken off their last agent is signed out at once.
  */
-function guestIn(value: string): Caller {
-  const said = unseal<{ e?: unknown; u?: unknown }>("guest", value);
+function memberIn(value: string): Caller {
+  const said = unseal<{ e?: unknown; u?: unknown }>("member", value);
   if (typeof said?.e !== "string" || typeof said.u !== "number" || said.u <= Math.floor(Date.now() / 1000)) return null;
   const found = person(said.e);
-  return found ? { kind: "guest", email: found.email, name: found.name, given: found.given } : null;
+  return found ? { kind: "member", email: found.email, name: found.name, given: found.given } : null;
 }
 
 /** How long a link works, in seconds. */
@@ -272,9 +272,9 @@ export function signInWithLink(code: string, from: string): string {
  * difference is the whole of the authorisation this runtime has:
  *
  *   account  somebody signed in on this box. Can do everything.
- *   guest    somebody the owner invited, signed in with their email. Only the
+ *   member    somebody the owner invited, signed in with their email. Only the
  *            agents they were let in to, only what they were given on each,
- *            and never a change to anything (people.ts, and `guest` on a route).
+ *            and never a change to anything (people.ts, and `member` on a route).
  *   token    another system holding a token. Read, plus the agents that bind
  *            an api channel. Cannot write files, make tokens or revoke them.
  *
@@ -284,7 +284,7 @@ export function signInWithLink(code: string, from: string): string {
  */
 export type Caller =
   | { kind: "account" }
-  | { kind: "guest"; email: string; name: string; given: Given }
+  | { kind: "member"; email: string; name: string; given: Given }
   | { kind: "token"; token: Token }
   | null;
 
@@ -293,8 +293,8 @@ export function caller(request: IncomingMessage): Caller {
   const values = carried(request);
   if (found && values.some((value) => holds(value, found))) return { kind: "account" };
   for (const value of values) {
-    const guest = guestIn(value);
-    if (guest) return guest;
+    const member = memberIn(value);
+    if (member) return member;
   }
   for (const value of values) {
     const token = checkToken(value);

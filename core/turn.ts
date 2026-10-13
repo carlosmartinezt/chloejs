@@ -101,7 +101,7 @@ export interface Ask {
    * tool needs someone to sign in, the sign-in is never started for them: the
    * reply only says what failed. Off by default.
    */
-  stranger?: boolean;
+  guest?: boolean;
   /**
    * Set when the agent's owner wrote this message. Only then does the model
    * get the tools only the owner may use (tools marked `forOwner`): its past
@@ -127,7 +127,7 @@ export interface Ask {
   /**
    * Sends a file into the conversation this message came from. A channel that
    * can send files passes it, and with it the model gets `chatSendFile`, for a
-   * file in the agent's memory or one somebody sent it. Never for a stranger.
+   * file in the agent's memory or one somebody sent it. Never for a guest.
    * Default: none.
    */
   sendFile?: (file: FileToSend) => Promise<void>;
@@ -219,7 +219,7 @@ function stopWhenOf(agent: Agent): StopCondition<any>[] {
  * the run: the model is told what went wrong. Throws when asking the model
  * fails.
  */
-export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, stranger, fromOwner, mayChangeAgent, sendFile, user, instead, signal, trial }: Ask): Promise<Result> {
+export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal, trial }: Ask): Promise<Result> {
   const runId = randomUUID();
   const using = model ?? modelFor(agent);
 
@@ -228,12 +228,12 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
     "insert into runs (id, agent, started, source, job, model, prompt, asked, kind, owner, thread, held) values (?, ?, ?, ?, ?, ?, ?, ?, 'turn', ?, ?, ?)",
   ).run(runId, agent.id, started, source, job ?? null, using, prompt, asked ?? null, owner ?? null, thread ?? null, trial || inTrial() ? "[]" : null);
 
-  const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent, sendFile, stranger });
+  const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent, sendFile, guest });
   const overviews = await overviewsOf(tools);
   // In the purpose rather than the message, so it is not kept in the conversation again each turn.
   const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools), await whatYouRunOn(agent, tools), memoryLinks(agent, stranger)) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools), await whatYouRunOn(agent, tools), memoryLinks(agent, guest)) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -242,7 +242,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   db.prepare("update runs set context = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), runId);
   if (thread) remember(thread, "user", prompt);
 
-  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, stranger, fromOwner, mayChangeAgent, sendFile, user, instead, signal });
+  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal });
 }
 
 /**
@@ -396,7 +396,7 @@ async function go(options: {
   calling?: Ask["calling"];
   writing?: Ask["writing"];
   without?: string[];
-  stranger?: boolean;
+  guest?: boolean;
   fromOwner?: boolean;
   mayChangeAgent?: boolean;
   sendFile?: Ask["sendFile"];
@@ -444,7 +444,7 @@ async function go(options: {
     const unpriced = unpricedOf(trace);
     // A sign-in somebody can do from here is an answer, not a failure: the
     // runtime starts it and the reply is the connection's own words and link.
-    const signIn = done.stopped === "sign-in" && done.signIn && !options.stranger ? await signInReply(tools, done.signIn, Boolean(thread)) : undefined;
+    const signIn = done.stopped === "sign-in" && done.signIn && !options.guest ? await signInReply(tools, done.signIn, Boolean(thread)) : undefined;
     if (done.stopped && !signIn) {
       fail(runId, done.text, steps, cost, unpriced, trace);
       await committed({ error: done.text });
@@ -775,13 +775,13 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
  * folder (`ownListFiles`, `ownReadFile`); a turn its owner wrote also reads
  * its runs and the guides, and may try one of its jobs.
  */
-function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean; sendFile?: Ask["sendFile"]; stranger?: boolean } = {}): Tools {
+function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean; sendFile?: Ask["sendFile"]; guest?: boolean } = {}): Tools {
   const owner = Boolean(who.fromOwner || who.mayChangeAgent);
   const tools: Tools = {
     ...ownFolderTools(abilityOn(agent.abilities, "selfImprovement"))(agent),
     ...(owner ? { ...ownReadTools()(agent), ...ownTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
-    ...(who.sendFile && !who.stranger ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id)]) } : {}),
+    ...(who.sendFile && !who.guest ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id)]) } : {}),
   };
   for (const name of without) delete tools[name];
   for (const [name, one] of Object.entries(tools)) {
@@ -861,10 +861,10 @@ function dashboard(): string {
 
 /**
  * How to link to a file in the agent's memory on the dashboard. Empty for a
- * stranger's turn and for an agent without its memory tools.
+ * guest's turn and for an agent without its memory tools.
  */
-function memoryLinks(agent: Agent, stranger: boolean | undefined): string {
-  if (stranger || !abilityOn(agent.abilities, "memory")) return "";
+function memoryLinks(agent: Agent, guest: boolean | undefined): string {
+  if (guest || !abilityOn(agent.abilities, "memory")) return "";
   const at = `${dashboard()}/agents/${agent.id}/memory`;
   return (
     "## Links to your memory\n\n" +

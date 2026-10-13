@@ -340,7 +340,7 @@ export async function webTurn(at: At): Promise<void> {
           : undefined,
         signal: gone.signal,
       },
-      { chatHistory: web.chatHistory, sendWhileWorking: true, strangers: true, tools: web.tools, job: web.job },
+      { chatHistory: web.chatHistory, sendWhileWorking: true, guests: true, tools: web.tools, job: web.job },
       {
         send: async (words) => {
           if (!drafted) event("said", { text: words });

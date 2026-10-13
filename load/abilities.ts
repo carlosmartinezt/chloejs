@@ -2,6 +2,10 @@
 // or `false` in the agent's `abilities`, and a few with fields that say what
 // they may reach. This is the one list: the loader adds each ability's tools
 // from it, and the dashboard draws its switches and forms from it.
+import { statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, isAbsolute } from "node:path";
+
 import { settings } from "#chloe/core/settings";
 import { google } from "#chloe/connections/google/connection";
 import * as calendar from "#chloe/connections/google/calendar";
@@ -10,6 +14,7 @@ import * as gmail from "#chloe/connections/google/gmail";
 import { resend } from "#chloe/connections/resend/connection";
 import { sendEmail as resendSendEmail } from "#chloe/connections/resend/resend";
 import type { Connection } from "#chloe/connections/connection";
+import { folderTools } from "#chloe/model/tools/folders";
 import { memoryTools, userNotesTools } from "#chloe/model/tools/memory";
 import { scriptTools } from "#chloe/model/tools/script";
 import { selfWriteTools } from "#chloe/model/tools/self";
@@ -90,6 +95,19 @@ export interface Abilities {
    */
   memoryPerUser?: boolean;
   /**
+   * Adds the tools `folderListFiles`, `folderReadFile` and
+   * `folderSearchFiles`, which read the folders named in `paths`, like a
+   * project's code, and never write to them. Off by default, and adds nothing
+   * until `paths` names a folder.
+   *
+   * The model names a folder by the last part of its path, so no two may end
+   * the same. In a git repository, what git ignores is left out (`.env.local`,
+   * `dist/`), and so is any `.env`, `.git`, `secrets` and `node_modules`
+   * anywhere. A guest on a web channel gets them only if the channel names
+   * them, like any other tool.
+   */
+  folders?: boolean | FoldersAbility;
+  /**
    * Adds the tools that read the Gmail account Google is signed in to,
    * `emailReadMail`, and with the fields below, `emailReplyMail` and
    * `emailSendMail`. Off by default. `true` reads the inbox of the last 7
@@ -116,6 +134,14 @@ export interface Abilities {
    * sent and nothing fails.
    */
   resend?: boolean | ResendAbility;
+}
+
+/** The fields of `abilities.folders`. */
+export interface FoldersAbility {
+  /** Full paths of the folders it may read, like `"/home/you/shop"`. Default: none, so it reads nothing. */
+  paths?: string[];
+  /** A few words for those folders, like `"the shop's code"`, said to the model. Default: their names. */
+  about?: string;
 }
 
 /** The fields of `abilities.googleMail`. The model chooses only how far back and which listed message to answer. */
@@ -195,7 +221,7 @@ const about = (what: string): OptionSpec => ({
   default: "",
 });
 
-/** Every ability, in the order the page shows them: self improvement first, then memory, scripts and notes per person, then what reaches outside. A test holds `tools` to what each one adds. */
+/** Every ability, in the order the page shows them: self improvement first, then memory, scripts, notes per person and folders, then what reaches outside. A test holds `tools` to what each one adds. */
 export const ABILITIES: Ability[] = [
   {
     name: "selfImprovement",
@@ -224,6 +250,18 @@ export const ABILITIES: Ability[] = [
     on: false,
     does: "Keeps a note on each person it talks to, and reads it before each reply to them.",
     tools: ["memoryWriteUserNotes"],
+  },
+  {
+    name: "folders",
+    label: "Folders",
+    on: false,
+    does: "Reads the folders you name, like a project's code, and never writes to them. What git ignores is left out.",
+    tools: ["folderListFiles", "folderReadFile", "folderSearchFiles"],
+    fields: [
+      { name: "paths", label: "Folders", about: "Full paths of the folders it may read, like /home/you/shop. The model knows each by its last part.", kind: "list", default: [] },
+      about("those folders"),
+    ],
+    preview: { paths: [tmpdir()] },
   },
   {
     name: "web",
@@ -317,6 +355,7 @@ const MAKERS: Record<keyof Abilities, (home: Home, values: Record<string, unknow
   web: () => ({ webReadPage: readPage(), webSearch: searchWeb() }),
   scripts: (home) => scriptTools()(home),
   memoryPerUser: () => userNotesTools()(),
+  folders: (_home, v) => folderTools({ paths: v.paths as string[], about: (v.about as string) || undefined }),
   googleMail: (_home, v) => {
     const search = v.search as string;
     const what = (v.about as string) || (search === "in:inbox" ? undefined : `mail matching ${search}`);
@@ -386,6 +425,16 @@ export function abilityTools(abilities: Abilities = {}, home: Home, where: strin
     if (value === undefined || typeof value === "boolean") continue;
     if (!ability.fields) throw new Error(`${where}: abilities.${name} is true or false.`);
     abilityValues(abilities, ability.name, `${where}: abilities`);
+  }
+  if (abilityOn(abilities, "folders")) {
+    const paths = abilityValues(abilities, "folders").paths as string[];
+    for (const path of paths) {
+      if (!isAbsolute(path) || !statSync(path, { throwIfNoEntry: false })?.isDirectory()) {
+        throw new Error(`${where}: abilities.folders names ${path}, which is not a folder. Give each one's full path.`);
+      }
+    }
+    const twice = paths.map((path) => basename(path)).find((name, i, all) => all.indexOf(name) !== i);
+    if (twice) throw new Error(`${where}: abilities.folders names two folders called ${twice}. The model knows each by its last part, so each must end differently.`);
   }
   if (abilityOn(abilities, "scripts") && scriptsIn(home.folder).length === 0) {
     throw new Error(`${where} has abilities.scripts on, and no scripts: neither ${home.folder}/scripts nor an executable file in a skill folder.`);

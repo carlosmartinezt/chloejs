@@ -1,5 +1,5 @@
 // This agent in a chat box on the shop's own site, for the people who visit it.
-// A visitor is a stranger, so their turn gets the one tool named here, the tool
+// A visitor is a guest, so their turn gets the one tool named here, the tool
 // itself, and nothing else the agent has: no notes, no jobs, no picking the model.
 //
 // The shop's own server holds a token made for this agent and gives each

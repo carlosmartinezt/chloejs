@@ -20,7 +20,7 @@
 // /api/agents/<id>/web/ are answered by the server, in serve/web.ts, and this
 // is the permission and the settings.
 //
-// A visitor is a stranger, so a web turn gets almost nothing: the tools named
+// A visitor is a guest, so a web turn gets almost nothing: the tools named
 // here and no others, no /command but /clear, no model picking, and never a
 // sign-in. What visitors may spend is capped, per visitor and for everybody
 // together, read off the run record. The model is told who it is talking to in
@@ -48,7 +48,7 @@ export interface WebOptions {
    * The only tools the agent may use when it replies to a visitor. Give each
    * one as on `defineAgent`, like `tools: { orderStatus }`. Default: none.
    *
-   * A visitor is a stranger, so unlike other channels the agent does not keep
+   * A visitor is a guest, so unlike other channels the agent does not keep
    * its memory tools or skills here unless you name them. Naming a memory or
    * self tool stops the agent from loading. When the agent has
    * `memoryPerUser` on, a visitor's reply also gets `memoryWriteUserNotes`,
@@ -129,7 +129,7 @@ export function visitorThread(agent: string, visitor: string): string {
  * `POST /api/agents/<id>/web/pass` for a pass for each visitor, and gives the
  * pass to its page. The page loads the chat box from `/api/web/chat.js`.
  *
- * A visitor is a stranger. Their messages get only the tools named in
+ * A visitor is a guest. Their messages get only the tools named in
  * `tools`, no `/commands` apart from `/clear`, no model picking, and never a
  * sign-in. What they may spend is limited by `limits`.
  *
@@ -165,7 +165,7 @@ export function webChannel(options: WebOptions): Channel & { web: Web } {
       web.tools = bind(agent, "web", { tools: options.tools }).tools ?? [];
       for (const name of web.tools) {
         if (/^(memory|self)[A-Z]/.test(name)) {
-          throw new Error(`its web channel cannot have ${name}. A visitor is a stranger, and what the agent remembers and its own files are not theirs.`);
+          throw new Error(`its web channel cannot have ${name}. A visitor is a guest, and what the agent remembers and its own files are not theirs.`);
         }
       }
     },

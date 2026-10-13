@@ -120,7 +120,7 @@ export const CHANNELS: ChannelKind[] = [
     name: "web",
     fn: "webChannel",
     label: "Chat box on a website",
-    does: "A chat box on a web page, for anybody who visits the sites you name. Visitors are strangers.",
+    does: "A chat box on a web page, for anybody who visits the sites you name. Visitors are guests.",
     fields: [
       { name: "origins", label: "Sites that may show it", about: "Each a scheme and a host with no path, like https://myshop.com.", kind: "list", default: [], required: true },
       { name: "greeting", label: "Greeting", about: "What the chat box shows before anybody has written.", kind: "words", default: "" },

@@ -10,7 +10,7 @@
 // owner's, and on each of those only what they were given: chat (their own
 // conversations), read (their own runs) and run (start a job). Nothing they
 // are given lets them change anything. What each route allows them is
-// `guest` on the route, in http.ts. Taking somebody off their last agent
+// `member` on the route, in http.ts. Taking somebody off their last agent
 // removes them, and signs them out at once, since every request reads this
 // table again.
 import crypto from "node:crypto";

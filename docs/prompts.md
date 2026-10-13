@@ -78,7 +78,7 @@ scripts have by being in it.
 **A file somebody sends is saved for the scripts.** On a channel that takes
 files, an agent with `scripts` on also gets each file saved in the state
 folder, `received/<agent id>/`, and its full path added to the message, so a
-script can be handed it. A file is kept for 30 days, and never for a stranger.
+script can be handed it. A file is kept for 30 days, and never for a guest.
 On a channel that can send files (Telegram), the agent gets `chatSendFile` in
 that conversation, to send back a file from its memory or one it was sent.
 

@@ -123,3 +123,57 @@ import { answer } from "./shared.ts";
     false,
   );
 }
+
+{
+  about("the folders an agent may read, with what git ignores left out");
+
+  const { mkdtemp, mkdir: makeDir, writeFile: put, realpath, rm } = await import("node:fs/promises");
+  const { join: joined } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { execFileSync } = await import("node:child_process");
+  const { defineAgent } = await import("@chloejs/core");
+  const { resolveAgent } = await import("#chloe/load/load");
+
+  const top = await realpath(await mkdtemp(joined(tmpdir(), "chloe-folders-")));
+  const shop = joined(top, "shop");
+  const notes = joined(top, "notes");
+  await makeDir(joined(shop, "src"), { recursive: true });
+  await makeDir(joined(shop, "dist"));
+  await makeDir(notes);
+  await put(joined(shop, ".gitignore"), "dist/\nsecret.txt\n");
+  await put(joined(shop, "src", "orders.ts"), "export const orders = 'the order code';\n");
+  await put(joined(shop, "dist", "orders.js"), "the order code, built\n");
+  await put(joined(shop, "secret.txt"), "the order code is hunter2\n");
+  await put(joined(shop, "draft.md"), "the order code, not committed yet\n");
+  await put(joined(notes, "plan.md"), "the order code is next\n");
+  execFileSync("git", ["init", "-q"], { cwd: shop });
+  execFileSync("git", ["add", ".gitignore", "src"], { cwd: shop });
+
+  const folder = await realpath(await mkdtemp(joined(tmpdir(), "chloe-reader-")));
+  const agent = (folders: unknown) =>
+    resolveAgent(defineAgent({ id: "reader", folder, model: "m", identity: "", purpose: "Hi.", abilities: { folders: folders as never } }));
+  const refused = (folders: unknown) => agent(folders).then(() => "loaded", (error: Error) => error.message);
+  const { tools = {} } = await agent({ paths: [shop, notes], about: "the shop's code and notes" });
+  const call = (name: string, input: unknown) => (tools[name].execute as (input: unknown, options: unknown) => Promise<unknown>)(input, {});
+  const said = (name: string, input: unknown) => call(name, input).then((out) => JSON.stringify(out), (error: Error) => error.message);
+
+  is("it adds the three tools and nothing that writes", Object.keys(tools).filter((name) => name.startsWith("folder")).sort(), ["folderListFiles", "folderReadFile", "folderSearchFiles"]);
+  is("each folder is named by its last part", JSON.stringify(tools.folderReadFile.inputSchema).includes('"shop"') && JSON.stringify(tools.folderReadFile.inputSchema).includes('"notes"'), true);
+  const listed = await said("folderListFiles", { folder: "shop" });
+  is("a listing leaves out what git ignores, and keeps what it would add", [listed.includes("src/"), listed.includes("draft.md"), listed.includes("dist"), listed.includes("secret.txt")], [true, true, false, false]);
+  is("a file git ignores is refused", (await said("folderReadFile", { folder: "shop", path: "secret.txt" })).includes("left out by git"), true);
+  is("one it tracks is read", (await said("folderReadFile", { folder: "shop", path: "src/orders.ts" })).includes("the order code"), true);
+  const found = await said("folderSearchFiles", { folder: "shop", query: "the order code" });
+  is("a search reads only what git shows", [found.includes("orders.ts"), found.includes("draft.md"), found.includes("hunter2"), found.includes("built")], [true, true, false, false]);
+  is("a folder that is no repository shows everything", (await said("folderSearchFiles", { folder: "notes", query: "order code" })).includes("plan.md"), true);
+  is("nothing outside the folder is read", (await said("folderReadFile", { folder: "shop", path: "../notes/plan.md" })).includes("outside"), true);
+  is("the model is shown each folder's layout", (await tools.folderListFiles.overview!()).includes("shop/\n  src/"), true);
+
+  is("no paths adds nothing", Object.keys((await agent(true)).tools ?? {}).some((name) => name.startsWith("folder")), false);
+  is("a folder that is not there is refused", (await refused({ paths: [joined(top, "gone")] })).includes("which is not a folder"), true);
+  is("so is a path that is not full", (await refused({ paths: ["shop"] })).includes("Give each one's full path"), true);
+  await makeDir(joined(top, "other", "shop"), { recursive: true });
+  is("and two that end the same", (await refused({ paths: [shop, joined(top, "other", "shop")] })).includes("two folders called shop"), true);
+  await rm(top, { recursive: true, force: true });
+  await rm(folder, { recursive: true, force: true });
+}

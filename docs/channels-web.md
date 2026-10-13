@@ -6,7 +6,7 @@ summary: A chat box on your own site, talking to an agent: the pass your server 
 ---
 
 A chat box on your own site, talking to the same agent, with the same model and
-run record. A visitor is a stranger, so they get only what you name.
+run record. A visitor is a guest, so they get only what you name.
 
 1. Add the channel to the agent. It names the sites that may show the box and
    the tools a visitor's turn gets:
