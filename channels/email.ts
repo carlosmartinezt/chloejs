@@ -495,9 +495,11 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
     for (const { id, threadId } of found.added) {
       if (done.has(id) || !open.size) continue;
       done.add(id);
-      const to = addresses(await box.recipients(id)).list.find((one) => open.has(one));
+      const to = addresses((await box.recipients(id)) ?? "").list.find((one) => open.has(one));
       if (!to) continue;
-      await take(to, await box.raw(id), threadId).catch((error) => console.error(`email: ${agentId}:`, (error as Error).message));
+      const raw = await box.raw(id);
+      if (raw === undefined) continue;
+      await take(to, raw, threadId).catch((error) => console.error(`email: ${agentId}:`, (error as Error).message));
     }
     keep(found.history);
   }

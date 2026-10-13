@@ -301,6 +301,7 @@ import type { Tools } from "./shared.ts";
         if (url.searchParams.get("startHistoryId") === "1") return new Response('{"error":{"code":404,"message":"Requested entity was not found."}}', { status: 404 });
         return json({ history: [{ messagesAdded: [{ message: { id: "m1", threadId: "t1", labelIds: ["INBOX"] } }, { message: { id: "d1", labelIds: ["DRAFT"] } }] }], historyId: "56" });
       }
+      if (url.pathname.endsWith("/messages/deleted")) return new Response('{"error":{"code":404,"message":"Requested entity was not found."}}', { status: 404 });
       if (url.pathname.endsWith("/messages/m1") && url.searchParams.get("format") === "raw") return json({ raw: Buffer.from("From: her@example.com\r\n\r\nShall we?").toString("base64url") });
       if (url.pathname.endsWith("/messages/m1")) {
         return json({
@@ -377,8 +378,9 @@ import type { Tools } from "./shared.ts";
       is("the email channel asks Gmail where the mailbox is up to", await gmailMailbox.now(), "55");
       is("and what was added since, leaving drafts out", await gmailMailbox.since("55"), { added: [{ id: "m1", threadId: "t1" }], history: "56" });
       is("a point Gmail no longer keeps is said as gone, not as a failure", await gmailMailbox.since("1"), "gone");
-      is("who a message is to is read from its headers alone", (await gmailMailbox.recipients("m1")).includes("somebody+abc@example.com"), true);
-      is("and a message it takes is fetched whole", (await gmailMailbox.raw("m1")).includes("Shall we?"), true);
+      is("who a message is to is read from its headers alone", (await gmailMailbox.recipients("m1"))?.includes("somebody+abc@example.com"), true);
+      is("and a message it takes is fetched whole", (await gmailMailbox.raw("m1"))?.includes("Shall we?"), true);
+      is("a message deleted since it arrived is said as gone, not as a failure", [await gmailMailbox.recipients("deleted"), await gmailMailbox.raw("deleted")], [undefined, undefined]);
       await gmailMailbox.send("cmF3", "t1");
       is("sending names the thread", sent.at(-1), { raw: "cmF3", threadId: "t1" });
     } finally {

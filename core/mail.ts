@@ -28,10 +28,14 @@ export interface Inbox {
   now(): Promise<string>;
   /** What arrived since `history`, or "gone" when that point can no longer be asked from. */
   since(history: string): Promise<Since | "gone">;
-  /** Who a message was sent to: its To and Cc lines, as written. */
-  recipients(id: string): Promise<string>;
-  /** The whole message, as it arrived, one character per byte (latin1). */
-  raw(id: string): Promise<string>;
+  /**
+   * Who a message was sent to: its To and Cc lines, as written. `undefined` when
+   * the message is no longer there (deleted or moved since it arrived), so the
+   * channel passes it by instead of asking for it again forever.
+   */
+  recipients(id: string): Promise<string | undefined>;
+  /** The whole message, as it arrived, one character per byte (latin1). `undefined` when it is no longer there. */
+  raw(id: string): Promise<string | undefined>;
   /** Sends one message (the URL-safe base64 `rawMail()` writes), in a thread when the mailbox has them. */
   send(raw: string, threadId?: string): Promise<void>;
 }

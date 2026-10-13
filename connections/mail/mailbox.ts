@@ -247,12 +247,12 @@ class Imap {
     return uids.filter((uid) => uid >= from).sort((a, b) => a - b);
   }
 
-  /** One part of one message, without marking it read. */
-  async fetch(uid: string, part: string): Promise<string> {
+  /** One part of one message, without marking it read, or `undefined` when INBOX has no such message. */
+  async fetch(uid: string, part: string): Promise<string | undefined> {
     if (!/^\d+$/.test(uid)) throw new Error(`"${uid}" is not a message number`);
     const said = await this.run(`UID FETCH ${uid} (BODY.PEEK[${part}])`);
     const fetched = said.find((one) => /^\* \d+ FETCH/i.test(one.text));
-    if (!fetched) throw new Error(`there is no message ${uid} in INBOX`);
+    if (!fetched) return undefined;
     if (fetched.literals.length) return fetched.literals[0];
     return fetched.text.match(/BODY\[[^\]]*\] "((?:[^"\\]|\\.)*)"/i)?.[1].replace(/\\(.)/g, "$1") ?? "";
   }
@@ -375,7 +375,7 @@ export function passwordMailbox(options: PasswordMailboxOptions): Inbox {
 
     async recipients(id) {
       const head = await onImap((imap) => imap.fetch(id, "HEADER.FIELDS (TO CC)"));
-      return headersOf(head.replace(/\r?\n/g, "\r\n")).map((one) => one.value).join(", ");
+      return head && headersOf(head.replace(/\r?\n/g, "\r\n")).map((one) => one.value).join(", ");
     },
 
     raw(id) {

@@ -13,6 +13,16 @@ import { googleApi } from "./googleService.ts";
 
 const MAILBOX = "https://gmail.googleapis.com/gmail/v1/users/me";
 
+/** One message, or `undefined` when Google answers 404 because it was deleted since it arrived. */
+async function message<T>(id: string, query: Record<string, string | string[]>): Promise<T | undefined> {
+  try {
+    return await googleApi<T>(`${MAILBOX}/messages/${encodeURIComponent(id)}`, { query });
+  } catch (error) {
+    if (/404|notFound|Requested entity was not found/i.test((error as Error).message)) return undefined;
+    throw error;
+  }
+}
+
 interface Header {
   name?: string;
   value?: string;
@@ -59,15 +69,13 @@ export const gmailMailbox: Inbox = {
   },
 
   async recipients(id) {
-    const message = await googleApi<{ payload?: { headers?: Header[] } }>(`${MAILBOX}/messages/${encodeURIComponent(id)}`, {
-      query: { format: "metadata", metadataHeaders: ["To", "Cc"] },
-    });
-    return (message.payload?.headers ?? []).map((one) => one.value ?? "").join(", ");
+    const found = await message<{ payload?: { headers?: Header[] } }>(id, { format: "metadata", metadataHeaders: ["To", "Cc"] });
+    return found && (found.payload?.headers ?? []).map((one) => one.value ?? "").join(", ");
   },
 
   async raw(id) {
-    const message = await googleApi<{ raw?: string }>(`${MAILBOX}/messages/${encodeURIComponent(id)}`, { query: { format: "raw" } });
-    return Buffer.from(message.raw ?? "", "base64url").toString("latin1");
+    const found = await message<{ raw?: string }>(id, { format: "raw" });
+    return found && Buffer.from(found.raw ?? "", "base64url").toString("latin1");
   },
 
   async send(raw, threadId) {

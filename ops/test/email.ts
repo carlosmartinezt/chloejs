@@ -233,8 +233,8 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
       history += added.length;
       return { added, history: String(Math.max(history, Number(from))) };
     },
-    recipients: async (id: string) => sentTo.get(id) ?? "",
-    raw: async (id: string) => (fetched.push(id), bodies.get(id) ?? ""),
+    recipients: async (id: string) => sentTo.get(id),
+    raw: async (id: string) => (fetched.push(id), bodies.get(id)),
     send: async (raw: string, threadId?: string) => void outgoing.push({ raw, threadId }),
   };
   const sentTo = new Map<string, string>();
@@ -283,6 +283,14 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "./sh
   );
   await until(() => Number(whereUpTo()) > 100);
   is("and where it is up to moves on once that is done", Number(whereUpTo()) > 100, true);
+
+  // Gone by the time it is read: one before its To line was, one between that and the whole of it.
+  const upTo = Number(whereUpTo());
+  arriving.push({ id: "g4", threadId: "t4", to: ADDRESS, raw: "" });
+  sentTo.set("g5", ADDRESS);
+  arriving.push({ id: "g5", threadId: "t5", to: ADDRESS, raw: "" });
+  await until(() => Number(whereUpTo()) >= upTo + 2);
+  is("a message deleted before it was read is passed by, and where it is up to still moves on", Number(whereUpTo()) >= upTo + 2, true);
 
   const notes: string[] = [];
   const warnWas = console.warn;
