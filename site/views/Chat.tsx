@@ -257,6 +257,9 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     }
     let live = true;
     let id: string | undefined;
+    // A turn keeps the question as it starts, so a conversation started here
+    // joins the list beside as soon as it is asked, not when it is answered.
+    let listed = false;
     async function look() {
       try {
         if (!id) {
@@ -264,6 +267,11 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
           id = lately.find((run) => !run.finished && run.thread === thread)?.id;
         }
         if (!id) return;
+        if (!listed) {
+          const all = await api.threads(agent);
+          listed = all.some((one) => one.thread === thread);
+          if (live) setThreads(all);
+        }
         const run = await api.run(id);
         if (live) setDoing(run.trace.filter((step) => step.tool ?? step.name));
         if (live && run.finished && !asking.current.has(thread)) {
@@ -331,8 +339,8 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     try {
       const answer = await api.say(agent, words, to, sending.map(({ name, mediaType, data }) => ({ name, mediaType, data })));
       here({ role: "assistant", content: answer.text, cost: answer.cost, unpriced: answer.unpriced, at: new Date().toISOString() });
-      // A conversation started here only exists once something is in it, so
-      // this is where it turns up in the list beside, and in the address.
+      // The answer moves it to the top of the list beside, and a conversation
+      // started here goes into the address now that it exists.
       api.threads(agent).then(setThreads, () => {});
       // /model typed in the box picks one too.
       if (/^\/models?\b/i.test(words)) api.agent(agent).then(setSummary, () => {});
