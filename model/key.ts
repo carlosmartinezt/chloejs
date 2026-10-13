@@ -232,7 +232,9 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal, 
     const found = sdkModel(model);
     const own = found ? { reach: found, provider: found.provider.split(".")[0] } : onOwnKey(model);
     reach = own.reach;
-    where = own.provider;
+    // Named, because whoever chose a subscription would not otherwise see that
+    // model.preferredRoute sent the call to a key.
+    where = `${own.provider}, by the direct route,`;
   }
 
   try {

@@ -30,7 +30,7 @@ import { parseArgs } from "node:util";
 import { firstCommit, hasGit, hasGitName, repositoryOf } from "./git.ts";
 import { DEV_PACKAGES, GUIDES, modelLine, STARTER_AGENT, STARTER_MODEL_LINE, starterFiles, withModel, withSetting } from "./starter.ts";
 import { ask, askHidden, pick, pickNamed, takeDefaults, yes } from "./terminal.ts";
-import type { Provider } from "#chloe/core/settings";
+import type { Provider, Route } from "#chloe/core/settings";
 import { banner } from "#chloe/core/banner";
 import { bold, cyan, dim, green, red, yellow } from "#chloe/core/style";
 
@@ -273,7 +273,10 @@ async function thePort(): Promise<boolean> {
  */
 async function theModel(): Promise<string> {
   const { runnable } = await import("#chloe/model/model");
-  const { nameInEnv, PROVIDERS, settings } = await import("#chloe/core/settings");
+  const { nameInEnv, PROVIDERS, ROUTES, settings } = await import("#chloe/core/settings");
+  // Every choice writes its route first, because whatever an earlier run wrote
+  // stays otherwise: a key's route first would keep a subscription chosen after it unused.
+  const first = (route: Route) => [route, ...ROUTES.filter((one) => one !== route)].join(",");
 
   const held = ["AI_GATEWAY_API_KEY", "OPENROUTER_API_KEY", "CHLOE_MODEL_KEY"].find((name) => process.env[name]);
   // A provider's key under the name its own tools read, or the one setup writes.
@@ -303,10 +306,8 @@ async function theModel(): Promise<string> {
     { key: "later" as const, what: "Skip for now (you can change this later)", above: "" },
   ]);
 
-  // No `preferredRoute` written for these: a subscription is already ahead of a key in
-  // the order, so choosing one is choosing the model it runs.
-  if (choice === "claude") return await settle({ defaultModel: "anthropic/claude-sonnet-5.5" });
-  if (choice === "codex") return await settle({ defaultModel: "openai/gpt-6-luna" });
+  if (choice === "claude") return await settle({ defaultModel: "anthropic/claude-sonnet-5.5", preferredRoute: first("claude") });
+  if (choice === "codex") return await settle({ defaultModel: "openai/gpt-6-luna", preferredRoute: first("codex") });
   if (choice === "opencode") {
     const { opencodeModels } = await import("#chloe/model/opencode");
     const listed = opencodeModels();
@@ -314,7 +315,7 @@ async function theModel(): Promise<string> {
       console.log("\nopencode is here but signed in to nothing. Run: opencode providers");
       return await settle(LATER);
     }
-    return await answeredFrom("Which of opencode's models?", listed);
+    return await answeredFrom("Which of opencode's models?", listed, first("opencode"));
   }
   if (choice === "antigravity") {
     const { antigravityModels } = await import("#chloe/model/antigravity");
@@ -323,7 +324,7 @@ async function theModel(): Promise<string> {
       console.log("\nThe Antigravity CLI is here but signed in to nothing. Sign in with it, then run npx chloe setup again.");
       return await settle(LATER);
     }
-    return await answeredFrom("Which of the Antigravity CLI's models?", listed);
+    return await answeredFrom("Which of the Antigravity CLI's models?", listed, first("antigravity"));
   }
 
   const found = heldOwn.find((one) => one.provider === choice);
@@ -364,20 +365,19 @@ async function theModel(): Promise<string> {
   const gateway = (await ask(`Which gateway? (${settings.model.gatewayUrl}) `)).trim() || settings.model.gatewayUrl;
   const model = (await ask("Which model, provider first, like anthropic/claude-sonnet-5.5? ")).trim();
   const key = (await askHidden("Paste the key: ")).trim();
-  // The gateway first, because somebody who just pasted a key meant to use it,
-  // and a subscription on this box would otherwise be ahead of it in the order.
-  return await settle({ defaultModel: model, gatewayUrl: gateway, preferredRoute: "gateway,claude,codex,antigravity,opencode,direct" }, key);
+  return await settle({ defaultModel: model, gatewayUrl: gateway, preferredRoute: first("gateway") }, key);
 }
 
 /**
  * A model from a route that can say what it runs: asks until one of them
  * answers. The model setup writes is what every agent falls back to, so a pick
- * that does not answer leaves the page with nothing to talk to.
+ * that does not answer leaves the page with nothing to talk to. `preferredRoute`
+ * is written with it, comma separated.
  */
-async function answeredFrom(question: string, listed: string[]): Promise<string> {
+async function answeredFrom(question: string, listed: string[], preferredRoute: string): Promise<string> {
   for (;;) {
     const model = await pickNamed(question, listed, listed[0]!);
-    const answered = await settle({ defaultModel: model }, undefined, "CHLOE_MODEL_KEY", ["key"], true);
+    const answered = await settle({ defaultModel: model, preferredRoute }, undefined, "CHLOE_MODEL_KEY", ["key"], true);
     if (answered) return answered;
     console.log("\nThat one did not answer. Pick another, or stop with Ctrl+C.");
   }

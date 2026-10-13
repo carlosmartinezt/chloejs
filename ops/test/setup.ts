@@ -83,6 +83,21 @@ import { about, is } from "#chloe/ops/check";
   );
   const rest = (text: string) => text.split("\n").filter((one) => !one.includes("model:")).join("\n");
   is("and every other line is left alone", rest(after!), rest(before));
+  const onKey = starter.replace(
+    line,
+    'model: { defaultModel: "anthropic/claude-sonnet-5.5", preferredRoute: ["direct","claude","codex","antigravity","opencode","gateway"], keys: { anthropic: process.env.CHLOE_MODEL_KEYS_ANTHROPIC } },',
+  );
+  const onSubscription = await withModel(
+    onKey,
+    { defaultModel: "anthropic/claude-sonnet-5.5", preferredRoute: "claude,codex,antigravity,opencode,direct,gateway" },
+    "CHLOE_MODEL_KEY",
+    ["key"],
+  );
+  is(
+    "a subscription chosen after a key puts its route ahead of the key's",
+    onSubscription?.includes('preferredRoute: ["claude","codex","antigravity","opencode","direct","gateway"]'),
+    true,
+  );
   is(
     "one written as code is not touched",
     await withModel(before.replace(/model: \{.*\},/, "model: modelSettings(),"), { defaultModel: "opencode-go/grok-4.7" }, "CHLOE_MODEL_KEY", ["key"]),
