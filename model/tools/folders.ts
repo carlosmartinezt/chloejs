@@ -63,7 +63,7 @@ export function folderTools({ paths, about }: { paths: string[]; about?: string 
         lines: z.number().int().min(1).optional().describe("How many lines to read from there."),
       }),
       execute: async ({ folder, path, from, lines }) =>
-        files.readFiles(root(folder), path, { from, lines, limit: 40_000, shows: await shows(folder) }),
+        files.readAsText(path, await files.readFiles(root(folder), path, { from, lines, limit: 40_000, shows: await shows(folder) })),
     }),
     { title: "Read folder file", kind: "read" as const, onlyReads: true },
   );

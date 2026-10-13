@@ -77,7 +77,7 @@ export function readFile({ root, what, limit = 40_000 }: Folder & { limit?: numb
       from: z.number().int().min(1).optional().describe("First line to read, counting from 1."),
       lines: z.number().int().min(1).optional().describe("How many lines to read from there."),
     }),
-    execute: ({ path, from, lines }) => files.readFiles(root, path, { from, lines, limit }),
+    execute: async ({ path, from, lines }) => files.readAsText(path, await files.readFiles(root, path, { from, lines, limit })),
   }), { title: "Read file", onlyReads: true, kind: "read" as const });
 }
 
@@ -105,16 +105,16 @@ export function searchFiles({ root, what, around = 2 }: Folder & { around?: numb
 }
 
 /**
- * Makes a tool that lets the model change a file inside `root`. It gives the
- * exact text to replace and the new text, and the old text must appear in the
- * file exactly once, or the change is refused. With no old text, the new text
- * is added to the end of the file, or makes the file when it is not there:
- * for a log, a list that only grows, or a first draft. There is no tool that
- * replaces a whole file, because that is how the rest of one gets lost.
+ * Makes a tool that lets the model change a file inside `root`. It gives a
+ * list of changes, each the exact text to replace and the new text, and each
+ * old text must appear in the file once, or nothing is changed. A change with
+ * no old text adds to the end of the file, or makes the file when it is not
+ * there: for a log, a list that only grows, or a first draft. There is no tool
+ * that replaces a whole file, because that is how the rest of one gets lost.
  * Missing folders are made.
  *
  * Options, besides `root` and `what`:
- * - `commit`: set to `true` to save each change as a git commit, with a commit
+ * - `commit`: set to `true` to save each call as one git commit, with a commit
  *   message the model must write. Off by default. `root` must be inside a git
  *   repository, or the file is written but not committed.
  * - `author`: the name the commits are made under, such as the agent's id.
@@ -132,19 +132,26 @@ export function editFile({
 }: Folder & { commit?: boolean; author?: string; memory?: boolean }) {
   return Object.assign(tool({
     description:
-      `Change a file in ${what}: give the exact text to replace and what replaces it. ` +
-      `The old text must appear exactly once, so include a line or two around it when it is short. ` +
-      `Read the file first, and copy the old text from what you read. ` +
-      `Leave old out to add to the end of the file, such as a log or a list that only grows, or to make a ` +
-      `new file.` +
+      `Change a file in ${what}: for each change, the exact text to replace and what replaces it. ` +
+      `Make every change to one file in one call, in the order you want them made: each is made on the ` +
+      `file as the ones before it left it, and if one cannot be made, none are. Each old text must appear ` +
+      `exactly once, so include a line or two around it when it is short. Read the file first, and copy ` +
+      `the old text from what you read. Leave old out to add to the end of the file, such as a log or a ` +
+      `list that only grows, or to make a new file.` +
       (commit ? " Committed as it is written, so `message` is required." : ""),
     inputSchema: z.object({
       path: z.string(),
-      old: z.string().min(1).optional().describe("The exact text to replace, copied from the file. Leave out to add to the end, or to make the file."),
-      new: z.string().describe("What replaces it, or what is added. Empty to delete the old text."),
+      changes: z
+        .array(
+          z.object({
+            old: z.string().min(1).optional().describe("The exact text to replace, copied from the file. Leave out to add to the end, or to make the file."),
+            new: z.string().describe("What replaces it, or what is added. Empty to delete the old text."),
+          }),
+        )
+        .min(1),
       message: z.string().optional().describe("Commit message saying what changed. Required here."),
     }),
-    execute: ({ path, old, new: replacement, message }) =>
-      files.editFiles(root, path, old, replacement, { commit, message, author, in: memory ? "memory" : undefined }),
+    execute: ({ path, changes, message }) =>
+      files.editFiles(root, path, changes, { commit, message, author, in: memory ? "memory" : undefined }),
   }), { title: "Edit file", kind: "edit" as const });
 }

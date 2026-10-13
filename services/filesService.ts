@@ -177,6 +177,20 @@ export async function readFiles(
 }
 
 /**
+ * What `readFiles` returned, as a model is shown it: a line with `path` and
+ * which of its lines these are, the note when there is more, then the text
+ * just as it is in the file. Shown as JSON, every line break and quote comes
+ * escaped, and a model copying text back out of it for a change gets the
+ * spaces wrong.
+ */
+export function readAsText(path: string, read: Awaited<ReturnType<typeof readFiles>>): string {
+  const which =
+    "totalLines" in read && read.totalLines !== undefined ? `lines ${read.from} to ${read.to} of ${read.totalLines}` : "all of it";
+  const note = "note" in read && read.note ? `${read.note}\n` : "";
+  return `${path}, ${which}:\n${note}\n${read.content}`;
+}
+
+/**
  * Searches the text files in a folder for some words.
  *
  * - `root`: the folder you allow. Nothing outside it is searched.
@@ -335,50 +349,111 @@ export async function writeFiles(
 }
 
 /**
- * Replaces one piece of text in a file, and leaves the rest as it was. With
- * no `old`, adds `replacement` to the end of the file, or makes the file when
- * it is not there.
+ * Makes one or more changes to a file, and leaves the rest as it was. Each
+ * change replaces one piece of text, or with no `old` adds its text to the
+ * end of the file, or makes the file when it is not there. They are made in
+ * order, each on the file as the ones before it left it, and written once: if
+ * any cannot be made, none are.
  *
  * - `root`: the folder you allow. The file must be inside it.
  * - `path`: the file, relative to `root`.
- * - `old`: the text to replace. It must be in the file exactly once, spaces and line breaks included.
- * - `replacement`: the new text. An empty string deletes `old`.
- * - `options`: `commit`, `message`, `author` and `in`, the same as for `writeFiles`.
+ * - `changes`: each `{ old, new }`. `old` is the text to replace, and must be
+ *   in the file exactly once. When it is not there as written, it is looked
+ *   for again with the spaces and tabs at the start and end of each line
+ *   ignored, and that must find it once. `new` replaces it, and an empty
+ *   string deletes it.
+ * - `options`: `commit`, `message`, `author` and `in`, the same as for
+ *   `writeFiles`. All the changes are one commit.
  *
- * Returns the same as `writeFiles`, plus `line`: the line where the change
- * starts, or 0 when text was added to the end.
+ * Returns the same as `writeFiles`, plus `lines`: the line where each change
+ * starts, or 0 for text added to the end.
  *
- * Throws if `old` is not in the file, or is in the file more than once (the
- * message says how many times). Also throws if there is an `old` and the file
- * does not exist, and for the same reasons as `writeFiles`.
+ * Throws if an `old` is not in the file, or is in it more than once (the
+ * message says which change, and how many times). Also throws if a change has
+ * an `old` and the file does not exist, and for the same reasons as
+ * `writeFiles`.
  */
 export async function editFiles(
   root: string,
   path: string,
-  old: string | undefined,
-  replacement: string,
+  changes: { old?: string; new: string }[],
   options: { commit?: boolean; message?: string; author?: string; in?: Place } = {},
 ) {
+  if (changes.length === 0) throw new Error("There is nothing to change: `changes` is empty.");
+  const resolved = confine(root, path);
+  let text = await readFile(resolved, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT" && changes.every((change) => change.old === undefined)) return "";
+    throw error;
+  });
+  const lines: number[] = [];
+  for (const [n, change] of changes.entries()) {
+    try {
+      const made = changed(text, change.old, change.new);
+      text = made.text;
+      lines.push(made.line);
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      throw new Error(changes.length === 1 ? why : `Change ${n + 1} of ${changes.length}: ${why} None of the changes were made.`);
+    }
+  }
+  return { ...(await writeFiles(root, path, text, options)), lines };
+}
+
+/** `text` with one change made, and the line it starts on (0 when added to the end). Throws when it cannot be made. */
+function changed(text: string, old: string | undefined, replacement: string): { text: string; line: number } {
   if (old === undefined) {
     if (replacement.length === 0) throw new Error("There is nothing to add: `new` is empty.");
-    return { ...(await writeFiles(root, path, replacement, { ...options, append: true })), line: 0 };
+    return { text: text && !text.endsWith("\n") ? `${text}\n${replacement}` : text + replacement, line: 0 };
   }
   if (old.length === 0) throw new Error("Say which text to replace: `old` is empty.");
-  const resolved = confine(root, path);
-  const before = await readFile(resolved, "utf8");
-  const first = before.indexOf(old);
-  if (first === -1) {
-    throw new Error(
-      "That text is not in the file. It has to match exactly, spaces, line breaks and HTML entities " +
-        "included: read the file again and copy it.",
-    );
+  let first = text.indexOf(old);
+  let length = old.length;
+  let times = first === -1 ? 0 : text.split(old).length - 1;
+  if (first === -1 && old.trim()) {
+    const found = [...text.matchAll(loosely(old))];
+    times = found.length;
+    if (times === 1) {
+      first = found[0].index!;
+      length = found[0][0].length;
+      // The match starts after the file's own indent, so the indent the model
+      // gave the first line would be added to it.
+      const lead = /^[ \t]*/.exec(old)![0];
+      if (lead && replacement.startsWith(lead)) replacement = replacement.slice(lead.length);
+    }
   }
-  if (before.indexOf(old, first + 1) !== -1) {
-    const times = before.split(old).length - 1;
+  if (times === 0) throw new Error(notFound(text, old));
+  if (times > 1) {
     throw new Error(`That text is in the file ${times} times. Include more of the lines around it so it is found once.`);
   }
-  const after = before.slice(0, first) + replacement + before.slice(first + old.length);
-  const written = await writeFiles(root, path, after, options);
-  const line = before.slice(0, first).split("\n").length;
-  return { ...written, line };
+  return {
+    text: text.slice(0, first) + replacement + text.slice(first + length),
+    line: text.slice(0, first).split("\n").length,
+  };
+}
+
+/**
+ * `text` as a pattern that ignores the spaces and tabs at the start and end of
+ * each of its lines. Models often copy a line with the indent its neighbours
+ * have rather than the one it has.
+ */
+function loosely(text: string): RegExp {
+  const lines = text.split("\n").map((line) => line.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  // A last line that is empty is the end of the text, and the next line's indent is not part of it.
+  const pattern = lines
+    .map((line, n) => (n === 0 || (n === lines.length - 1 && !line) ? line : `[ \\t]*${line}`))
+    .join("[ \\t]*\\r?\\n");
+  return new RegExp(pattern, "g");
+}
+
+/** Why `old` was not found in `text`, naming the first of its lines that is not there. */
+function notFound(text: string, old: string): string {
+  const missing = old.split("\n").map((line) => line.trim()).find((line) => line && !text.includes(line));
+  if (missing === undefined) {
+    return "That text is not in the file: each of its lines is, but not together in that order. Read that part of the file again and copy it.";
+  }
+  const shown = missing.length > 200 ? `${missing.slice(0, 200)}...` : missing;
+  return (
+    `That text is not in the file: this line of it is not there: ${JSON.stringify(shown)}. ` +
+    "Read that part of the file again and copy it, HTML entities included."
+  );
 }

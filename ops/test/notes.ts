@@ -80,25 +80,69 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
   const { mkdtemp, readFile, writeFile } = await import("node:fs/promises");
   const folder = await mkdtemp(`${(await import("node:os")).tmpdir()}/chloe-edit-`);
   await writeFile(`${folder}/work.html`, "<h1>Work</h1>\n<li>Mercor: waiting</li>\n<li>Snap: no</li>\n<li>Clay: no</li>\n");
-  const done = await editFiles(folder, "work.html", "Mercor: waiting", "Mercor: rejected 1 Oct");
+  const done = await editFiles(folder, "work.html", [{ old: "Mercor: waiting", new: "Mercor: rejected 1 Oct" }]);
   is(
     "the text is replaced and the rest of the file is left as it was",
     await readFile(`${folder}/work.html`, "utf8"),
     "<h1>Work</h1>\n<li>Mercor: rejected 1 Oct</li>\n<li>Snap: no</li>\n<li>Clay: no</li>\n",
   );
-  is("it says which line the change is on", done.line, 2);
+  is("it says which line the change is on", done.lines, [2]);
   const why = (p: Promise<unknown>) => p.then(() => "not refused", (e: Error) => e.message);
-  is("text that is not there is refused", (await why(editFiles(folder, "work.html", "Amazon", "x"))).startsWith("That text is not in the file"), true);
-  is("text that is there twice is refused, saying how many", await why(editFiles(folder, "work.html", ": no", "x")), "That text is in the file 2 times. Include more of the lines around it so it is found once.");
+  is("text that is not there is refused", (await why(editFiles(folder, "work.html", [{ old: "Amazon", new: "x" }]))).startsWith("That text is not in the file"), true);
+  is("text that is there twice is refused, saying how many", await why(editFiles(folder, "work.html", [{ old: ": no", new: "x" }])), "That text is in the file 2 times. Include more of the lines around it so it is found once.");
   is("and neither refusal changed the file", (await readFile(`${folder}/work.html`, "utf8")).includes("Snap: no"), true);
-  await editFiles(folder, "work.html", "<li>Clay: no</li>\n", "");
+  await editFiles(folder, "work.html", [{ old: "<li>Clay: no</li>\n", new: "" }]);
   is("an empty replacement deletes the text", (await readFile(`${folder}/work.html`, "utf8")).includes("Clay"), false);
-  is("a file that is not there is refused", (await why(editFiles(folder, "gone.html", "a", "b"))).includes("ENOENT"), true);
-  await editFiles(folder, "log.md", undefined, "first line\n");
-  await editFiles(folder, "log.md", undefined, "second line");
+  is("a file that is not there is refused", (await why(editFiles(folder, "gone.html", [{ old: "a", new: "b" }]))).includes("ENOENT"), true);
+  await editFiles(folder, "log.md", [{ new: "first line\n" }]);
+  await editFiles(folder, "log.md", [{ new: "second line" }]);
   is("with no old text, the file is made, and the next text is added to its end", await readFile(join(folder, "log.md"), "utf8"), "first line\nsecond line");
-  is("and nothing to add is refused", await why(editFiles(folder, "log.md", undefined, "")), "There is nothing to add: `new` is empty.");
-  is("and the edge of the folder holds", (await why(editFiles(folder, "../outside.html", "a", "b"))) === "not refused", false);
+  is("and nothing to add is refused", await why(editFiles(folder, "log.md", [{ new: "" }])), "There is nothing to add: `new` is empty.");
+  is("and the edge of the folder holds", (await why(editFiles(folder, "../outside.html", [{ old: "a", new: "b" }]))) === "not refused", false);
+
+  await writeFile(`${folder}/book.html`, "<section>\n    <p>A long note that\nwraps here</p>\n    <p>Next</p>\n</section>\n");
+  await editFiles(folder, "book.html", [{ old: "    <p>A long note that\n    wraps here</p>\n", new: "    <p>A long note that wraps here</p>\n" }]);
+  is(
+    "text copied with the wrong indent is still found once, and the file keeps its own indent",
+    await readFile(`${folder}/book.html`, "utf8"),
+    "<section>\n    <p>A long note that wraps here</p>\n    <p>Next</p>\n</section>\n",
+  );
+  await writeFile(`${folder}/twice.html`, "<li>a</li>\n  <li>a</li>\n");
+  is("found twice that way, it is refused, saying how many", await why(editFiles(folder, "twice.html", [{ old: "    <li>a</li>", new: "x" }])), "That text is in the file 2 times. Include more of the lines around it so it is found once.");
+  is(
+    "text that is not there names the line of it that is missing",
+    await why(editFiles(folder, "book.html", [{ old: "<p>Next</p>\n<p>After</p>", new: "x" }])),
+    'That text is not in the file: this line of it is not there: "<p>After</p>". Read that part of the file again and copy it, HTML entities included.',
+  );
+  await writeFile(`${folder}/chapters.html`, "<h2>One</h2>\n<p>a</p>\n<h2>Two</h2>\n<p>b</p>\n");
+  const both = await editFiles(folder, "chapters.html", [
+    { old: "<h2>One</h2>", new: "<h3>One</h3>" },
+    { old: "<h2>Two</h2>", new: "<h3>Two</h3>" },
+    { new: "<p>end</p>\n" },
+  ]);
+  is(
+    "several changes are made in one write, each on the file as the one before left it",
+    await readFile(`${folder}/chapters.html`, "utf8"),
+    "<h3>One</h3>\n<p>a</p>\n<h3>Two</h3>\n<p>b</p>\n<p>end</p>\n",
+  );
+  is("and it says the line of each", both.lines, [1, 3, 0]);
+  is(
+    "when one of them cannot be made, it says which, and none are",
+    await why(editFiles(folder, "chapters.html", [{ old: "<h3>One</h3>", new: "x" }, { old: "<h2>Three</h2>", new: "y" }])),
+    'Change 2 of 2: That text is not in the file: this line of it is not there: "<h2>Three</h2>". Read that part of the file again and copy it, HTML entities included. None of the changes were made.',
+  );
+  is("so the file is as it was", (await readFile(`${folder}/chapters.html`, "utf8")).startsWith("<h3>One</h3>"), true);
+  const { readAsText, readFiles } = await import("@chloejs/core/services");
+  is(
+    "a read is shown to a model as the file's own text, nothing escaped",
+    readAsText("chapters.html", await readFiles(folder, "chapters.html")),
+    "chapters.html, all of it:\n\n<h3>One</h3>\n<p>a</p>\n<h3>Two</h3>\n<p>b</p>\n<p>end</p>\n",
+  );
+  is(
+    "and part of one says which lines, and that there is more",
+    readAsText("chapters.html", await readFiles(folder, "chapters.html", { from: 2, lines: 1 })),
+    "chapters.html, lines 2 to 2 of 6:\nThis is lines 2 to 2 of 6. Ask for from and lines to read another part, or search to find where something is.\n\n<p>a</p>",
+  );
 }
 
 {
