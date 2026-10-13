@@ -20,6 +20,7 @@ import { readEnvFile, writeEnv } from "#chloe/core/env";
 import { settings } from "#chloe/core/settings";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
 import { tryJob, type Clock } from "#chloe/core/clock";
+import { alwaysOnTools } from "#chloe/core/turn";
 import { choices, choose, modelFor, type Scope } from "#chloe/model/choices";
 import { commands } from "#chloe/channels/shared";
 import { forget } from "#chloe/model/memory";
@@ -237,7 +238,11 @@ export function summary(agent: Agent) {
     memory: memoryLabel(agent),
     tools: Object.keys(agent.tools ?? {}).sort(),
     /** What the page calls each tool that has a title of its own. */
-    titles: Object.fromEntries(Object.entries(agent.tools ?? {}).flatMap(([name, one]) => ((one as { title?: string }).title ? [[name, (one as { title: string }).title]] : []))),
+    titles: Object.fromEntries(
+      [...alwaysOnTools(agent).map((one) => [one.name, one.tool] as const), ...Object.entries(agent.tools ?? {})].flatMap(([name, one]) =>
+        (one as { title?: string }).title ? [[name, (one as { title: string }).title]] : [],
+      ),
+    ),
     /** Every ability, and whether it is on. */
     abilities: abilityNames(agent),
     /** Where each tool it did not write itself comes from, like "abilities.memory". */

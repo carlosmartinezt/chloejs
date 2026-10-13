@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { AgentSummary, Picture, Said, Step, Thread } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
-import { ago, nameOf, many, money, spent, threadName, when } from "../lib/format.ts";
+import { ago, nameOf, many, money, spent, threadName, when, words } from "../lib/format.ts";
 import * as Icons from "./components/Icons.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { Trail } from "./components/Link.tsx";
@@ -172,6 +172,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   open.current = thread;
   const picked = summary?.chosen.find((one) => one.scope === `chat:${thread}`)?.model;
   const model = picked ?? summary?.model ?? "";
+  const titled = (name: string) => summary?.titles?.[name] ?? words(name);
 
   async function pick(to: string) {
     try {
@@ -554,7 +555,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                 {since !== undefined && <span className="num">{lasted(now - since)}</span>}
                 {doing.length > 0 && (
                   <button className="plain num doing" aria-expanded={showing} onClick={() => setShowing(!showing)}>
-                    {used(doing.map((step) => step.tool ?? step.name ?? ""))}
+                    {used(doing.map((step) => titled(step.tool ?? step.name ?? "")))}
                   </button>
                 )}
               </p>
@@ -562,7 +563,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
             {waiting && showing && (
               <div className="did">
                 {doing.map((step, at) => (
-                  <Card key={at} name={step.tool ?? step.name ?? ""} step={step} />
+                  <Card key={at} name={titled(step.tool ?? step.name ?? "")} step={step} />
                 ))}
               </div>
             )}
