@@ -29,7 +29,7 @@ A job is an async function made of steps, or a prompt. It is written with
 
 | | What it does |
 |---|---|
-| `work.step(name, fn)` | Does something once and writes down what it returned. |
+| `work.step(name, fn, options)` | Does something once and writes down what it returned. `fn` is handed a `signal`. |
 | `work.model(name, options)` | Asks a model one question, answered in a shape you give. |
 | `work.agent(name, options)` | Gives a model a goal and tools, and lets it pick the order, inside limits you set. |
 | `work.ask(name, options)` | Stops and waits for a person. See [Asking a person](/docs/asking-a-person). |
@@ -39,6 +39,7 @@ A job is an async function made of steps, or a prompt. It is written with
 | `work.input` | Where the run came from, and the message. [Below](#starting-one-with-something). |
 | `work.memory` | The path of the agent's memory folder. |
 | `work.agentId`, `work.runId`, `work.owner` | Whose job, which run, and who it is for. |
+| `work.signal` | Fires when the run is stopped, and when it ends. |
 
 The options of `model` and `agent`, and when to use which, are in
 [Step, model, agent](/docs/primitives).
@@ -56,6 +57,29 @@ again.
 
 A run that was going when chloe stopped is closed as failed. Only a run waiting
 on a person or in `work.wait` survives a restart.
+
+## How long a step may take
+
+A step has 10 minutes, and a whole agent step 30. A step still going
+then fails, so its run fails and the job is free to run again, instead
+of a hung step holding its job for ever. `timeLimit` gives one more or
+less, in minutes, and `0` is no limit:
+
+```ts
+await work.step("copy the database", ({ signal }) => copyDb(signal), { timeLimit: 30 });
+```
+
+**The function is handed a signal.** `work.step`'s `fn` gets
+`{ signal }`, and a tool's `execute` gets the SDK's `abortSignal`.
+Pass it to `fetch`, a child process or anything else that takes one, and
+it stops when the step runs out of time or the run is stopped. A call
+that ignores it goes on in the background, and what it returns is
+dropped. A busy loop on the one thread cannot be stopped at all.
+
+`work.signal` is the run's own: it fires when the run is stopped by
+whoever started it, and when the run ends, so nothing started with it
+outlives the run. Inside a step, use the signal the step hands you,
+which also fires at the step's limit.
 
 ## Two runs never overlap
 

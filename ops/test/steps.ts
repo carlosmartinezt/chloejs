@@ -143,6 +143,65 @@ about("an agent step: the goal is yours, the order is the model's");
   is("and both turns are priced", line.cost, 0.0004);
 }
 
+about("a step that takes too long");
+{
+  // A hundredth of a minute is 600 ms: long enough to start, short enough for a test.
+  const quick = 0.01;
+  let told = "";
+  const hangs = codeJob("hangs", async (work) =>
+    work.step(
+      "fetch something slow",
+      ({ signal }) =>
+        new Promise((_, fail) =>
+          signal.addEventListener("abort", () => {
+            told = (signal.reason as Error).message;
+            fail(signal.reason);
+          }),
+        ),
+      { timeLimit: quick },
+    ),
+  );
+  const out = await work({ agent: agentFor(hangs), job: hangs }).then(() => "finished", (error: Error) => error.message);
+  is("it fails saying it ran out of time, and how to give it longer", [out.includes("ran out of time"), out.includes("timeLimit")], [true, true]);
+  is("and the signal it was handed fired, so a fetch given it stops", told.includes("ran out of time"), true);
+  const failedRun = db.prepare("select trace from runs where job = 'hangs' order by started desc").get() as { trace: string };
+  const line = (JSON.parse(failedRun.trace) as Line[])[0];
+  is("the step is a failed line in the record", line.failed?.includes("ran out of time"), true);
+
+  let lateAnswer = false;
+  const deaf = codeJob("deaf", async (work) =>
+    work.step("ignore the signal", () => new Promise((done) => setTimeout(() => ((lateAnswer = true), done("too late")), 1500)), { timeLimit: quick }),
+  );
+  const started = Date.now();
+  const deafOut = await work({ agent: agentFor(deaf), job: deaf }).then(() => "finished", (error: Error) => error.message);
+  is("one that ignores its signal is not waited for", [deafOut.includes("ran out of time"), Date.now() - started < 1400], [true, true]);
+  await new Promise((done) => setTimeout(done, 1200));
+  is("it goes on in the background, and its answer comes to nothing", lateAnswer, true);
+
+  let runSignal: AbortSignal | undefined;
+  const plain = codeJob("plain signal", async (work) => {
+    runSignal = work.signal;
+    return work.step("quick", () => "done");
+  });
+  await work({ agent: agentFor(plain), job: plain });
+  is("every run has a stop signal, and it fires when the run ends", runSignal?.aborted, true);
+
+  answers.length = 0;
+  let toolTold = false;
+  const stuck = tool({
+    description: "Never answers.",
+    inputSchema: z.object({}),
+    execute: (_input, { abortSignal }) =>
+      new Promise((_, fail) => abortSignal?.addEventListener("abort", () => ((toolTold = true), fail(abortSignal.reason)))),
+  });
+  answers.push({ content: "", tool_calls: [{ id: "1", type: "function", function: { name: "stuck", arguments: "{}" } }] });
+  const waiting = codeJob("stuck agent", async (work) => work.agent("wait on a tool", { prompt: "Use it.", tools: { stuck }, timeLimit: quick }));
+  const stuckOut = await work({ agent: agentFor(waiting), job: waiting }).then(() => "finished", (error: Error) => error.message);
+  is("an agent step whose tool hangs runs out of time too", stuckOut.includes("ran out of time"), true);
+  is("and the tool is told to stop", toolTold, true);
+  answers.length = 0;
+}
+
 about("an agent written with the AI SDK's own model and tools");
 {
   startCounting();

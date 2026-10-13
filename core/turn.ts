@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { duringRun, holdBack, inTrial } from "#chloe/core/current";
 import { CUT_OFF, db } from "#chloe/core/db";
+import { limited, minutesText, until } from "#chloe/core/limit";
 import { oneLineSummary } from "#chloe/core/markdown";
 import { settings } from "#chloe/core/settings";
 import { abilityOn, type Agent, type ChatHistory } from "#chloe/load/load";
@@ -191,6 +192,13 @@ export function spentText(cost: number, unpriced = 0): string {
 
 /** What stops a turn when its agent's `stopWhen` says nothing: forty steps that ran tools. */
 const STOP_WHEN = isStepCount(40);
+/**
+ * How many minutes one tool call may take when its tool says nothing, as long
+ * as one model call may (`model.timeLimit`). With both, every wait in a turn
+ * has an end, and `stopWhen` caps how many there are, so a turn that keeps
+ * making progress may run as long as it needs and one stuck on a call cannot.
+ */
+const TOOL_MINUTES = 10;
 
 /** An agent's `stopWhen` as a list, the way the loop checks it. */
 function stopWhenOf(agent: Agent): StopCondition<any>[] {
@@ -572,12 +580,13 @@ export async function loop(options: {
   let readOutside = "";
 
   for (let steps = 0; ; steps++) {
+    options.signal?.throwIfAborted();
     let toolCalls: ToolCall[];
     const step: Taken = { text: "", toolCalls: [], toolResults: [] };
     if (resume) {
       toolCalls = resume.calls;
     } else {
-      const answer = await ask({ model: options.model, messages: options.messages, tools: specs, signal: options.signal, onText: options.onText });
+      const answer = await until(options.signal, ask({ model: options.model, messages: options.messages, tools: specs, signal: options.signal, onText: options.onText }));
       if (answer.cost === undefined) unpriced++;
       cost += answer.cost ?? 0;
       options.onStep?.({
@@ -617,7 +626,7 @@ export async function loop(options: {
       const ran =
         one?.changesAgent && readOutside
           ? refusedCall(call, `this reply used ${readOutside}, and what it read may be what asked for this. Say what you would change, and your owner can ask for it in their next message`)
-          : await runTool(options.tools, call, { context: options.context, instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided });
+          : await runTool(options.tools, call, { context: options.context, instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided, signal: options.signal });
       if ("person" in ran) {
         return { text: "", steps, cost, unpriced, calls, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
       }
@@ -683,7 +692,7 @@ function refusedCall(call: ToolCall, why: string): { output: unknown; args: unkn
 async function runTool(
   tools: Tools,
   call: ToolCall,
-  how: { context: ToolContext; instead?: Ask["instead"]; toolApproval?: ToolApprovalConfiguration<any, any>; canAsk?: boolean; decided?: Decided },
+  how: { context: ToolContext; instead?: Ask["instead"]; toolApproval?: ToolApprovalConfiguration<any, any>; canAsk?: boolean; decided?: Decided; signal?: AbortSignal },
 ): Promise<{ output: unknown; args: unknown; failed?: boolean; refused?: boolean; signIn?: string } | { person: string; args: unknown }> {
   const name = call.function.name;
   let args: unknown;
@@ -730,12 +739,19 @@ async function runTool(
     return { output: `This is a trial run: ${name} was written down and not called. Carry on as if it had worked.`, args: checked.value };
   }
 
+  const minutes = one.timeLimit ?? TOOL_MINUTES;
+  const limit = limited(how.signal, minutes, `it ran out of time after ${minutesText(minutes)} and was told to stop`);
   try {
-    const output = how.instead ? await how.instead(name, checked.value) : await run(one, checked.value, call.id, how.context);
+    const output = await until(limit.signal, Promise.resolve(how.instead ? how.instead(name, checked.value) : run(one, checked.value, call.id, how.context, limit.signal)));
     return { output: output ?? { ok: true }, args: checked.value };
   } catch (error) {
+    // The turn or the step being stopped ends it. A call that ran out of its
+    // own time failed like any other, and the model can try another way.
+    if (how.signal?.aborted) throw how.signal.reason;
     const output = `${name} failed: ${error instanceof Error ? error.message : String(error)}`;
     return { output, args: checked.value, failed: true, ...(error instanceof NeedsSignIn && { signIn: error.connection }) };
+  } finally {
+    limit.done();
   }
 }
 

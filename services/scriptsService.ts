@@ -67,6 +67,7 @@ export async function listScripts(agent: string): Promise<string[]> {
  * - `args`: the script's arguments, one string each. They reach the script exactly as written, never through a shell. Default: none.
  * - `options.timeoutMs`: how long it may run, in milliseconds. Default: 300000 (five minutes).
  * - `options.cwd`: the folder it runs in. Default: the agent's `scripts/` folder, or for a skill's script that skill's folder, so the script can use paths relative to it.
+ * - `options.signal`: stops the script when it fires, as the time limit does. Default: none.
  *
  * The script file must be executable, with a first line such as `#!/bin/sh`.
  * It gets chloe's environment variables, plus `MEMORY_FOLDER` (the agent's
@@ -83,7 +84,7 @@ export async function runScripts(
   agent: string,
   name: string,
   args: string[] = [],
-  { timeoutMs = 300_000, cwd }: { timeoutMs?: number; cwd?: string } = {},
+  { timeoutMs = 300_000, cwd, signal }: { timeoutMs?: number; cwd?: string; signal?: AbortSignal } = {},
 ): Promise<Result & { script: string; args: string[] }> {
   const available = await listScripts(agent);
   if (!available.includes(name)) {
@@ -100,6 +101,6 @@ export async function runScripts(
     ...(memory && { MEMORY_FOLDER: memory }),
     ...(settings.connections.google.GA_KEY_FILE && { GA_KEY_FILE: settings.connections.google.GA_KEY_FILE }),
   };
-  const result = await run(file, args, { timeoutMs, cwd: cwd ?? dir, env });
+  const result = await run(file, args, { timeoutMs, cwd: cwd ?? dir, env, signal });
   return { script: name, args, ...result };
 }

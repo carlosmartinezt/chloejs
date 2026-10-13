@@ -35,6 +35,7 @@ function clip(s: string): string {
  * - `options.timeoutMs`: how long it may run, in milliseconds. Default: 60000 (one minute).
  * - `options.cwd`: the folder it runs in. Default: the folder chloe runs in.
  * - `options.env`: extra environment variables. The program also gets all of chloe's own.
+ * - `options.signal`: stops it, the way the time limit does, when it fires.
  *
  * It never uses a shell. Each argument reaches the program exactly as you
  * wrote it, so text from a model or a person cannot start a second command.
@@ -45,7 +46,7 @@ function clip(s: string): string {
 export function run(
   file: string,
   args: string[],
-  options: { timeoutMs?: number; cwd?: string; env?: Record<string, string> } = {},
+  options: { timeoutMs?: number; cwd?: string; env?: Record<string, string>; signal?: AbortSignal } = {},
 ): Promise<Result> {
   return new Promise((done) => {
     execFile(
@@ -55,6 +56,7 @@ export function run(
         cwd: options.cwd,
         env: options.env ? { ...process.env, ...options.env } : undefined,
         timeout: options.timeoutMs ?? 60_000,
+        signal: options.signal,
         maxBuffer: 1024 * 1024 * 16,
         encoding: "utf8",
       },

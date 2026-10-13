@@ -24,7 +24,7 @@ export { prompt, isPrompt, oneLineSummary, type Prompt } from "./core/markdown.t
 
 // A job: code first, with a model where a step needs judgement and an agent
 // where the order of the work cannot be known in advance.
-export { work, resume, answer, sweep, parkedRuns, waitingFor, waitingOn, checkArgs, WrongArgs, type AgentStep, type Answer, type AskStep, type Data, type Envelope, type Line, type ModelStep, type ParkedRun, type Shape, type Result as RunResult, type Work } from "./core/steps.ts";
+export { work, resume, answer, sweep, parkedRuns, waitingFor, waitingOn, checkArgs, WrongArgs, type AgentStep, type Answer, type AskStep, type Data, type Envelope, type Line, type ModelStep, type ParkedRun, type PlainStep, type Result as RunResult, type Shape, type StepContext, type Work } from "./core/steps.ts";
 
 // A prompt: ask a model, run the tools it asked for, ask again.
 export { turn, type Result as TurnResult } from "./core/turn.ts";

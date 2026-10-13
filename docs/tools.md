@@ -81,8 +81,9 @@ What chloe reads on a tool:
 | `onlyReads` | `true` when the tool sends nothing and changes nothing outside the agent. Unmarked, and not `own`, a call to it in a trial run is written down and not made. |
 | `forOwner` | `true` when only the agent's owner may use it, like reading the agent's own runs. It is in a turn only when the owner wrote it, never in a job. |
 | `changesAgent` | `true` when the tool changes the agent itself. It is in a turn only when the agent's owner asked, and never in a job. |
+| `timeLimit` | The most minutes one call may take. Default 10, as long as one model call; 0 is no limit. It is then told to stop through the `abortSignal` its `execute` is handed, and the model is told it ran out of time. |
 
-`needs`, `overview`, `kind`, `own`, `onlyReads`, `forOwner` and `changesAgent` are not AI SDK fields, so add them after:
+`needs`, `overview`, `kind`, `own`, `onlyReads`, `forOwner`, `changesAgent` and `timeLimit` are not AI SDK fields, so add them after:
 `Object.assign(tool({ ... }), { needs: crm })`.
 
 A tool's second argument holds `context`. `agentOf(context)` is the agent it
@@ -92,8 +93,12 @@ the model never does.
 
 ## What happens when one fails
 
-A missing tool, bad arguments, or a tool that throws goes back to the model as
-text, and the turn carries on. So a run that worked may still hold failures:
+A missing tool, bad arguments, a tool that throws, or one that runs out of time
+goes back to the model as text, and the turn carries on. Pass the
+`abortSignal` in a tool's second argument to `fetch` or a program, so a call
+that runs out of time, or a step or reply that is stopped, really stops it.
+A turn has no time limit of its own: each model call and each tool call has
+one, and `stopWhen` caps how many there are. So a run that worked may still hold failures:
 read its steps, not only its reply.
 
 A job never imports a tool. It calls the plain function from a step, and a job

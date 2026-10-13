@@ -64,7 +64,7 @@ A key is a secret, so it goes in `.env`, and the config hands it over:
 | `model.gatewayUrl` | the Vercel AI Gateway | Any gateway that speaks the OpenAI chat shape. |
 | `model.models` | ask each route | The shortlist a person may pick from in a chat. Empty offers everything this machine can reach, often hundreds: each command route and the gateway are asked what they run when chloe starts and when the config changes. |
 | `model.program` | `claude`, `codex`, `agy`, `opencode` | Where each command is, when it is not on the path under that name. |
-| `model.timeLimit` | `10` | The most minutes one model call may take, on any route. A call still going is stopped, its program killed, and the run fails saying so, instead of holding its job. 0 is no limit. |
+| `model.timeLimit` | `10` | The most minutes one model call may take, on any route. A call still going is stopped, its program killed, and the run fails saying so, instead of holding its job. 0 is no limit. A whole step and one tool call have a limit of their own: see [Step, model, agent](/docs/primitives). |
 | `model.judgeModel` | `"anthropic/claude-sonnet-5"` | Who marks an eval. |
 | `model.namingModel` | `"anthropic/claude-haiku-4.5"` | Who names a new conversation on the dashboard. Empty leaves them unnamed. |
 

@@ -102,7 +102,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
  * and nothing can change the agent after it in that conversation.
  */
 export function ownTrialTools(agent: Home): Tools {
-  return {
+  const trial: Tools = {
     ownTryJob: forOwner("Try own job", "run",
       tool({
         description:
@@ -121,6 +121,9 @@ export function ownTrialTools(agent: Home): Tools {
       false,
     ),
   };
+  // A trial is a whole run, and each of its steps and calls has a limit of its own.
+  trial.ownTryJob.timeLimit = 0;
+  return trial;
 }
 
 /** selfWriteFile: changing the agent's own folder, as far as `whyNot` in services/selfService.ts allows. */

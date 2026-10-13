@@ -86,6 +86,13 @@ export type ChloeTool = Tool & {
    * the same reply.
    */
   changesAgent?: boolean;
+  /**
+   * The most minutes one call may take. It is then told to stop, through the
+   * `abortSignal` its `execute` is handed, and the model is told it ran out
+   * of time and can try another way. Default: 10, as long as one model call.
+   * 0 is no limit of its own.
+   */
+  timeLimit?: number;
 };
 
 /** Marks each of these tools `own`, and returns them. */
@@ -242,12 +249,13 @@ export async function check(one: Tool, args: unknown): Promise<{ ok: true; value
 }
 
 /**
- * Runs a tool once. It is handed the call's id and its `context` as its second argument, and
- * one that streams its answer is read to the end and its last
- * part kept, which is what the SDK hands the model too.
+ * Runs a tool once. It is handed the call's id, its `context` and, as the
+ * SDK's `abortSignal`, the stop signal of the turn or step it runs in, as its
+ * second argument. One that streams its answer is read to the end and its
+ * last part kept, which is what the SDK hands the model too.
  */
-export async function run(one: Tool, args: unknown, callId: string, context: ToolContext): Promise<unknown> {
-  const output = await (one.execute as (input: unknown, options: unknown) => unknown)(args, { toolCallId: callId, messages: [], context });
+export async function run(one: Tool, args: unknown, callId: string, context: ToolContext, signal?: AbortSignal): Promise<unknown> {
+  const output = await (one.execute as (input: unknown, options: unknown) => unknown)(args, { toolCallId: callId, messages: [], context, abortSignal: signal });
   if (output && typeof output === "object" && Symbol.asyncIterator in output) {
     let last: unknown;
     for await (const part of output as AsyncIterable<unknown>) last = part;

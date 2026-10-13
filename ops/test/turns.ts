@@ -636,3 +636,28 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("and no model was asked for any of it", asked, asking);
   ticking.stop();
 }
+
+{
+  about("a tool call that takes too long");
+
+  const { turn } = await import("#chloe/core/turn");
+  let toolTold = false;
+  // A hundredth of a minute is 600 ms.
+  const stuck = Object.assign(
+    tool({
+      description: "Never answers.",
+      inputSchema: z.object({}),
+      execute: (_input, { abortSignal }) =>
+        new Promise((_, fail) => abortSignal?.addEventListener("abort", () => ((toolTold = true), fail(abortSignal.reason)))),
+    }),
+    { timeLimit: 0.01 },
+  );
+  answers.length = 0;
+  answers.push({ content: "", tool_calls: [{ id: "1", type: "function", function: { name: "stuck", arguments: "{}" } }] }, "It never answered, so I stopped.");
+  const job: Job = { agent: "test", id: "slow", timezone: "UTC", prompt: "Use it.", files: [] };
+  const agent = { ...agentFor(job), tools: { stuck } };
+  const done = await turn({ agent, prompt: "Use it.", source: "schedule", job: "slow" });
+  is("the tool is told to stop at its time limit", toolTold, true);
+  is("and the model is told it ran out of time, and carries on", [lastAsked.at(-1)?.content.includes("stuck failed: it ran out of time after 0.01 minutes"), done.text], [true, "It never answered, so I stopped."]);
+  answers.length = 0;
+}

@@ -21,11 +21,11 @@ export function scriptRun(agent: string) {
       args: z.array(z.string()).optional().describe("Arguments, one per item."),
       timeoutSeconds: z.number().int().min(5).max(1800).optional(),
     }),
-    execute: async ({ script: name, args = [], timeoutSeconds }) =>
+    execute: async ({ script: name, args = [], timeoutSeconds }, { abortSignal }) =>
       name === "list"
         ? { scripts: await listScripts(agent) }
-        : runOne(agent, name, args, { timeoutMs: (timeoutSeconds ?? 300) * 1000 }),
-  }), { title: "Run script", kind: "run" as const });
+        : runOne(agent, name, args, { timeoutMs: (timeoutSeconds ?? 300) * 1000, signal: abortSignal }),
+  }), { title: "Run script", kind: "run" as const, timeLimit: 30 });
 }
 
 /**

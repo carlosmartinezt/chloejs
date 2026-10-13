@@ -28,6 +28,15 @@ down once so a resumed run does not do it twice.
 Paid for, not shipped, past the promised date: that is a rule, so it is code,
 and nothing in the job can spend money or answer differently tomorrow.
 
+A step has 10 minutes, and then fails saying it ran out of time, so one that
+hangs fails its run instead of holding its job. Its function is handed a
+`signal` that fires then: pass it on, and the request or program really stops,
+as in `work.step("fetch the report", ({ signal }) => fetch(url, { signal }), { timeLimit: 30 })`.
+`timeLimit` is in minutes, and 0 is no limit. Code that does not pass the
+signal on is not waited for: it goes on in the background, and what it returns
+is dropped. A loop that never gives the thread back cannot be stopped at all.
+`work.signal` is the run's own, and fires when the run ends.
+
 ## work.model: you know what to ask
 
 Code gathers the facts, one step asks the model, and code decides what to do
@@ -43,6 +52,7 @@ words.
 | `output` | required | The shape the answer must have: a zod schema, or an AI SDK output like `Output.choice({ options: ["billing", "sales"] })` or `Output.array({ element })`. `Output.text()` is refused. |
 | `instructions` | none | What the model should know before the question. |
 | `model` | the job's | A model for this one step. |
+| `timeLimit` | 10 minutes | The most the step may take, both tries included. Each model call also has `model.timeLimit`. |
 
 An answer that does not fit the shape is sent back to the model once, saying
 what was wrong. If it still does not fit, the run fails. Free text never
@@ -67,8 +77,9 @@ else stays in your file.
 | `toolApproval` | every call allowed | Asked before each call, with the input the model wrote. Below. |
 | `instructions` | none | What it should know before it starts. |
 | `model` | the job's | A model for this one step. |
+| `timeLimit` | 30 minutes | The most the whole step may take. A tool still running is told to stop. Time waiting for a person's yes does not count. |
 
-Reaching `stopWhen` or `budget` ends the step with an error saying which, not a
+Reaching `stopWhen`, `budget` or `timeLimit` ends the step with an error saying which, not a
 half answer. Every call it made, with its arguments, what came back and whether
 it was allowed, is on the run, with the step's cost.
 

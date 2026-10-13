@@ -21,6 +21,7 @@ import { z } from "zod";
 
 import { deliver, owner as whoOwns } from "#chloe/services/messageService";
 import { duringRun, inTrial } from "#chloe/core/current";
+import { limited, minutesText, until } from "#chloe/core/limit";
 import { db } from "#chloe/core/db";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { oneLineSummary } from "#chloe/core/markdown";
@@ -149,6 +150,11 @@ export interface ModelStep<O extends Shape> {
   model?: string | SdkModel;
   /** Extra instructions for the model, sent before the question. Default: none. */
   instructions?: string;
+  /**
+   * The most minutes the step may take, both tries included. It then fails
+   * saying it ran out of time. Default: 10. 0 is no limit of its own.
+   */
+  timeLimit?: number;
 }
 
 /**
@@ -226,6 +232,36 @@ export interface AgentStep<O extends Shape = Shape, T extends Tools = Tools> {
   model?: string | SdkModel;
   /** Extra instructions for the model: what it should know before it starts. Default: none. */
   instructions?: string;
+  /**
+   * The most minutes the step may take, every model call and tool call
+   * included. It then fails saying it ran out of time, and a tool still
+   * running is told to stop. Time spent waiting for a person to approve a
+   * call does not count. Default: 30. 0 is no limit of its own.
+   */
+  timeLimit?: number;
+}
+
+/** The options for `work.step()`. */
+export interface PlainStep {
+  /**
+   * The most minutes the step may take. It then fails saying it ran out of
+   * time, and the signal its function was handed fires, so a `fetch` or a
+   * child process given that signal stops. Default: 10. 0 is no limit of its
+   * own.
+   *
+   * Code that does not pass the signal on goes on running in the background
+   * after the step has failed, and what it returns is dropped.
+   */
+  timeLimit?: number;
+}
+
+/** What `work.step()` hands its function. */
+export interface StepContext {
+  /**
+   * Fires when the step runs out of time or the run is stopped. Pass it to
+   * `fetch`, `spawn` and anything else that takes an `AbortSignal`.
+   */
+  signal: AbortSignal;
 }
 
 /**
@@ -326,8 +362,12 @@ export interface Work<State = Data, Args = Data> {
    * `name` is shown in the run history. If you edit the job while a run is
    * paused, and the steps no longer match by order and name, that run stops
    * with an error instead of continuing.
+   *
+   * `fn` is handed a `signal` that fires when the step runs out of time (10
+   * minutes, unless `options.timeLimit` says) or the run is stopped: pass it
+   * to `fetch` and other calls that take one. See `PlainStep`.
    */
-  step<T>(name: string, fn: () => Promise<T> | T): Promise<T>;
+  step<T>(name: string, fn: (step: StepContext) => Promise<T> | T, options?: PlainStep): Promise<T>;
   /**
    * Asks a model one question and returns the answer in the shape you set in
    * `output`. If the answer does not fit, the model is told what was wrong and
@@ -419,14 +459,13 @@ export interface Work<State = Data, Args = Data> {
   /** The id of this run in the run history. */
   readonly runId: string;
   /**
-   * Tells you when the run is being stopped. Pass it to `fetch` and other
-   * calls that take an `AbortSignal`. Model and agent steps use it already.
-   *
-   * It is set only when whoever started the run gave one, as
-   * `agent.run({ signal })` can. Runs started by the clock or a channel have
-   * none.
+   * Fires when the run is stopped by whoever started it (as
+   * `agent.run({ signal })` can), and when the run ends, so nothing started
+   * with it outlives the run. Every step also hands its function a signal of
+   * its own, which fires at the step's time limit too: inside a step, use that
+   * one.
    */
-  readonly signal?: AbortSignal;
+  readonly signal: AbortSignal;
 }
 
 /** What a job's run returns, when it finishes or when it pauses to wait for a person. */
@@ -466,6 +505,14 @@ export interface Result {
 
 /** A step's result has to fit in the run record, which is one database row. */
 const MOST = 64_000;
+/**
+ * How many minutes a step may take when it does not say. Long enough that no
+ * step seen on a working install comes near it (a plain step's longest was
+ * about two minutes, an agent step's seven), short enough that one which
+ * hangs is told about the same morning.
+ */
+const STEP_MINUTES = 10;
+const AGENT_STEP_MINUTES = 30;
 const WAIT = "2h";
 
 /** Not an error: the job stopped on purpose and is waiting for somebody, or for a time. */
@@ -496,6 +543,7 @@ interface Ctx {
   model: string;
   /** The step running right now, while one is. A job pauses between steps, not inside one. */
   inside?: string;
+  /** The run's own stop signal: whoever started it stopping it, or the run ending. `drive()` sets it. */
   signal?: AbortSignal;
   /** A trial run: it sends nothing, waits for nothing, and ends at a question. */
   trial?: boolean;
@@ -677,8 +725,12 @@ export async function resume(runId: string, agents: Map<string, Agent>, signal?:
 }
 
 async function drive(ctx: Ctx): Promise<Result> {
+  // The run holds the other end of its signal: it fires when the run ends, so
+  // whatever a step left running with it stops too.
+  const ended = new AbortController();
+  ctx.signal = ctx.signal ? AbortSignal.any([ctx.signal, ended.signal]) : ended.signal;
   const api: Work = {
-    step: (name, fn) => once(ctx, name, "step", async () => ({ value: await fn() })),
+    step: (name, fn, options) => once(ctx, name, "step", options?.timeLimit ?? STEP_MINUTES, async (_charge, _calls, signal) => ({ value: await fn({ signal }) })),
     model: (name, options) => modelStep(ctx, name, options),
     agent: ((name: string, options: AgentStep) => agentStep(ctx, name, options)) as Work["agent"],
     ask: (name, options) => askStep(ctx, name, options),
@@ -732,6 +784,8 @@ async function drive(ctx: Ctx): Promise<Result> {
       return { runId: ctx.runId, text: why, steps: ctx.lines.length, cost: ctx.cost, unpriced: ctx.unpriced, parked: false };
     }
     throw error;
+  } finally {
+    ended.abort(new Error("The run ended."));
   }
 }
 
@@ -750,7 +804,8 @@ async function once<T>(
   ctx: Ctx,
   name: string,
   kind: Line["kind"],
-  fn: (charge: (amount: number | undefined) => number, calls: Call[]) => Promise<{ value: T; note?: string; prompt?: string }>,
+  minutes: number,
+  fn: (charge: (amount: number | undefined) => number, calls: Call[], signal: AbortSignal) => Promise<{ value: T; note?: string; prompt?: string }>,
 ): Promise<T> {
   const seen = ctx.lines[ctx.seq];
   if (seen) {
@@ -792,8 +847,14 @@ async function once<T>(
   const calls: Call[] = [...(carried?.record ?? [])];
   const outer = ctx.inside;
   ctx.inside = name;
+  const limit = limited(
+    ctx.signal,
+    minutes,
+    `The step ${JSON.stringify(name)} ran out of time: it was stopped after ${minutesText(minutes)}. ` +
+      `Give it longer with timeLimit, or have it do less.`,
+  );
   try {
-    const { value, note, prompt } = await fn(charge, calls);
+    const { value, note, prompt } = await until(limit.signal, fn(charge, calls, limit.signal));
     const size = JSON.stringify(value ?? null)?.length ?? 0;
     if (size > MOST) {
       throw new Error(
@@ -837,13 +898,14 @@ async function once<T>(
     ctx.seq++;
     throw error;
   } finally {
+    limit.done();
     ctx.inside = outer;
   }
 }
 
 /** One question, one shape, and the run priced for it. */
 function modelStep<O extends Shape>(ctx: Ctx, name: string, options: ModelStep<O>): Promise<Answer<O>> {
-  return once(ctx, name, "model", async (charge) => {
+  return once(ctx, name, "model", options.timeLimit ?? STEP_MINUTES, async (charge, _calls, signal) => {
     const using = options.model ? nameOf(options.model) : modelFor(ctx.agent, ctx.job);
     const output = outputOf(options.output);
     const shape = await shapeOf(output);
@@ -871,7 +933,7 @@ function modelStep<O extends Shape>(ctx: Ctx, name: string, options: ModelStep<O
     // Twice: a model told exactly what did not fit usually fixes it, and a
     // third go has never been the difference.
     for (let attempt = 0; attempt < 2; attempt++) {
-      const answer = await askModel({ model: using, messages, signal: ctx.signal });
+      const answer = await askModel({ model: using, messages, signal });
       // Charged whether or not it came back usable, which is why this is not
       // left until the end.
       charge(answer.cost);
@@ -900,7 +962,7 @@ const AGENT_STOP_WHEN = isStepCount(10);
  * recorded once, so a run that resumes does not live through it twice.
  */
 function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O>): Promise<unknown> {
-  return once<unknown>(ctx, name, "agent", async (charge, calls) => {
+  return once<unknown>(ctx, name, "agent", options.timeLimit ?? AGENT_STEP_MINUTES, async (charge, calls, signal) => {
     const using = options.model ? nameOf(options.model) : modelFor(ctx.agent, ctx.job);
     const tools = options.tools;
     for (const [id, one] of Object.entries(tools)) {
@@ -991,7 +1053,7 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
         // that needs a person is refused.
         canAsk: Boolean(ctx.owner),
         resume,
-        signal: ctx.signal,
+        signal,
         // Each turn and each call as it happens, rather than at the end, so a
         // step that fails half way through still says what it spent and ran.
         onStep: (line) => {
