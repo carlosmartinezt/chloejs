@@ -60,7 +60,7 @@ const HELD_SAID: Record<string, string> = {
 const OWN_KEY_NAMES: Record<Provider, string> = { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY" };
 
 /** The model offered first on each provider's own key. */
-const OWN_DEFAULT: Record<Provider, string> = { anthropic: "anthropic/claude-sonnet-5", openai: "openai/gpt-6-luna" };
+const OWN_DEFAULT: Record<Provider, string> = { anthropic: "anthropic/claude-sonnet-5.5", openai: "openai/gpt-6-luna" };
 
 /** What was written, said once at the end rather than line by line as it happens. */
 const wrote: [string, string][] = [];
@@ -305,7 +305,7 @@ async function theModel(): Promise<string> {
 
   // No `preferredRoute` written for these: a subscription is already ahead of a key in
   // the order, so choosing one is choosing the model it runs.
-  if (choice === "claude") return await settle({ defaultModel: "anthropic/claude-sonnet-5" });
+  if (choice === "claude") return await settle({ defaultModel: "anthropic/claude-sonnet-5.5" });
   if (choice === "codex") return await settle({ defaultModel: "openai/gpt-6-luna" });
   if (choice === "opencode") {
     const { opencodeModels } = await import("#chloe/model/opencode");
@@ -362,7 +362,7 @@ async function theModel(): Promise<string> {
   }
 
   const gateway = (await ask(`Which gateway? (${settings.model.gatewayUrl}) `)).trim() || settings.model.gatewayUrl;
-  const model = (await ask("Which model, provider first, like anthropic/claude-sonnet-5? ")).trim();
+  const model = (await ask("Which model, provider first, like anthropic/claude-sonnet-5.5? ")).trim();
   const key = (await askHidden("Paste the key: ")).trim();
   // The gateway first, because somebody who just pasted a key meant to use it,
   // and a subscription on this box would otherwise be ahead of it in the order.

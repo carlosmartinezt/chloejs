@@ -13,7 +13,7 @@ export default defineConfig({
   agents: [shop],
   settings: {
     // What an agent asks when its own agent.ts names none, and the gateway's key.
-    model: { defaultModel: "anthropic/claude-sonnet-5", key: process.env.CHLOE_MODEL_KEY },
+    model: { defaultModel: "anthropic/claude-sonnet-5.5", key: process.env.CHLOE_MODEL_KEY },
     // The shop's own channels: its Telegram bot and its WhatsApp number.
     agents: {
       shop: {

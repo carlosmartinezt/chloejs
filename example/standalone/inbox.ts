@@ -6,7 +6,7 @@ const inbox = defineAgent({
   id: "inbox",
   identity: "Answers questions about your email.",
   purpose: "You help me keep on top of my email. Be brief.",
-  model: "anthropic/claude-sonnet-5",
+  model: "anthropic/claude-sonnet-5.5",
   tools: { gmailReadEmail: gmail.readEmail() },
   channels: { telegram: telegramChannel({ allowFrom: [123456789] }) },
 });

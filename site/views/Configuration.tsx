@@ -140,7 +140,7 @@ const MODEL: Ask[] = [
   {
     path: "model.defaultModel",
     label: "Default model",
-    placeholder: "anthropic/claude-sonnet-5",
+    placeholder: "anthropic/claude-sonnet-5.5",
     about: "Used by any agent that does not pick its own.",
   },
   {
@@ -155,7 +155,7 @@ const MODEL: Ask[] = [
     path: "model.models",
     label: "Models to pick from",
     kind: "list",
-    placeholder: "anthropic/claude-sonnet-5, openai/gpt-5.5",
+    placeholder: "anthropic/claude-sonnet-5.5, openai/gpt-5.5",
     about: "What /models in a chat offers. Empty lists every model this machine can reach.",
   },
   {
@@ -192,7 +192,7 @@ const MODEL: Ask[] = [
   {
     path: "model.judgeModel",
     label: "Model that grades evals",
-    placeholder: "anthropic/claude-sonnet-5",
+    placeholder: "anthropic/claude-sonnet-5.5",
   },
 ];
 

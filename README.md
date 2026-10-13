@@ -253,7 +253,7 @@ with the agents, where it is typed and committed:
 export default defineConfig({
   agents: [tempo],
   settings: {
-    model: { defaultModel: "anthropic/claude-sonnet-5" },
+    model: { defaultModel: "anthropic/claude-sonnet-5.5" },
     email: { provider: "resend" },
   },
 })

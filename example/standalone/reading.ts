@@ -34,7 +34,7 @@ const reader = defineAgent({
   id: "reader",
   identity: "Reads the web so you don't have to.",
   purpose: "Pick less, not more. Say why in one line.",
-  model: "anthropic/claude-sonnet-5",
+  model: "anthropic/claude-sonnet-5.5",
   jobs: [digest],
 });
 

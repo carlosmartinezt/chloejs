@@ -34,7 +34,7 @@ export function starterFiles(): Starter[] {
  * The line in the starter config that setup replaces with the model it chose.
  * Somebody's own config does not have it, and is told what to add instead.
  */
-export const STARTER_MODEL_LINE = '// model: { defaultModel: "anthropic/claude-sonnet-5" },';
+export const STARTER_MODEL_LINE = '// model: { defaultModel: "anthropic/claude-sonnet-5.5" },';
 
 /**
  * The model settings setup chose, as the line that goes in chloe.config.ts.

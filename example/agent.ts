@@ -30,7 +30,7 @@ export default defineAgent({
   name: "Shop",
   // Any model the gateway or the CLI can reach. A job can name a different one
   // for itself, which is the point of choosing here rather than in the runtime.
-  model: "anthropic/claude-sonnet-5",
+  model: "anthropic/claude-sonnet-5.5",
   identity: "Watches the orders, the inbox, the shelves and the customers who stopped buying.",
   purpose: prompt("purpose.md"),
   tools: { orderStatus },
