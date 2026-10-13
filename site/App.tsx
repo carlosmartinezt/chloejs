@@ -23,6 +23,7 @@ import { Purpose } from "./views/Purpose.tsx";
 import { Invitation } from "./views/Invitation.tsx";
 import { Jobs } from "./views/Jobs.tsx";
 import { Skills } from "./views/Skills.tsx";
+import { Abilities } from "./views/Abilities.tsx";
 import { Tools } from "./views/Tools.tsx";
 import { Help } from "./views/Help.tsx";
 import { Account } from "./views/Account.tsx";
@@ -287,6 +288,7 @@ export function App() {
           {view.at === "purpose" && <Purpose agent={view.agent} />}
           {view.at === "skills" && <Skills agent={view.agent} />}
           {view.at === "jobs" && jobsOf(view.agent)}
+          {view.at === "abilities" && <Abilities agent={view.agent} />}
           {view.at === "tools" && <Tools agent={view.agent} />}
           {view.at === "channels" && <Channels agent={view.agent} />}
           {view.at === "connections" && <Connections agent={view.agent} />}
@@ -471,9 +473,13 @@ function Agent({
           Chat with {nameOf(agent.id)}
         </Link>
       </div>
-      <p>{agent.identity}</p>
-
       <dl className="facts">
+        <dt>identity</dt>
+        <dd>{agent.identity}</dd>
+        <dt>purpose</dt>
+        <dd>
+          <Link to={{ at: "purpose", agent: id }}>what it is told</Link>
+        </dd>
         <dt>model</dt>
         <dd>{agent.model}</dd>
         <dt>skills</dt>
@@ -481,7 +487,7 @@ function Agent({
           <Names names={agent.skills} agent={id} held={held} folder="skills" ending=".md" />
         </dd>
         <dt>
-          <Link to={{ at: "tools", agent: id }}>abilities</Link>
+          <Link to={{ at: "abilities", agent: id }}>abilities</Link>
         </dt>
         <dd>{(agent.abilities ?? []).filter((one) => one.on).map((one) => one.label).join(", ") || "none"}</dd>
         {/* The tools its agent.ts names, and a connection's, each under where it comes from. */}

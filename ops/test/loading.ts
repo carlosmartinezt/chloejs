@@ -369,8 +369,9 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   );
   const refused = (abilities: Record<string, unknown>) => agent(abilities).then(() => "loaded", (error: Error) => error.message);
   is("an object is refused", (await refused({ selfImprovement: { code: false } })).endsWith("abilities.selfImprovement is true or false."), true);
-  is("and a name that is not an ability", (await refused({ scripts: true })).includes("abilities has no scripts."), true);
-  is("web adds only the page reader", Object.keys((await agent({ web: true })).tools ?? {}).filter((name) => name === "webReadPage"), ["webReadPage"]);
+  is("and a name that is not an ability", (await refused({ nosuch: true })).includes("abilities has no nosuch."), true);
+  is("web adds the page reader and search", Object.keys((await agent({ web: true })).tools ?? {}).filter((name) => name.startsWith("web")).sort(), ["webReadPage", "webSearch"]);
+  is("and fields can leave search out", Object.keys((await agent({ web: { search: false } })).tools ?? {}).filter((name) => name.startsWith("web")).sort(), ["webReadPage"]);
 
   // Tools switched off by name, for an ability's tools or the agent's own.
   const tool = (name: string) => defineAgent({ id: "switches", folder, model: "m", identity: "", purpose: "Hi.", without: [name] });
@@ -408,12 +409,16 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   is("the email channel that may start a conversation brings the tool for it", [Object.keys(started.tools ?? {}).includes("emailStartConversation"), started.toolsFrom?.emailStartConversation], [true, "channel email"]);
   is("and one that may not does not", Object.keys((await agent({ email: emailChannel({ allowFrom: ["a@b.co"], mailbox: "gmail" }) })).tools ?? {}).includes("emailStartConversation"), false);
 
+  const took = await agent({ telegram: telegramChannel({ allowFrom: [1], send: { when: "When asked to." } }) });
+  is("the telegram channel that may write first brings the tool for it", [Object.keys(took.tools ?? {}).includes("telegramSendMessage"), took.toolsFrom?.telegramSendMessage], [true, "channel telegram"]);
+  is("and one that may not does not", Object.keys((await agent({ telegram: telegramChannel({ allowFrom: [1] }) })).tools ?? {}).includes("telegramSendMessage"), false);
+
   // A ability that takes fields.
-  const mail = await agent({}, { abilities: { memory: false, selfImprovement: false, email: { reply: true, sendTo: ["a@b.co"], search: "label:orders" } } });
+  const mail = await agent({}, { abilities: { memory: false, selfImprovement: false, googleMail: { reply: true, sendTo: ["a@b.co"], search: "label:orders" } } });
   is("an ability's fields decide its tools", Object.keys(mail.tools ?? {}).sort(), ["emailReadMail", "emailReplyMail", "emailSendMail"]);
   const asked = (abilities: unknown) => agent({}, { abilities }).then(() => "loaded", (error: Error) => error.message);
-  is("a field that is not there is refused, saying which there are", (await asked({ email: { sent: true } })).includes("has no field sent. It has search"), true);
-  is("one of the wrong kind", (await asked({ email: { days: "three" } })).includes("days takes a number"), true);
-  is("an ability with no fields takes no object", (await asked({ web: { x: 1 } })).includes("is true or false"), true);
+  is("a field that is not there is refused, saying which there are", (await asked({ googleMail: { sent: true } })).includes("has no field sent. It has search"), true);
+  is("one of the wrong kind", (await asked({ googleMail: { days: "three" } })).includes("days takes a number"), true);
+  is("an ability with no fields takes no object", (await asked({ memory: { x: 1 } })).includes("is true or false"), true);
   await rm(folder, { recursive: true, force: true });
 }

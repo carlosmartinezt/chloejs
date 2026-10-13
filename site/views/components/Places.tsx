@@ -30,13 +30,17 @@ export function Places({ agent, view }: { agent: string; view: View }) {
         <Icons.Card />
         Skills
       </Link>
-      <Link to={{ at: "jobs", agent }} current={on("jobs")}>
-        <Icons.Clock />
-        Jobs
+      <Link to={{ at: "abilities", agent }} current={on("abilities")}>
+        <Icons.Look />
+        Abilities
       </Link>
       <Link to={{ at: "tools", agent }} current={on("tools")}>
         <Icons.Tool />
         Tools
+      </Link>
+      <Link to={{ at: "jobs", agent }} current={on("jobs")}>
+        <Icons.Clock />
+        Jobs
       </Link>
       <Link to={{ at: "channels", agent }} current={on("channels")}>
         <Icons.In />

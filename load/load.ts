@@ -26,7 +26,7 @@ import type { Connection } from "#chloe/connections/connection";
 import type { McpConnection } from "#chloe/connections/mcp";
 import { makeRepo } from "#chloe/services/historyService";
 import { ABILITIES, abilityTools, type Abilities } from "./abilities.ts";
-export { ABILITIES, abilityOn, abilityToolSet, abilityValues, type Ability, type Abilities, type EmailAbility, type CalendarAbility, type DriveAbility } from "./abilities.ts";
+export { ABILITIES, abilityOn, abilityToolSet, abilityValues, type Ability, type Abilities, type GoogleMailAbility, type GoogleCalendarAbility, type GoogleDriveAbility, type WebAbility, type ResendAbility } from "./abilities.ts";
 import { work, type Data, type Envelope, type Result as RunResult, type Work } from "#chloe/core/steps";
 import { turn, type Result as TurnResult } from "#chloe/core/turn";
 
@@ -118,6 +118,7 @@ export interface AgentConfig {
   /**
    * Turns on tools that chloe has built in: the memory tools,
    * `selfWriteFile`, `scriptRun` and `memoryWriteUserNotes`. See `Abilities`.
+   * Memory and SelfImprovement are On by default. 
    */
   abilities?: Abilities;
   /**

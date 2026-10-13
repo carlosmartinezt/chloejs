@@ -37,18 +37,25 @@ job's code sets its own limits on each step: see
 ## abilities
 
 Switched on in the definition, with nothing to import:
-`abilities: { memoryPerUser: true, runScripts: true }`. Each is `true` or `false`, or for `email`, `calendar` and `drive` its fields, and the dashboard's Tools page switches them and fills the fields in. Every tool each one
-adds, and the ones an agent has with no ability, are on
-[Abilities](/docs/abilities).
+`abilities: { memoryPerUser: true, scripts: true }`. Each is `true` or
+`false`, or its fields written out, and the dashboard's Abilities page switches
+them and fills the fields in. Every tool each one adds, and the ones an agent
+has with no ability, are on [Abilities](/docs/abilities). A tool you write
+yourself, and a connection's, is bound in `tools` instead ([Tools](/docs/tools)).
 
 | Ability | Default | What it adds |
 |---|---|---|
 | `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles` and `memoryEditFile`, inside its memory folder and nowhere else. |
 | `memoryPerUser` | off | `memoryWriteUserNotes`: a note per person it talks to, `users/<channel>-<id>.md` in its memory, shown at the top of that person's turns. Whose note it is comes from who sent the message, never from the model. |
-| `web` | off | `webReadPage`, to read a public web page as plain text. |
-| `email`, `calendar`, `drive` | off | Gmail, Google Calendar and Google Drive, each limited by its fields. See [Abilities](/docs/abilities#email-calendar-and-drive). |
+| `web` | off | `webReadPage` and `webSearch`: read a public web page as plain text, and search the web. |
+| `googleMail`, `googleCalendar`, `googleDrive` | off | Gmail, Google Calendar and Google Drive, each limited by its fields. See [Abilities](/docs/abilities#googlemail-googlecalendar-and-googledrive). |
 | `selfImprovement` | on | `selfWriteFile`, to change its own folder: purpose, skills, jobs, and its code. `false` turns it off, once the agent does what you want. Never evals or memory, and a job it changes must still load and run at most once an hour. Every write is a commit you can undo from the dashboard, and what you changed by hand in a file it writes is committed first, under your own git name. It writes only when its owner asks, and not once a tool in the same conversation read from outside ([what an agent may change](/docs/prompts#what-an-agent-may-change-about-itself)). |
-| `runScripts` | off | `scriptRun`, to run a file in its own `scripts/` folder. The agent is refused as it loads if that folder is empty. |
+| `scripts` | off | `scriptRun`, to run a file in its own `scripts/` folder. The agent is refused as it loads if that folder is empty. |
+| `resend` | off | `resendSendEmail`: send one email through Resend. Needs the Resend key. |
+
+A tool that only a running channel can deliver comes from the channel, not an
+ability: an email channel's `start` brings `emailStartConversation`, and a
+telegram channel's `send` brings `telegramSendMessage`.
 
 Every agent also has six tools that need no ability. `selfListFiles` and
 `selfReadFile` read its own folder (never its memory), in every turn, so you

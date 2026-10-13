@@ -23,6 +23,7 @@ Besides the [options every channel takes](/docs/channels#options-they-share):
 | Option | Default | What it controls |
 |---|---|---|
 | `allowFrom` | nobody | Telegram user ids, as numbers. |
+| `send` | only answers | `{ when }` lets the agent write to somebody in `allowFrom` first, with the tool `telegramSendMessage`. The channel brings the tool itself, because only the running channel can deliver a message. |
 | `inGroups` | `"when-addressed"` | In a group, answer only a command, a mention or a reply to the bot. `"always"` answers every message from someone in `allowFrom`. |
 | `stackWithin` | `1` | Seconds to wait for a second message in the same chat, so two sent together are read as one. `0` reads each on its own. |
 | `uploadPolicy` | pictures, PDFs and text, up to 10 MB | Which files are handed to the agent: `{ allowedMediaTypes, maxBytes }`. Anything else is named to it, not handed over. |
@@ -36,6 +37,8 @@ Telegram's command list allows no hyphens, so `/stuck_orders` runs
 ## Sending a message from a chat or a job
 
 A job sends to an address like `telegram:12345` with `deliver()` from
-`@chloejs/core/services`. A chat turn can be given the tool from
-`@chloejs/core/tools/telegram`, bound to the people it may send to.
+`@chloejs/core/services`. With `send: { when }`, the agent gets the tool
+`telegramSendMessage` and can write to somebody in `allowFrom` without waiting
+for them to write first: `when` says when, in your words. A tool bound by hand
+from `@chloejs/core/tools/telegram` can send to other ids instead.
 

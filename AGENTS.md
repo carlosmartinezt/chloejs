@@ -994,7 +994,7 @@ file in its skill folders, is reachable by that agent. If no skill or
 instruction mentions it, it does not belong there.
 
 **A file somebody sends reaches a script only through the state folder.** An
-agent with `runScripts` gets each file a message carries saved in
+agent with `scripts` gets each file a message carries saved in
 `received/<agent id>/` (`services/receivedService.ts`, kept 30 days, never for
 a stranger) and the path in the message. `chatSendFile` sends one back only
 from that folder or the agent's memory, and only on a channel that passes

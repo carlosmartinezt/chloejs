@@ -31,8 +31,15 @@ Import a set as a whole and bind each tool you want:
 | `email` | `startConversation` | Which email channel. | Who, from the channel's `allowFrom`, and what to say. |
 | `telegram` | `sendMessage` | Which Telegram channel and who it may send to. | Who and what to say. |
 
-The memory, self and script tools are not imported: `abilities` on the agent
-switches them on. See [Abilities](/docs/abilities).
+Every set here also has an ability to switch on from the dashboard, with nothing
+to import, except `fs`, `email` and `telegram`. `web` is `web`, `gmail` is
+`googleMail`, `calendar` is `googleCalendar`, `drive` is `googleDrive`, and
+`resend` is `resend` (see [Abilities](/docs/abilities)). `fs` has no ability: a
+folder it may use is a tool you bind. `email.startConversation` is brought by an
+email channel's `start`, and `telegram.sendMessage` by a Telegram channel's
+`send`, so the running channel delivers them. Bind one here for its options the
+ability's fields cannot say, or for two of the same. The memory, self and script
+tools are not imported: their abilities only switch them on.
 
 ### Sending an email
 

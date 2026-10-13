@@ -6,12 +6,13 @@ summary: The tools chloe brings to an agent: which ability adds each one, what i
 
 # Abilities
 
-An ability is a set of tools chloe has built in. Each is `true` or `false` in
+An ability is a set of tools chloe ships. Each is `true` or `false` in
 `abilities` in the agent's `agent.ts`, with nothing to import:
-`abilities: { memoryPerUser: true, runScripts: true }`. The Tools page on the
-dashboard switches them too: it writes the same line, says only what differs
-from the default, and puts the file back with the reason when the agent would
-not load.
+`abilities: { memoryPerUser: true, scripts: true }`. Every tool chloe ships
+has one, so anything built in can be switched on from the dashboard, which
+writes the same line, says only what differs from the default, and puts the file
+back with the reason when the agent would not load. A tool you write yourself,
+and a connection's, is bound in `tools` instead ([Tools](/docs/tools)).
 
 The tool names here are the ones the model sees. Your purpose and skills
 should say what to do ("note it in your memory"), not name these tools, so a
@@ -21,14 +22,15 @@ rename breaks nothing ([A prompt with tools](/docs/prompts#skills-and-scripts)).
 
 | Ability | Default | Tools it adds |
 |---|---|---|
-| `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles`, `memoryEditFile` |
-| `web` | off | `webReadPage` |
-| `email` | off | `emailReadMail`, `emailReplyMail`, `emailSendMail` |
-| `calendar` | off | `calendarListEvents`, `calendarAddEvent` |
-| `drive` | off | `driveSearchFiles`, `driveReadFile` |
 | `selfImprovement` | on | `selfWriteFile` |
+| `memory` | on | `memoryListFiles`, `memoryReadFile`, `memorySearchFiles`, `memoryEditFile` |
+| `scripts` | off | `scriptRun` |
 | `memoryPerUser` | off | `memoryWriteUserNotes` |
-| `runScripts` | off | `scriptRun` |
+| `web` | off | `webReadPage`, `webSearch` |
+| `googleMail` | off | `emailReadMail`, `emailReplyMail`, `emailSendMail` |
+| `googleCalendar` | off | `calendarListEvents`, `calendarAddEvent` |
+| `googleDrive` | off | `driveSearchFiles`, `driveReadFile` |
+| `resend` | off | `resendSendEmail` |
 
 ### memory
 
@@ -47,27 +49,42 @@ Every run that changes the memory is one git commit under the agent's id.
 ### web
 
 `webReadPage` reads one public web page as plain text, with links written as
-`[text](url)`. It refuses this machine and private addresses, and does not run
-a page's JavaScript. Searching the web is `web.search()`, bound in `tools`.
+`[text](url)`. It refuses this machine and private addresses, and does not run a
+page's JavaScript. `webSearch` searches the web and gives back results, each a
+title, a url and a line, which the model reads with `webReadPage`: it goes to
+Brave Search when `connections.brave.api_key` is set, and to DuckDuckGo when it
+is not. `web` is `true` for both, or `web: { search: false }` to read pages only.
 
-### email, calendar and drive
+### resend
+
+`resendSendEmail` sends one email through Resend to the addresses in `to`, from
+`from`. The model writes only the subject and the body. `when` says when it
+should send, in your words; `replyTo`, `tag`, `markdown` and `keep` are as in
+[Tools](/docs/tools). Needs the Resend connection: a key in
+`connections.resend.api_key`. Without one nothing is sent and nothing fails.
+
+### googleMail, googleCalendar and googleDrive
 
 Google, as three abilities that share the one sign-in (see
 [Connections](/docs/connections#the-google-tools)). Each is `true` for its
-narrowest reach, or its fields written out, which the Tools page shows as a form.
-The model never chooses what a field fixes.
+narrowest reach, or its fields written out, which the Abilities page shows as a
+form. The model never chooses what a field fixes. They are named for Google
+because that is all chloe ships: another mail, calendar or drive is a tool you
+bind yourself, or a mailbox of your own on the email channel.
 
 | Ability | Fields | Tools |
 |---|---|---|
-| `email` | `search` (a Gmail search, default `in:inbox`), `days` (7), `about`, `reply` (false), `sendTo` (none), `sendFrom`, `sendWhen` | `emailReadMail`; with `reply`, `emailReplyMail`; with a `sendTo`, `emailSendMail`, which writes only the subject and the body |
-| `calendar` | `calendars` (`["primary"]`), `days` (7), `about`, `add` (false) | `calendarListEvents`; with `add`, `calendarAddEvent`, which invites nobody |
-| `drive` | `search` (all of Drive), `about` | `driveSearchFiles`, `driveReadFile` |
+| `googleMail` | `search` (a Gmail search, default `in:inbox`), `days` (7), `about`, `reply` (false), `sendTo` (none), `sendFrom`, `sendWhen` | `emailReadMail`; with `reply`, `emailReplyMail`; with a `sendTo`, `emailSendMail`, which writes only the subject and the body |
+| `googleCalendar` | `calendars` (`["primary"]`), `days` (7), `about`, `add` (false) | `calendarListEvents`; with `add`, `calendarAddEvent`, which invites nobody |
+| `googleDrive` | `search` (all of Drive), `about` | `driveSearchFiles`, `driveReadFile` |
 
-`abilities: { email: { search: "label:orders", days: 3, reply: true } }`. What a
-ability cannot hold (a copy folder for sent mail, several calendars to add to,
-a limit worked out in code) is bound with the tool functions in `tools`, which
-are on [Tools](/docs/tools). An email channel that may write first brings
-`emailStartConversation` itself: see `start` in [Email](/docs/channels-email).
+`abilities: { googleMail: { search: "label:orders", days: 3, reply: true } }`.
+What an ability cannot hold (a copy folder for sent mail, several calendars to
+add to, a limit worked out in code) is bound with the tool functions in `tools`,
+which are on [Tools](/docs/tools). An email channel that may write first brings
+`emailStartConversation` itself: see `start` in [Email](/docs/channels-email),
+and a Telegram channel that may write first brings `telegramSendMessage`: see
+`send` in [Telegram](/docs/channels-telegram).
 
 ### selfImprovement
 
@@ -96,7 +113,7 @@ comes from who sent the message, never from the model, so one person on two
 channels has two notes. A visitor on a [web channel](/docs/channels) gets this
 tool even though the channel does not name it.
 
-### runScripts
+### scripts
 
 `scriptRun` runs any file in the agent's `scripts/` folder, or any executable
 file inside one of its skill folders (named `<skill>/<path>`), and returns what
@@ -112,10 +129,11 @@ folder. With it on, a file somebody sends is also saved for the scripts
 
 An ability is all of its tools. To keep an ability but not one of its tools, or
 to switch off a tool you bound yourself without losing the options you gave it,
-list its name in `without`: `without: ["memoryEditFile"]`. The dashboard's
-Tools page writes that list when you switch a single tool. A name that is no
-tool of the agent stops it loading, saying what there is. An ability's tool may
-be named while the ability is off.
+list its name in `without`: `without: ["memoryEditFile"]`. The dashboard writes
+that list when you switch a single tool off: on the Abilities page for one an
+ability adds, and on the Tools page for one you declared. A name that is no tool
+of the agent stops it loading, saying what there is. An ability's tool may be
+named while the ability is off.
 
 ## With no ability
 

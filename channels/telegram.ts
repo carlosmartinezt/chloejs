@@ -39,6 +39,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe/load/load";
 import { ownedBy, reachBy, unreach } from "#chloe/services/messageService";
 import type { Attachment } from "#chloe/model/model";
+import { sendMessage } from "#chloe/model/tools/telegram";
 import type { FileToSend } from "#chloe/model/tools/chat";
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { type Bound, type Button, commands, defineChannel, type Incoming, inPieces, isForAgent, receive, rulesOf, type Shared } from "./shared.ts";
@@ -93,6 +94,14 @@ export interface TelegramOptions extends Shared {
    *   BotFather, send /setprivacy) or when it is a group admin.
    */
   inGroups?: "when-addressed" | "always";
+  /**
+   * Lets the agent write to somebody first, with the tool
+   * `telegramSendMessage`: `when` says to the model when to, and the people it
+   * may write to are the ids in `allowFrom`. Default: it only answers. The
+   * channel brings the tool itself, because only the running channel can
+   * deliver a message.
+   */
+  send?: { when: string };
   /**
    * How much of the chat the agent sees with each new message:
    * `{ messages, days }`. `messages` is the most it sees, and `days` leaves
@@ -198,7 +207,7 @@ interface Update {
  * ignored, with a line in the log.
  */
 export function telegramChannel(options: TelegramOptions = {}): Channel {
-  return defineChannel("telegram", options, ({ agent, agentId, name, bound }) => {
+  const channel = defineChannel("telegram", options, ({ agent, agentId, name, bound }) => {
     const token = options.credentials?.botToken || settings.agents[agentId]?.telegram || "";
     if (!token) {
       console.error(
@@ -222,6 +231,14 @@ export function telegramChannel(options: TelegramOptions = {}): Channel {
       },
     };
   });
+  // Only the running channel can deliver a message, so the channel brings the
+  // tool, the way the email channel brings its starting tool.
+  if (options.send?.when) {
+    const who = (options.allowFrom ?? []).map(String);
+    if (who.length === 0) throw new Error("telegramChannel's send needs somebody in allowFrom to write to.");
+    channel.brings = { telegramSendMessage: sendMessage({ who, when: options.send.when, channel: channel.name }) };
+  }
+  return channel;
 }
 
 /** Reads messages until stopped. Separate from the channel so the tests can point it somewhere else. */

@@ -91,7 +91,8 @@ export function Home({
                 </span>
                 <span className="num model">{agent.model}</span>
                 <Few what="Skills" names={agent.skills} />
-                <Few what="Tools" names={agent.tools} />
+                <Few what="Abilities" names={(agent.abilities ?? []).filter((one) => one.on).map((one) => one.label)} />
+                <Few what="Tools" names={agent.tools.filter((name) => !(agent.toolsFrom ?? {})[name])} />
               </Link>
             ))}
           </div>

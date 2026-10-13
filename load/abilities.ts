@@ -7,11 +7,13 @@ import { google } from "#chloe/connections/google/connection";
 import * as calendar from "#chloe/connections/google/calendar";
 import * as drive from "#chloe/connections/google/drive";
 import * as gmail from "#chloe/connections/google/gmail";
+import { resend } from "#chloe/connections/resend/connection";
+import { sendEmail as resendSendEmail } from "#chloe/connections/resend/resend";
 import type { Connection } from "#chloe/connections/connection";
 import { memoryTools, userNotesTools } from "#chloe/model/tools/memory";
 import { scriptTools } from "#chloe/model/tools/script";
 import { selfWriteTools } from "#chloe/model/tools/self";
-import { readPage } from "#chloe/model/tools/web";
+import { readPage, search as searchWeb } from "#chloe/model/tools/web";
 import type { Tools } from "#chloe/model/tool";
 import { scriptsIn } from "#chloe/services/scriptsService";
 import type { Home } from "./load.ts";
@@ -19,9 +21,9 @@ import { defaultOf, readOptions, type OptionSpec } from "./options.ts";
 
 /**
  * Tools that chloe can add to an agent, each switched on or off with `true`
- * or `false`, for example `abilities: { runScripts: true }`. A few take their
- * fields instead of `true`, like `email: { search: "in:inbox", days: 3 }`; the
- * file says only what differs from the default. The page's Tools view
+ * or `false`, for example `abilities: { scripts: true }`. A few take their
+ * fields instead of `true`, like `googleMail: { search: "in:inbox", days: 3 }`;
+ * the file says only what differs from the default. The page's Abilities view
  * switches them and fills the fields in, by changing this object in
  * `agent.ts`. `ABILITIES` is the list, with what each one is when unsaid.
  */
@@ -32,12 +34,6 @@ export interface Abilities {
    * the agent's memory folder (see `memory` on the agent). On by default.
    */
   memory?: boolean;
-  /**
-   * Adds the tool `webReadPage`, which reads one public web page as plain
-   * text. Off by default. It reads only public addresses and does not run the
-   * page's JavaScript.
-   */
-  web?: boolean;
   /**
    * Adds the tool `selfWriteFile`, which lets the agent change its own files:
    * its purpose, skills and jobs, and its code (`agent.ts`, jobs, tools,
@@ -62,6 +58,14 @@ export interface Abilities {
    */
   selfImprovement?: boolean;
   /**
+   * Adds the tools `webReadPage` (read one public web page as plain text) and
+   * `webSearch` (search the web). Off by default. `webReadPage` reads only
+   * public addresses and does not run the page's JavaScript. `webSearch` goes
+   * to Brave Search when `connections.brave.api_key` is set, and to
+   * DuckDuckGo when it is not. Give fields to leave search out.
+   */
+  web?: boolean | WebAbility;
+  /**
    * Adds the tool `scriptRun`, which lets the agent run any file in its own
    * `scripts/` folder. Off by default.
    *
@@ -72,7 +76,7 @@ export interface Abilities {
    *
    * Write a skill that tells the agent when to use each script.
    */
-  runScripts?: boolean;
+  scripts?: boolean;
   /**
    * Adds the tool `memoryWriteUserNotes`, which keeps one note about each
    * person the agent talks to, on any channel. Off by default.
@@ -91,23 +95,30 @@ export interface Abilities {
    * days and nothing else. Give fields to say which mail, and to let it reply
    * or send. Needs the Google sign-in.
    */
-  email?: boolean | EmailAbility;
+  googleMail?: boolean | GoogleMailAbility;
   /**
    * Adds the tool `calendarListEvents` for a Google calendar, and with
    * `add`, `calendarAddEvent`. Off by default. `true` reads the signed-in
    * account's own calendar for the next 7 days. Needs the Google sign-in.
    */
-  calendar?: boolean | CalendarAbility;
+  googleCalendar?: boolean | GoogleCalendarAbility;
   /**
    * Adds the tools `driveSearchFiles` and `driveReadFile`, which find and read
    * files in Google Drive as text. Off by default. `true` reaches all of
    * Drive: give `search` to keep it to some files. Needs the Google sign-in.
    */
-  drive?: boolean | DriveAbility;
+  googleDrive?: boolean | GoogleDriveAbility;
+  /**
+   * Adds the tool `resendSendEmail`, which sends one email through Resend to
+   * people you name. Off by default, and adds nothing until `from` and `to`
+   * are filled in. Needs `connections.resend.api_key`: without it nothing is
+   * sent and nothing fails.
+   */
+  resend?: boolean | ResendAbility;
 }
 
-/** The fields of `abilities.email`. The model chooses only how far back and which listed message to answer. */
-export interface EmailAbility {
+/** The fields of `abilities.googleMail`. The model chooses only how far back and which listed message to answer. */
+export interface GoogleMailAbility {
   /** A Gmail search that sets which mail the model can see, like `"in:inbox label:orders"`. It cannot change it. Default: `"in:inbox"`. */
   search?: string;
   /** How many days back it looks when it does not say. Default: 7. */
@@ -124,8 +135,8 @@ export interface EmailAbility {
   sendWhen?: string;
 }
 
-/** The fields of `abilities.calendar`. */
-export interface CalendarAbility {
+/** The fields of `abilities.googleCalendar`. */
+export interface GoogleCalendarAbility {
   /** The ids of the calendars it can see; `"primary"` is the signed-in account's own. Default: `["primary"]`. */
   calendars?: string[];
   /** How many days ahead it looks when it does not say. Default: 7. */
@@ -136,12 +147,36 @@ export interface CalendarAbility {
   add?: boolean;
 }
 
-/** The fields of `abilities.drive`. */
-export interface DriveAbility {
+/** The fields of `abilities.googleDrive`. */
+export interface GoogleDriveAbility {
   /** A Drive search that sets which files the model can see, like `"'folder-id' in parents"`. It cannot change it. Default: all of Drive. */
   search?: string;
   /** A few words for those files, like `"the shared proposals"`, said to the model. Default: none. */
   about?: string;
+}
+
+/** The fields of `abilities.web`. */
+export interface WebAbility {
+  /** Let it search the web as well as read pages. Default: true. */
+  search?: boolean;
+}
+
+/** The fields of `abilities.resend`, the same shape as a bound Resend tool. */
+export interface ResendAbility {
+  /** The From line it sends under, like `"Shop <shop@example.com>"`. Must be on a domain set up in Resend. Required. */
+  from?: string;
+  /** The addresses it may write to. Required. */
+  to?: string[];
+  /** When it should send, in your words, said to the model. Required. */
+  when?: string;
+  /** The addresses a reply goes to. Empty: the `from` address. */
+  replyTo?: string[];
+  /** Put in front of every subject, `[tag]`, so an inbox can filter it. Default: none. */
+  tag?: string;
+  /** Send the body as HTML with a plain text copy. Default: off. */
+  markdown?: boolean;
+  /** A folder in its memory, like `"outbox"`, that gets a copy of each email sent. Default: none. */
+  keep?: string;
 }
 
 /** One ability: what it is when unsaid, what it does in a line, the tools it adds and the fields it takes. */
@@ -186,8 +221,8 @@ export const ABILITIES: Ability[] = [
     tools: ["memoryListFiles", "memoryReadFile", "memorySearchFiles", "memoryEditFile"],
   },
   {
-    name: "runScripts",
-    label: "Run scripts",
+    name: "scripts",
+    label: "Scripts",
     on: false,
     does: "Runs the scripts in its scripts/ folder and in its skills' folders.",
     tools: ["scriptRun"],
@@ -203,12 +238,13 @@ export const ABILITIES: Ability[] = [
     name: "web",
     label: "Browse web",
     on: false,
-    does: "Reads public web pages as plain text.",
-    tools: ["webReadPage"],
+    does: "Reads public web pages as plain text, and searches the web.",
+    tools: ["webReadPage", "webSearch"],
+    fields: [{ name: "search", label: "May search the web", about: "Leave it off to read pages only.", kind: "yesno", default: true }],
   },
   {
-    name: "email",
-    label: "Email",
+    name: "googleMail",
+    label: "Google Mail",
     on: false,
     does: "Reads the Gmail it may see, and can reply to it or write to people you name.",
     tools: ["emailReadMail", "emailReplyMail", "emailSendMail"],
@@ -225,8 +261,8 @@ export const ABILITIES: Ability[] = [
     preview: { reply: true, sendTo: ["you@example.com"] },
   },
   {
-    name: "calendar",
-    label: "Calendar",
+    name: "googleCalendar",
+    label: "Google Calendar",
     on: false,
     does: "Reads events on the Google calendars it may see, and can add one.",
     tools: ["calendarListEvents", "calendarAddEvent"],
@@ -240,8 +276,8 @@ export const ABILITIES: Ability[] = [
     preview: { add: true },
   },
   {
-    name: "drive",
-    label: "Drive",
+    name: "googleDrive",
+    label: "Google Drive",
     on: false,
     does: "Finds and reads files in Google Drive as text.",
     tools: ["driveSearchFiles", "driveReadFile"],
@@ -250,6 +286,24 @@ export const ABILITIES: Ability[] = [
       { name: "search", label: "Files it may see", about: "A Drive search, like one folder. Empty: all of Drive. It cannot change it.", kind: "words", default: "" },
       about("those files"),
     ],
+  },
+  {
+    name: "resend",
+    label: "Send email (Resend)",
+    on: false,
+    does: "Sends one email through Resend to people you name. Nothing is sent without a key.",
+    tools: ["resendSendEmail"],
+    needs: resend,
+    fields: [
+      { name: "from", label: "Send as", about: "The From line, like Shop <shop@example.com>. Must be on a domain set up in Resend.", kind: "words", default: "", required: true },
+      { name: "to", label: "May write to", about: "The addresses it may send to.", kind: "list", default: [], required: true },
+      { name: "when", label: "When to send", about: "When it should write, said to the model.", kind: "words", default: "", required: true },
+      { name: "replyTo", label: "Replies go to", about: "The addresses a reply goes to. Empty: the From line.", kind: "list", default: [] },
+      { name: "tag", label: "Subject tag", about: "Put in front of every subject, like [orders], so an inbox can filter it.", kind: "words", default: "" },
+      { name: "markdown", label: "Send as HTML", about: "Send the body as HTML with a plain text copy.", kind: "yesno", default: false },
+      { name: "keep", label: "Keep a copy in", about: "A folder in its memory, like outbox, for a copy of each email sent.", kind: "words", default: "" },
+    ],
+    preview: { from: "you@example.com", to: ["you@example.com"], when: "When asked to." },
   },
 ];
 
@@ -272,11 +326,11 @@ export function abilityValues(abilities: Abilities | undefined, name: keyof Abil
 /** What each ability adds, made for one agent from its fields. */
 const MAKERS: Record<keyof Abilities, (home: Home, values: Record<string, unknown>) => Tools> = {
   memory: (home) => memoryTools()(home),
-  web: () => ({ webReadPage: readPage() }),
   selfImprovement: (home) => selfWriteTools()(home),
-  runScripts: (home) => scriptTools()(home),
+  web: (_home, v) => ({ webReadPage: readPage(), ...(v.search !== false ? { webSearch: searchWeb() } : {}) }),
+  scripts: (home) => scriptTools()(home),
   memoryPerUser: () => userNotesTools()(),
-  email: (_home, v) => {
+  googleMail: (_home, v) => {
     const search = v.search as string;
     const what = (v.about as string) || (search === "in:inbox" ? undefined : `mail matching ${search}`);
     const options = { search, days: v.days as number, what };
@@ -289,7 +343,7 @@ const MAKERS: Record<keyof Abilities, (home: Home, values: Record<string, unknow
         : {}),
     };
   },
-  calendar: (_home, v) => {
+  googleCalendar: (_home, v) => {
     const calendars = v.calendars as string[];
     const what = (v.about as string) || undefined;
     return {
@@ -297,10 +351,28 @@ const MAKERS: Record<keyof Abilities, (home: Home, values: Record<string, unknow
       ...(v.add ? { calendarAddEvent: calendar.addEvent({ calendar: calendars[0] ?? "primary", what }) } : {}),
     };
   },
-  drive: (_home, v) => {
+  googleDrive: (_home, v) => {
     const search = v.search as string;
     const what = (v.about as string) || (search ? `Drive files matching ${search}` : "Drive");
     return { driveSearchFiles: drive.searchFiles({ search, what }), driveReadFile: drive.readFile({ search, what }) };
+  },
+  resend: (_home, v): Tools => {
+    const from = v.from as string;
+    const to = v.to as string[];
+    const when = v.when as string;
+    if (!from || to.length === 0 || !when) return {};
+    const replyTo = v.replyTo as string[];
+    return {
+      resendSendEmail: resendSendEmail({
+        from,
+        to,
+        when,
+        ...(replyTo.length ? { replyTo } : {}),
+        ...(v.tag ? { tag: v.tag as string } : {}),
+        markdown: Boolean(v.markdown),
+        ...(v.keep ? { keep: v.keep as string } : {}),
+      }),
+    };
   },
 };
 
@@ -318,7 +390,7 @@ export function abilityToolSet(home: Home, name: keyof Abilities, abilities?: Ab
 /**
  * What an agent's `abilities` turn on, as tools, under where each comes from,
  * like `abilities.memory`. A value that is not what its ability takes is
- * refused, and so is `runScripts` with nothing to run.
+ * refused, and so is `scripts` with nothing to run.
  */
 export function abilityTools(abilities: Abilities = {}, home: Home, where: string): Record<string, Tools> {
   for (const [name, value] of Object.entries(abilities)) {
@@ -328,8 +400,8 @@ export function abilityTools(abilities: Abilities = {}, home: Home, where: strin
     if (!ability.fields) throw new Error(`${where}: abilities.${name} is true or false.`);
     abilityValues(abilities, ability.name, `${where}: abilities`);
   }
-  if (abilityOn(abilities, "runScripts") && scriptsIn(home.folder).length === 0) {
-    throw new Error(`${where} has abilities.runScripts on, and no scripts: neither ${home.folder}/scripts nor an executable file in a skill folder.`);
+  if (abilityOn(abilities, "scripts") && scriptsIn(home.folder).length === 0) {
+    throw new Error(`${where} has abilities.scripts on, and no scripts: neither ${home.folder}/scripts nor an executable file in a skill folder.`);
   }
   return Object.fromEntries(
     ABILITIES.filter((one) => abilityOn(abilities, one.name)).map((one) => [`abilities.${one.name}`, abilityToolSet(home, one.name, abilities)]),

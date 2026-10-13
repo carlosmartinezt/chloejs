@@ -16,6 +16,8 @@ export type View =
   | { at: "skills"; agent: string }
   /** What it runs on a clock, and what it can do. */
   | { at: "jobs"; agent: string }
+  /** Everything chloe brings it, built in. */
+  | { at: "abilities"; agent: string }
   | { at: "tools"; agent: string }
   /** The ways in it binds, and what it can reach outside this box. */
   | { at: "channels"; agent: string }
@@ -68,6 +70,7 @@ export function href(view: View): string {
     case "purpose":
     case "skills":
     case "jobs":
+    case "abilities":
     case "tools":
     case "channels":
     case "connections":
@@ -123,6 +126,7 @@ export function read(path = window.location.pathname, search = window.location.s
       (what === "purpose" ||
         what === "skills" ||
         what === "jobs" ||
+        what === "abilities" ||
         what === "tools" ||
         what === "channels" ||
         what === "connections")

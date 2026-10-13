@@ -68,7 +68,7 @@ skills/fill-pdfs/
 ```
 
 A **script** is an executable file in `scripts/`, or inside a skill's folder,
-which the agent runs with `scriptRun` when `abilities: { runScripts: true }` is
+which the agent runs with `scriptRun` when `abilities: { scripts: true }` is
 on. One in `scripts/` runs in that folder and is named by its file name; one in
 a skill runs in that skill's folder and is named `<skill>/<path>`. Both get the
 memory folder in `MEMORY_FOLDER`. A script nothing mentions does not belong
@@ -76,7 +76,7 @@ there: give each one a skill that says when to run it, which a skill's own
 scripts have by being in it.
 
 **A file somebody sends is saved for the scripts.** On a channel that takes
-files, an agent with `runScripts` on also gets each file saved in the state
+files, an agent with `scripts` on also gets each file saved in the state
 folder, `received/<agent id>/`, and its full path added to the message, so a
 script can be handed it. A file is kept for 30 days, and never for a stranger.
 On a channel that can send files (Telegram), the agent gets `chatSendFile` in

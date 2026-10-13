@@ -256,8 +256,8 @@ export default defineConfig({
     set(file(""), "selfImprovement", { on: false }, true).split("\n").slice(-4).join("\n"),
     '  purpose: "Hi.",\n  abilities: { selfImprovement: false },\n});\n',
   );
-  is("one beside another keeps it", set(file("\n  abilities: { runScripts: true },"), "selfImprovement", { on: false }, true), file("\n  abilities: { runScripts: true, selfImprovement: false },"));
-  is("switching a default-on one back takes it out", set(file("\n  abilities: { runScripts: true, selfImprovement: false },"), "selfImprovement", { on: true }, true), file("\n  abilities: { runScripts: true, selfImprovement: false },").replace("selfImprovement: false", "selfImprovement: true"));
+  is("one beside another keeps it", set(file("\n  abilities: { scripts: true },"), "selfImprovement", { on: false }, true), file("\n  abilities: { scripts: true, selfImprovement: false },"));
+  is("switching a default-on one back takes it out", set(file("\n  abilities: { scripts: true, selfImprovement: false },"), "selfImprovement", { on: true }, true), file("\n  abilities: { scripts: true, selfImprovement: false },").replace("selfImprovement: false", "selfImprovement: true"));
   is("a default-off one switched off is taken out, and abilities with it when nothing is left", set(file("\n  abilities: { web: true },"), "web", { on: false }), file(""));
   is("on, a default-off one is written true", set(file(""), "web", { on: true }).includes("abilities: { web: true }"), true);
 
