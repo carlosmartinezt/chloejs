@@ -68,7 +68,7 @@ runs less often than its cron line says.
 Any job can run as a trial, to see what it would do without anybody hearing
 from it: the Try button on the dashboard's Jobs page,
 `POST /api/agents/<agent>/trial/<id>`, or the agent itself, in a turn its owner
-wrote, with `selfTryJob`. It runs the job as its files are now, under the same
+wrote, with `ownTryJob`. It runs the job as its files are now, under the same
 guard as any other run of it.
 
 It reads for real: mail, web pages, files, models. Anything else is written

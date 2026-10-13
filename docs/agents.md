@@ -57,14 +57,14 @@ A tool that only a running channel can deliver comes from the channel, not an
 ability: an email channel's `start` brings `emailStartConversation`, and a
 telegram channel's `send` brings `telegramSendMessage`.
 
-Every agent also has six tools that need no ability. `selfListFiles` and
-`selfReadFile` read its own folder (never its memory), in every turn, so you
+Every agent also has six tools that need no ability. `ownListFiles` and
+`ownReadFile` read its own folder (never its memory), in every turn, so you
 can ask any agent "how does `readAnalytics` work?" and it can read its own
-source to answer. `selfListRuns` and `selfReadRun` read its own runs, but only
+source to answer. `ownListRuns` and `ownReadRun` read its own runs, but only
 in turns its owner wrote, so you can ask "what did you send me yesterday?"
-without a visitor or a token seeing what other people said. `selfTryJob` runs
+without a visitor or a token seeing what other people said. `ownTryJob` runs
 one of its jobs as a [trial](/docs/jobs#a-trial-run), which sends nothing and
-answers with what it would have sent, and `selfReadGuide` reads these guides,
+answers with what it would have sent, and `ownReadGuide` reads these guides,
 so it can tell you what it could be given. The owner's turns also list its
 files and these guides in its purpose, so it reads what a change needs in
 one call and writes it in the next.

@@ -75,7 +75,7 @@ export interface Field {
   key?: string;
 }
 
-/** Each setting the page may change, with its default. `agents` is each agent's own, and `node` and `serve` are for the machine. */
+/** Each setting the page may change, with its default. `agents` is each agent's own, and `node`, `serve.host` and `serve.port` are for the machine. */
 function leaves(): { path: string[]; was: unknown }[] {
   const out: { path: string[]; was: unknown }[] = [];
   const walk = (value: unknown, path: string[]) => {
@@ -84,6 +84,7 @@ function leaves(): { path: string[]; was: unknown }[] {
     } else out.push({ path, was: value });
   };
   for (const [key, value] of Object.entries(DEFAULTS)) if (!["agents", "node", "serve"].includes(key)) walk(value, [key]);
+  out.push({ path: ["serve", "url"], was: DEFAULTS.serve.url });
   return out;
 }
 
@@ -179,7 +180,23 @@ export async function changeAbility(agent: Home, name: string, change: { on?: bo
   const ability = ABILITIES.find((one) => one.name === name);
   if (!ability) throw new BadRequest(`There is no ability called ${name}. There are ${ABILITIES.map((one) => one.name).join(", ")}.`);
   const set = checked(ability.fields ?? [], change.set, `abilities.${name}`);
-  return changeAgentFile(agent, (text) => setOptionsIn(text, "abilities", name, { on: change.on, set }, ability.on));
+  return changeAgentFile(agent, (text) => {
+    const out = setOptionsIn(text, "abilities", name, { on: change.on, set }, ability.on);
+    // Switching it on brings every tool it adds with it, so the switch and its
+    // tools' switches agree: off means all of it, on means all of it.
+    return change.on === true ? outOfWithout(out, ability.tools) : out;
+  });
+}
+
+/** The text with these tool names taken out of `without`, leaving a list written as code alone. */
+function outOfWithout(text: string, names: string[]): string {
+  const at = agentObject(text);
+  const found = entries(text, at).find((one) => one.key === "without");
+  if (!found) return text;
+  const now = literal(text.slice(found.valueStart, found.valueEnd));
+  if (!Array.isArray(now) || now.some((one) => typeof one !== "string")) return text;
+  const list = now.filter((one) => !names.includes(one));
+  return list.length === now.length ? text : put(text, at, ["without"], list.length ? `[${list.map((one) => JSON.stringify(one)).join(", ")}]` : null, "agent.ts");
 }
 
 /**

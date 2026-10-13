@@ -916,5 +916,5 @@ function leftOut(agent: Agent, rules: Rules): string[] {
   // A stranger gets none of the agent's own folder, which the web channel's
   // check also refuses by name. The two self tools that read it are the
   // runtime's, not the agent's, so they are said here rather than in agent.tools.
-  return [...Object.keys(agent.tools ?? {}), ...(rules.strangers ? ["selfListFiles", "selfReadFile"] : [])].filter((name) => !keeps(name));
+  return [...Object.keys(agent.tools ?? {}), ...(rules.strangers ? ["ownListFiles", "ownReadFile"] : [])].filter((name) => !keeps(name));
 }

@@ -371,7 +371,13 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   is("an object is refused", (await refused({ selfImprovement: { code: false } })).endsWith("abilities.selfImprovement is true or false."), true);
   is("and a name that is not an ability", (await refused({ nosuch: true })).includes("abilities has no nosuch."), true);
   is("web adds the page reader and search", Object.keys((await agent({ web: true })).tools ?? {}).filter((name) => name.startsWith("web")).sort(), ["webReadPage", "webSearch"]);
-  is("and fields can leave search out", Object.keys((await agent({ web: { search: false } })).tools ?? {}).filter((name) => name.startsWith("web")).sort(), ["webReadPage"]);
+  is(
+    "and a tool can be switched off on its own",
+    Object.keys((await resolveAgent(defineAgent({ id: "switches", folder, model: "m", identity: "", purpose: "Hi.", abilities: { web: true }, without: ["webSearch"] }))).tools ?? {})
+      .filter((name) => name.startsWith("web"))
+      .sort(),
+    ["webReadPage"],
+  );
 
   // Tools switched off by name, for an ability's tools or the agent's own.
   const tool = (name: string) => defineAgent({ id: "switches", folder, model: "m", identity: "", purpose: "Hi.", without: [name] });
@@ -414,7 +420,7 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   is("and one that may not does not", Object.keys((await agent({ telegram: telegramChannel({ allowFrom: [1] }) })).tools ?? {}).includes("telegramSendMessage"), false);
 
   // A ability that takes fields.
-  const mail = await agent({}, { abilities: { memory: false, selfImprovement: false, googleMail: { reply: true, sendTo: ["a@b.co"], search: "label:orders" } } });
+  const mail = await agent({}, { abilities: { memory: false, selfImprovement: false, googleMail: { sendTo: ["a@b.co"], search: "label:orders" } } });
   is("an ability's fields decide its tools", Object.keys(mail.tools ?? {}).sort(), ["emailReadMail", "emailReplyMail", "emailSendMail"]);
   const asked = (abilities: unknown) => agent({}, { abilities }).then(() => "loaded", (error: Error) => error.message);
   is("a field that is not there is refused, saying which there are", (await asked({ googleMail: { sent: true } })).includes("has no field sent. It has search"), true);

@@ -52,8 +52,8 @@ export interface Abilities {
    * rights as chloe.
    *
    * Every agent can already read its own files in every turn
-   * (`selfListFiles`, `selfReadFile`) and its past runs (`selfListRuns`,
-   * `selfReadRun`), and try one of its jobs (`selfTryJob`), in replies to its
+   * (`ownListFiles`, `ownReadFile`) and its past runs (`ownListRuns`,
+   * `ownReadRun`), and try one of its jobs (`ownTryJob`), in replies to its
    * owner. It does not need this setting for that.
    */
   selfImprovement?: boolean;
@@ -62,9 +62,10 @@ export interface Abilities {
    * `webSearch` (search the web). Off by default. `webReadPage` reads only
    * public addresses and does not run the page's JavaScript. `webSearch` goes
    * to Brave Search when `connections.brave.api_key` is set, and to
-   * DuckDuckGo when it is not. Give fields to leave search out.
+   * DuckDuckGo when it is not. Switch the search tool off on its own to read
+   * pages only.
    */
-  web?: boolean | WebAbility;
+  web?: boolean;
   /**
    * Adds the tool `scriptRun`, which lets the agent run any file in its own
    * `scripts/` folder. Off by default.
@@ -125,8 +126,6 @@ export interface GoogleMailAbility {
   days?: number;
   /** A few words for that mail, like `"order emails"`, said to the model. Default: none. */
   about?: string;
-  /** Let it reply to a message it has read, in that message's thread, to whoever wrote it. Off by default. */
-  reply?: boolean;
   /** The addresses it may write to. With any, it gets `emailSendMail`, which writes only the subject and the body. Default: none, so it cannot send. */
   sendTo?: string[];
   /** The From line it sends under, like `"Shop <you@gmail.com>"`. Default: the signed-in account. */
@@ -143,8 +142,6 @@ export interface GoogleCalendarAbility {
   days?: number;
   /** A few words for those calendars, like `"the team calendar"`, said to the model. Default: none. */
   about?: string;
-  /** Let it add an event to the first calendar. The event invites nobody. Off by default. */
-  add?: boolean;
 }
 
 /** The fields of `abilities.googleDrive`. */
@@ -153,12 +150,6 @@ export interface GoogleDriveAbility {
   search?: string;
   /** A few words for those files, like `"the shared proposals"`, said to the model. Default: none. */
   about?: string;
-}
-
-/** The fields of `abilities.web`. */
-export interface WebAbility {
-  /** Let it search the web as well as read pages. Default: true. */
-  search?: boolean;
 }
 
 /** The fields of `abilities.resend`, the same shape as a bound Resend tool. */
@@ -198,7 +189,7 @@ export interface Ability {
 
 const about = (what: string): OptionSpec => ({
   name: "about",
-  label: "About it",
+  label: "Described as",
   about: `A few words for ${what}, said to the model. Optional.`,
   kind: "words",
   default: "",
@@ -236,11 +227,10 @@ export const ABILITIES: Ability[] = [
   },
   {
     name: "web",
-    label: "Browse web",
+    label: "Web",
     on: false,
     does: "Reads public web pages as plain text, and searches the web.",
     tools: ["webReadPage", "webSearch"],
-    fields: [{ name: "search", label: "May search the web", about: "Leave it off to read pages only.", kind: "yesno", default: true }],
   },
   {
     name: "googleMail",
@@ -253,12 +243,11 @@ export const ABILITIES: Ability[] = [
       { name: "search", label: "Mail it may read", about: "A Gmail search, like in:inbox label:orders. It cannot change it.", kind: "words", default: "in:inbox" },
       { name: "days", label: "Days back", about: "How far back it looks when it does not say.", kind: "number", default: 7 },
       about("that mail"),
-      { name: "reply", label: "May reply", about: "Reply to a message it has read, in its thread, to whoever wrote it.", kind: "yesno", default: false },
       { name: "sendTo", label: "May write to", about: "Addresses it may send mail to. Empty: it cannot send.", kind: "list", default: [] },
       { name: "sendFrom", label: "Send as", about: "The From line, like Shop <you@gmail.com>. Empty: the signed-in account.", kind: "words", default: "" },
       { name: "sendWhen", label: "When to send", about: "When it should write, said to the model.", kind: "words", default: "When asked to." },
     ],
-    preview: { reply: true, sendTo: ["you@example.com"] },
+    preview: { sendTo: ["you@example.com"] },
   },
   {
     name: "googleCalendar",
@@ -271,9 +260,7 @@ export const ABILITIES: Ability[] = [
       { name: "calendars", label: "Calendars", about: "The ids of the calendars it may see. primary is the signed-in account's own.", kind: "list", default: ["primary"] },
       { name: "days", label: "Days ahead", about: "How far ahead it looks when it does not say.", kind: "number", default: 7 },
       about("those calendars"),
-      { name: "add", label: "May add events", about: "Add an event to the first calendar. It invites nobody.", kind: "yesno", default: false },
     ],
-    preview: { add: true },
   },
   {
     name: "googleDrive",
@@ -327,7 +314,7 @@ export function abilityValues(abilities: Abilities | undefined, name: keyof Abil
 const MAKERS: Record<keyof Abilities, (home: Home, values: Record<string, unknown>) => Tools> = {
   memory: (home) => memoryTools()(home),
   selfImprovement: (home) => selfWriteTools()(home),
-  web: (_home, v) => ({ webReadPage: readPage(), ...(v.search !== false ? { webSearch: searchWeb() } : {}) }),
+  web: () => ({ webReadPage: readPage(), webSearch: searchWeb() }),
   scripts: (home) => scriptTools()(home),
   memoryPerUser: () => userNotesTools()(),
   googleMail: (_home, v) => {
@@ -337,7 +324,7 @@ const MAKERS: Record<keyof Abilities, (home: Home, values: Record<string, unknow
     const to = v.sendTo as string[];
     return {
       emailReadMail: gmail.readEmail(options),
-      ...(v.reply ? { emailReplyMail: gmail.replyEmail(options) } : {}),
+      emailReplyMail: gmail.replyEmail(options),
       ...(to.length
         ? { emailSendMail: gmail.sendEmail({ from: (v.sendFrom as string) || settings.connections.google.account, to, when: v.sendWhen as string }) }
         : {}),
@@ -348,7 +335,7 @@ const MAKERS: Record<keyof Abilities, (home: Home, values: Record<string, unknow
     const what = (v.about as string) || undefined;
     return {
       calendarListEvents: calendar.listEvents({ calendars, days: v.days as number, what }),
-      ...(v.add ? { calendarAddEvent: calendar.addEvent({ calendar: calendars[0] ?? "primary", what }) } : {}),
+      calendarAddEvent: calendar.addEvent({ calendar: calendars[0] ?? "primary", what }),
     };
   },
   googleDrive: (_home, v) => {

@@ -100,12 +100,12 @@ export function Options({
                 onChange={(event) => setDraft({ ...draft, [one.name]: event.target.value })}
               />
             )}
-            <span className="hint">{one.code ? "Written as code in agent.ts, so it is changed there. " : ""}{one.about}</span>
+            <span className="hint">{one.about}</span>
           </label>
         );
       })}
       {problem && <p className="bad">{problem}</p>}
-      <button className="small" disabled={busy || changed.length === 0 || missing.length > 0} onClick={submit}>
+      <button className="go small" disabled={busy || changed.length === 0 || missing.length > 0} onClick={submit}>
         {busy ? "Saving" : label}
       </button>
       {missing.length > 0 && <span className="dim"> Fill in {missing.map((one) => one.label.toLowerCase()).join(", ")} first.</span>}

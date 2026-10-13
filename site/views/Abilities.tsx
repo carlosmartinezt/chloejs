@@ -47,7 +47,7 @@ export function Abilities({ agent }: { agent: string }) {
       setBusy("");
     }
   };
-  const flipAbility = (ability: AgentAbility) => flip(ability.name, () => api.setAbility(agent, { name: ability.name, on: !ability.on }));
+  const flipAbility = (ability: AgentAbility, on: boolean) => flip(ability.name, () => api.setAbility(agent, { name: ability.name, on }));
   const fillIn = (ability: AgentAbility, set: Record<string, unknown>) => flip(ability.name, () => api.setAbility(agent, { name: ability.name, set }));
   const flipTool = async (tool: AgentTool) => {
     setBusy(tool.name);
@@ -90,24 +90,27 @@ export function Abilities({ agent }: { agent: string }) {
 
           <h2>Switched on or off</h2>
           <ul className="ways tools">
-            {abilities.map((ability) => (
-              <li key={ability.name} className={ability.on ? "" : "off"}>
-                <span className="line">
-                  <b>{ability.label}</b>
-                  <Switch on={ability.on} saving={busy === ability.name} disabled={busy !== ""} flip={() => flipAbility(ability)} />
-                </span>
-                <span className="does">{ability.does}</span>
-                {ability.needs && ability.needs.missing.length > 0 && (
-                  <span className="needs">
-                    Needs {ability.needs.name}: {ability.needs.missing.join(" ")} <Link to={{ at: "connections", agent }}>Connections</Link>
+            {abilities.map((ability) => {
+              const gear = from(`abilities.${ability.name}`);
+              // The group and its tools agree: with every one of its tools switched off, it reads off.
+              const lit = ability.on && !(gear.length > 0 && gear.every((tool) => !tool.on));
+              return (
+                <li key={ability.name} className={lit ? "" : "off"}>
+                  <span className="line">
+                    <b>{ability.label}</b>
+                    <Switch on={lit} saving={busy === ability.name} disabled={busy !== ""} flip={() => flipAbility(ability, !lit)} />
                   </span>
-                )}
-                <Each tools={from(`abilities.${ability.name}`)} busy={busy} flip={ability.on ? flipTool : undefined} />
-                {ability.on && ability.fields && (
-                  <Options fields={ability.fields} busy={busy !== ""} save={(set) => fillIn(ability, set)} />
-                )}
-              </li>
-            ))}
+                  <span className="does">{ability.does}</span>
+                  {ability.needs && ability.needs.missing.length > 0 && (
+                    <span className="needs">
+                      Needs {ability.needs.name}: {ability.needs.missing.join(" ")} <Link to={{ at: "connections", agent }}>Connections</Link>
+                    </span>
+                  )}
+                  <Each tools={gear} busy={busy} flip={ability.on ? flipTool : undefined} />
+                  {ability.on && ability.fields && <Options fields={ability.fields} busy={busy !== ""} save={(set) => fillIn(ability, set)} />}
+                </li>
+              );
+            })}
           </ul>
         </>
       )}

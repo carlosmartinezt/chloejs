@@ -109,12 +109,12 @@ its folder bounds what `selfWriteFile` writes, not what that code does. A rule
 it must never change belongs in code it cannot reach, not in a file in its
 folder.
 
-Any agent can read its own folder in any turn (`selfListFiles`,
-`selfReadFile`): its purpose, skills, jobs and code, to say how it does
+Any agent can read its own folder in any turn (`ownListFiles`,
+`ownReadFile`): its purpose, skills, jobs and code, to say how it does
 something or to read its own source. When its owner asks, it also gets its
-runs (`selfListRuns`, `selfReadRun`), which hold what other people said, the
-guides for the version installed (`selfReadGuide`), and it can try one of its
-jobs (`selfTryJob`, a [trial](/docs/jobs#a-trial-run) that sends nothing). It changes
+runs (`ownListRuns`, `ownReadRun`), which hold what other people said, the
+guides for the version installed (`ownReadGuide`), and it can try one of its
+jobs (`ownTryJob`, a [trial](/docs/jobs#a-trial-run) that sends nothing). It changes
 itself only when its owner asks: a message from the agent's owner
 on one of its channels (`owner` in settings, or the first entry in the
 channel's `allowFrom`), or from the account on the dashboard. A job, a

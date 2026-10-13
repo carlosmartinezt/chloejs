@@ -103,10 +103,10 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const job: Job = { agent: "test", id: "morning", timezone: "UTC", prompt: "Look around.", files: [] };
   const agent = { ...agentFor(job), stopWhen: isStepCount(2) };
   const trace = [
-    { step: 0, at: "", say: "Start with the logs.", wants: ["selfReadFile"], cost: 0.1 },
-    { step: 0, at: "", tool: "selfReadFile", args: { paths: ["skills/none.md"] }, result: "No such file." },
-    { step: 1, at: "", say: "Now the site.", wants: ["selfReadFile"], cost: 0.1 },
-    { step: 1, at: "", tool: "selfReadFile", args: { paths: ["skills/none.md"] }, result: "No such file." },
+    { step: 0, at: "", say: "Start with the logs.", wants: ["ownReadFile"], cost: 0.1 },
+    { step: 0, at: "", tool: "ownReadFile", args: { paths: ["skills/none.md"] }, result: "No such file." },
+    { step: 1, at: "", say: "Now the site.", wants: ["ownReadFile"], cost: 0.1 },
+    { step: 1, at: "", tool: "ownReadFile", args: { paths: ["skills/none.md"] }, result: "No such file." },
   ];
   const context = [
     { role: "system", content: "You are a test." },
@@ -119,7 +119,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("the page is told why it can carry on", canCarryOn("tired-turn"), "out of steps");
 
   answers.length = 0;
-  answers.push({ content: "One more look.", tool_calls: [{ id: "c1", type: "function", function: { name: "selfReadFile", arguments: '{"paths":["skills/none.md"]}' } }] }, "All done.");
+  answers.push({ content: "One more look.", tool_calls: [{ id: "c1", type: "function", function: { name: "ownReadFile", arguments: '{"paths":["skills/none.md"]}' } }] }, "All done.");
   const result = await carryOn({ agent, runId: "tired-turn" });
   const shown = lastAsked as { role: string; content: string }[];
   is("it is told it ran out of steps", shown.at(-3)?.content.startsWith("You ran out of steps"), true);
@@ -317,7 +317,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   await receive(skilled, { ...message, files: undefined }, { allowFrom: ["1"] });
   is(
     "a skill is listed with its file, which the model reads as it reads any file of its own",
-    [(lastAsked.find((m) => m.role === "system")?.content ?? "").includes("**forms** (skills/forms/SKILL.md): how to fill a form"), lastTools.includes("selfReadFile"), lastTools.includes("skillRead")],
+    [(lastAsked.find((m) => m.role === "system")?.content ?? "").includes("**forms** (skills/forms/SKILL.md): how to fill a form"), lastTools.includes("ownReadFile"), lastTools.includes("skillRead")],
     [true, true, false],
   );
 
@@ -335,8 +335,8 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const folder = await mkdtemp(join(tmpdir(), "own-runs-"));
   await put(join(folder, "purpose.md"), "Be brief.");
   const agent = { ...agentFor(codeJob("unused", async () => ({}))), id: "reader", folder, memory: { folder: join(folder, "memory") } };
-  const readsFolder = ["selfListFiles", "selfReadFile"];
-  const readsRuns = ["selfListRuns", "selfReadRun"];
+  const readsFolder = ["ownListFiles", "ownReadFile"];
+  const readsRuns = ["ownListRuns", "ownReadRun"];
 
   answers.push("Hi.");
   await turn({ agent, prompt: "hi", source: "test", fromOwner: true });
@@ -396,12 +396,12 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const written: string[] = [];
   const writer = { ...agent, tools: { selfWriteFile: Object.assign(tool({ description: "Change a file.", inputSchema: z.object({}), execute: async () => (written.push("x"), "Written.") }), { own: true, forOwner: true, changesAgent: true }) } };
   const call = (id: string, name: string, args: unknown) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
-  answers.push({ content: "", tool_calls: [call("l", "selfListRuns", {}), call("f", "selfReadFile", { path: "purpose.md" }), call("w", "selfWriteFile", {})] }, "Done.");
+  answers.push({ content: "", tool_calls: [call("l", "ownListRuns", {}), call("f", "ownReadFile", { path: "purpose.md" }), call("w", "selfWriteFile", {})] }, "Done.");
   await turn({ agent: writer, prompt: "change it", source: "test", mayChangeAgent: true });
   is("listing its runs and reading its files does not stop a change", written.length, 1);
-  answers.push({ content: "", tool_calls: [call("r", "selfReadRun", { id: "r-chat" }), call("w2", "selfWriteFile", {})] }, "Could not.");
+  answers.push({ content: "", tool_calls: [call("r", "ownReadRun", { id: "r-chat" }), call("w2", "selfWriteFile", {})] }, "Could not.");
   const after = await turn({ agent: writer, prompt: "fix what went wrong", source: "test", mayChangeAgent: true });
-  is("reading a run does, because what it read from outside is in it", [written.length, String(after.calls.at(-1)?.output).includes("this reply used selfReadRun")], [1, true]);
+  is("reading a run does, because what it read from outside is in it", [written.length, String(after.calls.at(-1)?.output).includes("this reply used ownReadRun")], [1, true]);
 }
 
 {
@@ -449,19 +449,19 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
 
   answers.push("Hi.");
   await turn({ agent: loaded, prompt: "hi", source: "test", fromOwner: true });
-  is("every owner's turn has it", lastTools.includes("selfTryJob"), true);
+  is("every owner's turn has it", lastTools.includes("ownTryJob"), true);
   answers.push("Hi.");
   await turn({ agent: loaded, prompt: "hi", source: "schedule", job: "nightly" });
-  is("a turn its owner did not write does not", lastTools.includes("selfTryJob"), false);
+  is("a turn its owner did not write does not", lastTools.includes("ownTryJob"), false);
 
   const written: string[] = [];
   const writer = { ...loaded, tools: { selfWriteFile: Object.assign(tool({ description: "Change a file.", inputSchema: z.object({}), execute: async () => (written.push("x"), "Written.") }), { own: true, forOwner: true, changesAgent: true }) } };
   const call = (id: string, name: string, args: unknown) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
-  answers.push({ content: "", tool_calls: [call("t", "selfTryJob", { job: "tell" }), call("w", "selfWriteFile", {})] }, "It would say: The words as changed.");
+  answers.push({ content: "", tool_calls: [call("t", "ownTryJob", { job: "tell" }), call("w", "selfWriteFile", {})] }, "It would say: The words as changed.");
   const reply = await turn({ agent: writer, prompt: "change it and try it", source: "test", mayChangeAgent: true });
   const answered = reply.calls[0].output as { held: { text: string }[] };
   is("the tool answers with what it held back", answered.held.map((one) => one.text), ["The words as changed."]);
-  is("and what it read came from outside, so no change follows it", [written.length, String(reply.calls[1].output).includes("this reply used selfTryJob")], [0, true]);
+  is("and what it read came from outside, so no change follows it", [written.length, String(reply.calls[1].output).includes("this reply used ownTryJob")], [0, true]);
   is("still nothing sent", sent.length, before);
 
   clock.stop();
@@ -587,12 +587,12 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   await receive(shop, { channel: "test", chat: "t", thread: "test/tools-named", from: { id: "1", name: "Me" }, text: "where is it?", private: true }, { tools: ["shopOrders"] });
   is(
     "a turn has the tools named, its memory and its skills, and nothing else",
-    [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("selfReadFile"), lastTools.includes("ownerMail"), lastTools.includes("selfWriteFile")],
+    [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("ownReadFile"), lastTools.includes("ownerMail"), lastTools.includes("selfWriteFile")],
     [true, true, true, false, false],
   );
   answers.push("Hello.");
   await receive(shop, { channel: "test", chat: "t", thread: "test/tools-stranger", from: { id: "v", name: "a visitor" }, text: "hi", private: true }, { tools: ["shopOrders"], strangers: true });
-  is("a stranger's turn has only what is named", [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("selfReadFile")], [true, false, false]);
+  is("a stranger's turn has only what is named", [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("ownReadFile")], [true, false, false]);
   const toldNow = () => lastAsked.find((m) => m.role === "system")?.content ?? "";
   is("nor is it told where the memory opens on the dashboard", toldNow().includes("## Links to your memory"), false);
   {

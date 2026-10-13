@@ -95,7 +95,7 @@ export async function ownFile(agent: Home, may: boolean, path: string) {
   if (inMemory(agent, at)) throw new Error(`${path} is in your memory: read it with memoryReadFile.`);
   const resolved = confine(agent.folder, at);
   if (existsSync(resolved) && statSync(resolved).isDirectory()) {
-    throw new Error(`${path} is a folder. selfListFiles shows what is in it.`);
+    throw new Error(`${path} is a folder. ownListFiles shows what is in it.`);
   }
   const { content } = await readFiles(agent.folder, at);
   const why = whyNot(agent, may, at);
@@ -325,7 +325,7 @@ export function ownRuns(agent: string, options: { job?: string; limit?: number }
  */
 export function ownRun(agent: string, id: string) {
   const row = db.prepare("select * from runs where id = ? and agent = ? and source != 'eval'").get(id.trim(), agent) as Row | undefined;
-  if (!row) throw new Error(`You have no run ${JSON.stringify(id)}. selfListRuns lists them.`);
+  if (!row) throw new Error(`You have no run ${JSON.stringify(id)}. ownListRuns lists them.`);
   const trace = JSON.parse(row.trace || "[]") as Record<string, unknown>[];
   const steps = (row.kind === "job" ? trace.map(jobStep) : trace.map(turnStep)).filter((one) => one !== undefined);
   return {
@@ -337,7 +337,7 @@ export function ownRun(agent: string, id: string) {
     model: row.model,
     cost: row.cost,
     ...(row.unpriced ? { unpriced: row.unpriced } : {}),
-    // A job's prompt is its own words, which selfReadFile shows; a conversation's is what was said.
+    // A job's prompt is its own words, which ownReadFile shows; a conversation's is what was said.
     ...(row.job ? {} : { asked: clip(row.asked ?? row.prompt) }),
     ...(row.reply ? { reply: clip(row.reply) } : {}),
     ...(row.summary && row.summary !== row.reply ? { summary: row.summary } : {}),

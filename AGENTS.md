@@ -189,9 +189,9 @@ boilerplate rather than build a system.
 
 **Self-improving, within a boundary.** An agent keeps its own notes, so a run
 can leave the next one better informed. Every agent can read its own folder in
-every turn (`selfFolderTools` in `model/tools/self.ts`, added by `toolsFor()` in
+every turn (`ownFolderTools` in `model/tools/self.ts`, added by `toolsFor()` in
 `core/turn.ts` like `skillRead`), and its runs, the guides and trying its jobs
-are its owner's turns' (`selfReadTools`), so neither half is in the agent's
+are its owner's turns' (`ownReadTools`), so neither half is in the agent's
 `tools`. Unless it says `selfImprovement: false`, it may also
 change its own folder, `whyNot()` in `services/selfService.ts`: its purpose,
 its skills, its jobs, and its code (its tools, services, channels and scripts,
@@ -200,8 +200,8 @@ setting: an ability is on or off, because code an agent writes is code it then
 runs as itself and could get round any file kept back. `selfWriteFile` takes every file one
 change needs and commits them as one, after committing what a person changed
 by hand in those files under the box's own git name. An owner's turn lists the
-agent's files and the guides in its purpose, and `selfReadFile` and
-`selfReadGuide` take several at once, so a change is one call to read and one
+agent's files and the guides in its purpose, and `ownReadFile` and
+`ownReadGuide` take several at once, so a change is one call to read and one
 to write. With code among them,
 `loadsOrPutBack()` in `services/selfService.ts` writes them all, loads the
 agent once with `loadAgain()` as the next reload would, type checks when the
@@ -384,7 +384,7 @@ each function is the verb and the noun: `gmail.readEmail()`, `resend.sendEmail()
 `web.readPage()`. So importing the web tools never loads Google's, and two
 services can each have a `sendEmail`. The name a model sees is the key the agent
 gives it, by convention the two run together: `gmailReadEmail`, `fsListFiles`,
-`memoryWriteFile`, `selfReadFile`, `scriptRun`, `webReadPage`. An entrance is
+`memoryWriteFile`, `ownReadFile`, `scriptRun`, `webReadPage`. An entrance is
 the tools' own file (Gmail's is `connections/google/gmail.ts`), so everything
 that file exports is published: what several tools share goes in a file that is
 not an entrance, like `model/tools/sending.ts`.
@@ -548,7 +548,7 @@ that forgot to say it only reads is held, not let through. Mark a tool
 Code steps call services directly, so **a service that sends to a person also
 calls `holdBack()` first.** A trial run
 (`trial` on `work()` and `turn()`; `tryJob()` in `core/clock.ts`, which the
-`selfTryJob` tool and `POST /api/agents/:id/trial/:job` call) is a run whose
+`ownTryJob` tool and `POST /api/agents/:id/trial/:job` call) is a run whose
 `held` column is not null, and `holdBack()` in `core/current.ts` is how a send
 finds out: in a trial it writes down what would have gone and returns true,
 and the caller sends nothing. `deliver`, `deliverEmail`, `sendGmail`,

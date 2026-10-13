@@ -75,7 +75,7 @@ function answerFrom(one: Case, quiet: string[], skills: Map<string, string>) {
     // A skill is answered from the real file rather than from the case. It
     // reads something in this repo and changes nothing, and answering it for
     // real is what makes rewriting a skill move the score.
-    if (name === "selfReadFile") {
+    if (name === "ownReadFile") {
       const paths = ((args as { paths?: string[] })?.paths ?? []);
       if (paths.length > 0 && paths.every((path) => skills.has(path))) {
         return paths.map((path) => ({ path, content: skills.get(path), canWrite: false }));

@@ -15,7 +15,7 @@ import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
 import { userNotes } from "#chloe/model/tools/memory";
-import { selfFolderTools, selfReadTools, selfTrialTools } from "#chloe/model/tools/self";
+import { ownFolderTools, ownReadTools, ownTrialTools } from "#chloe/model/tools/self";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { receivedFolder } from "#chloe/services/receivedService";
@@ -104,9 +104,9 @@ export interface Ask {
   /**
    * Set when the agent's owner wrote this message. Only then does the model
    * get the tools only the owner may use (tools marked `forOwner`): its past
-   * runs (`selfListRuns`, `selfReadRun`), which hold what other people said,
-   * the guides (`selfReadGuide`), and trying one of its jobs (`selfTryJob`).
-   * Reading its own folder (`selfListFiles`, `selfReadFile`) is every turn's.
+   * runs (`ownListRuns`, `ownReadRun`), which hold what other people said,
+   * the guides (`ownReadGuide`), and trying one of its jobs (`ownTryJob`).
+   * Reading its own folder (`ownListFiles`, `ownReadFile`) is every turn's.
    * Off by default.
    */
   fromOwner?: boolean;
@@ -756,14 +756,14 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
  * The tools a turn of this agent has: its own, less any its
  * channel leaves out, less those for its owner unless the owner wrote, and
  * less those that change it unless the owner may. Every turn reads its own
- * folder (`selfListFiles`, `selfReadFile`); a turn its owner wrote also reads
+ * folder (`ownListFiles`, `ownReadFile`); a turn its owner wrote also reads
  * its runs and the guides, and may try one of its jobs.
  */
 function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean; sendFile?: Ask["sendFile"]; stranger?: boolean } = {}): Tools {
   const owner = Boolean(who.fromOwner || who.mayChangeAgent);
   const tools: Tools = {
-    ...selfFolderTools(abilityOn(agent.abilities, "selfImprovement"))(agent),
-    ...(owner ? { ...selfReadTools()(agent), ...selfTrialTools(agent) } : {}),
+    ...ownFolderTools(abilityOn(agent.abilities, "selfImprovement"))(agent),
+    ...(owner ? { ...ownReadTools()(agent), ...ownTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
     ...(who.sendFile && !who.stranger ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id)]) } : {}),
   };
@@ -812,13 +812,13 @@ const FILES_SHOWN = 100;
  * Empty for any other turn.
  */
 async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
-  if (!abilityOn(agent.abilities, "selfImprovement") || !tools.selfReadGuide) return "";
+  if (!abilityOn(agent.abilities, "selfImprovement") || !tools.ownReadGuide) return "";
   const { files } = await ownFiles(agent, true, FILES_SHOWN + 1);
   const shown = files.slice(0, FILES_SHOWN).map((one) => `- ${one.path}${one.canWrite ? "" : ` (not yours to write: ${one.why})`}`);
-  if (files.length > FILES_SHOWN) shown.push("- and more, which selfListFiles lists");
+  if (files.length > FILES_SHOWN) shown.push("- and more, which ownListFiles lists");
   const changing = tools.selfWriteFile
-    ? "To change yourself, read every file and guide the change needs at once, with one selfReadFile and one " +
-      "selfReadGuide call in the same step, then write every file in one selfWriteFile call. Never read them one at " +
+    ? "To change yourself, read every file and guide the change needs at once, with one ownReadFile and one " +
+      "ownReadGuide call in the same step, then write every file in one selfWriteFile call. Never read them one at " +
       "a time. "
     : "";
   return (

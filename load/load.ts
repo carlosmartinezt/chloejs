@@ -26,7 +26,7 @@ import type { Connection } from "#chloe/connections/connection";
 import type { McpConnection } from "#chloe/connections/mcp";
 import { makeRepo } from "#chloe/services/historyService";
 import { ABILITIES, abilityTools, type Abilities } from "./abilities.ts";
-export { ABILITIES, abilityOn, abilityToolSet, abilityValues, type Ability, type Abilities, type GoogleMailAbility, type GoogleCalendarAbility, type GoogleDriveAbility, type WebAbility, type ResendAbility } from "./abilities.ts";
+export { ABILITIES, abilityOn, abilityToolSet, abilityValues, type Ability, type Abilities, type GoogleMailAbility, type GoogleCalendarAbility, type GoogleDriveAbility, type ResendAbility } from "./abilities.ts";
 import { work, type Data, type Envelope, type Result as RunResult, type Work } from "#chloe/core/steps";
 import { turn, type Result as TurnResult } from "#chloe/core/turn";
 
@@ -246,7 +246,7 @@ export interface DefinedAgent extends AgentConfig {
    *
    * The reply is saved in the run history like any other. The question does
    * not count as a message from the owner, so tools kept for the owner (like
-   * `selfReadRun`) are not given. Reading its own folder (`selfReadFile`) is.
+   * `ownReadRun`) are not given. Reading its own folder (`ownReadFile`) is.
    *
    * It loads every agent first, so use it in a script, not in a loop. The
    * settings come from the same place as for `run`.

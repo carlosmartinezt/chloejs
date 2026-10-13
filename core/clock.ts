@@ -180,7 +180,7 @@ function start(agent: Agent, job: Job, input: unknown, channel: string, trial = 
 
 /** What a trial run came to, read back from its record. */
 export interface Trial {
-  /** The run's id, which the dashboard and `selfReadRun` open. */
+  /** The run's id, which the dashboard and `ownReadRun` open. */
   run: string;
   job: string;
   /** What the job answered, cut short when long. For a trial that reached a question, who it would have asked and what. */

@@ -262,17 +262,17 @@ export default defineConfig({
   is("on, a default-off one is written true", set(file(""), "web", { on: true }).includes("abilities: { web: true }"), true);
 
   const fields = (text: string) => text.split("\n").find((line) => line.includes("abilities")) ?? "";
-  is("a field turns true into its fields", fields(set(file("\n  abilities: { email: true },"), "email", { set: { days: 3 } })), "  abilities: { email: { days: 3 } },");
-  is("another joins it", fields(set(file("\n  abilities: { email: { days: 3 } },"), "email", { set: { reply: true } })), "  abilities: { email: { days: 3, reply: true } },");
-  is("a list is written as a list", fields(set(file("\n  abilities: { email: true },"), "email", { set: { sendTo: ["a@b.co", "c@d.co"] } })), '  abilities: { email: { sendTo: ["a@b.co", "c@d.co"] } },');
-  is("a field set to null is taken out, and true comes back when none is left", fields(set(file("\n  abilities: { email: { days: 3 } },"), "email", { set: { days: null } })), "  abilities: { email: true },");
-  is("a field on an ability that is not there turns it on", fields(set(file(""), "calendar", { set: { add: true } })), "  abilities: { calendar: { add: true } },");
-  is("a field inside a group is written inside it", set(file("\n  abilities: { email: true },"), "email", { set: { "a.b": 1 } }).includes("email: { a: { b: 1 } }"), true);
-  is("and the group goes when its last field does", fields(set(file("\n  abilities: { email: { a: { b: 1 } } },"), "email", { set: { "a.b": null } })), "  abilities: { email: true },");
-  is("a field the file writes as code is left alone", (() => { try { return set(file("\n  abilities: { email: { search: mine, days: 3 } },"), "email", { set: { search: "x" } }); } catch (error) { return error instanceof InCode; } })(), true);
-  is("and the others beside it are still the page's", fields(set(file("\n  abilities: { email: { search: mine, days: 3 } },"), "email", { set: { days: 5 } })), "  abilities: { email: { search: mine, days: 5 } },");
+  is("a field turns true into its fields", fields(set(file("\n  abilities: { googleMail: true },"), "googleMail", { set: { days: 3 } })), "  abilities: { googleMail: { days: 3 } },");
+  is("another joins it", fields(set(file("\n  abilities: { googleMail: { days: 3 } },"), "googleMail", { set: { about: "orders" } })), '  abilities: { googleMail: { days: 3, about: "orders" } },');
+  is("a list is written as a list", fields(set(file("\n  abilities: { googleMail: true },"), "googleMail", { set: { sendTo: ["a@b.co", "c@d.co"] } })), '  abilities: { googleMail: { sendTo: ["a@b.co", "c@d.co"] } },');
+  is("a field set to null is taken out, and true comes back when none is left", fields(set(file("\n  abilities: { googleMail: { days: 3 } },"), "googleMail", { set: { days: null } })), "  abilities: { googleMail: true },");
+  is("a field on an ability that is not there turns it on", fields(set(file(""), "googleCalendar", { set: { days: 3 } })), "  abilities: { googleCalendar: { days: 3 } },");
+  is("a field inside a group is written inside it", set(file("\n  abilities: { googleMail: true },"), "googleMail", { set: { "a.b": 1 } }).includes("googleMail: { a: { b: 1 } }"), true);
+  is("and the group goes when its last field does", fields(set(file("\n  abilities: { googleMail: { a: { b: 1 } } },"), "googleMail", { set: { "a.b": null } })), "  abilities: { googleMail: true },");
+  is("a field the file writes as code is left alone", (() => { try { return set(file("\n  abilities: { googleMail: { search: mine, days: 3 } },"), "googleMail", { set: { search: "x" } }); } catch (error) { return error instanceof InCode; } })(), true);
+  is("and the others beside it are still the page's", fields(set(file("\n  abilities: { googleMail: { search: mine, days: 3 } },"), "googleMail", { set: { days: 5 } })), "  abilities: { googleMail: { search: mine, days: 5 } },");
   is("an ability written as code is the file's to change", (() => { try { return set(file("\n  abilities: shared,"), "memory", { on: false }, true); } catch (error) { return error instanceof InCode; } })(), true);
-  is("what the file says is read back", [saidIn(file(""), "abilities", "web").kind, saidIn(file("\n  abilities: { web: false },"), "abilities", "web"), saidIn(file("\n  abilities: { email: bound },"), "abilities", "email").kind, saidIn(file("\n  abilities: { email: { days: 2, search: mine } },"), "abilities", "email")], ["absent", { kind: "flag", on: false }, "code", { kind: "fields", fields: { days: "value", search: "code" }, values: { days: 2 } }]);
+  is("what the file says is read back", [saidIn(file(""), "abilities", "web").kind, saidIn(file("\n  abilities: { web: false },"), "abilities", "web"), saidIn(file("\n  abilities: { googleMail: bound },"), "abilities", "googleMail").kind, saidIn(file("\n  abilities: { googleMail: { days: 2, search: mine } },"), "abilities", "googleMail")], ["absent", { kind: "flag", on: false }, "code", { kind: "fields", fields: { days: "value", search: "code" }, values: { days: 2 } }]);
 
   const { setWithoutIn } = await import("#chloe/serve/config");
   is("a tool switched off adds a without list", setWithoutIn(file(""), "readEmail", false).split("\n").slice(-3).join("\n"), '  without: ["readEmail"],\n});\n');
