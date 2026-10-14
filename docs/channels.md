@@ -82,6 +82,14 @@ sender's id on that channel, and what it returns is the reply:
 An agent that should be a different agent for some people is a second agent,
 with its own channel.
 
+## A message while it is answering
+
+One reply at a time in a conversation, on every channel. A message from the
+same person while a reply is going is read by that reply before its next step,
+and the reply answers both; nothing is sent for the second message on its own.
+A message from anybody else, or one with files, waits for the reply to end and
+then gets its own.
+
 ## Commands in a chat
 
 A message starting with `/<job id>` runs that job, and the words after it fill

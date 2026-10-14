@@ -46,7 +46,7 @@ import { models, UsageLimit } from "#chloe/model/model";
 import { clock, type Fired, ran } from "#chloe/core/clock";
 import { settings } from "#chloe/core/settings";
 import { answer, waitingOn, WrongArgs } from "#chloe/core/steps";
-import { turn } from "#chloe/core/turn";
+import { ReplyStopped, turn } from "#chloe/core/turn";
 import type { Connection } from "#chloe/connections/connection";
 import { neededBy, type ChloeTool, type Tools } from "#chloe/model/tool";
 import type { FileToSend } from "#chloe/model/tools/chat";
@@ -424,6 +424,11 @@ export interface Handled {
   unpriced?: number;
   /** The id of the job that handled the message, if a job did. */
   job?: string;
+  /**
+   * Set when the message joined the reply already going in its conversation,
+   * which answers it. `text` is then empty, and `runId` is that reply's.
+   */
+  joined?: boolean;
   /**
    * Choices to show under the text, on a channel that can show buttons.
    * Pressing one sends its `sends` text as if the person had typed it.
@@ -865,8 +870,11 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
       signal: message.signal,
     });
     await sending;
+    // The reply it joined answers it, on that reply's own message.
+    if (result.joined) return { text: "", runId: result.runId, steps: 0, cost: 0, joined: true };
     return { text: result.text || "(no reply)", runId: result.runId, steps: result.steps, cost: result.cost, ...(result.unpriced ? { unpriced: result.unpriced } : {}) };
   } catch (error) {
+    if (error instanceof ReplyStopped) return { text: error.message, steps: 0, cost: 0 };
     console.error(`${message.channel}: turn failed`, error);
     if (error instanceof UsageLimit) return { text: error.message, steps: 0, cost: 0 };
     return { text: "Something went wrong on my end. It is in the logs on the box.", steps: 0, cost: 0 };

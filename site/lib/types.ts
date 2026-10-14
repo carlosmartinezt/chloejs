@@ -76,6 +76,8 @@ export interface Step {
   dropped?: string;
   /** Set on the line where a run the service stopped picked up again. */
   carried?: string;
+  /** A message the person sent while the reply was going, read by the model here. */
+  heard?: string;
   /** Set on a prompt run's model line: the tools it asked for by name. */
   wants?: string[];
   cost?: number;

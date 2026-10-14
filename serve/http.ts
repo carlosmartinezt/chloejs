@@ -23,7 +23,7 @@ import { tryJob, type Clock } from "#chloe/core/clock";
 import { alwaysOnTools } from "#chloe/core/turn";
 import { choices, choose, modelFor, type Scope } from "#chloe/model/choices";
 import { commands } from "#chloe/channels/shared";
-import { forget } from "#chloe/model/memory";
+import { current, forget } from "#chloe/model/memory";
 import { models } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
@@ -72,7 +72,7 @@ import { signedInFrom } from "#chloe/core/alerts";
 import { servePage } from "./page.ts";
 import { receive } from "#chloe/channels/shared";
 import { answer, checkArgs, parkedRuns } from "#chloe/core/steps";
-import { canCarryOn, stopped } from "#chloe/core/turn";
+import { canCarryOn, stopReply, stopped } from "#chloe/core/turn";
 import { PASS_HEADER, webClear, webFile, webHistory, webOrigins, webPass, webTurn, webUsage, webVisitors } from "./web.ts";
 
 /**
@@ -193,6 +193,17 @@ function threadFor(who: Caller, thread: string, claim = false): string {
   const row = db.prepare("select owner from threads where thread = ?").get(thread) as { owner: string | null } | undefined;
   if (row?.owner !== who.email) throw new NotFound("No such conversation.");
   return thread;
+}
+
+/**
+ * Where the chat route keeps a caller's conversation: a token's apart from the
+ * ones a person started, and a member's only when it is theirs (`claim` makes
+ * an unused one theirs). Empty for the account's chat with no thread.
+ */
+function chatThread(agent: string, thread: string | undefined, who: Caller, claim = false): string {
+  if (who?.kind === "token") return thread ? `${agent}/api-${thread}` : "";
+  if (who?.kind === "member") return threadFor(who, `${agent}/${thread ? thread.slice(thread.indexOf("/") + 1) : randomUUID()}`, claim);
+  return thread ?? "";
 }
 
 /** Names a conversation, or with an empty label gives it back the name it started with. */
@@ -809,7 +820,6 @@ export const routes: Route[] = [
       // other's conversation.
       const token = who?.kind === "token";
       const member = who?.kind === "member" ? who : undefined;
-      let under = token && thread ? `${agent.id}/api-${thread}` : (thread ?? "");
       if (member) {
         // Picking a model changes it for everybody, and a /command runs a job.
         if (/^\/models?(?:@\w+)?(?:\s|$)/i.test(prompt)) {
@@ -818,9 +828,8 @@ export const routes: Route[] = [
         if (prompt.startsWith("/") && !/^\/clear(?:@\w+)?\s*$/i.test(prompt) && !may(member, agent.id, "run")) {
           return json(response, { error: `You have not been given run on ${agent.id}. Its owner can allow it.` }, 403);
         }
-        const named = thread ? thread.slice(thread.indexOf("/") + 1) : randomUUID();
-        under = threadFor(member, `${agent.id}/${named}`, true);
       }
+      const under = chatThread(agent.id, thread, who, true);
       // The same path as every channel's message, so a /command, or a reply
       // that is one, goes to that job here too. Who may call this is already
       // settled by the login or the token, so there is no allowFrom.
@@ -856,6 +865,21 @@ export const routes: Route[] = [
       }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory });
       if (naming) await Promise.race([naming, new Promise((done) => setTimeout(done, 5000))]);
       json(response, handled);
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/chat/stop",
+    does: "Stop the reply going in a conversation, by the thread the chat was sent with. Its chat call then answers with what stopped it.",
+    takes: '{"thread": "..."}',
+    token: true,
+    needsApiChannel: true,
+    member: "chat",
+    handle: async ({ request, response, context, params, who }) => {
+      const agent = context.agent(params.id);
+      const { thread } = await body(request, z.object({ thread: z.string().min(1) }));
+      const runId = stopReply(current(chatThread(agent.id, thread, who)));
+      json(response, { stopped: Boolean(runId), ...(runId && { runId }) });
     },
   },
   {

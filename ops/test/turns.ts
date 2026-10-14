@@ -210,6 +210,77 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
 
 
 {
+  about("one reply at a time in a conversation");
+
+  const { recall } = await import("#chloe/model/memory");
+  const { receive } = await import("#chloe/channels/shared");
+  const { loop, stopReply } = await import("#chloe/core/turn");
+  // A tool that waits until it is let go, so a message can arrive while it runs.
+  let entered = () => {};
+  let letGo = () => {};
+  const holding = () => {
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    const released = new Promise<void>((resolve) => (letGo = resolve));
+    return { inside, released };
+  };
+  let gate = holding();
+  const hold = tool({ description: "Wait.", inputSchema: z.object({}), execute: async () => (entered(), await gate.released, "waited") });
+  const agent = { ...agentFor(codeJob("unused", async () => ({}))), tools: { hold } };
+  const holdCall = { id: "h", type: "function", function: { name: "hold", arguments: "{}" } };
+  const send = (text: string, id = "1", thread = "test/steer") =>
+    receive(agent, { channel: "test", chat: "c", thread, from: { id, name: "Me" }, text, private: true });
+
+  answers.push({ content: "", tool_calls: [holdCall] }, "Both answered.");
+  const first = send("first");
+  await gate.inside;
+  const second = await send("second");
+  is("a message from the same person joins the reply going, and sends nothing of its own", [second?.text, second?.joined], ["", true]);
+  letGo();
+  const done = await first;
+  is("the reply answers both", done?.text, "Both answered.");
+  is("the model read it after the tool answered", lastAsked.slice(-2).map((m) => [m.role, m.content]), [["tool", "waited"], ["user", "second"]]);
+  is("and it is joined to that reply's run", second?.runId, done?.runId);
+  is("the conversation keeps both messages, then the answer", recall("test/steer").map((m) => m.content), ["first", "second", "Both answered."]);
+  const record = JSON.parse(row(done!.runId!).trace) as { heard?: string }[];
+  is("the run shows where it was read", record.filter((one) => one.heard).map((one) => one.heard), ["second"]);
+
+  gate = holding();
+  answers.push({ content: "", tool_calls: [holdCall] }, "Yours.", "Theirs.");
+  const before = asked;
+  const mine = send("mine", "1", "test/shared");
+  await gate.inside;
+  const theirs = send("theirs", "2", "test/shared");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  is("somebody else's message waits, rather than starting a reply beside it", asked - before, 1);
+  letGo();
+  is("and has its own reply once the first ends", [(await mine)?.text, (await theirs)?.text], ["Yours.", "Theirs."]);
+
+  gate = holding();
+  answers.push({ content: "", tool_calls: [holdCall] }, "Never sent.");
+  const stopping = send("take your time", "1", "test/stop");
+  await gate.inside;
+  is("a reply going can be stopped", typeof stopReply("test/stop"), "string");
+  letGo();
+  is("and its chat answers that it stopped", (await stopping)?.text, "Stopped.");
+  answers.length = 0;
+  is("with nothing going there is nothing to stop", stopReply("test/stop"), undefined);
+
+  answers.push("Here is the first.", "And the second.");
+  let more = ["and this?"];
+  const both = await loop({
+    model: agent.model,
+    messages: [{ role: "user", content: "the first?" }],
+    tools: {},
+    context: { agent },
+    stopWhen: [isStepCount(5)],
+    inbox: { take: () => [], takeLast: () => more.splice(0) },
+  });
+  is("a message that comes as it answers is read before it finishes", [both.earlier, both.text], [["Here is the first."], "And the second."]);
+  is("with its own answer first, then the message", lastAsked.slice(-2).map((m) => [m.role, m.content]), [["assistant", "Here is the first."], ["user", "and this?"]]);
+  more = [];
+}
+
+{
   about("only the owner changes the agent, and not after reading from outside");
   const { receive } = await import("#chloe/channels/shared");
   const { turn } = await import("#chloe/core/turn");

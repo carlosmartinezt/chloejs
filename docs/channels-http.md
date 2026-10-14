@@ -33,7 +33,10 @@ curl -X POST http://127.0.0.1:3067/api/agents/shop/job/restock \
 ```
 
 Send `thread`, a name of your own, to carry on a conversation; leave it out to
-start fresh. Without this channel a token gets a 403 for that agent, and only
+start fresh. A second message on a thread while its reply is going joins that
+reply, and answers at once with `"joined": true` and no text: the first call's
+reply answers both. `POST /api/agents/shop/chat/stop` with the same `thread`
+stops the reply, and the first call answers `Stopped.` Without this channel a token gets a 403 for that agent, and only
 somebody signed in on the dashboard can reach it. It takes `chatHistory` and
 nothing else. A job that stops to ask somebody waits in `GET /api/parked`,
 because HTTP cannot push a question out.

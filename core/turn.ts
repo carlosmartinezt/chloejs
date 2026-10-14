@@ -173,6 +173,12 @@ export interface Result {
   unpriced: number;
   /** Every tool call made, in order, with the input it was given and the output it returned. */
   calls: Call[];
+  /**
+   * Set when the message was handed to the reply already going in its
+   * conversation, which answers it: `runId` is that reply's, `text` is empty,
+   * and nothing ran.
+   */
+  joined?: boolean;
 }
 
 function shown(history: ChatHistory = {}): { limit?: number; days?: number } {
@@ -207,6 +213,43 @@ function stopWhenOf(agent: Agent): StopCondition<any>[] {
 }
 
 /**
+ * The reply going now in each conversation. A message from the same person
+ * while it runs is handed to it before its next step, so it is never answered
+ * by a second reply beside the first, which would not see the first's answer.
+ */
+const going = new Map<string, Going>();
+
+interface Going {
+  runId: string;
+  /** Who it is answering, as `turn()`'s `user`. Only their messages join it. */
+  user: string;
+  /** Messages sent since the model was last asked. */
+  waiting: string[];
+  /** False once the reply has given its last answer: a message after that waits for `done`. */
+  open: boolean;
+  done: Promise<void>;
+  stop: AbortController;
+}
+
+/** What a reply stopped with `stopReply` throws. */
+export class ReplyStopped extends Error {
+  constructor() {
+    super("Stopped.");
+  }
+}
+
+/**
+ * Stops the reply going in a conversation, as its next step starts or the
+ * call it is waiting on is cut off. Returns the reply's run id, or undefined
+ * when none is going.
+ */
+export function stopReply(thread: string): string | undefined {
+  const now = going.get(thread);
+  now?.stop.abort(new ReplyStopped());
+  return now?.runId;
+}
+
+/**
  * Sends one message to an agent and returns its reply. The model may call
  * tools: each time it does, the tools run and their answers go back to the
  * model, until it answers without calling a tool.
@@ -218,9 +261,40 @@ function stopWhenOf(agent: Agent): StopCondition<any>[] {
  * of tool calls), and `text` then says so. A tool that fails does not stop
  * the run: the model is told what went wrong. Throws when asking the model
  * fails.
+ *
+ * One reply at a time in a conversation. A message there while a reply is
+ * going joins it, when it is from the same `user` and carries no attachments:
+ * the model reads it before its next step, the reply answers both, and this
+ * call returns at once with `joined`. Any other message waits for that reply
+ * to end, then has its own.
  */
-export async function turn({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal, trial }: Ask): Promise<Result> {
+export async function turn(options: Ask): Promise<Result> {
+  const { thread, user, attachments } = options;
+  for (let now = thread ? going.get(thread) : undefined; now; now = going.get(thread!)) {
+    if (now.open && user && now.user === user && !attachments?.length) {
+      now.waiting.push(options.prompt);
+      return { runId: now.runId, text: "", steps: 0, cost: 0, unpriced: 0, calls: [], joined: true };
+    }
+    await now.done;
+  }
   const runId = randomUUID();
+  // Set before anything is awaited, so a message sent from here on finds it.
+  let ended = () => {};
+  const mine: Going | undefined = thread && user
+    ? { runId, user, waiting: [], open: true, done: new Promise<void>((resolve) => (ended = resolve)), stop: new AbortController() }
+    : undefined;
+  if (mine) going.set(thread!, mine);
+  const signal = mine && options.signal ? AbortSignal.any([options.signal, mine.stop.signal]) : (mine?.stop.signal ?? options.signal);
+  try {
+    return await answer({ ...options, signal }, runId, mine);
+  } finally {
+    if (mine && going.get(thread!) === mine) going.delete(thread!);
+    ended();
+  }
+}
+
+/** One reply, recorded as `runId`. `mine` is its place in `going`, when it is in a conversation with somebody. */
+async function answer({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal, trial }: Ask, runId: string, mine?: Going): Promise<Result> {
   const using = model ?? modelFor(agent);
 
   const started = new Date().toISOString();
@@ -242,7 +316,21 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   db.prepare("update runs set context = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), runId);
   if (thread) remember(thread, "user", prompt);
 
-  return go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal });
+  const inbox: Inbox | undefined = mine && {
+    take: () => mine.waiting.splice(0),
+    takeLast: () => {
+      const taken = mine.waiting.splice(0);
+      if (taken.length === 0) mine.open = false;
+      return taken;
+    },
+  };
+  const result = await go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal, inbox });
+  // A reply that stopped early (out of steps, a sign-in) never asked for its
+  // last messages, and nothing else will read them.
+  if (!mine) return result;
+  mine.open = false;
+  if (mine.waiting.length === 0) return result;
+  return { ...result, text: `${result.text}\n\n(You wrote again after I had stopped, so I have not read it. Send it again.)` };
 }
 
 /**
@@ -406,6 +494,7 @@ async function go(options: {
   before?: number;
   carried?: boolean;
   signal?: AbortSignal;
+  inbox?: Inbox;
 }): Promise<Result> {
   const { agent, runId, trace, job, source, thread, said, calling, writing, instead } = options;
   const tools = toolsFor(agent, options.without, options);
@@ -415,6 +504,9 @@ async function go(options: {
   const committed = (end: { summary?: string; error?: string }) =>
     instead ? Promise.resolve() : afterRun(agent, runId, { job, source, ...end });
   if (!instead && !options.carried) await beforeRun(agent, runId);
+  // An answer the model gave before a message arrived, kept in the
+  // conversation once, before what arrived.
+  let answered: LoopStep | undefined;
 
   try {
     const done = await duringRun(runId, () =>
@@ -428,11 +520,18 @@ async function go(options: {
         toolApproval: agent.toolApproval,
         signal: options.signal,
         instead,
+        inbox: options.inbox,
         onCall: calling && ((name) => calling({ name, title: tools[name]?.title })),
         onText: writing,
         onStep: (line) => {
           trace.push({ ...line, step: line.step + before });
           if (said && line.say?.trim() && line.wants?.length) said(line.say);
+          if (line.say !== undefined) answered = line.wants?.length ? undefined : line;
+          if (line.heard !== undefined && thread) {
+            if (answered?.say) remember(thread, "assistant", answered.say);
+            answered = undefined;
+            remember(thread, "user", line.heard);
+          }
           if (line.tool) calls.push({ toolName: line.tool, input: line.args, output: line.result });
           save(runId, answers(trace), costOf(trace), unpricedOf(trace), trace);
         },
@@ -450,10 +549,13 @@ async function go(options: {
       await committed({ error: done.text });
       return { runId, text: done.text, steps, cost, unpriced, calls };
     }
-    const text = signIn ?? done.text;
+    const last = signIn ?? done.text;
+    // Each answer it gave before a message arrived is part of the reply, since
+    // only a channel that sends as it goes has sent it.
+    const text = [...done.earlier, last].join("\n\n");
     finish(runId, text, steps, cost, unpriced, trace);
     await committed({ summary: oneLineSummary(text) });
-    if (thread) remember(thread, "assistant", text, calls);
+    if (thread) remember(thread, "assistant", last, calls);
     return { runId, text, steps, cost, unpriced, calls };
   } catch (error) {
     const why = String(error instanceof Error ? error.message : error);
@@ -507,6 +609,16 @@ export interface LoopStep {
   unpriced?: boolean;
   /** Set on the line where a run the service stopped picked up again: what happened, in words. */
   carried?: string;
+  /** A message the person sent while the reply was going, handed to the model here. */
+  heard?: string;
+}
+
+/** Messages sent into a conversation while its reply is going, for `loop` to hand to the model. */
+export interface Inbox {
+  /** The messages sent since it was last asked. */
+  take(): string[];
+  /** The same, and when there are none, a message after this is not taken in: it waits for the next reply. */
+  takeLast(): string[];
 }
 
 /**
@@ -551,6 +663,12 @@ export async function loop(options: {
   /** Carrying on from a call that waited for a person: the calls left, the first being that one, and what was decided. */
   resume?: { calls: ToolCall[]; decided: Decided };
   onStep?: (line: LoopStep) => void;
+  /**
+   * Messages sent while it runs. Each is handed to the model after the tools
+   * it asked for have answered, and an answer with no tool calls is not the
+   * last while there are more: the model is asked again with them.
+   */
+  inbox?: Inbox;
   /** Handed the name of each tool it has as the call starts, before it is known whether it may run. */
   onCall?: (name: string) => void;
   /** Handed the model's words as they are written, on a route that streams them. */
@@ -562,6 +680,8 @@ export async function loop(options: {
   /** How many answers came with no price. */
   unpriced: number;
   calls: Result["calls"];
+  /** The answers it gave before a message from the inbox arrived, in order. `text` is the last one. */
+  earlier: string[];
   stopped: false | "steps" | "budget" | "unpriced" | "person" | "sign-in";
   waiting?: { calls: ToolCall[]; reason: string; input: unknown };
   /** With "sign-in": the connection a tool needs somebody to sign in to, and what failed, in words. */
@@ -578,6 +698,13 @@ export async function loop(options: {
   // that changes the agent is refused: what it read could be asking for the
   // change. The owner's next message starts clean.
   let readOutside = "";
+  const earlier: string[] = [];
+  const hand = (texts: string[], step: number) => {
+    for (const text of texts) {
+      options.messages.push({ role: "user", content: text });
+      options.onStep?.({ step, at: new Date().toISOString(), heard: text });
+    }
+  };
 
   for (let steps = 0; ; steps++) {
     options.signal?.throwIfAborted();
@@ -599,16 +726,21 @@ export async function loop(options: {
       });
 
       if (answer.toolCalls.length === 0) {
-        return { text: answer.text, steps: steps + 1, cost, unpriced, calls, stopped: false };
+        const more = options.inbox?.takeLast() ?? [];
+        if (more.length === 0) return { text: answer.text, steps: steps + 1, cost, unpriced, calls, earlier, stopped: false };
+        options.messages.push({ role: "assistant", content: answer.text });
+        earlier.push(answer.text);
+        hand(more, steps);
+        continue;
       }
 
       // Out of money before running what it asked for, because running the tools
       // only leads to a turn there is nothing left to pay for.
       if (options.budget !== undefined && answer.cost === undefined) {
-        return { text: `Stopped: ${options.model} named no price for its answer, so a budget cannot be kept.`, steps: steps + 1, cost, unpriced, calls, stopped: "unpriced" };
+        return { text: `Stopped: ${options.model} named no price for its answer, so a budget cannot be kept.`, steps: steps + 1, cost, unpriced, calls, earlier, stopped: "unpriced" };
       }
       if (options.budget !== undefined && cost >= options.budget) {
-        return { text: `Stopped after spending ${money(cost)} without finishing.`, steps: steps + 1, cost, unpriced, calls, stopped: "budget" };
+        return { text: `Stopped after spending ${money(cost)} without finishing.`, steps: steps + 1, cost, unpriced, calls, earlier, stopped: "budget" };
       }
 
       // Has to go back exactly as it came, or the provider rejects the tool
@@ -628,7 +760,7 @@ export async function loop(options: {
           ? refusedCall(call, `this reply used ${readOutside}, and what it read may be what asked for this. Say what you would change, and your owner can ask for it in their next message`)
           : await runTool(options.tools, call, { context: options.context, instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided, signal: options.signal });
       if ("person" in ran) {
-        return { text: "", steps, cost, unpriced, calls, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
+        return { text: "", steps, cost, unpriced, calls, earlier, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
       }
       const { output, args, failed, refused, signIn } = ran;
       if (one && !one.own && !refused && !readOutside) readOutside = call.function.name;
@@ -640,7 +772,7 @@ export async function loop(options: {
       // not asked again: it would only try to get round it.
       if (signIn) {
         const why = String(output).replace(/^[\w-]+ failed: /, "");
-        return { text: `${why} Somebody signs in from a chat with this agent, or from the dashboard.`, steps: steps + 1, cost, unpriced, calls, stopped: "sign-in", signIn: { connection: signIn, why } };
+        return { text: `${why} Somebody signs in from a chat with this agent, or from the dashboard.`, steps: steps + 1, cost, unpriced, calls, earlier, stopped: "sign-in", signIn: { connection: signIn, why } };
       }
       options.messages.push({
         role: "tool",
@@ -654,7 +786,8 @@ export async function loop(options: {
     // Stopped while it still wanted to go on is an answer, not a crash: an
     // empty string here would read as nothing being wrong.
     const met = await Promise.all(options.stopWhen.map((one) => one({ steps: taken as never })));
-    if (met.some(Boolean)) return { text: outOfStepsText(steps + 1), steps: steps + 1, cost, unpriced, calls, stopped: "steps" };
+    if (met.some(Boolean)) return { text: outOfStepsText(steps + 1), steps: steps + 1, cost, unpriced, calls, earlier, stopped: "steps" };
+    hand(options.inbox?.take() ?? [], steps);
   }
 }
 

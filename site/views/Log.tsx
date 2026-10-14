@@ -578,6 +578,8 @@ function RunThread({ run }: { run: Run }) {
   const agent = nameOf(run.agent);
   // A job's last model answer is often its reply too, so that is not said twice.
   const said = run.trace.map((step) => step.say ?? (step.kind === "model" ? step.result : undefined)).filter(Boolean);
+  // A reply that took in a message while it went is each of its answers, joined.
+  const answers = run.trace.filter((step) => step.say !== undefined && !step.wants?.length).map((step) => step.say).join("\n\n");
   const parts: Part[] = [];
   const work = (item: Work) => {
     const last = parts.at(-1);
@@ -629,6 +631,7 @@ function RunThread({ run }: { run: Run }) {
       return;
     }
     if (step.carried) return show(<p key={at} className="event num">{step.carried}</p>);
+    if (step.heard !== undefined) return show(<Prompt key={at} source={run.source} at={step.at} prompt={step.heard} />);
     if (step.kind) return work({ name: step.name ?? "", tool: true, step });
     if (step.tool) return work({ name: step.tool, tool: true, step });
     // A model turn that only asked for tools has nothing to read: its cost is
@@ -667,7 +670,7 @@ function RunThread({ run }: { run: Run }) {
       {parts.map((part, at) => ("work" in part ? <WorkDone key={`work-${at}`} items={part.work} verb={run.job ? "Ran" : "Used"} /> : part.show))}
 
       {/* A prompt's reply is already its last words above. */}
-      {run.reply && !said.includes(run.reply) && <Them who="" words={run.reply} meta={saidBy(`${agent} finished`, run.finished)} />}
+      {run.reply && !said.includes(run.reply) && run.reply !== answers && <Them who="" words={run.reply} meta={saidBy(`${agent} finished`, run.finished)} />}
       {run.parked && <p className="event num">{waitingOn(run.parked)}</p>}
       {run.error && (
         <div className="msg them bad">
