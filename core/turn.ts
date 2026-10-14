@@ -904,7 +904,7 @@ function systemPrompt(agent: Agent, person: { name: string; source: string; asYo
   if (agent.skills.length > 0) {
     parts.push(
       "## Your skills\n\n" +
-        "Read one's file before doing the thing it covers.\n\n" +
+        "Read one's file with ownReadFile before doing the thing it covers. They are in your own folder, not your memory.\n\n" +
         agent.skills.map((s) => `- **${s.name}** (${s.file}): ${s.description}`).join("\n"),
     );
   }

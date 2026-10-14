@@ -1,6 +1,6 @@
 // What a job can do without asking anybody: running a command, sending mail,
 // reading mail, reading and writing files in one folder, running one of an
-// agent's own scripts, reading a web page, searching the web.
+// agent's own scripts, listing its own runs, reading a web page, searching the web.
 //
 //   import { run, deliverEmail } from "@chloejs/core/services";
 //
@@ -16,6 +16,7 @@ export { addCalendarEvent, listCalendarEvents, type CalendarEvent } from "#chloe
 export { readDriveFile, searchDriveFiles, type DriveFile } from "#chloe/connections/google/driveService";
 export { editFiles, folderTree, listFiles, readAsText, readFiles, searchFiles, writeFiles } from "./filesService.ts";
 export { listScripts, runScripts } from "./scriptsService.ts";
+export { ownRun, ownRuns } from "./selfService.ts";
 export { readPage, htmlToText, feedToText, isPrivate, type Page } from "./webService.ts";
 export { searchWeb, type Found } from "./searchService.ts";
 export { canReach, deliver, owner, split, type Send } from "./messageService.ts";
