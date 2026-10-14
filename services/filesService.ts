@@ -10,7 +10,7 @@
 // skill, which is text you can edit, not code that needs a restart.
 //
 // What they do enforce is the edge of the folder, through confine().
-import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
@@ -326,9 +326,7 @@ export async function writeFiles(
     in: place,
   }: { commit?: boolean; message?: string; append?: boolean; author?: string; in?: Place } = {},
 ) {
-  if (commit && (message ?? "").length < 10) {
-    throw new Error("This folder is a repo, so every write needs a commit message.");
-  }
+  checkMessage({ commit, message });
   const resolved = confine(root, path);
   await mkdir(dirname(resolved), { recursive: true });
   if (append) {
@@ -337,15 +335,84 @@ export async function writeFiles(
   } else {
     await writeFile(resolved, content, "utf8");
   }
-  if (!commit) return { path: resolved, bytes: content.length };
-  const committed = await commitPaths(root, [resolved], { message: message!, author }).then(
+  return { path: resolved, bytes: content.length, ...(await commitIf(root, [resolved], { commit, message, author, in: place })) };
+}
+
+type CommitOptions = { commit?: boolean; message?: string; author?: string; in?: Place };
+
+/**
+ * Moves or renames a file or a folder inside `root`, making the folders above
+ * `to` when they are not there.
+ *
+ * - `options`: `commit`, `message`, `author` and `in`, the same as for
+ *   `writeFiles`. Both places are one commit, so a file changed without a
+ *   commit and then moved is committed with the move.
+ *
+ * Returns `{ path, to }`, both full paths, and `commit` as `writeFiles` does.
+ *
+ * Throws if either is outside `root` or is `root` itself, if `path` is not
+ * there, or if `to` already is.
+ */
+export async function moveFiles(root: string, path: string, to: string, options: CommitOptions = {}) {
+  checkMessage(options);
+  const { from, target } = await canMove(root, path, to);
+  await mkdir(dirname(target), { recursive: true });
+  await rename(from, target);
+  return { path: from, to: target, ...(await commitIf(root, [from, target], options)) };
+}
+
+/**
+ * Throws for each reason `moveFiles` would, without moving anything, so a
+ * caller can check before it changes the file. Returns both full paths.
+ */
+export async function canMove(root: string, path: string, to: string): Promise<{ from: string; target: string }> {
+  const from = belowRoot(root, path);
+  const target = belowRoot(root, to);
+  await stat(from);
+  if (await stat(target).then(() => true, () => false)) throw new Error(`${to} is already there. Pick another place, or delete it first.`);
+  return { from, target };
+}
+
+/**
+ * Deletes a file, or a folder and everything in it, inside `root`.
+ *
+ * - `options`: the same as for `writeFiles`. Committed, the file is still in
+ *   the history and can be brought back.
+ *
+ * Returns `{ path }`, the full path, and `commit` as `writeFiles` does.
+ *
+ * Throws if `path` is outside `root`, is `root` itself, or is not there.
+ */
+export async function deleteFiles(root: string, path: string, options: CommitOptions = {}) {
+  checkMessage(options);
+  const resolved = belowRoot(root, path);
+  await stat(resolved);
+  await rm(resolved, { recursive: true });
+  return { path: resolved, ...(await commitIf(root, [resolved], options)) };
+}
+
+/** `confine`, refusing `root` itself, so one call cannot move or delete the whole folder. */
+function belowRoot(root: string, path: string): string {
+  const resolved = confine(root, path);
+  if (resolved === realpathSync(root)) throw new Error("That is the whole folder. Name a file or a folder inside it.");
+  return resolved;
+}
+
+function checkMessage({ commit, message }: CommitOptions) {
+  if (commit && (message ?? "").length < 10) throw new Error("This folder is a repo, so every write needs a commit message.");
+}
+
+/** Commits `paths` when `commit` is set. A commit that fails does not throw: `commit` says why. */
+async function commitIf(root: string, paths: string[], { commit, message, author, in: place }: CommitOptions): Promise<{ commit?: string }> {
+  if (!commit) return {};
+  const committed = await commitPaths(root, paths, { message: message!, author }).then(
     (id) => {
       if (place) noteCommit(place, id, message!);
       return id ? id.slice(0, 12) : "nothing changed, so nothing was committed";
     },
     (error: unknown) => `not committed: ${error instanceof Error ? error.message : String(error)}`,
   );
-  return { path: resolved, bytes: content.length, commit: committed };
+  return { commit: committed };
 }
 
 /**

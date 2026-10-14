@@ -43,7 +43,7 @@ The agent's notes between runs, in its memory folder and nowhere else
 | `memoryListFiles` | Lists the files in its memory. |
 | `memoryReadFile` | Reads one. |
 | `memorySearchFiles` | Finds the files that contain some text. The search is plain text, not by meaning. |
-| `memoryEditFile` | Makes one or more changes to a file in one call, all or none. Each replaces one piece of text, which must be there once (the spaces at the start and end of its lines may differ). With no old text it adds to the end of the file, or makes the file. There is no tool that replaces a whole file, because that is how the rest of one gets lost. |
+| `memoryEditFile` | Makes one or more changes to a file in one call, all or none. Each replaces one piece of text, which must be there once (the spaces at the start and end of its lines may differ). With no old text it adds to the end of the file, or makes the file. There is no tool that replaces a whole file, because that is how the rest of one gets lost. It also moves, renames or deletes a file or a folder, after any changes and in the same commit. |
 
 Every run that changes the memory is one git commit under the agent's id.
 

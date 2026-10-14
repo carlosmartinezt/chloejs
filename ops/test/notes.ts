@@ -132,6 +132,18 @@ import { agentFor, answers, codeJob, lastAsked, row, work } from "./shared.ts";
     'Change 2 of 2: That text is not in the file: this line of it is not there: "<h2>Three</h2>". Read that part of the file again and copy it, HTML entities included. None of the changes were made.',
   );
   is("so the file is as it was", (await readFile(`${folder}/chapters.html`, "utf8")).startsWith("<h3>One</h3>"), true);
+
+  const { deleteFiles, moveFiles } = await import("@chloejs/core/services");
+  const { existsSync } = await import("node:fs");
+  await writeFile(`${folder}/finished.html`, "<h1>Finished</h1>\n");
+  await moveFiles(folder, "finished.html", "done/old/finished.html");
+  is("a move makes the folders it goes into, and leaves nothing behind", [existsSync(`${folder}/done/old/finished.html`), existsSync(`${folder}/finished.html`)], [true, false]);
+  is("a move onto a file that is there is refused", (await why(moveFiles(folder, "book.html", "done/old/finished.html"))).includes("already there"), true);
+  is("the whole folder cannot be moved", await why(moveFiles(folder, ".", "elsewhere")), "That is the whole folder. Name a file or a folder inside it.");
+  await deleteFiles(folder, "done");
+  is("a folder is deleted with everything in it", existsSync(`${folder}/done`), false);
+  is("the whole folder cannot be deleted", await why(deleteFiles(folder, "")), "That is the whole folder. Name a file or a folder inside it.");
+  is("and nothing outside it can", (await why(deleteFiles(folder, "../outside.html"))) === "not refused", false);
   const { readAsText, readFiles } = await import("@chloejs/core/services");
   is(
     "a read is shown to a model as the file's own text, nothing escaped",

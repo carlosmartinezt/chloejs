@@ -14,7 +14,7 @@ export { readEmailMessages, readOneEmailMessage, sendGmail, type Message as Mail
 export { NeedsClient, finish, setupSteps, signInState, start, type SignInState, type Started } from "#chloe/connections/google/googleService";
 export { addCalendarEvent, listCalendarEvents, type CalendarEvent } from "#chloe/connections/google/calendarService";
 export { readDriveFile, searchDriveFiles, type DriveFile } from "#chloe/connections/google/driveService";
-export { editFiles, folderTree, listFiles, readAsText, readFiles, searchFiles, writeFiles } from "./filesService.ts";
+export { deleteFiles, editFiles, folderTree, listFiles, moveFiles, readAsText, readFiles, searchFiles, writeFiles } from "./filesService.ts";
 export { listScripts, runScripts } from "./scriptsService.ts";
 export { ownRun, ownRuns } from "./selfService.ts";
 export { readPage, htmlToText, feedToText, isPrivate, type Page } from "./webService.ts";

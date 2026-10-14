@@ -111,7 +111,8 @@ export function searchFiles({ root, what, around = 2 }: Folder & { around?: numb
  * no old text adds to the end of the file, or makes the file when it is not
  * there: for a log, a list that only grows, or a first draft. There is no tool
  * that replaces a whole file, because that is how the rest of one gets lost.
- * Missing folders are made.
+ * Missing folders are made. The same tool moves, renames or deletes a file or
+ * a folder (`moveTo`, `delete`), after any changes, as one commit.
  *
  * Options, besides `root` and `what`:
  * - `commit`: set to `true` to save each call as one git commit, with a commit
@@ -132,15 +133,16 @@ export function editFile({
 }: Folder & { commit?: boolean; author?: string; memory?: boolean }) {
   return Object.assign(tool({
     description:
-      `Change a file in ${what}: for each change, the exact text to replace and what replaces it. ` +
+      `Change, move or delete a file in ${what}. For each change, the exact text to replace and what replaces it. ` +
       `Make every change to one file in one call, in the order you want them made: each is made on the ` +
       `file as the ones before it left it, and if one cannot be made, none are. Each old text must appear ` +
       `exactly once, so include a line or two around it when it is short. Read the file first, and copy ` +
       `the old text from what you read. Leave old out to add to the end of the file, such as a log or a ` +
-      `list that only grows, or to make a new file.` +
+      `list that only grows, or to make a new file. Give moveTo to move or rename it after the changes, or ` +
+      `delete to delete it; either works on a folder too, with everything in it.` +
       (commit ? " Committed as it is written, so `message` is required." : ""),
     inputSchema: z.object({
-      path: z.string(),
+      path: z.string().describe("The file, or a folder to move or delete."),
       changes: z
         .array(
           z.object({
@@ -148,10 +150,27 @@ export function editFile({
             new: z.string().describe("What replaces it, or what is added. Empty to delete the old text."),
           }),
         )
-        .min(1),
+        .optional(),
+      moveTo: z.string().optional().describe("Where the file or folder goes, after the changes."),
+      delete: z.boolean().optional().describe("Delete the file or folder, with everything in it. Nothing else with it."),
       message: z.string().optional().describe("Commit message saying what changed. Required here."),
     }),
-    execute: ({ path, changes, message }) =>
-      files.editFiles(root, path, changes, { commit, message, author, in: memory ? "memory" : undefined }),
+    execute: async ({ path, changes = [], moveTo, delete: remove, message }) => {
+      const options = { commit, message, author, in: memory ? ("memory" as const) : undefined };
+      if (remove) {
+        if (changes.length > 0 || moveTo) throw new Error("Delete on its own: a deleted file has nothing to change or move.");
+        return files.deleteFiles(root, path, options);
+      }
+      if (!moveTo) {
+        if (changes.length === 0) throw new Error("There is nothing to do: give changes, moveTo or delete.");
+        return files.editFiles(root, path, changes, options);
+      }
+      if (changes.length === 0) return files.moveFiles(root, path, moveTo, options);
+      // The move's commit takes the changes too, so the two are one commit,
+      // and a move that cannot be made must be found before they are written.
+      await files.canMove(root, path, moveTo);
+      const edited = await files.editFiles(root, path, changes, { ...options, commit: false });
+      return { ...(await files.moveFiles(root, path, moveTo, options)), lines: edited.lines };
+    },
   }), { title: "Edit file", kind: "edit" as const });
 }
