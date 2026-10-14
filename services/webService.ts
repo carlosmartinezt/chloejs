@@ -27,6 +27,8 @@ export interface Page {
 
 /** Enough for a results table, short enough not to fill a turn. */
 const SLICE = 20_000;
+/** How much of a page that answered 400 or more is read. */
+const ERROR_PAGE = 1_000;
 const HOPS = 5;
 const LARGEST = 5_000_000;
 
@@ -117,6 +119,9 @@ function get(url: URL): Promise<Reply> {
           "Accept-Encoding": "identity",
         },
         timeout: 30_000,
+        // Node's own limit is 16 KB, and some large sites (americanexpress.com)
+        // send twice that, which fails as "Header overflow".
+        maxHeaderSize: 64 * 1024,
       },
       (response) => {
         const type = String(response.headers["content-type"] ?? "");
@@ -250,6 +255,7 @@ export function feedToText(xml: string, base: string): { title?: string; text: s
 
 /**
  * Reads a web page and returns it as plain text, 20,000 characters at a time.
+ * A page that answered 400 or more comes back as its first 1,000 only.
  *
  * - `address`: the full web address, starting with `http://` or `https://`.
  * - `from`: where to start in the page's text, in characters. Default: 0. To read on, pass the `next` of the last `Page`.
@@ -303,7 +309,10 @@ export async function readPage(address: string, from = 0): Promise<Page> {
       : /xml/.test(reply.type) && /^\s*(<\?xml[^>]*>\s*)?<(feed|rss)\b/i.test(reply.body)
         ? feedToText(reply.body, url.href)
         : { title: undefined, text: reply.body };
-    const end = from + SLICE;
-    return { url: url.href, status: reply.status, title, text: text.slice(from, end), next: end < text.length ? end : undefined };
+    // A page that is not there is mostly the site's menus, and a model pays
+    // for every word of it on each step after.
+    const slice = reply.status >= 400 ? ERROR_PAGE : SLICE;
+    const end = from + slice;
+    return { url: url.href, status: reply.status, title, text: text.slice(from, end), next: end < text.length && reply.status < 400 ? end : undefined };
   }
 }

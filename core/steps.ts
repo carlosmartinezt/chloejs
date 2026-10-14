@@ -29,7 +29,7 @@ import type { Agent, Job } from "#chloe/load/load";
 import { modelFor } from "#chloe/model/choices";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { ask as askModel, type Message, type ToolCall } from "#chloe/model/model";
-import { loop, money, type Decided } from "#chloe/core/turn";
+import { loop, money, type Decided, type LoopStep } from "#chloe/core/turn";
 import { cannotRun, overviewsOf, type Call, type ChloeTool, type Tools } from "#chloe/model/tool";
 
 /**
@@ -189,8 +189,9 @@ export interface AgentStep<O extends Shape = Shape, T extends Tools = Tools> {
    * `hasToolCall("done")`, or a list of them. It is checked after each round
    * of tool calls. Default: `isStepCount(10)`, which is 10 rounds of tool calls.
    *
-   * If this stops the model before it gives its final answer, the step fails
-   * with an error. You never get half an answer.
+   * If this stops the model before it gives its final answer, it is asked
+   * once more, with every tool call refused, to answer from what it has done.
+   * The step fails only when that answer does not come.
    */
   stopWhen?: StopCondition<NoInfer<T>> | StopCondition<NoInfer<T>>[];
   /**
@@ -1040,7 +1041,14 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
     // usually fixes it, and the tools it already ran are not run again.
     for (let attempt = carried?.attempt ?? 0; attempt < 2; attempt++) {
       if (options.budget !== undefined && spent >= options.budget) throw tooDear();
-      const done = await loop({
+      // Each turn and each call as it happens, rather than at the end, so a
+      // step that fails half way through still says what it spent and ran.
+      const onStep = (line: LoopStep) => {
+        if (line.unpriced) unpriced++;
+        if (line.cost || line.unpriced) spent = charge(line.cost);
+        if (line.tool) calls.push({ toolName: line.tool, input: line.args, output: line.result, ...(line.refused && { refused: true }) });
+      };
+      let done = await loop({
         model: using,
         messages,
         tools,
@@ -1054,13 +1062,7 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
         canAsk: Boolean(ctx.owner),
         resume,
         signal,
-        // Each turn and each call as it happens, rather than at the end, so a
-        // step that fails half way through still says what it spent and ran.
-        onStep: (line) => {
-          if (line.unpriced) unpriced++;
-          if (line.cost || line.unpriced) spent = charge(line.cost);
-          if (line.tool) calls.push({ toolName: line.tool, input: line.args, output: line.result, ...(line.refused && { refused: true }) });
-        },
+        onStep,
       });
       ctx.model = using;
       resume = undefined;
@@ -1080,10 +1082,26 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
       if (done.stopped === "sign-in") throw new Error(done.text);
       if (done.stopped === "steps") {
         if (attempt === 1) throw wrongShape();
-        throw new Error(
+        const outOfSteps = new Error(
           `The agent step ${JSON.stringify(name)} was stopped by its stopWhen after ${done.steps} steps without finishing. ` +
             `Loosen stopWhen, narrow the prompt, or do the parts you already know as step calls.`,
         );
+        // What it ran has happened, edits and emails among them, so it is asked
+        // once, with every call refused, to say what that was. Failing here
+        // instead throws away the answer to work that was done.
+        if (options.budget !== undefined && spent >= options.budget) throw outOfSteps;
+        messages.push({ role: "user", content: "You are out of steps, so no more tools. Answer now, from what you have done so far." });
+        done = await loop({
+          model: using,
+          messages,
+          tools,
+          context: { agent: ctx.agent },
+          stopWhen: [isStepCount(1)],
+          toolApproval: () => ({ type: "denied", reason: "you are out of steps. Answer now, from what you have done." }),
+          signal,
+          onStep,
+        });
+        if (done.stopped) throw outOfSteps;
       }
 
       if (!shape) return { value: done.text, note: using, prompt: options.prompt };

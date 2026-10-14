@@ -308,6 +308,14 @@ about("an agent step that runs out of steps, and one with nothing to call");
   const out = await work({ agent: agentFor(capped), job: capped }).then(() => "finished", (error: Error) => error.message);
   is("it stops and says so rather than looping forever", out.includes("stopped by its stopWhen after 2 steps"), true);
 
+  answers.length = 0;
+  answers.push({ content: "", tool_calls: [asking] }, { content: "", tool_calls: [asking] }, '{"found":"nothing there"}');
+  const said = codeJob("said", async (work) =>
+    work.agent("go round", { prompt: "Find something that is not there.", tools: { wander }, stopWhen: isStepCount(2), output: z.object({ found: z.string() }) }),
+  );
+  const answered = await work({ agent: agentFor(said), job: said }).then((r) => JSON.parse(r.text), (error: Error) => error.message);
+  is("out of steps, it is asked once more and its answer is kept", answered, { found: "nothing there" });
+
   const empty = codeJob("empty", async (work) =>
     work.agent("with nothing", { prompt: "Do something.", tools: {} }),
   );
@@ -322,12 +330,18 @@ about("an agent step stopped by the AI SDK's own conditions, and outputs other t
   startCounting();
   answers.length = 0;
   const done = tool({ description: "Say it is done.", inputSchema: z.object({}), execute: () => "noted" });
-  answers.push({ content: "", tool_calls: [{ id: "1", type: "function", function: { name: "done", arguments: "{}" } }] });
+  const calling = { id: "1", type: "function", function: { name: "done", arguments: "{}" } };
+  answers.push({ content: "", tool_calls: [calling] }, "All done.");
   const stopped = codeJob("stopped", async (work) =>
     work.agent("finish", { prompt: "Finish.", tools: { done }, stopWhen: hasToolCall("done") }),
   );
-  const out = await work({ agent: agentFor(stopped), job: stopped }).then(() => "finished", (error: Error) => error.message);
-  is("hasToolCall stops it after the step that made the call", out.includes("stopped by its stopWhen after 1 steps"), true);
+  const out = await work({ agent: agentFor(stopped), job: stopped }).then((r) => r.text, (error: Error) => error.message);
+  is("hasToolCall stops it after the step that made the call, and it says what it did", out, "All done.");
+
+  answers.length = 0;
+  answers.push({ content: "", tool_calls: [calling] }, { content: "", tool_calls: [calling] });
+  const twice = await work({ agent: agentFor(stopped), job: stopped }).then(() => "finished", (error: Error) => error.message);
+  is("and if it calls a tool instead of answering, it fails", twice.includes("stopped by its stopWhen after 1 steps"), true);
 
   answers.length = 0;
   answers.push('{"result":"billing"}');
