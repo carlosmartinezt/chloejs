@@ -127,3 +127,10 @@ next message may ask for it, and every change is a commit that can be read and
 undone. In a turn without `selfWriteFile`, an agent that may change itself
 is told so by the runtime, and to keep what it learned in its memory and say
 which file it would change, so its purpose need not say it.
+
+In every turn but a visitor's, an agent that may change itself is also told
+two things about growing. What it cannot do, it cannot do yet: it says so, and
+what learning it would take. And work it does the same way again and again,
+above all a job in words on a schedule, can become a habit: a job in code that
+asks a model only where it needs judgement, and costs a fraction of the turn.
+It offers to make one when it notices such work.

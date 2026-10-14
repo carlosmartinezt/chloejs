@@ -246,10 +246,11 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const improving = agent;
   answers.push("No.");
   await turn({ agent: { ...agent, abilities: { selfImprovement: false } }, prompt: "improve yourself", source: "schedule", job: "nightly" });
-  is("an agent with selfImprovement off is not told about changing itself", told().includes("## Changing yourself"), false);
+  is("an agent with selfImprovement off is not told about changing itself", [told().includes("## Changing yourself"), told().includes("## How you grow")], [false, false]);
   answers.push("No.");
   await turn({ agent: improving, prompt: "improve yourself", source: "schedule", job: "nightly" });
   is("an agent that may change itself is told in a turn that cannot who can ask, and to keep the lesson", told().includes("## Changing yourself") && told().includes("Keep what you learned in your memory"), true);
+  is("and that what it cannot do is not yet, and repeated work can be a habit", told().includes("cannot do it yet") && told().includes("make it a habit"), true);
   answers.push("Done.");
   await turn({ agent: improving, prompt: "change it", source: "test", mayChangeAgent: true });
   is("and not in a turn that can", told().includes("## Changing yourself"), false);

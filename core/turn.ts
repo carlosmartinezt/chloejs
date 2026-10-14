@@ -233,7 +233,7 @@ export async function turn({ agent, prompt, asked, attachments, model, thread, s
   // In the purpose rather than the message, so it is not kept in the conversation again each turn.
   const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools), await whatYouRunOn(agent, tools), memoryLinks(agent, guest)) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools), await whatYouRunOn(agent, tools), memoryLinks(agent, guest), howYouGrow(agent, guest)) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -818,6 +818,24 @@ function cannotChange(agent: Agent, tools: Tools): string {
   );
 }
 
+/**
+ * What an agent that may change itself is told in every turn but a guest's:
+ * that what it cannot do is what it cannot do yet, and that work it repeats
+ * can become a job in code, which costs less every time it runs.
+ */
+function howYouGrow(agent: Agent, guest: boolean | undefined): string {
+  if (guest || !abilityOn(agent.abilities, "selfImprovement")) return "";
+  return (
+    "## How you grow\n\n" +
+    "You can learn. When you are asked for something you cannot do, say you cannot do it yet, and what learning " +
+    "it would take: a skill, a tool, a connection or a job. You learn by changing yourself, when your owner asks.\n\n" +
+    "You can also build habits. Work you do the same way again and again, above all a job in words that runs on a " +
+    "schedule, can become a job in code that does it the same way every time and asks a model only where it needs " +
+    "judgement. A habit costs a fraction of a turn and answers the same tomorrow. When you notice such work, offer " +
+    "to make it a habit, and say what it would save."
+  );
+}
+
 /** The most of its own files an agent is shown by name in its purpose. */
 const FILES_SHOWN = 100;
 
@@ -873,10 +891,11 @@ function memoryLinks(agent: Agent, guest: boolean | undefined): string {
   );
 }
 
-function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = "", cannot = "", runsOn = "", links = ""): string {
+function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = "", cannot = "", runsOn = "", links = "", grow = ""): string {
   // Without its own name, the only name a model is shown is Chloe's, and it answers to that.
   const parts = [`Your name is ${agent.name ?? agent.id}.`, agent.purpose];
   if (person) parts.push(talkingWith(person));
+  if (grow) parts.push(grow);
   if (runsOn) parts.push(runsOn);
   if (links) parts.push(links);
   if (cannot) parts.push(cannot);
