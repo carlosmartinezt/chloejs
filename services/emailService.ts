@@ -11,8 +11,7 @@
 import { holdBack } from "#chloe/core/current";
 import { settings } from "#chloe/core/settings";
 
-import { gmailProvider } from "#chloe/connections/google/gmailService";
-import { resendProvider } from "#chloe/connections/resend/resendService";
+import { PLUGINS } from "#chloe/plugins/index";
 
 /**
  * Who an email is from, who it goes to, and how it looks. You pass it to
@@ -62,6 +61,8 @@ export interface Email {
 
 /** Something that can carry an email. Returns the provider's id for it, if it gives one. */
 export interface EmailProvider {
+  /** What the Configuration page calls it, like "Resend". */
+  label?: string;
   send(email: Email): Promise<{ id?: string }>;
 }
 
@@ -71,14 +72,15 @@ export interface EmailProvider {
  * that code which mails can be exercised without anything leaving the box.
  */
 const none: EmailProvider = {
+  label: "Nothing: only write it to the log",
   async send({ to, subject }) {
     console.log(`email (not sent, provider is none): "${subject}" to ${to.join(", ")}`);
     return {};
   },
 };
 
-/** Every provider email.provider can name. Adding one is an entry here and in the settings schema. */
-const providers: Record<typeof settings.email.provider, EmailProvider> = { resend: resendProvider, gmail: gmailProvider, none };
+/** Every provider email.provider can name: "none", and each plugin's. */
+export const providers = (): Record<string, EmailProvider> => Object.assign({ none }, ...PLUGINS.map((one) => one.email ?? {}));
 
 /** A provider that actually sends. */
 export type SendingProvider = Exclude<typeof settings.email.provider, "none">;
@@ -114,8 +116,8 @@ export async function deliverEmail(
   if (to.length === 0) throw new Error("Nobody to send to. Give the sender at least one address in to.");
   const tagged = tag && !subject.startsWith(`[${tag}]`) ? `[${tag}] ${subject}` : subject;
   const chosen = settings.email.provider === "none" ? "none" : (provider ?? settings.email.provider);
-  const carrier = providers[chosen];
-  if (!carrier) throw new Error(`No email provider called "${chosen}". It is one of: ${Object.keys(providers).join(", ")}.`);
+  const carrier = providers()[chosen];
+  if (!carrier) throw new Error(`No email provider called "${chosen}". It is one of: ${Object.keys(providers()).join(", ")}.`);
   if (holdBack({ kind: "email", to: to.join(", "), subject: tagged, text: body })) return { sent: false, held: true, subject: tagged };
   const { id } = await carrier.send({
     from,

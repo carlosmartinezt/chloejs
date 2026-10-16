@@ -15,14 +15,14 @@ import { abilityOn, type Agent, type ChatHistory } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
-import { userNotes } from "#chloe/model/tools/memory";
 import { ownFolderTools, ownReadTools, ownTrialTools } from "#chloe/model/tools/self";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { receivedFolder } from "#chloe/services/receivedService";
 import { chatSendFile, type FileToSend } from "#chloe/model/tools/chat";
-import { guides, ownFiles } from "#chloe/services/selfService";
 import { NeedsSignIn } from "#chloe/connections/connection";
+import type { Reply } from "#chloe/load/plugin";
+import { PLUGINS } from "#chloe/plugins/index";
 
 /** The options for `turn()`: one message for an agent, and how to handle its reply. */
 export interface Ask {
@@ -304,10 +304,8 @@ async function answer({ agent, prompt, asked, attachments, model, thread, source
 
   const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent, sendFile, guest });
   const overviews = await overviewsOf(tools);
-  // In the purpose rather than the message, so it is not kept in the conversation again each turn.
-  const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, note, cannotChange(agent, tools), await whatYouRunOn(agent, tools), memoryLinks(agent, guest), howYouGrow(agent, guest)) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, await pluginWords(agent, { tools, guest: Boolean(guest), user })) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -911,7 +909,7 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
 function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean; sendFile?: Ask["sendFile"]; guest?: boolean } = {}): Tools {
   const owner = Boolean(who.fromOwner || who.mayChangeAgent);
   const tools: Tools = {
-    ...ownFolderTools(abilityOn(agent.abilities, "selfImprovement"))(agent),
+    ...ownFolderTools()(agent),
     ...(owner ? { ...ownReadTools()(agent), ...ownTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
     ...(who.sendFile && !who.guest ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id)]) } : {}),
@@ -935,104 +933,22 @@ export function alwaysOnTools(agent: Agent): { name: string; tool: ChloeTool; ow
     .map(([name, one]) => ({ name, tool: one, ownerOnly: Boolean(one.forOwner) }));
 }
 
-/**
- * What an agent that may change itself is told in a turn that cannot: who can
- * ask for a change, and what to do with a lesson meanwhile. Empty when it may,
- * or never could.
- */
-function cannotChange(agent: Agent, tools: Tools): string {
-  if (!abilityOn(agent.abilities, "selfImprovement") || Object.values(tools).some((one) => one.changesAgent)) return "";
-  return (
-    "## Changing yourself\n\n" +
-    "You cannot change your own purpose, skills or jobs in this turn: only your owner can ask for that, in a " +
-    "message to you. " +
-    (!abilityOn(agent.abilities, "memory") ? "When" : "Keep what you learned in your memory, and when") +
-    " it should change one of those files, say which and how in one line, so they can ask."
-  );
-}
-
-/**
- * What an agent that may change itself is told in every turn but a guest's:
- * that what it cannot do is what it cannot do yet, and that work it repeats
- * can become a job in code, which costs less every time it runs.
- */
-function howYouGrow(agent: Agent, guest: boolean | undefined): string {
-  if (guest || !abilityOn(agent.abilities, "selfImprovement")) return "";
-  return (
-    "## How you grow\n\n" +
-    "You can learn. When you are asked for something you cannot do, say you cannot do it yet, and what learning " +
-    "it would take: a skill, a tool, a connection or a job. You learn by changing yourself, when your owner asks.\n\n" +
-    "You can also build habits. Work you do the same way again and again, above all a job in words that runs on a " +
-    "schedule, can become a job in code that does it the same way every time and asks a model only where it needs " +
-    "judgement. A habit costs a fraction of a turn and answers the same tomorrow. When you notice such work, offer " +
-    "to make it a habit, and say what it would save."
-  );
-}
-
-/** The most of its own files an agent is shown by name in its purpose. */
-const FILES_SHOWN = 100;
-
-/**
- * What an agent that may change itself is told in a turn its owner wrote: its
- * files, the guides and what each covers, to read what a change needs in one
- * call and write it in one more, and that a secret goes in the Keys box, never a chat.
- * Empty for any other turn.
- */
-async function whatYouRunOn(agent: Agent, tools: Tools): Promise<string> {
-  if (!abilityOn(agent.abilities, "selfImprovement") || !tools.ownReadGuide) return "";
-  const { files } = await ownFiles(agent, true, FILES_SHOWN + 1);
-  const shown = files.slice(0, FILES_SHOWN).map((one) => `- ${one.path}${one.canWrite ? "" : ` (not yours to write: ${one.why})`}`);
-  if (files.length > FILES_SHOWN) shown.push("- and more, which ownListFiles lists");
-  const changing = tools.selfWriteFile
-    ? "To change yourself, read every file and guide the change needs at once, with one ownReadFile and one " +
-      "ownReadGuide call in the same step, then write every file in one selfWriteFile call. Never read them one at " +
-      "a time. "
-    : "";
-  return (
-    "## What you run on\n\n" +
-    "You run on Chloe, and you can be given more than you have now: Gmail, Calendar and Drive, sending mail, " +
-    "Telegram, Slack, WhatsApp, email conversations, a chat box on a website, reading web pages, scripts, jobs on a " +
-    "schedule. When you are asked for something you cannot do yet, read the guides it needs, then add it to " +
-    "yourself or say what your owner has to do for it. " +
-    changing +
-    "Never ask for a key, password or secret in a chat: send your owner to the dashboard's Configuration page, " +
-    `${dashboard()}/configuration, which has a form for each setting and key and writes chloe.config.ts and .env without you or ` +
-    `the chat seeing a secret. For a key it has no form for, link to ${dashboard()}/configuration?key=<the name>. Setting up ` +
-    "Google is #google on that page. A setting the forms do not cover goes in chloe.config.ts, which you cannot " +
-    "write: say the line and where it goes. A sign-in like Google's is done by Chloe itself, with a link, never by you.\n\n" +
-    `### Your files\n\n${shown.join("\n") || "None yet."}\n\n` +
-    `### The guides\n\n${guides().map((one) => `- **${one.page}**: ${one.about}`).join("\n")}`
-  );
+/** What each plugin adds to this reply's purpose, in the order of the list. */
+async function pluginWords(agent: Agent, reply: Reply): Promise<string[]> {
+  const words = await Promise.all(PLUGINS.map((one) => one.words?.(agent, reply) ?? ""));
+  return words.filter(Boolean);
 }
 
 /** The dashboard's address from other machines, `serve.url`, without a trailing slash. Empty when unset. */
-function dashboard(): string {
+export function dashboardAddress(): string {
   return settings.serve.url.replace(/\/+$/, "");
 }
 
-/**
- * How to link to a file in the agent's memory on the dashboard. Empty for a
- * guest's turn and for an agent without its memory tools.
- */
-function memoryLinks(agent: Agent, guest: boolean | undefined): string {
-  if (guest || !abilityOn(agent.abilities, "memory")) return "";
-  const at = `${dashboard()}/agents/${agent.id}/memory`;
-  return (
-    "## Links to your memory\n\n" +
-    `A file in your memory opens on the dashboard at ${at}/<its path in your memory>. Only your owner can open it.` +
-    (dashboard() ? "" : " The dashboard's address is not set (serve.url in chloe.config.ts), so give this path and say it goes after that address.")
-  );
-}
-
-function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, note = "", cannot = "", runsOn = "", links = "", grow = ""): string {
+function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, plugins: string[] = []): string {
   // Without its own name, the only name a model is shown is Chloe's, and it answers to that.
   const parts = [`Your name is ${agent.name ?? agent.id}.`, agent.purpose];
   if (person) parts.push(talkingWith(person));
-  if (grow) parts.push(grow);
-  if (runsOn) parts.push(runsOn);
-  if (links) parts.push(links);
-  if (cannot) parts.push(cannot);
-  if (note) parts.push(`## Your note on them\n\n${note}`);
+  parts.push(...plugins);
   if (overviews) parts.push(overviews);
   if (agent.skills.length > 0) {
     parts.push(

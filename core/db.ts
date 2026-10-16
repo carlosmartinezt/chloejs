@@ -139,22 +139,6 @@ if (added("threads", "owner", "text")) {
   }
 }
 
-// Each visitor a web channel has had, per agent: when they came, where from,
-// and the facts the site's own server said about them.
-db.exec(`
-  create table if not exists visitors (
-    agent     text not null,
-    id        text not null,
-    first     text not null,
-    last      text not null,
-    ip        text,
-    country   text,
-    browser   text,
-    facts     text,
-    primary key (agent, id)
-  )
-`);
-
 // The conversation a channel's chat moved on to with /clear, keyed by the id
 // the channel gives the chat. A chat with no row is still in that one.
 db.exec("create table if not exists cleared (thread text primary key, now text not null)");

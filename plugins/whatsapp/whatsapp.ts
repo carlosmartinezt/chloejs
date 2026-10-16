@@ -1,0 +1,544 @@
+// Talking to an agent from WhatsApp, through WhatsApp's own API. It is one
+// entry in the agent's channels:
+//
+//   // agents/<id>/agent.ts
+//   import { whatsappChannel } from "@chloejs/core/channels";
+//   channels: [whatsappChannel({ allowFrom: ["+447700900123"] })],
+//
+// It needs nothing installed. The number it answers as is one registered with
+// Meta, and it cannot be a number that is already in the WhatsApp app.
+//
+// Setting it up, at developers.facebook.com: make an app, add WhatsApp to it,
+// and it gives you a test number and a token to try with. The three things
+// this needs go in .env, and each is named in chloe.config.ts's settings, as
+// `agents: { <id>: { whatsapp: { phone_number_id: process.env.CHLOE_AGENTS_<id>_WHATSAPP_PHONE_NUMBER_ID, ... } } }`:
+//
+//   phone_number_id   on the app's WhatsApp page
+//   token             a permanent token from a system user
+//   app_secret        signs every call in
+//
+// The token the app's page shows first lasts a day, which is fine for trying
+// and no good for a box that runs: make a system user with the
+// whatsapp_business_messaging permission and take a permanent token from that.
+//
+// Then point the app at an address. Meta posts each message once and has
+// nothing to fetch one with, so that address has to be public: the route this
+// channel answers on the one port, `/chloe/v1/<id>/<channel name>`, reached
+// through a web server of your own that passes that one path on, the way a web
+// chat is. The route sits outside the login, so:
+//
+//   Every POST is checked against app_secret before it is read, and one that
+//   does not match is refused without a word about why. Without an app_secret
+//   nothing is accepted at all, because an address anybody can post a message
+//   to is an agent anybody can talk to.
+//
+//   Meta checks the address once with a GET carrying a word you chose. That
+//   word is `verifyToken`, or one made on start and written to the log.
+//
+// allowFrom is who may talk to the agent, by number in full international form
+// ("+447700900123"). Leave it empty only the first time: until it has an
+// entry, a message is answered with the sender's number, which is what goes
+// here.
+//
+// Two things about WhatsApp's rules, both worth knowing before a job sends
+// anything:
+//
+//   A reply has to be inside 24 hours of the last message that person sent. A
+//   job that stops to ask somebody who has not written today is refused by
+//   WhatsApp, not by this, and the error says so. Answering a conversation
+//   always works, which is what a channel is mostly for.
+//
+//   There are no groups. The API delivers one-to-one messages and nothing
+//   else, so there is no `inGroups` here and every message is private.
+//
+// A question from a job goes out with its answers as buttons when there are
+// three or fewer, and as words to type when there are more.
+//
+// What happens to a message once it is read (allowFrom, a job waiting on an
+// answer, /commands, jobs that answer plain messages, the chat) is
+// channels/shared.ts, the same for every channel. This file reads WhatsApp's
+// API, sends to it, and nothing else.
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
+
+import type { Agent, Channel, ChannelRoute, ChatHistory, Running } from "#chloe/load/load";
+import { ownedBy, reachBy, unreach } from "#chloe/services/messageService";
+import type { Attachment } from "#chloe/model/model";
+import { nameInEnv, settings, whereKeyGoes } from "#chloe/core/settings";
+import { type Bound, type Button, defineChannel, type Incoming, inPieces, receive, rulesOf, type Shared } from "#chloe/channels/shared";
+
+const MAX_MESSAGE = 4000; // WhatsApp refuses a text body over 4096.
+const MAX_BUTTONS = 3; // What the API takes on one message.
+const BUTTON_LABEL = 20; // Characters it takes on one button.
+const MAX_BODY = 1024; // Characters it takes on a message that has buttons.
+const TYPING = 20_000; // WhatsApp clears "typing..." after 25 seconds.
+
+/** The options for `whatsappChannel()`: who may reach the agent, and how its messages arrive. */
+export interface WhatsAppOptions extends Shared {
+  /**
+   * The channel's name. Default: "whatsapp".
+   *
+   * Set it only when the agent is on two numbers, because two channels of
+   * one agent cannot share a name. The name shows in the log, it ends the
+   * channel's own address (`/chloe/v1/<agent id>/<name>`), and it is the first
+   * part of every address on this number, like `whatsapp:+447700900123`.
+   */
+  name?: string;
+  /**
+   * The number's secrets, if you do not keep them in settings.
+   *
+   * - `phoneNumberId`, `token` and `appSecret`: used in place of
+   *   `agents.<id>.whatsapp.phone_number_id`, `token` and `app_secret`.
+   * - `verifyToken`: the word Meta sends when it checks the channel's own
+   *   address. If not set, a new random one is made each time the channel
+   *   starts, and written to the log.
+   *
+   * Read them from `process.env`. Never write a token in the file itself.
+   */
+  credentials?: { phoneNumberId?: string; token?: string; appSecret?: string; verifyToken?: string };
+  /**
+   * The phone numbers allowed to talk to the agent, in full international
+   * form, like "+447700900123".
+   *
+   * If not set, anybody who writes to the number gets an answer. With an
+   * empty list, nobody does: a message is answered with the sender's number,
+   * so you can add it.
+   *
+   * The first number counts as the agent's owner. Their messages can use the
+   * tools only the owner may use, and jobs ask them when they name nobody.
+   */
+  allowFrom?: string[];
+  /**
+   * The address where this server can be reached from the internet, like
+   * "https://agents.example.com". Only used to write the full address to
+   * register with Meta in the log.
+   */
+  publicUrl?: string;
+  /**
+   * How much of the conversation the agent sees with each new message:
+   * `{ messages, days }`. `messages` is the most it sees, and `days` leaves
+   * out anything older. Default: the last 10 messages.
+   */
+  chatHistory?: ChatHistory;
+  /**
+   * Sends what the model writes before its final answer (like a "let me
+   * check" line) as soon as it is written. Off by default.
+   */
+  sendWhileWorking?: boolean;
+  /**
+   * Which files the agent receives, and how big they may be.
+   *
+   * - `allowedMediaTypes`: default `["image/*", "application/pdf", "text/*"]`.
+   * - `maxBytes`: default 10 MB (`10 * 1024 * 1024`).
+   *
+   * The agent is told the name of any other file, but does not receive it.
+   */
+  uploadPolicy?: { allowedMediaTypes?: string[]; maxBytes?: number };
+  /** The version of WhatsApp's API to call. Default: "v23.0". */
+  version?: string;
+  /** The address of WhatsApp's API. Default: "https://graph.facebook.com". Only the tests change it. */
+  api?: string;
+}
+
+/** What this channel reads off one message in what Meta posts. */
+interface WhatsAppMessage {
+  from?: string;
+  id?: string;
+  timestamp?: string;
+  type?: string;
+  text?: { body?: string };
+  image?: Media;
+  document?: Media;
+  audio?: Media;
+  video?: Media;
+  sticker?: Media;
+  interactive?: { button_reply?: { id?: string; title?: string }; list_reply?: { id?: string; title?: string } };
+  button?: { text?: string };
+  context?: { id?: string; from?: string };
+  errors?: { code?: number; title?: string }[];
+}
+
+interface Media {
+  id?: string;
+  mime_type?: string;
+  filename?: string;
+  caption?: string;
+  sha256?: string;
+}
+
+interface Posted {
+  object?: string;
+  entry?: {
+    changes?: {
+      field?: string;
+      value?: {
+        metadata?: { phone_number_id?: string; display_phone_number?: string };
+        contacts?: { profile?: { name?: string }; wa_id?: string }[];
+        messages?: WhatsAppMessage[];
+        statuses?: unknown[];
+      };
+    }[];
+  }[];
+}
+
+/**
+ * Puts an agent on WhatsApp, through WhatsApp's own API from Meta. Add it to
+ * the `channels` list in the agent's `agent.ts`:
+ *
+ * ```ts
+ * channels: [whatsappChannel({ allowFrom: ["+447700900123"] })],
+ * ```
+ *
+ * It needs a number registered with Meta, at developers.facebook.com. The
+ * number cannot be one already used in the WhatsApp app. Its three values go
+ * in settings in `chloe.config.ts`, as
+ * `agents: { <id>: { whatsapp: { phone_number_id, token, app_secret } } }`,
+ * each read from `.env`.
+ *
+ * - Use a permanent token from a system user. The first token the app's page
+ *   shows lasts only one day.
+ * - Without `app_secret`, every message is refused, because it is the only
+ *   way to tell a message from Meta apart from a fake one.
+ * - Messages arrive at the channel's own address, `/chloe/v1/<agent id>/<name>`,
+ *   which Meta must reach through a web server of your own.
+ * - WhatsApp's API has no groups: every message is one-to-one.
+ * - WhatsApp refuses a message sent more than 24 hours after that person's
+ *   last message. So a job that asks somebody who has not written in the
+ *   last day fails.
+ */
+export function whatsappChannel(options: WhatsAppOptions = {}): Channel {
+  return defineChannel("whatsapp", options, ({ agent, agentId, name, bound }) => {
+    const held = settings.agents[agentId]?.whatsapp;
+    const phoneNumberId = options.credentials?.phoneNumberId || held?.phone_number_id || "";
+    const token = options.credentials?.token || held?.token || "";
+    const appSecret = options.credentials?.appSecret || held?.app_secret || "";
+    if (!phoneNumberId || !token) {
+      console.error(
+        `whatsapp: ${agentId} is on WhatsApp's API and has no ${phoneNumberId ? "token" : "number"}. Add an app at ` +
+          `developers.facebook.com, add WhatsApp to it, and put the number's id ` +
+          `${whereKeyGoes(["agents", agentId, "whatsapp", "phone_number_id"])}, and its token and app secret beside it.`,
+      );
+      return { stop: () => {} };
+    }
+    return listen({ ...options, agentId, channel: name, bound, phoneNumberId, token, appSecret, verifyToken: options.credentials?.verifyToken, agent });
+  });
+}
+
+/** Answers one number until stopped. Separate from the channel so the tests can point it somewhere else. */
+export function listen(
+  options: Omit<WhatsAppOptions, "name" | "credentials"> & {
+    /** The agent's id. */
+    agentId: string;
+    /** The channel's name, "whatsapp" when left out. */
+    channel?: string;
+    phoneNumberId: string;
+    token: string;
+    appSecret: string;
+    verifyToken?: string;
+    agent: () => Agent | undefined;
+    /** Its `tools` and `job`, read against the agent as it loaded. */
+    bound?: Bound;
+  },
+): Running {
+  const { agentId, phoneNumberId, token, appSecret } = options;
+  const channel = options.channel ?? "whatsapp";
+  const api = options.api ?? "https://graph.facebook.com";
+  const version = options.version ?? "v23.0";
+  const path = `/chloe/v1/${agentId}/${channel}`;
+  const verify = options.verifyToken || randomBytes(12).toString("hex");
+  const allowedTypes = options.uploadPolicy?.allowedMediaTypes ?? ["image/*", "application/pdf", "text/*"];
+  const maxBytes = options.uploadPolicy?.maxBytes ?? 10 * 1024 * 1024;
+  const rules = rulesOf(options, options.allowFrom?.map(asNumber));
+
+  if (!appSecret) {
+    console.error(
+      `whatsapp: ${agentId} has no app_secret, so every message posted to ${path} is refused. It is the only thing ` +
+        `telling a message from WhatsApp apart from a message from anybody who found the address. It is on the app's ` +
+        `settings page at developers.facebook.com.`,
+    );
+  }
+  console.log(
+    `whatsapp: ${agentId} answers ${options.publicUrl ? `${options.publicUrl.replace(/\/+$/, "")}${path}` : path}. ` +
+      `Register that address on the app's WhatsApp page, subscribed to messages, with ${verify} as the word it checks.`,
+  );
+
+  /** One call to the API. `where` is what it is for, so a failure says which call failed. */
+  async function call<T>(to: string, body: object, where: string): Promise<T> {
+    const response = await fetch(`${api}/${version}/${to}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const answer = (await response.json().catch(() => ({}))) as { error?: { message?: string; code?: number } };
+    // WhatsApp's own refusals are the ones worth reading out loud: 131047 is
+    // the 24 hour rule, and it reads as "message failed to send" otherwise.
+    if (!response.ok || answer.error) {
+      throw new Error(`${where}: ${answer.error?.message ?? response.status}${answer.error?.code ? ` (${answer.error.code})` : ""}`);
+    }
+    return answer as T;
+  }
+
+  /** A number as WhatsApp names one: the digits, which is the form it hands out. */
+  const digits = (who: string) => who.replace(/[^\d]/g, "");
+
+  /** Sends words to a number, in pieces, as WhatsApp's own formatting. */
+  async function send(to: string, text: string): Promise<void> {
+    for (const piece of inPieces(whatsappText(text), MAX_MESSAGE)) {
+      await call(
+        `${phoneNumberId}/messages`,
+        { messaging_product: "whatsapp", recipient_type: "individual", to: digits(to), type: "text", text: { body: piece, preview_url: false } },
+        "sending",
+      );
+    }
+  }
+
+  /**
+   * Sends words with up to three buttons under them. A button carries what it
+   * sends as its id, so pressing one is the same as writing it.
+   */
+  async function sendButtons(to: string, text: string, buttons: Button[]): Promise<void> {
+    await call(
+      `${phoneNumberId}/messages`,
+      {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: digits(to),
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: whatsappText(text).slice(0, MAX_BODY) },
+          action: { buttons: buttons.map((one, i) => ({ type: "reply", reply: { id: `b${i}:${one.sends}`.slice(0, 256), title: one.label.slice(0, BUTTON_LABEL) } })) },
+        },
+      },
+      "sending buttons",
+    );
+  }
+
+  /**
+   * Buttons when they fit, words when they do not. A long answer cannot carry
+   * them: the API takes 1024 characters on a message that has buttons, and
+   * losing the end of what the agent said is worse than typing a word back.
+   */
+  async function reply(to: string, text: string, buttons: Button[] = []): Promise<void> {
+    const fits =
+      buttons.length > 0 &&
+      buttons.length <= MAX_BUTTONS &&
+      buttons.every((one) => one.label.length <= BUTTON_LABEL) &&
+      whatsappText(text).length <= MAX_BODY;
+    if (fits) return await sendButtons(to, text, buttons);
+    const listed = buttons.length ? `${text}\n\n${buttons.map((one) => `• ${one.sends}`).join("\n")}` : text;
+    await send(to, listed);
+  }
+
+  // A job of this agent's that stops to ask somebody reaches them at their
+  // number. An answer that can be listed is a button.
+  reachBy(channel, (to, text, choices) => reply(to, text, (choices ?? []).map((one) => ({ label: one, sends: one }))), agentId);
+  if (options.allowFrom?.[0]) ownedBy(agentId, `${channel}:${asNumber(options.allowFrom[0])}`);
+
+  /** Marks the message read and shows "typing...", until the returned function is called. */
+  function typing(id: string): () => void {
+    const once = () =>
+      call(`${phoneNumberId}/messages`, { messaging_product: "whatsapp", status: "read", message_id: id, typing_indicator: { type: "text" } }, "typing").catch(() => {});
+    void once();
+    const timer = setInterval(once, TYPING);
+    return () => clearInterval(timer);
+  }
+
+  function wanted(mediaType: string): boolean {
+    return allowedTypes.some((one) => (one.endsWith("/*") ? mediaType.startsWith(one.slice(0, -1)) : one === mediaType));
+  }
+
+  /** The file on a message, fetched in two calls, or a line saying why it was not. */
+  async function fileOn(message: WhatsAppMessage): Promise<{ attachment?: Attachment; text?: string; note?: string }> {
+    const media = message.image ?? message.document ?? message.video ?? message.audio ?? message.sticker;
+    if (!media?.id) return {};
+    const mediaType = (media.mime_type ?? "application/octet-stream").split(";")[0];
+    const fileName = media.filename ?? `${message.type ?? "file"}.${mediaType.split("/")[1] || "bin"}`;
+    if (!wanted(mediaType)) return { note: `(They sent ${fileName}, a ${mediaType}, which this channel does not take.)` };
+    const where = await fetch(`${api}/${version}/${media.id}`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) });
+    const found = (await where.json().catch(() => ({}))) as { url?: string; file_size?: number };
+    if (!found.url) return { note: `(They sent ${fileName}, and it could not be fetched.)` };
+    if ((found.file_size ?? 0) > maxBytes) return { note: `(They sent ${fileName}, which is over the ${Math.round(maxBytes / 1048576)}MB this channel takes.)` };
+    // The address the API hands back needs the token too, and it is good for a few minutes.
+    const file = await fetch(found.url, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(60_000) });
+    const bytes = Buffer.from(await file.arrayBuffer());
+    if (mediaType.startsWith("text/")) return { text: `<file name="${fileName}">\n${bytes.toString("utf8")}\n</file>` };
+    return { attachment: { mediaType, data: bytes.toString("base64"), filename: fileName }, note: `(Attached: ${fileName})` };
+  }
+
+  /** The words on a message, whichever kind it is. A pressed button sends what it carried. */
+  function textOf(message: WhatsAppMessage): string {
+    const pressed = message.interactive?.button_reply ?? message.interactive?.list_reply;
+    if (pressed?.id) return pressed.id.replace(/^b\d+:/, "");
+    if (pressed?.title) return pressed.title;
+    return message.text?.body ?? message.button?.text ?? message.image?.caption ?? message.document?.caption ?? message.video?.caption ?? "";
+  }
+
+  /** One message in the words every channel shares. The rest is receive()'s. */
+  function incoming(message: WhatsAppMessage, who: string, said: string): Incoming {
+    const from = asNumber(message.from ?? "");
+    return {
+      channel,
+      chat: from,
+      thread: `${agentId}/${channel}-${from}`,
+      from: { id: from, name: who || from },
+      text: said,
+      // The API carries one-to-one messages and nothing else.
+      private: true,
+      addressed: true,
+      replyTo: "",
+      context: { chat_type: "private" },
+      files: async () => {
+        const file = await fileOn(message);
+        return { attachments: file.attachment ? [file.attachment] : [], text: file.text, notes: file.note ? [file.note] : [] };
+      },
+    };
+  }
+
+  async function onMessage(message: WhatsAppMessage, who: string): Promise<void> {
+    const agent = options.agent();
+    const from = message.from;
+    if (!agent || !from) return;
+    // A message WhatsApp could not read for us, which is usually an
+    // unsupported kind rather than anything this can fix.
+    if (message.errors?.length) {
+      console.warn(`whatsapp: ${from} sent something that did not arrive whole: ${message.errors[0].title ?? message.errors[0].code}`);
+    }
+    const said = textOf(message);
+    const has = message.image ?? message.document ?? message.video ?? message.audio ?? message.sticker;
+    if (!said && !has) return;
+    const handled = await receive(agent, incoming(message, who, said), rules, {
+      working: () => (message.id ? typing(message.id) : () => {}),
+      send: (words) => send(from, words),
+    });
+    if (handled?.text) await reply(from, handled.text, handled.buttons).catch((error) => console.error("whatsapp:", (error as Error).message));
+  }
+
+  /**
+   * Meta checking the address before it sends anything to it: the word it was
+   * given comes back, and nothing else does.
+   */
+  function checked(response: ServerResponse, url: URL): void {
+    const asked = url.searchParams;
+    if (asked.get("hub.mode") !== "subscribe" || asked.get("hub.verify_token") !== verify) {
+      response.writeHead(403).end();
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/plain" }).end(asked.get("hub.challenge") ?? "");
+  }
+
+  /** Whether a body really came from the app it says it did. */
+  function signed(raw: string, header: string | string[] | undefined): boolean {
+    if (!appSecret) return false;
+    const sent = String(header ?? "").replace(/^sha256=/, "");
+    const mine = createHmac("sha256", appSecret).update(raw, "utf8").digest("hex");
+    const a = Buffer.from(sent, "hex");
+    const b = Buffer.from(mine, "hex");
+    return a.length === b.length && timingSafeEqual(a, b);
+  }
+
+  /** Message ids already dealt with, so one handed over twice is answered once. */
+  const seen = new Set<string>();
+
+  /**
+   * One delivery from Meta: the body exactly as Meta wrote it and the
+   * signature that came with it, checked against the app secret.
+   *
+   * Returns false when the signature did not match, which is the only thing a
+   * caller needs to know.
+   */
+  async function delivered(raw: string, signature: string | string[] | undefined): Promise<boolean> {
+    if (!signed(raw, signature)) return false;
+    let posted: Posted;
+    try {
+      posted = JSON.parse(raw) as Posted;
+    } catch {
+      return true;
+    }
+    for (const entry of posted.entry ?? []) {
+      for (const change of entry.changes ?? []) {
+        const value = change.value;
+        if (!value?.messages?.length) continue; // A delivery or read receipt, which is not a message.
+        // One app can hold several numbers and posts them all to one address,
+        // so a message for another agent's number is not this one's.
+        const to = value.metadata?.phone_number_id;
+        if (to && to !== phoneNumberId) continue;
+        const names = new Map((value.contacts ?? []).map((one) => [one.wa_id ?? "", one.profile?.name ?? ""]));
+        for (const message of value.messages) {
+          if (message.id) {
+            if (seen.has(message.id)) continue;
+            seen.add(message.id);
+            if (seen.size > 500) for (const oldest of seen) if (seen.delete(oldest)) break;
+          }
+          await onMessage(message, names.get(message.from ?? "") ?? "").catch((error) => console.error("whatsapp:", error));
+        }
+      }
+    }
+    return true;
+  }
+
+  const webhook = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+    if (request.method === "GET") return void checked(response, url);
+
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    // Always 200 once it is signed: anything else makes WhatsApp send the same
+    // message again, and again, for a day.
+    const ours = signed(raw, request.headers["x-hub-signature-256"]);
+    response.writeHead(ours ? 200 : 401).end();
+    if (ours) await delivered(raw, request.headers["x-hub-signature-256"]);
+  };
+
+  const route: ChannelRoute = { path, methods: ["GET", "POST"], handle: webhook };
+
+  return {
+    routes: [route],
+    stop() {
+      unreach(channel, agentId);
+    },
+  };
+}
+
+/** A number as one way of writing it: "+447700900123", however it was typed. */
+export function asNumber(number: string): string {
+  return `+${number.replace(/[^\d]/g, "")}`;
+}
+
+/**
+ * Markdown as WhatsApp's own formatting, which is *bold*, _italics_, ~struck~,
+ * `code` and ```a code block```. A heading becomes a bold line, a list item
+ * starts with a bullet, and a link becomes its words with the address after
+ * them, since WhatsApp shows an address as a link by itself.
+ */
+export function whatsappText(markdown: string): string {
+  const out: string[] = [];
+  const lines = markdown.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim().startsWith("```")) {
+      const code: string[] = [];
+      for (i++; i < lines.length && !lines[i].trim().startsWith("```"); i++) code.push(lines[i]);
+      out.push(`\`\`\`\n${code.join("\n")}\n\`\`\``);
+    } else if (/^#{1,6}\s/.test(line)) {
+      out.push(`*${inline(line.replace(/^#+\s*/, "").replace(/\*\*/g, ""))}*`);
+    } else {
+      out.push(inline(line.replace(/^(\s*)[-*]\s/, "$1• ")));
+    }
+  }
+  return out.join("\n");
+}
+
+/** One line's formatting. Code and links are put aside first so nothing inside them is read as bold. */
+function inline(line: string): string {
+  const kept: string[] = [];
+  const keep = (text: string) => `\u0000${kept.push(text) - 1}\u0000`;
+  return line
+    .replace(/`([^`]+)`/g, (_, code: string) => keep(`\`${code}\``))
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, words: string, to: string) => keep(`${words} (${to})`))
+    .replace(/\*\*(.+?)\*\*/g, (_, words: string) => keep(`*${words}*`))
+    .replace(/(^|[^*\w])\*(?!\s)([^*]+?)\*(?![*\w])/g, "$1_$2_")
+    .replace(/~~(.+?)~~/g, "~$1~")
+    .replace(/\u0000(\d+)\u0000/g, (_, i: string) => kept[Number(i)]);
+}

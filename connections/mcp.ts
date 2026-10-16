@@ -16,7 +16,7 @@
 import { createMCPClient } from "@ai-sdk/mcp";
 import { jsonSchema, tool } from "ai";
 
-import type { Connection } from "#chloe/connections/connection";
+import type { ToolConnection } from "#chloe/connections/connection";
 import type { Tools } from "#chloe/model/tool";
 
 /** The options for `mcpConnection`: which server, its key, and which of its tools to use. */
@@ -44,11 +44,8 @@ export interface McpOptions {
   does?: string;
 }
 
-/** An MCP server as a connection. It also lists the server's tools for the agent. */
-export interface McpConnection extends Connection {
-  /** Asks the server for its tools and returns them, named for the model. chloe calls this when the agent loads. */
-  tools(): Promise<Tools>;
-}
+/** A service's MCP server, as `mcpConnection` makes it: a connection that also lists the server's tools for the agent. */
+export type McpConnection = ToolConnection;
 
 /** How long a server has to answer as the agent loads, or a call. */
 const WAIT = 15_000;

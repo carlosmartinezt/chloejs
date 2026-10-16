@@ -99,3 +99,12 @@ export function readOptions(specs: OptionSpec[], given: unknown, where: string, 
   }
   return out;
 }
+
+/** The field every ability that reaches something has: a few words for it, said to the model. */
+export const about = (what: string): OptionSpec => ({
+  name: "about",
+  label: "Described as",
+  about: `A few words for ${what}, said to the model. Optional.`,
+  kind: "words",
+  default: "",
+});

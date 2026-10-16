@@ -23,10 +23,10 @@ import type { JobConfig } from "./job.ts";
 import { nameOf, type SdkModel } from "#chloe/model/key";
 import { cannotRun, type Tools } from "#chloe/model/tool";
 import type { Connection } from "#chloe/connections/connection";
-import type { McpConnection } from "#chloe/connections/mcp";
+import type { ToolConnection } from "#chloe/connections/connection";
 import { makeRepo } from "#chloe/services/historyService";
-import { ABILITIES, abilityTools, type Abilities } from "./abilities.ts";
-export { ABILITIES, abilityOn, abilityToolSet, abilityValues, type Ability, type Abilities, type FoldersAbility, type GoogleMailAbility, type GoogleCalendarAbility, type GoogleDriveAbility, type ResendAbility } from "./abilities.ts";
+import { allAbilities, abilityTools, type Abilities } from "./abilities.ts";
+export { allAbilities, abilityOn, abilityToolSet, abilityValues, type Ability, type Abilities, type FoldersAbility } from "./abilities.ts";
 import { work, type Data, type Envelope, type Result as RunResult, type Work } from "#chloe/core/steps";
 import { turn, type Result as TurnResult } from "#chloe/core/turn";
 
@@ -176,7 +176,7 @@ export interface AgentConfig {
    * answer, the agent loads without its tools and the dashboard says why.
    * Default: none.
    */
-  connections?: McpConnection[];
+  connections?: ToolConnection[];
   /**
    * When the model must stop, as the AI SDK's `stopWhen`: `isStepCount(20)`,
    * or a list of conditions. It applies to each reply to a message and each
@@ -662,7 +662,7 @@ export interface Agent extends Omit<DefinedAgent, "purpose" | "tools" | "jobs" |
   /** The agent's channels. */
   channels: Channel[];
   /** The agent's MCP connections. */
-  connections: McpConnection[];
+  connections: ToolConnection[];
 }
 
 /**
@@ -874,7 +874,7 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
  * left out and said in the log, and the agent loads without it: the setup page
  * says why. A tool of the agent's own with the same name wins.
  */
-async function connectionTools(connections: McpConnection[], where: string): Promise<Record<string, Tools>> {
+async function connectionTools(connections: ToolConnection[], where: string): Promise<Record<string, Tools>> {
   if (!Array.isArray(connections)) {
     throw new Error(`${where}: connections is a list, like [mcpConnection({ name: "github", url })].`);
   }
@@ -912,7 +912,7 @@ function withTools(
     throw new Error(`${where}: without is a list of tool names, like ["memoryEditFile"].`);
   }
   // A ability's tool may be named while the ability is off, so it stays named when it is switched on again.
-  const known = new Set([...Object.keys(tools), ...ABILITIES.flatMap((one) => one.tools)]);
+  const known = new Set([...Object.keys(tools), ...allAbilities().flatMap((one) => one.tools)]);
   const unknown = without.find((one) => !known.has(one));
   if (unknown) throw new Error(`${where}: without names ${JSON.stringify(unknown)}, which is no tool of this agent. Its tools are ${[...known].sort().join(", ")}.`);
   const toolsOff: Tools = {};

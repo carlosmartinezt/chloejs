@@ -334,8 +334,10 @@ scorers/     how a run is marked
 services/    the work itself, called straight from a job, published as
              "@chloejs/core/services"
 channels/    the ways in, for an agent to bind
-chat/        the chat box a web page loads, and the client it is built on:
-             plain JavaScript, served at /api/web/
+plugins/     each feature chloe ships that can be taken out, a folder each,
+             listed in plugins/index.ts: the channels, Google, Resend, the web
+             and memory tools, the subscription routes, self improvement.
+             npm run plugins -- remove <name> takes one out
 ops/         cli.ts, which is `npx chloe`, and what it runs: the tests, the
              evals, talking to an agent, links, the password, tokens, and
              install.sh. docs.ts writes the guides into the package

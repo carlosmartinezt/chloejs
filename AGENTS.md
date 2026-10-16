@@ -192,8 +192,10 @@ can leave the next one better informed. Every agent can read its own folder in
 every turn (`ownFolderTools` in `model/tools/self.ts`, added by `toolsFor()` in
 `core/turn.ts` like `skillRead`), and its runs, the guides and trying its jobs
 are its owner's turns' (`ownReadTools`), so neither half is in the agent's
-`tools`. Unless it says `selfImprovement: false`, it may also
-change its own folder, `whyNot()` in `services/selfService.ts`: its purpose,
+`tools`. Changing itself is the self-improvement plugin,
+`plugins/self-improvement/`, shipped and on by default. Unless it says
+`selfImprovement: false`, it may change its own folder, `whyNot()` in
+`changeService.ts` there: its purpose,
 its skills, its jobs, and its code (its tools, services, channels and scripts,
 `agent.ts`, anything ending in .ts, .js, .py or .sh). There is no narrower
 setting: an ability is on or off, because code an agent writes is code it then
@@ -203,7 +205,7 @@ by hand in those files under the box's own git name. An owner's turn lists the
 agent's files and the guides in its purpose, and `ownReadFile` and
 `ownReadGuide` take several at once, so a change is one call to read and one
 to write. With code among them,
-`loadsOrPutBack()` in `services/selfService.ts` writes them all, loads the
+`loadsOrPutBack()` beside it writes them all, loads the
 agent once with `loadAgain()` as the next reload would, type checks when the
 project has TypeScript, and puts every file back with the reason when any of
 that fails or a job would run more than once an hour. `checkFirst()` in `load/load.ts` holds
@@ -293,7 +295,7 @@ reached. The rest is the runtime plus what a job commonly
 needs, in folders by what they do: `model/` is asking a model, and
 `model/tools/` inside it is the only thing a model can be handed,
 `load/` is what an agent and a job
-are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `connections/` is each outside account a tool works through, a folder each (Google, Resend), and an MCP server an agent connects to, `serve/` is the one port
+are, `timer/` is cron lines and `every()`, a library of its own that imports nothing else in the runtime, `connections/` is what an outside account a tool works through is (each one chloe ships is a plugin), `serve/` is the one port
 and what it answers with, which is `/api` and nothing else (the routes, the
 login, and the folder behind the file tree), and every other address is the
 page, `site/` (`serve/page.ts`), `core/` is the floor (paths, running a command, staying
@@ -322,6 +324,46 @@ beside it is the files it writes, as text, `git.ts` is the repository it makes
 for the project, and `terminal.ts` is how those two ask a person something. A job lives in `jobs/` whether
 it is code or a prompt, and whether or not it has a cron line: one folder.
 
+**A feature chloe ships is a plugin: a folder in `plugins/`, named in
+`plugins/index.ts`.** Every channel but the API one, Google, Resend, the web
+tools, the memory tools, the routes that spend a subscription, and self
+improvement are each one. The core is what is left: jobs and the four kinds of
+step, the clock, the run record, the agent's folder and its memory with their
+history, skills, scripts, folders to read, MCP connections, the model on a key
+or the gateway, the server, the login, the people invited, the dashboard and
+the API channel. A feature small enough to be one tool and a check stays in
+the core: a plugin is for one big enough to want out on its own. The runtime reads a plugin only through
+`Plugin` in `load/plugin.ts`, and never by its name: its `settings` (added to
+the defaults, the secrets and the words a setting may be with `addSettings()`),
+its `abilities` (each with `make` and `check`), the `words` it adds to a
+reply's purpose, the mail services it sends through (`email`), the mailboxes an
+email channel can be on (`mailboxes`), API `routes`, `channels` as the Channels
+page shows them, `modelRoutes`, how it sends `alerts`, and its section of the
+Configuration page (`configuration`). What it adds to a type (`Abilities`,
+`Connections`, `AgentSettings`, `Routes`, `Programs`, `EmailProviders`,
+`Mailboxes`) it adds from its own folder with TypeScript's declaration merging,
+so it is typed only while the plugin is there. The list also exports each
+plugin, which is what makes the published types load them. Its part of the
+page is in `plugins/<name>/page/` and named in `site/plugins.ts`, because the
+page never imports the runtime. Its tests are `test.ts` in its folder, and a
+test there about another plugin uses a stand-in instead.
+
+Taking one out is `npm run plugins -- remove <name>`, which deletes its folder
+and its lines in `plugins/index.ts`, in the entrance files that publish its
+names (`index.ts`, `services/index.ts`, `channels/index.ts`,
+`connections/index.ts`), in `package.json`'s `exports`, and in
+`site/plugins.ts`. A config that still sets one of its settings is then
+refused saying so, the way any unknown setting is. `npm run check:plugins`
+takes every plugin out of a copy, then each one alone, and type checks,
+builds and tests what is left: about a minute a copy, so it is
+run before a change to what a plugin brings, not on every commit. `ops/test/plugins.ts`
+fails when anything else imports from a plugin's folder, so that stays true.
+A plugin may import the core and the core never imports a plugin. A plugin's
+code must not use, as its file loads, anything from a file that reads the list
+as it loads; read the list inside a function (`allAbilities()`). When a feature
+needs something `Plugin` does not have, add the field it needs, and nothing
+more.
+
 `skills/chloejs/SKILL.md` is what a coding agent installs with `npx skills add
 carlosmartinezt/chloejs`. It says how to install chloe and where the guides are
 in the package, and nothing else, so it cannot fall behind them.
@@ -336,14 +378,14 @@ or a person, and nothing in `model/tools/` or `channels/` exports a
 default: each exports a function that an agent binds.
 
 **An outside account or program is a connection, and the runtime never names
-one.** Each is a folder in `connections/`: its tools, its services, and a
-`connection.ts` that is a `Connection` saying what it reads (`settings`), how
+one.** Each is a plugin's folder: its tools, its services, and a
+`connection.ts` that is a `Connection` (`connections/connection.ts`) saying what it reads (`settings`), how
 somebody signs in (`signIn`), and what is missing before it works
 (`missing()`, in words). A tool that works through one says so with `needs`:
 every Gmail, Calendar and Drive tool is marked `needs: google`. The setup page
 and the lines printed at startup ask it what is missing. So an agent binds
 `gmail.readEmail` and is done, and a connection in an agent's own folder works
-the same with nothing added here. Google and Resend ship with the runtime.
+the same with nothing added here. Google, Resend and Brave ship as plugins.
 
 **A sign-in is code, and no model ever holds one.** A connection's service
 throws `NeedsSignIn` when signing in would fix what failed. The turn stops
@@ -356,7 +398,7 @@ somebody with the mail scopes rewritten out of it.
 
 **A connection reaches its service with plain web requests, never a program
 and never a package of the service's own.** Google is `googleApi()` in
-`connections/google/googleService.ts`, a `fetch` with the signed-in key, and
+`plugins/google/googleService.ts`, a `fetch` with the signed-in key, and
 nothing beside chloe is installed. A service's tools that need no binding of
 chloe's own come from its MCP server instead.
 
@@ -385,7 +427,7 @@ each function is the verb and the noun: `gmail.readEmail()`, `resend.sendEmail()
 services can each have a `sendEmail`. The name a model sees is the key the agent
 gives it, by convention the two run together: `gmailReadEmail`, `fsListFiles`,
 `memoryWriteFile`, `ownReadFile`, `scriptRun`, `webReadPage`. An entrance is
-the tools' own file (Gmail's is `connections/google/gmail.ts`), so everything
+the tools' own file (Gmail's is `plugins/google/gmail.ts`), so everything
 that file exports is published: what several tools share goes in a file that is
 not an entrance, like `model/tools/sending.ts`.
 A service's function is named for the work, `deliverEmail()`, and never
@@ -450,10 +492,11 @@ first in `model.preferredRoute`. The claude route strips `ANTHROPIC_API_KEY` fro
 the CLI's environment, because the CLI would bill it ahead of the subscription.
 Nothing about a model's name decides which account pays for it.
 
-Each CLI route is one file the shape of `model/claude.ts` with the CLI's own
-tools switched off, and `model/cli.ts` is what they share. The claude and
+Each CLI route is one file in `plugins/subscriptions/` the shape of `claude.ts`
+there, with the CLI's own tools switched off, and `cli.ts` beside it is what
+they share, each a `ModelRoute` (`model/model.ts`). The claude and
 opencode routes hand a turn's tools over as real ones, through
-`model/toolServer.ts`, a server that runs nothing, and stop after the model's
+`plugins/subscriptions/toolServer.ts`, a server that runs nothing, and stop after the model's
 first answer, so every call is read as data: claude's from the CLI's record,
 opencode's from the events of a server of its own that the route starts for the
 call, where each tool asks first and chloe always says no. `opencode run` cannot
@@ -711,14 +754,14 @@ With `mailbox: "gmail"`, `emailChannel` uses the account Google is signed in to
 (`connections.google.account`, the same sign-in as the mail tools): it makes
 each conversation's address by tagging that account (`you+<8 letters>@gmail.com`),
 sends from the account with that address as Reply-To, and asks Gmail what is
-new every few seconds (`connections/google/mailbox.ts`: where the mailbox is up
+new every few seconds (`plugins/google/mailbox.ts`: where the mailbox is up
 to, what was added since, the recipients of each, and the whole message only for
 one addressed to an open tag). Where it is up to is kept in `email_mailbox` and
 moved only after everything new was dealt with. The channel names Google as its
 `needs`, the way a tool does, so `neededBy()` puts it on the Connections page
 and a pasted code finishes its sign-in, with no Gmail tool beside it. With
 `mailbox: "password"` it is the same, on the mailbox in `agents.<id>.email`
-(an address and an app password): `connections/mail/mailbox.ts` reads it with
+(an address and an app password): `plugins/email/mailbox.ts` reads it with
 IMAP and sends with SMTP, written on node's own TLS, keeps one reading
 connection open between asks, peeks so nothing is marked read, and keeps where
 it is up to as `<UIDVALIDITY>:<next UID>`. It never sends the password over a
@@ -781,8 +824,9 @@ sent by a person, and in no other way from a chat: a model's reply that reads
 written to ask for it. A plain message is the agent's to handle in its turn,
 with a skill saying how. Do not invent a second envelope for a new channel.
 
-**Every route is one entry in the list in `serve/http.ts`**, carrying its
-own one-line description, and `GET /api` is generated from that list. Adding a
+**Every route is one entry in the list in `serve/http.ts`, or in a plugin's
+`routes`**, carrying its own one-line description, and `GET /api` is
+generated from those lists. Adding a
 route means adding an entry, and a route with no description is a route that
 does not compile. Do not answer a path anywhere else.
 
@@ -797,7 +841,7 @@ the notes, or touch the tokens.
 
 **A web page reaches an agent because its `agent.ts` says `channels: { web:
 webChannel({ origins, tools }) }`**, and the routes under `/api/agents/<id>/web/` are
-`serve/web.ts`. A visitor is a guest: `guests` in `receive()`'s rules
+`plugins/web-channel/routes.ts`. A visitor is a guest: `guests` in `receive()`'s rules
 takes their message as a turn, `/clear` or an answer to a job that asked them,
 never a command, a model pick or a sign-in, and their turn gets the tools the
 channel names and none of the agent's others. Each turn is refused once the
@@ -811,7 +855,7 @@ with `web-pass.key` in the state folder, and never a token. Each turn notes the
 visitor's address, country and browser in `visitors`, and tells the model
 everything but the address; `memoryPerUser` gives the agent a note per
 person on any channel, `users/<channel>-<id>.md`, chosen from who sent the
-message and never by the model. The box itself is `chat/`, plain JavaScript with no
+message and never by the model. The box itself is `plugins/web-channel/chat/`, plain JavaScript with no
 build step, served at `/api/web/chat.js` and copied into `dist/` by the build.
 Do not let a web turn reach a memory or self tool, and do not answer a visitor
 with anything the pass does not name.
@@ -968,7 +1012,7 @@ client made in the console as a desktop app may send its answer to any port on
 the machine and to no address on the internet. One made as a web application is
 the other way round, except that a loopback address is allowed as a named
 exception. So the sign-in that finishes by itself needs a web client, and
-`connections/google/googleService.ts` asks Google to answer at one fixed loopback port
+`plugins/google/googleService.ts` asks Google to answer at one fixed loopback port
 rather than a port picked per run, because a web client only accepts the exact
 addresses somebody registered and "any port" is not something you can register.
 A client file holding its id and secret loose, with neither an `installed` nor a
@@ -1028,7 +1072,7 @@ an `abilities` flag in its definition instead, and the loader adds the tools.
 A flag is `true` or `false`, or for an ability that reaches something outside
 (`email`, `calendar`, `drive`) its fields as plain values, so the Tools page can
 switch it and fill them in by changing agent.ts (`changeAbility()` in
-`serve/config.ts`). `ABILITIES` in `load/abilities.ts` is the list: each one's
+`serve/config.ts`). `allAbilities()` in `load/abilities.ts` is the list, each plugin's: each one's
 default, its fields (`OptionSpec`, shared with the channels), the tools it makes
 from them, and a test holds the list to what the loader adds. A tool says its
 own `title`, so the page never works one out from a name. One tool is
@@ -1040,7 +1084,7 @@ is off.
 `Channel` has a `name`, and `channels` in a definition is one object keyed by
 that name like `tools` (`channelsOf()` in `load/load.ts`), each value the
 channel itself. The loader knows no shipped channel: one of the agent's own
-plugs in the same way. `channels/telegram.ts` is allowed to know it is Telegram. Nothing outside
+plugs in the same way. `plugins/telegram/telegram.ts` is allowed to know it is Telegram. Nothing outside
 that file is: a job's question goes out to an address, `channel:who`, and
 `model/ask.ts` looks the channel half up in a registry each running
 channel fills for its own agent, so an agent's question goes out through its

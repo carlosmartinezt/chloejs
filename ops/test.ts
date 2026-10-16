@@ -5,6 +5,7 @@
 // ops/test/ is one part of the runtime and runs its cases as it loads, in the
 // order below. ops/test/shared.ts sets up the stand-ins they all use, and is
 // imported first.
+import { existsSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,7 +13,7 @@ import { pathToFileURL } from "node:url";
 import { failed } from "#chloe/ops/check";
 import { gateway } from "./test/shared.ts";
 
-for (const part of ["steps", "settings", "google", "connections", "routes", "loading"]) await import(`./test/${part}.ts`);
+for (const part of ["steps", "settings", "connections", "routes", "loading"]) await import(`./test/${part}.ts`);
 
 // Then whatever the repo that installed chloe tests about its own jobs. A
 // file named `<job>.test.ts` anywhere in an agent's folder runs its cases as
@@ -26,13 +27,7 @@ for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) 
 
 for (const part of [
   "files",
-  "telegram",
-  "slack",
-  "discord",
-  "whatsapp",
-  "email",
   "api-channel",
-  "web-channel",
   "turns",
   "notes",
   "services",
@@ -40,8 +35,16 @@ for (const part of [
   "memory-routes",
   "people",
   "setup",
+  "plugins",
 ]) {
   await import(`./test/${part}.ts`);
+}
+
+// Then each plugin's own, in its folder, so taking a plugin out takes its tests with it.
+const plugins = new URL("../plugins/", import.meta.url);
+for (const one of await readdir(plugins, { withFileTypes: true })) {
+  const test = new URL(`${one.name}/test.ts`, plugins);
+  if (one.isDirectory() && existsSync(test)) await import(test.href);
 }
 
 await rm(process.env.CHLOE_STATE!, { recursive: true, force: true });

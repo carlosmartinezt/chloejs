@@ -8,10 +8,16 @@ import { api } from "../../lib/api.ts";
  * straight back to it. The button opens the sign-in page in a new tab at
  * once, then asks for what that page gives: a code to paste back, or, when
  * the person types a code there instead (`code`), only to say they are done.
- * With no agent it is Google's, which is the whole copy's. `done` refreshes
- * the list once it is finished.
+ * With no agent it is a sign-in for the whole copy, whose plugin gives it as
+ * `whole`, like Google's. `done` refreshes the list once it is finished.
  */
-export function SignIn({ agent, name, again, done }: { agent?: string; name: string; again: boolean; done: () => void }) {
+export function SignIn({ agent, name, again, whole, done }: {
+  agent?: string;
+  name: string;
+  again: boolean;
+  whole?: { start(): Promise<{ say: string; link?: string; code?: string }>; finish(answer: string): Promise<string> };
+  done: () => void;
+}) {
   const [started, setStarted] = useState<{ say: string; link?: string; code?: string } | null>(null);
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,7 +31,7 @@ export function SignIn({ agent, name, again, done }: { agent?: string; name: str
     // Opened now, while the click still counts, or the browser blocks it; it is pointed at the page once the link is back.
     const tab = window.open("", "_blank");
     try {
-      const got = agent ? await api.startSignIn(agent, name) : await api.startGoogle();
+      const got = agent ? await api.startSignIn(agent, name) : await whole!.start();
       if (got.link && tab) {
         tab.opener = null;
         tab.location.href = got.link;
@@ -44,9 +50,7 @@ export function SignIn({ agent, name, again, done }: { agent?: string; name: str
     setBad("");
     try {
       setSaid(
-        agent
-          ? (await api.finishSignIn(agent, name, given)).said
-          : `Signed in to Google as ${(await api.finishGoogle(given)).account}.`,
+        agent ? (await api.finishSignIn(agent, name, given)).said : await whole!.finish(given),
       );
       setStarted(null);
       setAnswer("");

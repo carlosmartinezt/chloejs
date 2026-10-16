@@ -62,7 +62,8 @@ import { about, is } from "#chloe/ops/check";
   // The model is setup's to write into the settings, which this config has not been given.
   const agent = await resolveAgent({ ...declared.agents[0], model: "m" });
   is("and the agent loads, with its purpose read from its folder", agent.purpose.startsWith("You were set up"), true);
-  is("and may change itself", Boolean(agent.tools?.selfWriteFile), true);
+  const { allAbilities } = await import("#chloe/load/abilities");
+  is("and may change itself, while self improvement is in", Boolean(agent.tools?.selfWriteFile), allAbilities().some((one) => one.tools.includes("selfWriteFile")));
   await rm(folder, { recursive: true, force: true });
 }
 

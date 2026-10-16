@@ -10,7 +10,6 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 
 import { agentDir, memoryDir } from "#chloe/core/paths";
-import { settings } from "#chloe/core/settings";
 import { run, type Result } from "./runService.ts";
 
 /** How deep inside a skill's folder a script is looked for. */
@@ -71,8 +70,7 @@ export async function listScripts(agent: string): Promise<string[]> {
  *
  * The script file must be executable, with a first line such as `#!/bin/sh`.
  * It gets chloe's environment variables, plus `MEMORY_FOLDER` (the agent's
- * memory folder) and `GA_KEY_FILE` (when `connections.google.GA_KEY_FILE` is
- * set in the settings).
+ * memory folder).
  *
  * Returns a `Result`, plus `script` and `args`. It does not throw when the
  * script fails: check `exitCode`.
@@ -95,12 +93,9 @@ export async function runScripts(
   const file = skill ? `${agentDir(agent)}/skills/${name}` : `${dir}/${name}`;
   // A script is someone else's program, so what it needs reaches it the way a
   // program expects, as an environment variable: its agent's memory folder as
-  // MEMORY_FOLDER, and what it needs from settings.
+  // MEMORY_FOLDER.
   const memory = memoryDir(agent);
-  const env: Record<string, string> = {
-    ...(memory && { MEMORY_FOLDER: memory }),
-    ...(settings.connections.google.GA_KEY_FILE && { GA_KEY_FILE: settings.connections.google.GA_KEY_FILE }),
-  };
+  const env: Record<string, string> = { ...(memory && { MEMORY_FOLDER: memory }) };
   const result = await run(file, args, { timeoutMs, cwd: cwd ?? dir, env, signal });
   return { script: name, args, ...result };
 }

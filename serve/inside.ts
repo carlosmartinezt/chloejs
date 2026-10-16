@@ -13,13 +13,11 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { ABILITIES, abilityOn, abilityToolSet, abilityValues, type Agent } from "#chloe/load/load";
+import { allAbilities, abilityOn, abilityToolSet, abilityValues, type Agent } from "#chloe/load/load";
 import { defaultOf, valueAtName, type OptionSpec } from "#chloe/load/options";
-import { webOf } from "#chloe/channels/web";
 import { alwaysOnTools, money, spentText } from "#chloe/core/turn";
 import { saidChannel, saidIn, type Said } from "./config.ts";
 import { BadRequest, NotFound } from "./errors.ts";
-import { spent } from "./web.ts";
 
 /** One way in or one way out, said the same way so one page draws both. */
 export interface Way {
@@ -160,7 +158,7 @@ export async function toolsOf(agent: Agent): Promise<ToolShown[]> {
   const mine = Object.entries(agent.tools ?? {}).map(([name, tool]) => shown(name, tool, { on: true, ...(from[name] && { from: from[name] }) }));
   const off = Object.entries(agent.toolsOff ?? {}).map(([name, tool]) => shown(name, tool, { on: false, ...(from[name] && { from: from[name] }) }));
   // What an ability that is off would bring, so what switching it on does is plain.
-  const brings = ABILITIES.filter((one) => !abilityOn(agent.abilities, one.name)).flatMap((one) =>
+  const brings = allAbilities().filter((one) => !abilityOn(agent.abilities, one.name)).flatMap((one) =>
     Object.entries(abilityToolSet(agent, one.name, agent.abilities, true)).map(([name, tool]) => shown(name, tool, { on: false, from: `abilities.${one.name}` })),
   );
   const always = alwaysOnTools(agent).map((one) => shown(one.name, one.tool, { on: true, from: "always", ...(one.ownerOnly && { ownerOnly: true }) }));
@@ -200,7 +198,7 @@ export async function abilitiesOf(agent: Agent): Promise<AbilityShown[]> {
   const file = join(agent.folder, "agent.ts");
   const text = existsSync(file) ? await readFile(file, "utf8").catch(() => "") : "";
   return Promise.all(
-    ABILITIES.map(async (one): Promise<AbilityShown> => {
+    allAbilities().map(async (one): Promise<AbilityShown> => {
       const said = text ? safely(() => saidIn(text, "abilities", one.name)) : ({ kind: "code" } as Said);
       const values = one.fields ? abilityValues(agent.abilities, one.name) : {};
       const missing = one.needs ? await one.needs.missing().catch((error: Error) => [error.message]) : [];
@@ -232,7 +230,7 @@ export async function abilitiesOf(agent: Agent): Promise<AbilityShown[]> {
 
 /** The labels of the abilities that are on, for the agent's own page. */
 export function abilityNames(agent: Agent): { name: string; label: string; on: boolean }[] {
-  return ABILITIES.map((one) => ({ name: one.name, label: one.label, on: abilityOn(agent.abilities, one.name) }));
+  return allAbilities().map((one) => ({ name: one.name, label: one.label, on: abilityOn(agent.abilities, one.name) }));
 }
 
 const safely = <T,>(work: () => T): T | { kind: "code" } => {
@@ -316,7 +314,7 @@ function optionsShown(specs: OptionSpec[], said: Said, value: (name: string) => 
  * made from them keeps no copy.
  */
 export async function channelsOf(agent: Agent): Promise<ChannelShown[]> {
-  const { CHANNELS } = await import("#chloe/channels/catalog");
+  const CHANNELS = (await import("#chloe/channels/catalog")).channelKinds();
   const file = agent.folder ? join(agent.folder, "agent.ts") : "";
   const text = file && existsSync(file) ? await readFile(file, "utf8").catch(() => "") : "";
   const held = settings.agents[agent.id] as unknown as Record<string, unknown> | undefined;
@@ -330,19 +328,10 @@ export async function channelsOf(agent: Agent): Promise<ChannelShown[]> {
       const valueOf = (name: string) => (said.kind === "fields" && name in said.values ? said.values[name] : valueAtName(made, name));
       const needs = channel?.needs ? { name: channel.needs.name, missing: await channel.needs.missing().catch((error: Error) => [error.message]) } : undefined;
       const names = kind.fields.map((one) => one.name.split(".")[0]);
-      const web = channel && kind.name === "web" ? webOf(agent) : undefined;
-      const day = web ? spent(agent.id) : undefined;
       return {
         name: kind.name,
         label: kind.label,
-        does:
-          web && day
-            ? `A chat box on a web page, for anybody who visits ${web.origins.join(" or ")}. ` +
-              `The last 24 hours: ${day.visitors} ${day.visitors === 1 ? "visitor" : "visitors"}, ${day.messages} ${day.messages === 1 ? "message" : "messages"}, ` +
-              (day.unpriced
-                ? `${spentText(day.dollars, day.unpriced)} spent, because ${day.unpriced} ${day.unpriced === 1 ? "answer" : "answers"} came with no price, so it refuses visitors until those are a day old.`
-                : `${money(day.dollars)} of the ${money(web.limits.perDay.dollars)} it may spend.`)
-            : kind.does,
+        does: (channel && kind.doing?.(agent)) || kind.does,
         on: Boolean(channel),
         fields: optionsShown(kind.fields, said, valueOf),
         secrets: kind.secrets.map((one) => ({ ...one, set: filledAt(one.path) })),

@@ -18,6 +18,12 @@ export interface Since {
 }
 
 /**
+ * Every mailbox an email channel can be on, by the name its `mailbox` option
+ * gives it. A plugin with a mailbox adds its own, like `gmail: true`.
+ */
+export interface Mailboxes {}
+
+/**
  * A mailbox the email channel asks what is new every few seconds: Gmail, or one
  * signed in to with an address and a password. A test hands in its own.
  */
@@ -475,4 +481,65 @@ export async function signedBy(raw: string, domain: string, look: LookUp = lookU
   if (ours.some((one) => one.pass)) return { ok: true, why: "it checks out" };
   if (!ours.length) return { ok: false, why: `nothing on it is signed by ${wanted} (signed by ${all.map((one) => one.domain).join(", ")})` };
   return { ok: false, why: ours.map((one) => one.why).join("; ") };
+}
+
+/** A header value, refused when it holds a line break, which would be a second header nobody wrote. */
+function headerValue(name: string, value: string): string {
+  if (/[\r\n]/.test(value)) throw new Error(`The ${name} line has a line break in it, so nothing was sent.`);
+  return value;
+}
+
+/** A subject that is not plain ASCII, written the way mail headers carry it. */
+function encoded(value: string): string {
+  return /^[\x20-\x7e]*$/.test(value) ? value : `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
+}
+
+/** One mail, as the text an `Inbox` sends, in the URL-safe base64 Gmail wants. */
+export function rawMail({
+  from,
+  to,
+  replyTo,
+  subject,
+  text,
+  html,
+  inReplyTo,
+  references,
+}: {
+  from?: string;
+  to: string[];
+  replyTo?: string[];
+  subject: string;
+  text: string;
+  html?: string;
+  inReplyTo?: string;
+  references?: string;
+}): string {
+  const lines = [
+    ...(from ? [`From: ${headerValue("From", from)}`] : []),
+    `To: ${headerValue("To", to.join(", "))}`,
+    ...(replyTo?.length ? [`Reply-To: ${headerValue("Reply-To", replyTo.join(", "))}`] : []),
+    `Subject: ${encoded(headerValue("Subject", subject))}`,
+    ...(inReplyTo ? [`In-Reply-To: ${headerValue("In-Reply-To", inReplyTo)}`] : []),
+    ...(references ? [`References: ${headerValue("References", references)}`] : []),
+    "MIME-Version: 1.0",
+  ];
+  const body = (type: string, content: string) =>
+    [`Content-Type: ${type}; charset=UTF-8`, "Content-Transfer-Encoding: base64", "", Buffer.from(content, "utf8").toString("base64")].join("\r\n");
+  let mail: string;
+  if (html) {
+    const boundary = `chloe-${Date.now().toString(36)}`;
+    mail = [
+      ...lines,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      body("text/plain", text),
+      `--${boundary}`,
+      body("text/html", html),
+      `--${boundary}--`,
+    ].join("\r\n");
+  } else {
+    mail = [...lines, body("text/plain", text)].join("\r\n");
+  }
+  return Buffer.from(mail, "utf8").toString("base64url");
 }

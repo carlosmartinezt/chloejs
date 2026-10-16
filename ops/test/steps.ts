@@ -221,7 +221,6 @@ about("an agent written with the AI SDK's own model and tools");
     folder: await mkdtemp(join(tmpdir(), "chloe-sdk-")),
     identity: "",
     purpose: "Answer about the weather.",
-    abilities: { memory: false },
     model: standIn("pal-1"),
     tools: {
       weather: Object.assign(tool({
@@ -243,7 +242,7 @@ about("an agent written with the AI SDK's own model and tools");
   is("its model goes by the provider's own name for it", agent.model, "standin/pal-1");
   is("and is reached by its own package, whatever the routes say", routeFor(agent.model), "direct");
   is("it is on offer for that agent", models(agent).find((one) => one.model === agent.model)?.route, "direct");
-  is("its tools are the ones it was given, by their names, and selfWriteFile", Object.keys(agent.tools ?? {}).sort(), ["convert", "selfWriteFile", "weather"]);
+  is("its tools are the ones it was given, by their names", Object.keys(agent.tools ?? {}).filter((name) => !agent.toolsFrom?.[name]).sort(), ["convert", "weather"]);
 
   answers.push(
     { content: "", tool_calls: [{ id: "1", type: "function", function: { name: "weather", arguments: '{"location":"San Francisco"}' } }] },

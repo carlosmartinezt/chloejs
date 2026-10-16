@@ -313,19 +313,6 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   await turn({ agent, prompt: "improve yourself", source: "schedule", job: "nightly" });
   is("nor a turn nobody said may, like a scheduled one", lastTools.includes("selfWriteFile"), false);
 
-  const told = () => lastAsked.find((m) => m.role === "system")?.content ?? "";
-  const improving = agent;
-  answers.push("No.");
-  await turn({ agent: { ...agent, abilities: { selfImprovement: false } }, prompt: "improve yourself", source: "schedule", job: "nightly" });
-  is("an agent with selfImprovement off is not told about changing itself", [told().includes("## Changing yourself"), told().includes("## How you grow")], [false, false]);
-  answers.push("No.");
-  await turn({ agent: improving, prompt: "improve yourself", source: "schedule", job: "nightly" });
-  is("an agent that may change itself is told in a turn that cannot who can ask, and to keep the lesson", told().includes("## Changing yourself") && told().includes("Keep what you learned in your memory"), true);
-  is("and that what it cannot do is not yet, and repeated work can be a habit", told().includes("cannot do it yet") && told().includes("make it a habit"), true);
-  answers.push("Done.");
-  await turn({ agent: improving, prompt: "change it", source: "test", mayChangeAgent: true });
-  is("and not in a turn that can", told().includes("## Changing yourself"), false);
-
   const call = (id: string, name: string) => ({ id, type: "function", function: { name, arguments: "{}" } });
   answers.push({ content: "", tool_calls: [call("a", "memoryReadFile"), call("b", "selfWriteFile")] }, "Changed.");
   const kept = await turn({ agent, prompt: "keep that", source: "test", mayChangeAgent: true });
@@ -462,8 +449,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("nor an eval's", refused("r-eval").startsWith("You have no run"), true);
 
   const { ownFile } = await import("#chloe/services/selfService");
-  const own = await ownFile(agent, false, "purpose.md");
-  is("with selfImprovement off it reads its files and is told it cannot change them", [own.content, own.canWrite, own.why?.includes("selfImprovement")], ["Be brief.", false, true]);
+  is("it reads its own files", (await ownFile(agent, "purpose.md")).content, "Be brief.");
 
   const written: string[] = [];
   const writer = { ...agent, tools: { selfWriteFile: Object.assign(tool({ description: "Change a file.", inputSchema: z.object({}), execute: async () => (written.push("x"), "Written.") }), { own: true, forOwner: true, changesAgent: true }) } };
@@ -665,17 +651,6 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   answers.push("Hello.");
   await receive(shop, { channel: "test", chat: "t", thread: "test/tools-guest", from: { id: "v", name: "a visitor" }, text: "hi", private: true }, { tools: ["shopOrders"], guests: true });
   is("a guest's turn has only what is named", [lastTools.includes("shopOrders"), lastTools.includes("memoryReadFile"), lastTools.includes("ownReadFile")], [true, false, false]);
-  const toldNow = () => lastAsked.find((m) => m.role === "system")?.content ?? "";
-  is("nor is it told where the memory opens on the dashboard", toldNow().includes("## Links to your memory"), false);
-  {
-    const { settings } = await import("@chloejs/core");
-    const before = settings.serve;
-    settings.serve = { ...before, url: "https://chloe.example.com/" };
-    answers.push("Here.");
-    await receive(shop, { channel: "test", chat: "t", thread: "test/tools-named", from: { id: "1", name: "Me" }, text: "a link?", private: true }, { tools: ["shopOrders"] });
-    is("anybody else is told the link to a file in its memory, from serve.url", toldNow().includes(`https://chloe.example.com/agents/${shop.id}/memory/<its path`), true);
-    settings.serve = before;
-  }
 
   // A job that holds each run open until the case lets it go.
   const inputs: { text: string; userId: string; from: string }[] = [];

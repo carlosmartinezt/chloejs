@@ -30,39 +30,39 @@
       "default": "./dist/timer/index.js"
     },
     "./tools/gmail": {
-      "chloe-source": "./connections/google/gmail.ts",
-      "types": "./dist/connections/google/gmail.d.ts",
-      "default": "./dist/connections/google/gmail.js"
+      "chloe-source": "./plugins/google/gmail.ts",
+      "types": "./dist/plugins/google/gmail.d.ts",
+      "default": "./dist/plugins/google/gmail.js"
     },
     "./tools/calendar": {
-      "chloe-source": "./connections/google/calendar.ts",
-      "types": "./dist/connections/google/calendar.d.ts",
-      "default": "./dist/connections/google/calendar.js"
+      "chloe-source": "./plugins/google/calendar.ts",
+      "types": "./dist/plugins/google/calendar.d.ts",
+      "default": "./dist/plugins/google/calendar.js"
     },
     "./tools/drive": {
-      "chloe-source": "./connections/google/drive.ts",
-      "types": "./dist/connections/google/drive.d.ts",
-      "default": "./dist/connections/google/drive.js"
+      "chloe-source": "./plugins/google/drive.ts",
+      "types": "./dist/plugins/google/drive.d.ts",
+      "default": "./dist/plugins/google/drive.js"
     },
     "./tools/resend": {
-      "chloe-source": "./connections/resend/resend.ts",
-      "types": "./dist/connections/resend/resend.d.ts",
-      "default": "./dist/connections/resend/resend.js"
+      "chloe-source": "./plugins/resend/resend.ts",
+      "types": "./dist/plugins/resend/resend.d.ts",
+      "default": "./dist/plugins/resend/resend.js"
     },
     "./tools/email": {
-      "chloe-source": "./model/tools/email.ts",
-      "types": "./dist/model/tools/email.d.ts",
-      "default": "./dist/model/tools/email.js"
+      "chloe-source": "./plugins/email/tools.ts",
+      "types": "./dist/plugins/email/tools.d.ts",
+      "default": "./dist/plugins/email/tools.js"
     },
     "./tools/telegram": {
-      "chloe-source": "./model/tools/telegram.ts",
-      "types": "./dist/model/tools/telegram.d.ts",
-      "default": "./dist/model/tools/telegram.js"
+      "chloe-source": "./plugins/telegram/tools.ts",
+      "types": "./dist/plugins/telegram/tools.d.ts",
+      "default": "./dist/plugins/telegram/tools.js"
     },
     "./tools/web": {
-      "chloe-source": "./model/tools/web.ts",
-      "types": "./dist/model/tools/web.d.ts",
-      "default": "./dist/model/tools/web.js"
+      "chloe-source": "./plugins/web/tools.ts",
+      "types": "./dist/plugins/web/tools.d.ts",
+      "default": "./dist/plugins/web/tools.js"
     },
     "./tools/fs": {
       "chloe-source": "./model/tools/fs.ts",
@@ -131,7 +131,7 @@
     "human-in-the-loop"
   ],
   "scripts": {
-    "build": "rm -rf dist && npm run build:site && tsc -p tsconfig.build.json && cp -r chat dist/chat && mkdir dist/site && cp -r site/page dist/site/page && node ops/docs.ts dist/docs",
+    "build": "rm -rf dist && npm run build:site && tsc -p tsconfig.build.json && mkdir -p dist/plugins/web-channel && cp -r plugins/web-channel/chat dist/plugins/web-channel/chat && mkdir dist/site && cp -r site/page dist/site/page && node ops/docs.ts dist/docs",
     "build:site": "node site/build.ts",
     "dev:site": "node site/dev.ts",
     "prepack": "npm run build",
@@ -144,6 +144,8 @@
     "test": "npm run build:site && node --conditions=chloe-source ops/test.ts && node --test-reporter=spec site/test.ts",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p site",
     "check": "npm run typecheck && node ops/docs.ts && npm run test && npm run example",
+    "check:plugins": "node --conditions=chloe-source ops/plugins.ts check",
+    "plugins": "node --conditions=chloe-source ops/plugins.ts",
     "example": "cd example && node --conditions=chloe-source ../ops/test.ts"
   },
   "devDependencies": {

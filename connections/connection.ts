@@ -1,6 +1,6 @@
 // What a connection is: an outside account chloe works through, like Google or
-// Resend. Each one is a folder in here with its tools, its services and a
-// `connection.ts` saying what it needs.
+// Resend. Each one chloe ships is in its plugin's folder, with its tools, its
+// services and a `connection.ts` saying what it needs.
 //
 // A tool that works through one names it as its `needs`, and the runtime learns
 // the rest from the connection and never by name: the setup page asks it what is
@@ -9,6 +9,8 @@
 // sign-in and sends its words and link as written, and the answer the person
 // sends back is caught by `receive()` before any model sees it. A connection in
 // an agent's own folder is the same shape and needs nothing from the runtime.
+
+import type { Tools } from "#chloe/model/tool";
 
 /**
  * How a person signs in to a connection from a chat. chloe runs these three
@@ -69,6 +71,15 @@ export interface Connection {
    * and printed when chloe starts.
    */
   missing(): Promise<string[]>;
+}
+
+/**
+ * A connection an agent lists in its `connections`, which brings tools of its
+ * own as the agent loads, like a service's MCP server (`mcpConnection`).
+ */
+export interface ToolConnection extends Connection {
+  /** Asks the service for its tools and returns them, named for the model. chloe calls this when the agent loads. */
+  tools(): Promise<Tools>;
 }
 
 /**

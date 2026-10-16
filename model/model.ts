@@ -1,13 +1,11 @@
-// Asking a model, by one of five routes.
+// Asking a model, by one of its routes.
 //
 // A model is a string like "anthropic/claude-sonnet-5": a provider, then the
 // model's name. Which route it goes by is `routeFor()` below, unless the
 // string ends in one, "openai/gpt-5.5 via gateway":
 //
-//   claude    the Claude Code CLI, Anthropic models, on a Claude subscription.
-//   codex     the Codex CLI, OpenAI models, on a ChatGPT plan.
-//   antigravity  the Antigravity CLI, Google models, on a Google AI Pro plan.
-//   opencode  the opencode CLI, whatever it is signed in to.
+//   a plugin's  a program on this box, on its own subscription, like the
+//             Claude Code CLI ("claude"). Each is a `ModelRoute`.
 //   direct    the provider's own API, on its key in model.keys, charged per
 //             call. An AI SDK model an agent's file gave, like
 //             anthropic("claude-opus-5-5"), always goes this way, however its
@@ -18,8 +16,8 @@
 //
 // The last two go through the AI SDK, in key.ts.
 //
-// A CLI is the only way to spend a subscription: it authorises the program,
-// and there is no key to put in a header. Everything above this file is the
+// A program is the only way to spend a subscription: it authorises the
+// program, and there is no key to put in a header. Everything above this file is the
 // same either way, which is the reason ask() is the only seam.
 
 import { accessSync, constants } from "node:fs";
@@ -29,23 +27,55 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Agent } from "#chloe/load/load";
 import { ROUTES, settings } from "#chloe/core/settings";
 
-import { antigravityModels, viaAntigravity } from "./antigravity.ts";
-import { claudeModels, viaClaude } from "./claude.ts";
-import { codexModels, viaCodex } from "./codex.ts";
+import { PLUGINS } from "#chloe/plugins/index";
 import { anyOwnKey, anySdkModel, fetchingPrices, learnPrices, ownKey, sdkModel, spelling, viaKey } from "./key.ts";
-import { forgetOpencodeModels, opencodeModels, viaOpencode } from "./opencode.ts";
 
 export type { Route } from "#chloe/core/settings";
 import type { Route } from "#chloe/core/settings";
 
-const VIA = new RegExp(` via (${ROUTES.join("|")})$`);
+/**
+ * A way to reach a model through a program on this box, on that program's own
+ * subscription. A plugin brings it in `modelRoutes`.
+ */
+export interface ModelRoute {
+  /** Its name in `model.preferredRoute` and after "via", like "claude". */
+  name: Route;
+  /** What the startup line calls it, like "Claude, on a subscription". */
+  says: string;
+  /** Whether it spends a plan whose terms may not cover agents running on their own, which the startup line says when it is first. */
+  subscription?: boolean;
+  /** Whether it can run this provider's models at all. */
+  carries(provider: string): boolean;
+  /** The models it said it runs when last asked, or none: then it runs whatever its provider has by name. */
+  listed(): string[];
+  /** Asks the program again what it runs. Called at startup and each reload, only when the program is here. */
+  learn(): Promise<void>;
+  /** Asks the model. */
+  ask(request: Ask): Promise<Answer>;
+  /**
+   * How `npx chloe setup` offers it, when its program is here: `what` in the
+   * list, then `model` as the default model, or else a pick from what it
+   * lists, asked as `question`, with `empty` said when it lists nothing.
+   */
+  setup?: { what: string; model?: string; question?: string; empty?: string };
+}
+
+/** Every route a plugin brings. */
+export function modelRoutes(): ModelRoute[] {
+  return PLUGINS.flatMap((one) => one.modelRoutes ?? []);
+}
+
+/** The plugin's route of this name, if there is one. */
+export function modelRoute(route: Route): ModelRoute | undefined {
+  return modelRoutes().find((one) => one.name === route);
+}
 
 /**
  * A model's name without the route it may end in, and that route:
  * "openai/gpt-5.5 via gateway" is "openai/gpt-5.5" and "gateway".
  */
 export function viaOf(model: string): { name: string; via?: Route } {
-  const found = model.match(VIA);
+  const found = model.match(new RegExp(` via (${ROUTES.join("|")})$`));
   return found ? { name: model.slice(0, found.index), via: found[1] as Route } : { name: model };
 }
 
@@ -57,17 +87,13 @@ export function providerOf(model: string): string {
 
 /**
  * Whether a route can run a provider's models at all. The gateway carries any
- * provider, each subscription CLI carries its own, the direct route each
- * provider with a key in `model.keys`, and opencode whatever it is signed in
- * to, which it is asked for rather than told.
+ * provider, the direct route each provider with a key in `model.keys`, and a
+ * plugin's route what it says it does.
  */
 function carries(route: Route, provider: string): boolean {
   if (route === "gateway") return true;
   if (route === "direct") return Boolean(ownKey(provider));
-  if (route === "claude") return provider === "anthropic";
-  if (route === "codex") return provider === "openai";
-  if (route === "antigravity") return provider === "google";
-  return opencodeModels().some((model) => providerOf(model) === provider);
+  return modelRoute(route)?.carries(provider) ?? false;
 }
 
 /**
@@ -93,9 +119,9 @@ function gatewayKey(): string {
   return settings.model.key;
 }
 
-/** The program a CLI route runs, which `model.program` may rename. */
-function programOf(route: Exclude<Route, "gateway" | "direct">): string {
-  return settings.model.program[route];
+/** The program a plugin's route runs: `model.program.<its name>`, which its plugin gives a default. */
+export function programOf(route: ModelRoute): string {
+  return (settings.model.program as unknown as Record<string, string | undefined>)[route.name] ?? "";
 }
 
 function onPath(program: string): boolean {
@@ -120,7 +146,9 @@ function can(path: string): boolean {
  */
 export function runnable(route: Route): boolean {
   if (route === "direct") return anyOwnKey();
-  return route === "gateway" ? Boolean(gatewayKey()) : onPath(programOf(route));
+  if (route === "gateway") return Boolean(gatewayKey());
+  const found = modelRoute(route);
+  return Boolean(found && onPath(programOf(found)));
 }
 
 /** Whether this box can run one model: an AI SDK model always, a name when its route is set up for its provider. */
@@ -133,12 +161,9 @@ function canRun(model: string): boolean {
 /** The gateway's own list, once it has answered. Empty until then, and it is only an offer. */
 let fromGateway: string[] = [];
 
-/** What the claude, codex and antigravity commands said they run, when last asked. */
-let fromCli: Partial<Record<Route, string[]>> = {};
-
 /** A route's own list of models, or nothing for one that has none and runs whatever its provider has. */
 function listOf(route: Route): string[] | undefined {
-  const list = route === "gateway" ? fromGateway : route === "opencode" ? opencodeModels() : (fromCli[route] ?? []);
+  const list = route === "gateway" ? fromGateway : (modelRoute(route)?.listed() ?? []);
   return list.length ? list : undefined;
 }
 
@@ -150,7 +175,7 @@ function listOf(route: Route): string[] | undefined {
  */
 function spelledBy(route: Route, model: string): string | undefined {
   const list = listOf(route);
-  if (!list) return route !== "gateway" && route !== "opencode" && carries(route, providerOf(model)) ? model : undefined;
+  if (!list) return route !== "gateway" && carries(route, providerOf(model)) ? model : undefined;
   return list.find((one) => spelling(one) === spelling(model));
 }
 
@@ -177,8 +202,7 @@ function otherRoutes(model: string): Offered[] {
 function shortlist(): string[] {
   if (settings.model.models.length) return settings.model.models;
   const listed = gatewayKey() ? fromGateway : fromGateway.filter((model) => ownKey(providerOf(model)));
-  const cli = (route: Route) => (runnable(route) ? (fromCli[route] ?? []) : []);
-  const all = [...cli("claude"), ...cli("codex"), ...cli("antigravity"), ...(runnable("opencode") ? opencodeModels() : []), ...listed];
+  const all = [...modelRoutes().flatMap((one) => (runnable(one.name) ? one.listed() : [])), ...listed];
   const seen = new Set<string>();
   return all.filter((model) => !seen.has(spelling(model)) && seen.add(spelling(model))).sort();
 }
@@ -187,8 +211,8 @@ function shortlist(): string[] {
  * Asks each route what it runs, and fetches the gateway's prices.
  *
  * The lists are what people can pick a model from (with `/models` in a chat, or
- * on the dashboard) when `model.models` in settings is empty: the claude and
- * codex commands are asked, and the gateway at `model.gatewayUrl` with
+ * on the dashboard) when `model.models` in settings is empty: each plugin's route is
+ * asked, and the gateway at `model.gatewayUrl` with
  * `/chat/completions` at the end changed to `/models`. The prices are used to
  * work out what a call on a provider's own key cost.
  *
@@ -198,14 +222,7 @@ function shortlist(): string[] {
  * own until the next try.
  */
 export async function learnModels(): Promise<void> {
-  forgetOpencodeModels();
-  const [claude, codex, antigravity] = await Promise.all([
-    runnable("claude") ? claudeModels() : [],
-    runnable("codex") ? codexModels() : [],
-    runnable("antigravity") ? antigravityModels() : [],
-    learnGateway(),
-  ]);
-  fromCli = { claude, codex, antigravity };
+  await Promise.all([...modelRoutes().map((one) => (runnable(one.name) ? one.learn() : undefined)), learnGateway()]);
 }
 
 /** A second try at the gateway's list, when the last one failed. */
@@ -361,11 +378,9 @@ export async function ask(request: Ask): Promise<Answer> {
   const waits = [2_000, 8_000];
   for (let tried = 0; ; tried++) {
     try {
-      if (route === "claude") return await viaClaude(named);
-      if (route === "codex") return await viaCodex(named);
-      if (route === "antigravity") return await viaAntigravity(named);
-      if (route === "opencode") return await viaOpencode(named);
-      return await viaKey(named, route);
+      const own = modelRoute(route);
+      if (own) return await own.ask(named);
+      return await viaKey(named, route as "direct" | "gateway");
     } catch (error) {
       if (limit?.aborted && !request.signal?.aborted) {
         throw new Error(

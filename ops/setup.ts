@@ -272,7 +272,7 @@ async function thePort(): Promise<boolean> {
  * Returns the model an agent asks here, or "" when there is none yet.
  */
 async function theModel(): Promise<string> {
-  const { runnable } = await import("#chloe/model/model");
+  const { modelRoutes, runnable } = await import("#chloe/model/model");
   const { nameInEnv, PROVIDERS, ROUTES, settings } = await import("#chloe/core/settings");
   // Every choice writes its route first, because whatever an earlier run wrote
   // stays otherwise: a key's route first would keep a subscription chosen after it unused.
@@ -290,12 +290,8 @@ async function theModel(): Promise<string> {
   // removed: what is already on this box is offered under them.
   // A subscription's terms allow it for a person's own use, not a product
   // built on it, which is what "for dev purposes only" says in fewer words.
-  const subscriptions: { key: "claude" | "codex" | "antigravity" | "opencode"; what: string }[] = [
-    ...(runnable("claude") ? [{ key: "claude" as const, what: "Claude subscription (for dev purposes only)" }] : []),
-    ...(runnable("codex") ? [{ key: "codex" as const, what: "ChatGPT subscription (for dev purposes only)" }] : []),
-    ...(runnable("antigravity") ? [{ key: "antigravity" as const, what: "Google AI Pro subscription (for dev purposes only)" }] : []),
-    ...(runnable("opencode") ? [{ key: "opencode" as const, what: "opencode subscription (for dev purposes only)" }] : []),
-  ];
+  const offered = modelRoutes().filter((one) => one.setup && runnable(one.name));
+  const subscriptions = offered.map((one) => ({ key: one.name as string, what: one.setup!.what }));
   const choice = await pick("How will your agents think?", [
     { key: "free" as const, what: "OpenRouter account (free, but slow)" },
     { key: "own" as const, what: "Anthropic or OpenAI key (pay as you go)" },
@@ -306,25 +302,16 @@ async function theModel(): Promise<string> {
     { key: "later" as const, what: "Skip for now (you can change this later)", above: "" },
   ]);
 
-  if (choice === "claude") return await settle({ defaultModel: "anthropic/claude-sonnet-5.5", preferredRoute: first("claude") });
-  if (choice === "codex") return await settle({ defaultModel: "openai/gpt-6-luna", preferredRoute: first("codex") });
-  if (choice === "opencode") {
-    const { opencodeModels } = await import("#chloe/model/opencode");
-    const listed = opencodeModels();
+  const route = offered.find((one) => one.name === choice);
+  if (route?.setup?.model) return await settle({ defaultModel: route.setup.model, preferredRoute: first(route.name) });
+  if (route) {
+    await route.learn();
+    const listed = route.listed();
     if (!listed.length) {
-      console.log("\nopencode is here but signed in to nothing. Run: opencode providers");
+      console.log(`\n${route.setup?.empty ?? `${route.name} is here but runs no model.`}`);
       return await settle(LATER);
     }
-    return await answeredFrom("Which of opencode's models?", listed, first("opencode"));
-  }
-  if (choice === "antigravity") {
-    const { antigravityModels } = await import("#chloe/model/antigravity");
-    const listed = await antigravityModels();
-    if (!listed.length) {
-      console.log("\nThe Antigravity CLI is here but signed in to nothing. Sign in with it, then run npx chloe setup again.");
-      return await settle(LATER);
-    }
-    return await answeredFrom("Which of the Antigravity CLI's models?", listed, first("antigravity"));
+    return await answeredFrom(route.setup?.question ?? `Which of ${route.name}'s models?`, listed, first(route.name));
   }
 
   const found = heldOwn.find((one) => one.provider === choice);
@@ -395,7 +382,9 @@ async function onOwnKey(provider: Provider, key: string | undefined, named: stri
   const asked = (await ask(`Which model? (${OWN_DEFAULT[provider]}) `)).trim();
   const model = asked ? (asked.includes("/") ? asked : `${provider}/${asked}`) : OWN_DEFAULT[provider];
   const others: Record<string, string> = provider === "anthropic" ? {} : { judgeModel: model, namingModel: model };
-  return await settle({ defaultModel: model, ...others, preferredRoute: "direct,claude,codex,antigravity,opencode,gateway" }, key, named, ["keys", provider]);
+  const { ROUTES } = await import("#chloe/core/settings");
+  const preferredRoute = ["direct", ...ROUTES.filter((one) => one !== "direct")].join(",");
+  return await settle({ defaultModel: model, ...others, preferredRoute }, key, named, ["keys", provider]);
 }
 
 /**

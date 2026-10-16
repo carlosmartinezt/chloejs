@@ -13,13 +13,13 @@ import { loadEnv } from "#chloe/core/env";
 import { ROOT } from "#chloe/core/paths";
 import { banner } from "#chloe/core/banner";
 import { bold, dim } from "#chloe/core/style";
-import { PROVIDERS, settings, unclaimed } from "#chloe/core/settings";
+import { PROVIDERS, settings, unclaimed, type Route } from "#chloe/core/settings";
 import { closeCutOff, going, trim } from "#chloe/core/db";
 import { checksDone, CONFIG, loadAll, type Agent, type Config, type Running } from "#chloe/load/load";
 import { sdkModel } from "#chloe/model/key";
 import { neededBy } from "#chloe/model/tool";
 import { run } from "#chloe/services/runService";
-import { learnModels, runnable } from "#chloe/model/model";
+import { learnModels, modelRoute, runnable } from "#chloe/model/model";
 import { certificate } from "#chloe/serve/certificate";
 import { claimPort, ownAddress, remoteAddress, serve as listen } from "#chloe/serve/http";
 import { startClock } from "#chloe/core/clock";
@@ -160,10 +160,7 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
       const held = PROVIDERS.filter((one) => settings.model.keys[one]);
       return held.length > 1 ? `the ${held.join(" and ")} APIs, each on its own key` : `the ${held[0]} API, on its own key`;
     }
-    if (route === "claude") return "Claude, on a subscription";
-    if (route === "codex") return "Codex, on a ChatGPT plan";
-    if (route === "antigravity") return "Antigravity, on a Google AI Pro plan";
-    return "opencode, on whatever it is signed in to";
+    return modelRoute(route as Route)?.says ?? route;
   }
 
   /**
@@ -204,7 +201,7 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
     const given = [...new Set([...agents.values()].flatMap((agent) => [agent.model, ...agent.jobs.flatMap((job) => (job.model ? [job.model] : []))]))].filter((one) => sdkModel(one));
     const reached = [...ready.map(byRoute), ...(given.length ? [`${given.join(", ")} by the AI SDK`] : [])];
     lines.push(row("AI models", reached.length ? reached.join("; ") : "not set up"));
-    if (ready[0] === "claude" || ready[0] === "codex" || ready[0] === "antigravity") {
+    if (ready[0] && modelRoute(ready[0])?.subscription) {
       lines.push(under(
         "A subscription is fine while you build and try agents. Its terms may not cover agents running on their own, " +
           'so for that put "direct" or "gateway" first in model.preferredRoute, with a key.',

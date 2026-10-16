@@ -1,24 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, type Key } from "../lib/api.ts";
-import type { Field } from "../lib/types.ts";
+import type { Field, Sections } from "../lib/types.ts";
+import { PANELS } from "../plugins.ts";
 import { CodeEditor } from "./components/CodeEditor.tsx";
 import { type Ask, Fields } from "./components/Fields.tsx";
-import { GoogleSetup } from "./components/GoogleSetup.tsx";
 
-/** The page's sections in the order chloe.config.ts says them, as the list down the left. */
-const PARTS: [id: string, title: string, inside?: boolean][] = [
-  ["model", "Model"],
-  ["email", "Email"],
-  ["connections", "Connections"],
-  ["resend", "Resend", true],
-  ["google", "Google", true],
-  ["brave", "Brave Search", true],
-  ["serve", "Serve"],
-  ["owner", "Owner"],
-  ["keys", "Keys"],
-  ["file", "chloe.config.ts"],
-];
+/** The page's sections in the order chloe.config.ts says them, as the list down the left, each plugin's under Connections. */
+function parts(sections: Sections | null): [id: string, title: string, inside?: boolean][] {
+  return [
+    ["model", "Model"],
+    ["email", "Email"],
+    ["connections", "Connections"],
+    ...(sections?.sections ?? []).map((one): [string, string, boolean] => [one.id, one.title, true]),
+    ["serve", "Serve"],
+    ["owner", "Owner"],
+    ["keys", "Keys"],
+    ["file", "chloe.config.ts"],
+  ];
+}
 
 /**
  * The whole copy's settings, as forms: what chloe.config.ts and .env say,
@@ -29,6 +29,7 @@ const PARTS: [id: string, title: string, inside?: boolean][] = [
  */
 export function Configuration() {
   const [fields, setFields] = useState<Field[] | null>(null);
+  const [sections, setSections] = useState<Sections | null>(null);
   const [trouble, setTrouble] = useState("");
   // The file as text is read again after a form saves, so the two never disagree.
   const [round, setRound] = useState(0);
@@ -37,6 +38,9 @@ export function Configuration() {
     api.fields().then(setFields, (error: Error) => setTrouble(error.message));
   }, []);
   useEffect(refresh, [refresh]);
+  useEffect(() => {
+    api.sections().then(setSections, (error: Error) => setTrouble(error.message));
+  }, []);
 
   const saved = (all: Field[]) => {
     setFields(all);
@@ -46,7 +50,7 @@ export function Configuration() {
   return (
     <div className="config">
       <nav className="config-nav" aria-label="Sections">
-        {PARTS.map(([id, title, inside]) => (
+        {parts(sections).map(([id, title, inside]) => (
           <a key={id} href={`#${id}`} className={inside ? "inside" : undefined}>
             {title}
           </a>
@@ -67,12 +71,12 @@ export function Configuration() {
           <>
             <section className="setting" id="model">
               <h2>Model</h2>
-              <Fields fields={fields} saved={saved} asks={MODEL} />
+              <Fields fields={fields} saved={saved} asks={model(sections)} />
             </section>
 
             <section className="setting" id="email">
               <h2>Email</h2>
-              <Fields fields={fields} saved={saved} asks={EMAIL} />
+              <Fields fields={fields} saved={saved} asks={email(sections)} />
             </section>
 
             <hr className="part" />
@@ -80,29 +84,24 @@ export function Configuration() {
               <h2>Connections</h2>
               <p className="empty">The outside services that tools and channels work through.</p>
 
-              <section className="setting" id="resend">
-                <h3>Resend</h3>
-                <p className="empty">
-                  Sends email, and the alerts: someone signed in from a new place, or a job started or stopped failing.
-                </p>
-                <Fields fields={fields} saved={saved} asks={RESEND} />
-              </section>
-
-              <section className="setting" id="google">
-                <h3>Google</h3>
-                <p className="empty">Get Gmail, Google Calendar and Google Drive.</p>
-                <GoogleSetup
-                  done={() => {
-                    refresh();
-                    setRound((n) => n + 1);
-                  }}
-                />
-              </section>
-
-              <section className="setting" id="brave">
-                <h3>Brave Search</h3>
-                <Fields fields={fields} saved={saved} asks={BRAVE} />
-              </section>
+              {sections?.sections.map((one) => {
+                const Panel = PANELS[one.id];
+                return (
+                  <section className="setting" id={one.id} key={one.id}>
+                    <h3>{one.title}</h3>
+                    {one.about && <p className="empty">{one.about}</p>}
+                    {one.fields.length > 0 && <Fields fields={fields} saved={saved} asks={one.fields} />}
+                    {Panel && (
+                      <Panel
+                        done={() => {
+                          refresh();
+                          setRound((n) => n + 1);
+                        }}
+                      />
+                    )}
+                  </section>
+                );
+              })}
             </section>
 
             <hr className="part" />
@@ -136,7 +135,8 @@ export function Configuration() {
   );
 }
 
-const MODEL: Ask[] = [
+/** The model's settings, with the ways to reach a model this copy has. */
+const model = (sections: Sections | null): Ask[] => [
   {
     path: "model.defaultModel",
     label: "Default model",
@@ -147,9 +147,8 @@ const MODEL: Ask[] = [
     path: "model.preferredRoute",
     label: "Ways to reach a model, in order",
     kind: "list",
-    placeholder: "claude, codex, antigravity, opencode, direct, gateway",
-    about:
-      "Each call takes the first one that can run the model and is set up here. Any of claude, codex, antigravity, opencode, direct and gateway. Empty is all of them, in that order.",
+    placeholder: (sections?.routes ?? ["direct", "gateway"]).join(", "),
+    about: `Each call takes the first one that can run the model and is set up here. Any of ${(sections?.routes ?? ["direct", "gateway"]).join(", ")}. Empty is all of them, in that order.`,
   },
   {
     path: "model.models",
@@ -162,13 +161,13 @@ const MODEL: Ask[] = [
     path: "model.keys.anthropic",
     label: "Anthropic API key",
     kind: "secret",
-    about: "Use Anthropic models with your own key, paid per call. Without one, Chloe uses Claude Code on your subscription.",
+    about: "Use Anthropic models with your own key, paid per call.",
   },
   {
     path: "model.keys.openai",
     label: "OpenAI API key",
     kind: "secret",
-    about: "The same for OpenAI models. Without one, Chloe uses Codex on your ChatGPT plan.",
+    about: "The same for OpenAI models.",
   },
   { path: "model.key", label: "Gateway key", kind: "secret", about: "For a gateway that reaches any model." },
   {
@@ -196,38 +195,14 @@ const MODEL: Ask[] = [
   },
 ];
 
-const EMAIL: Ask[] = [
+/** How mail is sent, from the services this copy's plugins send through. */
+const email = (sections: Sections | null): Ask[] => [
   {
     path: "email.provider",
     label: "Send mail with",
     kind: "choice",
-    choices: [
-      ["resend", "Resend"],
-      ["gmail", "Gmail, as the Google account"],
-      ["none", "Nothing: only write it to the log"],
-    ],
-    about: "For a job that sends mail without naming a service. Alerts always go through Resend.",
-  },
-];
-
-const RESEND: Ask[] = [
-  { path: "connections.resend.api_key", label: "Resend API key", kind: "secret" },
-  { path: "connections.resend.alerts", label: "Send alerts", kind: "switch" },
-  { path: "connections.resend.email_to", label: "Alerts go to", placeholder: "you@example.com" },
-  {
-    path: "connections.resend.email_from",
-    label: "Alerts come from",
-    placeholder: "Chloe <alerts@example.com>",
-    about: "Must be on a domain your Resend account can send from.",
-  },
-];
-
-const BRAVE: Ask[] = [
-  {
-    path: "connections.brave.api_key",
-    label: "Brave Search API key",
-    kind: "secret",
-    about: "Optional. Without one, Chloe searches DuckDuckGo, which can stop answering if you search a lot.",
+    choices: sections?.emailProviders ?? [["none", "Nothing: only write it to the log"]],
+    about: "For a job that sends mail without naming a service.",
   },
 ];
 
@@ -308,7 +283,7 @@ function Keys() {
           autoComplete="off"
           value={lines}
           onChange={(event) => setLines(event.target.value)}
-          placeholder="CHLOE_CONNECTIONS_BRAVE_API_KEY=..."
+          placeholder="CHLOE_SOMETHING=..."
           aria-label="Lines for .env"
         />
         <button className="small" type="submit" disabled={!lines.includes("=")}>

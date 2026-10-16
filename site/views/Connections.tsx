@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api, missing } from "../lib/api.ts";
 import { nameOf } from "../lib/format.ts";
 import type { Way } from "../lib/types.ts";
-import { GoogleSetup } from "./components/GoogleSetup.tsx";
+import { PANELS } from "../plugins.ts";
 import { SignIn } from "./components/SignIn.tsx";
 import { Ways } from "./components/Ways.tsx";
 
@@ -38,14 +38,12 @@ export function Connections({ agent }: { agent: string }) {
         <Ways
           ways={ways}
           empty={`No connections at the moment. What ${nameOf(agent)} can do is under Tools.`}
-          more={(way) =>
-            // Google is set up for the whole copy, but this is where people look for it.
-            way.name === "google" ? (
-              <GoogleSetup onAgent done={() => setAsked((n) => n + 1)} />
-            ) : way.signIn ? (
-              <SignIn agent={agent} name={way.name} again={way.ready === true} done={() => setAsked((n) => n + 1)} />
-            ) : null
-          }
+          more={(way) => {
+            // A connection set up for the whole copy has a panel of its own, shown here because this is where people look for it.
+            const Panel = PANELS[way.name];
+            if (Panel) return <Panel onAgent done={() => setAsked((n) => n + 1)} />;
+            return way.signIn ? <SignIn agent={agent} name={way.name} again={way.ready === true} done={() => setAsked((n) => n + 1)} /> : null;
+          }}
         />
       )}
     </>

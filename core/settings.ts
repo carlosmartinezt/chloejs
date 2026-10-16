@@ -24,23 +24,44 @@
 import "./env.ts";
 
 /**
- * Every way chloe can reach a model: "claude", "codex", "antigravity",
- * "opencode", "direct" and "gateway". Each one also decides which account pays.
- * See `model.preferredRoute` in `Settings` for what each one means.
+ * Every way chloe can reach a model, by the name `model.preferredRoute` gives
+ * it. Each one also decides which account pays. A plugin with routes of its
+ * own adds them, like `claude: true`.
  */
-export const ROUTES = ["claude", "codex", "antigravity", "opencode", "direct", "gateway"] as const;
+export interface Routes {
+  /** The provider's own API, with your key in `model.keys`. Charged per call. */
+  direct: true;
+  /** The gateway at `model.gatewayUrl`, with the key in `model.key`. Any provider. Charged per call. */
+  gateway: true;
+}
+
+/**
+ * The program each route that runs one starts, under `model.program`. A plugin
+ * whose routes run a program adds its own, like `claude: string`.
+ */
+export interface Programs {}
 
 /** The providers you can give your own API key for, in `model.keys`. */
 export const PROVIDERS = ["anthropic", "openai"] as const;
 /** A provider you can give your own API key for: "anthropic" or "openai". */
 export type Provider = (typeof PROVIDERS)[number];
 /** One way to reach a model. See `model.preferredRoute` in `Settings`. */
-export type Route = (typeof ROUTES)[number];
+export type Route = keyof Routes;
+/** Every way chloe can reach a model: each plugin's, then "direct" and "gateway". */
+export const ROUTES: Route[] = ["direct", "gateway"];
 
-/** Every value `email.provider` can take. */
-export const EMAIL_PROVIDERS = ["resend", "gmail", "none"] as const;
-/** The service that sends mail: "resend", "gmail" or "none". See `email.provider` in `Settings`. */
-export type EmailProvider = (typeof EMAIL_PROVIDERS)[number];
+/**
+ * Every service that can send mail, by the name `email.provider` gives it. A
+ * plugin that sends mail adds its own, like `resend: true`.
+ */
+export interface EmailProviders {
+  /** Sends nothing, and writes the subject and the receivers to the log. */
+  none: true;
+}
+/** The service that sends mail, like "resend", "gmail" or "none". See `email.provider` in `Settings`. */
+export type EmailProvider = keyof EmailProviders;
+/** Every value `email.provider` can take: "none", and each plugin's that sends mail. */
+export const EMAIL_PROVIDERS: string[] = ["none"];
 
 /**
  * One agent's channel tokens, set in `agents` in settings under the agent's
@@ -48,61 +69,14 @@ export type EmailProvider = (typeof EMAIL_PROVIDERS)[number];
  * a token. They are secrets: put them in `.env`.
  */
 export interface AgentSettings {
-  /**
-   * The token of the agent's Telegram bot. To get one, message @BotFather in
-   * Telegram and send `/newbot`. Default: "" (no Telegram bot).
-   */
-  telegram: string;
-  /** The two tokens of the agent's Slack app. Default: both "". */
-  slack: {
-    /** The bot token. It starts with `xoxb-`. */
-    bot_token: string;
-    /** The app-level token. It starts with `xapp-`. chloe needs it to connect to Slack (Socket Mode). */
-    app_token: string;
-  };
-  /**
-   * The token of the agent's Discord bot, from the Bot page of an application
-   * at discord.com/developers/applications. Default: "" (no Discord bot).
-   */
-  discord: string;
-  /**
-   * The agent's WhatsApp number, on WhatsApp's own API. You find all three
-   * values on your app's pages at developers.facebook.com. Default: all "".
-   */
-  whatsapp: {
-    /** The id of the phone number. This is not the phone number itself. */
-    phone_number_id: string;
-    /** A permanent access token for the app. */
-    token: string;
-    /**
-     * The app secret. chloe uses it to check that each message really comes
-     * from Meta. Without it, every message is refused.
-     */
-    app_secret: string;
-  };
-  /**
-   * The mailbox an email channel signs in to with `mailbox: "password"`.
-   * Default: all "".
-   */
-  email: {
-    /** The mailbox's address, which mail goes out from, like "shop@fastmail.com". */
-    address: string;
-    /**
-     * Its password: an app password, which Gmail (with 2-Step Verification),
-     * iCloud and Fastmail make in their account settings for a mail program.
-     */
-    password: string;
-    /**
-     * The server mail is read from, "host:port", from the provider's help on
-     * IMAP. Default: "", which is the provider's own for Gmail, iCloud and Fastmail.
-     */
-    imap: string;
-    /**
-     * The server mail is sent through, "host:port", from the provider's help
-     * on SMTP. Default: "", which is the provider's own for Gmail, iCloud and Fastmail.
-     */
-    smtp: string;
-  };
+}
+
+/**
+ * The outside services that tools and channels work through, one section
+ * each, under `connections` in settings. Each is added by the plugin that
+ * reaches that service.
+ */
+export interface Connections {
 }
 
 /**
@@ -131,16 +105,9 @@ export interface Settings {
      * this machine (its program is installed, or its key is set). The others
      * are skipped.
      *
-     * Default: `["claude", "codex", "antigravity", "opencode", "direct", "gateway"]`, so a
-     * subscription is used before a key that charges per call.
-     *
-     * - "claude": the Claude Code CLI, on a Claude subscription. Anthropic models only.
-     * - "codex": the Codex CLI, on a ChatGPT plan. OpenAI models only.
-     * - "antigravity": the Antigravity CLI, on a Google AI Pro plan. Google models only.
-     * - "opencode": the opencode CLI, with any provider it is signed in to.
-     * - "direct": the provider's own API, with your key in `model.keys`. Charged per call.
-     * - "gateway": the gateway at `model.gatewayUrl`, with the key in `model.key`.
-     *   Any provider. Charged per call.
+     * Default: each plugin's routes, then `["direct", "gateway"]`, so a
+     * subscription (the claude, codex, antigravity and opencode routes) is
+     * used before a key that charges per call. `Routes` says what each one is.
      *
      * A model given in `agent.ts` as an AI SDK model, like
      * `anthropic("claude-opus-5-5")`, always goes "direct", whatever this says.
@@ -207,32 +174,24 @@ export interface Settings {
      */
     namingModel: string;
     /**
-     * The command each CLI route runs. Change one if the program has another
-     * name, or is not on the PATH (then give its full path). If chloe cannot
-     * find a program, it skips that route.
-     * Default: `{ claude: "claude", codex: "codex", antigravity: "agy", opencode: "opencode" }`.
+     * The command each route that runs a program starts. Change one if the
+     * program has another name, or is not on the PATH (then give its full
+     * path). If chloe cannot find a program, it skips that route.
      */
-    program: {
-      /** The command for the "claude" route. Default: "claude". */
-      claude: string;
-      /** The command for the "codex" route. Default: "codex". */
-      codex: string;
-      /** The command for the "antigravity" route. Default: "agy". */
-      antigravity: string;
-      /** The command for the "opencode" route. Default: "opencode". */
-      opencode: string;
-    };
+    program: Programs;
   };
   /** How mail is sent. */
   email: {
     /**
      * The service that sends mail when a job calls `deliverEmail()` without
-     * naming a service. Default: "resend".
+     * naming a service. Default: "resend" while the Resend plugin is
+     * there, and "none" without it.
      *
-     * - "resend": sends through Resend, with `connections.resend.api_key`.
-     * - "gmail": sends from the Google account in `connections.google`.
      * - "none": sends nothing. It only writes the subject and the receivers
      *   to the log. Use it for tests, or on a machine with no mail account.
+     * - A plugin's, like "resend" (with `connections.resend.api_key`) or
+     *   "gmail" (from the Google account in `connections.google`).
+     *   `EmailProviders` lists them.
      *
      * The `gmail.sendEmail` and `resend.sendEmail` tools always use their own
      * service. But with "none", nothing is sent at all, not even by them.
@@ -244,108 +203,7 @@ export interface Settings {
    * each. The Connections page on the dashboard shows what each one still
    * needs.
    */
-  connections: {
-    /** Resend, a service that sends email. */
-    resend: {
-      /**
-       * Your Resend API key. Everything sent through Resend needs it: the
-       * `resend.sendEmail` tool, `deliverEmail()` when `email.provider` is
-       * "resend", and the alerts. It is a secret: put it in `.env`.
-       * Default: "" (none). Without it, sending through Resend fails with an
-       * error that says where to put the key.
-       */
-      api_key: string;
-      /**
-       * Turns on alert emails. chloe sends one when:
-       * - someone signs in to the dashboard from an IP address it has not seen before,
-       * - an IP address is locked out after too many wrong passwords,
-       * - a job starts failing, and again when it works (one email each time,
-       *   not one per failure).
-       *
-       * On by default. An alert is sent only when `api_key`, `email_to` and
-       * `email_from` are all set. Alerts always go through Resend, even when
-       * `email.provider` is "gmail". With alerts off, each sign-in is still
-       * recorded.
-       */
-      alerts: boolean;
-      /**
-       * Where alerts go: one email address, or several separated by commas.
-       * Default: "" (none, so no alerts are sent).
-       */
-      email_to: string;
-      /**
-       * The From line of an alert, like "Chloe <info@example.com>". It must be
-       * on a domain your Resend account can send from. Default: "" (none, so
-       * no alerts are sent).
-       */
-      email_from: string;
-    };
-    /** Brave Search, where `web.search` sends a query. */
-    brave: {
-      /**
-       * Your Brave Search API key. It is a secret: put it in `.env`.
-       * Default: "" (none, so `web.search` asks DuckDuckGo's results page
-       * instead, which needs no key but can refuse a machine that searches
-       * often).
-       */
-      api_key: string;
-    };
-    /**
-     * Your Google sign-in. The Gmail, Calendar and Drive tools use it, and so
-     * do `email.provider: "gmail"` and the email channel with
-     * `mailbox: "gmail"`.
-     */
-    google: {
-      /**
-       * The Google account to sign in to, like "you@gmail.com". Everything
-       * that uses Google works as this account. Default: "" (none, so nothing
-       * can sign in to Google).
-       *
-       * If you change it, someone has to sign in again.
-       */
-      account: string;
-      /**
-       * The Google app that chloe signs in with: an OAuth client, which you
-       * make once in the Google Cloud console. Give it in one of three forms:
-       * - the JSON file the console downloads, pasted here as an object,
-       * - the path to that file,
-       * - the file's contents as one string.
-       *
-       * Default: "" (none, so nobody can sign in to Google). It is a secret:
-       * put it in `.env`.
-       *
-       * Keep the file as the console wrote it, with its `web` or `installed`
-       * section. That section decides where Google may send the person after
-       * they sign in (see `callback`). A client made as a "Web application" is
-       * the easiest to use.
-       *
-       * After a sign-in, chloe saves the key Google gives it in the state
-       * folder. You do not set that key anywhere.
-       */
-      client: string | Record<string, unknown>;
-      /**
-       * The address Google sends the person to after they approve the sign-in.
-       * Default: "" (chloe picks the address from the kind of `client`):
-       * - a "web" client: https://chloejs.org/connected, a page that shows a
-       *   short code. The person sends that code back to the agent in the chat.
-       * - an "installed" (desktop) client: a port on this machine,
-       *   http://127.0.0.1:33067/oauth2/callback. The browser shows an error
-       *   page there, and the person copies the whole address from the
-       *   browser and sends it back to the agent.
-       *
-       * For a "web" client, you must also add the address to the client in
-       * the Google Cloud console.
-       */
-      callback: string;
-      /**
-       * The path to a Google Analytics service account key file. chloe does
-       * not read it. It passes it to every script an agent runs (with
-       * `scriptRun` or `runScripts()`), as the environment variable
-       * `GA_KEY_FILE`. Default: "" (scripts do not get it).
-       */
-      GA_KEY_FILE: string;
-    };
-  };
+  connections: Connections;
   /**
    * Each agent's channel tokens, under the agent's `id` from its `agent.ts`.
    * Default: `{}` (none).
@@ -428,28 +286,22 @@ export const DEFAULTS: Settings = {
     timeLimit: 10,
     judgeModel: "anthropic/claude-sonnet-5",
     namingModel: "anthropic/claude-haiku-4.5",
-    program: { claude: "claude", codex: "codex", antigravity: "agy", opencode: "opencode" },
+    // Each plugin whose routes run a program adds its own.
+    program: {} as Programs,
   },
-  email: { provider: "resend" },
+  email: { provider: "none" },
+  // Each plugin that reaches a service adds that service's section.
   connections: {
-    resend: { api_key: "", alerts: true, email_to: "", email_from: "" },
-    brave: { api_key: "" },
-    google: { account: "", client: "", callback: "", GA_KEY_FILE: "" },
-  },
+  } as Connections,
   agents: {},
   serve: { host: "127.0.0.1", port: 3067, url: "" },
   owner: "",
   node: "",
 };
 
-/** One entry of an agent's own settings, when nobody says. */
-const AGENT_DEFAULTS: AgentSettings = {
-  telegram: "",
-  slack: { bot_token: "", app_token: "" },
-  discord: "",
-  whatsapp: { phone_number_id: "", token: "", app_secret: "" },
-  email: { address: "", password: "", imap: "", smtp: "" },
-};
+/** One entry of an agent's own settings, when nobody says. Each channel's plugin adds its own. */
+const AGENT_DEFAULTS = {
+} as AgentSettings;
 
 /**
  * A setting holding entries whose names somebody chose, and what one entry is
@@ -502,7 +354,51 @@ export function nameInEnv(path: string[]): string {
  * from your config with `process.env`. "agents" means the channel tokens of
  * every agent.
  */
-export const KEYS = ["model.key", "model.keys", "connections.resend.api_key", "connections.brave.api_key", "connections.google.client", "agents"];
+export const KEYS: string[] = ["model.key", "model.keys", "agents"];
+
+/** A setting whose kind is not its default's, and what is wrong with a value given for it, or "". */
+const CHECKS: Record<string, (said: unknown) => string> = {};
+
+/**
+ * A plugin's settings: what each is when nobody says, which hold secrets, the
+ * words one may be, and a check of its own for one whose kind is not its
+ * default's. `plugins/index.ts` adds each plugin's as it loads.
+ */
+export interface SettingsPart {
+  /** What its settings are when nobody says, at their places in `Settings`, like `{ connections: { brave: { api_key: "" } } }`. */
+  defaults?: DeclaredSettings;
+  /** What each agent's own settings it adds are when nobody says, like `{ telegram: "" }`. */
+  agent?: Partial<AgentSettings>;
+  /** The paths of its settings that hold secrets, like `"connections.brave.api_key"`. */
+  keys?: string[];
+  /** Words a setting may be, added to what it may already be, like `{ "email.provider": ["resend"] }`. */
+  oneOf?: Record<string, readonly string[]>;
+  /** A check for a setting whose kind is not its default's: what is wrong with the value, or "". */
+  checks?: Record<string, (said: unknown) => string>;
+  /** Ways to reach a model it adds, put before "direct" in `ROUTES` and in `model.preferredRoute`'s default. */
+  routes?: Route[];
+}
+
+/**
+ * Adds a plugin's settings to the defaults, the secrets, the words a setting
+ * may be and the checks, and reads the config's settings over them again.
+ */
+export function addSettings(part: SettingsPart): void {
+  if (part.defaults) Object.assign(DEFAULTS, over(DEFAULTS, part.defaults));
+  if (part.agent) Object.assign(AGENT_DEFAULTS, part.agent);
+  for (const key of part.keys ?? []) if (!KEYS.includes(key)) KEYS.push(key);
+  for (const [path, words] of Object.entries(part.oneOf ?? {})) {
+    const list = (ONE_OF[path] ??= []) as string[];
+    for (const word of words) if (!list.includes(word)) list.push(word);
+  }
+  Object.assign(CHECKS, part.checks);
+  for (const route of part.routes ?? []) {
+    if (ROUTES.includes(route)) continue;
+    ROUTES.splice(ROUTES.indexOf("direct"), 0, route);
+    DEFAULTS.model.preferredRoute.splice(DEFAULTS.model.preferredRoute.indexOf("direct"), 0, route);
+  }
+  declareSettings(declared);
+}
 
 
 /**
@@ -594,10 +490,8 @@ function wrong(defaults: unknown, said: unknown, path: string[] = []): string {
     return "";
   }
   if (said === undefined) return "";
-  // connections.google.client is the one setting that is a string or the file's own shape.
-  if (path.join(".") === "connections.google.client") {
-    return typeof said === "string" || isGroup(said) ? "" : `${where} is the client file, its path, or its contents as one string.`;
-  }
+  const check = CHECKS[path.join(".")];
+  if (check) return check(said) && `${where} ${check(said)}`;
   if (Array.isArray(defaults)) {
     if (!Array.isArray(said) || !said.every((one) => typeof one === "string")) return `${where} is a list of words.`;
     const each = ONE_OF[`${path.join(".")}.*`];

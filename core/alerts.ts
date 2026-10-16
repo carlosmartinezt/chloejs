@@ -6,8 +6,9 @@
 // first sign-in after a fresh install is always a new one. That first mail is
 // not noise: it is the only one that proves the alert works.
 //
-// Always through Resend, whatever email.provider says, so a box that sends its
-// agents' mail some other way still needs the Resend key for these.
+// Sent by the first plugin that sends alerts (Resend), whatever email.provider
+// says, so a box that sends its agents' mail some other way still needs that
+// plugin set up for these.
 //
 // Sending is best effort and never blocks a sign-in. A person who cannot get
 // in because a mail server is down would be a worse failure than a sign-in
@@ -15,9 +16,8 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { db } from "#chloe/core/db";
-import { deliverEmail } from "#chloe/services/emailService";
 import { STATE } from "#chloe/core/paths";
-import { settings } from "#chloe/core/settings";
+import { PLUGINS } from "#chloe/plugins/index";
 
 const FILE = `${STATE}/seen-addresses.json`;
 
@@ -40,30 +40,20 @@ function write(all: Record<string, string>): void {
   seen = all;
 }
 
-function where(): { to: string[]; from: string } | null {
-  const { alerts, api_key, email_to, email_from } = settings.connections.resend;
-  const to = email_to.split(",").map((one) => one.trim()).filter(Boolean);
-  if (!alerts || !api_key || !to.length || !email_from) return null;
-  return { to, from: email_from };
-}
+/** The plugin that sends alerts, if one does. */
+const sender = () => PLUGINS.find((one) => one.alerts)?.alerts;
 
 /**
  * Whether alerts go out, in words for the startup log: "off", "on, to ...",
  * or "on" and what is missing for any to be sent.
  */
 export function alertsSay(): string {
-  const { alerts, api_key, email_to, email_from } = settings.connections.resend;
-  if (!alerts) return "off";
-  const missing = [!api_key && "connections.resend.api_key", !email_to.trim() && "connections.resend.email_to", !email_from && "connections.resend.email_from"].filter(Boolean);
-  if (missing.length) return `on, but none can be sent: ${missing.join(", ")} not set`;
-  return `on, to ${email_to}`;
+  return sender()?.say() ?? "off: no plugin here sends them";
 }
 
 /** Sends, and says so in the log if it could not. Never throws at the caller. */
 function mail(subject: string, body: string): void {
-  const address = where();
-  if (!address) return;
-  void deliverEmail({ from: address.from, to: address.to, tag: "chloe" }, subject, body, "resend").catch((error: unknown) => {
+  void sender()?.send(subject, body).catch((error: unknown) => {
     console.error("could not send the alert:", error instanceof Error ? error.message : error);
   });
 }

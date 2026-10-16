@@ -345,10 +345,38 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   await rm(elsewhere, { recursive: true, force: true });
 }
 
+// A stand-in plugin's abilities, for the next two parts, so they do not hang on
+// any plugin chloe ships.
+const { PLUGINS } = await import("#chloe/plugins/index");
+const { tool: aTool } = await import("ai");
+const fake = (description: string) => aTool({ description, inputSchema: z.object({}), execute: async () => description });
+const standIn = {
+  name: "stand-in",
+  abilities: [
+    { name: "notes", label: "Notes", on: true, does: "Keeps notes.", tools: ["notesRead", "notesEdit"], make: () => ({ notesRead: fake("Read."), notesEdit: fake("Edit.") }) },
+    { name: "pages", label: "Pages", on: false, does: "Reads pages.", tools: ["pagesRead", "pagesSearch"], make: () => ({ pagesRead: fake("Read."), pagesSearch: fake("Search.") }) },
+    {
+      name: "mail",
+      label: "Mail",
+      on: false,
+      does: "Reads mail.",
+      tools: ["mailRead", "mailSend"],
+      fields: [
+        { name: "search", label: "Mail", about: "Which mail.", kind: "words", default: "in:inbox" },
+        { name: "days", label: "Days", about: "How far back.", kind: "number", default: 7 },
+        { name: "sendTo", label: "May write to", about: "Who.", kind: "list", default: [] },
+      ],
+      preview: { sendTo: ["a@b.co"] },
+      make: (_home: unknown, v: Record<string, unknown>) => ({ mailRead: fake("Read."), ...((v.sendTo as string[]).length ? { mailSend: fake("Send.") } : {}) }),
+    },
+  ],
+} as unknown as import("#chloe/load/plugin").Plugin;
+PLUGINS.push(standIn);
+
 {
-  about("abilities are switched on and off, and ABILITIES says what each adds");
+  about("abilities are switched on and off, and the list says what each adds");
   const { defineAgent } = await import("@chloejs/core");
-  const { ABILITIES, resolveAgent } = await import("#chloe/load/load");
+  const { allAbilities, resolveAgent } = await import("#chloe/load/load");
   const { chmod } = await import("node:fs/promises");
   const folder = await realpath(await mkdtemp(join(tmpdir(), "chloe-abilities-")));
   await mkdir(join(folder, "scripts"));
@@ -356,75 +384,73 @@ console.log(JSON.stringify({ text, provider: settings.email.provider, state: STA
   await chmod(join(folder, "scripts/hi.sh"), 0o755);
   const agent = (abilities: Record<string, unknown>) =>
     resolveAgent(defineAgent({ id: "switches", folder, model: "m", identity: "", purpose: "Hi.", abilities: abilities as never }));
-  const from = (await agent(Object.fromEntries(ABILITIES.map((one) => [one.name, one.preview ?? true])))).toolsFrom ?? {};
+  const from = (await agent(Object.fromEntries(allAbilities().map((one) => [one.name, one.preview ?? true])))).toolsFrom ?? {};
   is(
     "each ability adds the tools the list says",
-    ABILITIES.map((one) => [one.name, Object.keys(from).filter((name) => from[name] === `abilities.${one.name}`).sort()]),
-    ABILITIES.map((one) => [one.name, [...one.tools].sort()]),
+    allAbilities().map((one) => [one.name, Object.keys(from).filter((name) => from[name] === `abilities.${one.name}`).sort()]),
+    allAbilities().map((one) => [one.name, [...one.tools].sort()]),
   );
   is(
     "unsaid, each is what the list says",
     [...new Set(Object.values((await agent({})).toolsFrom ?? {}))].sort(),
-    ABILITIES.filter((one) => one.on).map((one) => `abilities.${one.name}`).sort(),
+    allAbilities().filter((one) => one.on).map((one) => `abilities.${one.name}`).sort(),
   );
   const refused = (abilities: Record<string, unknown>) => agent(abilities).then(() => "loaded", (error: Error) => error.message);
-  is("an object is refused", (await refused({ selfImprovement: { code: false } })).endsWith("abilities.selfImprovement is true or false."), true);
+  is("an object is refused", (await refused({ notes: { code: false } })).endsWith("abilities.notes is true or false."), true);
   is("and a name that is not an ability", (await refused({ nosuch: true })).includes("abilities has no nosuch."), true);
-  is("web adds the page reader and search", Object.keys((await agent({ web: true })).tools ?? {}).filter((name) => name.startsWith("web")).sort(), ["webReadPage", "webSearch"]);
+  is("one switched on adds its tools", Object.keys((await agent({ pages: true })).tools ?? {}).filter((name) => name.startsWith("pages")).sort(), ["pagesRead", "pagesSearch"]);
   is(
     "and a tool can be switched off on its own",
-    Object.keys((await resolveAgent(defineAgent({ id: "switches", folder, model: "m", identity: "", purpose: "Hi.", abilities: { web: true }, without: ["webSearch"] }))).tools ?? {})
-      .filter((name) => name.startsWith("web"))
+    Object.keys((await resolveAgent(defineAgent({ id: "switches", folder, model: "m", identity: "", purpose: "Hi.", abilities: { pages: true } as never, without: ["pagesSearch"] }))).tools ?? {})
+      .filter((name) => name.startsWith("pages"))
       .sort(),
-    ["webReadPage"],
+    ["pagesRead"],
   );
 
   // Tools switched off by name, for an ability's tools or the agent's own.
   const tool = (name: string) => defineAgent({ id: "switches", folder, model: "m", identity: "", purpose: "Hi.", without: [name] });
-  const off = await resolveAgent(tool("memoryEditFile"));
-  is("a tool in without is not the agent's", Object.keys(off.tools ?? {}).includes("memoryEditFile"), false);
-  is("its ability's others are", Object.keys(off.tools ?? {}).includes("memoryReadFile"), true);
-  is("and it is kept, so the page can show it off", Object.keys(off.toolsOff ?? {}), ["memoryEditFile"]);
-  is("an ability's tool may be named while its ability is off", Object.keys((await resolveAgent(tool("webReadPage"))).tools ?? {}).includes("webReadPage"), false);
-  const typo = await resolveAgent(tool("memoryEdit")).then(() => "loaded", (error: Error) => error.message);
-  is("a name that is no tool is refused, saying what there is", typo.includes('without names "memoryEdit"') && typo.includes("memoryEditFile"), true);
+  const off = await resolveAgent(tool("notesEdit"));
+  is("a tool in without is not the agent's", Object.keys(off.tools ?? {}).includes("notesEdit"), false);
+  is("its ability's others are", Object.keys(off.tools ?? {}).includes("notesRead"), true);
+  is("and it is kept, so the page can show it off", Object.keys(off.toolsOff ?? {}), ["notesEdit"]);
+  is("an ability's tool may be named while its ability is off", Object.keys((await resolveAgent(tool("pagesRead"))).tools ?? {}).includes("pagesRead"), false);
+  const typo = await resolveAgent(tool("notesEd")).then(() => "loaded", (error: Error) => error.message);
+  is("a name that is no tool is refused, saying what there is", typo.includes('without names "notesEd"') && typo.includes("notesEdit"), true);
   await rm(folder, { recursive: true, force: true });
 }
 
 {
   about("channels are named in an object, each the channel itself, like tools");
   const { defineAgent } = await import("@chloejs/core");
-  const { telegramChannel, apiChannel, emailChannel } = await import("@chloejs/core/channels");
+  const { apiChannel, defineChannel } = await import("@chloejs/core/channels");
+  const door = (options: Record<string, unknown> = {}) => defineChannel("door", { allowFrom: [1], ...options }, () => ({ stop: () => {} }));
   const { resolveAgent } = await import("#chloe/load/load");
   const folder = await realpath(await mkdtemp(join(tmpdir(), "chloe-channels-")));
   const agent = (channels: unknown, more: Record<string, unknown> = {}) =>
     resolveAgent(defineAgent({ id: "doors", folder, model: "m", identity: "", purpose: "Hi.", channels: channels as never, ...more }));
   const said = (channels: unknown) => agent(channels).then(() => "loaded", (error: Error) => error.message);
 
-  const made = await agent({ telegram: telegramChannel({ allowFrom: [1], sendWhileWorking: true }), api: apiChannel() });
-  is("each is the channel under its name", made.channels.map((one) => one.name), ["telegram", "api"]);
+  const made = await agent({ door: door({ sendWhileWorking: true }), api: apiChannel() });
+  is("each is the channel under its name", made.channels.map((one) => one.name), ["door", "api"]);
   is("and its options reach it", made.channels[0].madeWith?.includes("sendWhileWorking"), true);
   is("a list is refused", (await said([])).includes("one object keyed by name"), true);
-  is("a value that is not a channel is refused", (await said({ telegram: { allowFrom: [1] } })).includes("channels.telegram is not a channel"), true);
+  is("a value that is not a channel is refused", (await said({ door: { allowFrom: [1] } })).includes("channels.door is not a channel"), true);
   const mine = { name: "mine", start: () => ({ stop: () => {} }) };
   is("a channel of its own goes in the same way", (await agent({ mine })).channels.map((one) => one.name), ["mine"]);
   is("under its own name and no other", (await said({ other: mine })).includes("Give it under its own name"), true);
-  is("and one left undefined is left out", (await agent({ slack: undefined, api: apiChannel() })).channels.map((one) => one.name), ["api"]);
+  is("and one left undefined is left out", (await agent({ door: undefined, api: apiChannel() })).channels.map((one) => one.name), ["api"]);
 
-  const started = await agent({ email: emailChannel({ allowFrom: ["a@b.co"], mailbox: "gmail", start: { when: "To a@b.co only.", keep: "outbox" } }) });
-  is("the email channel that may start a conversation brings the tool for it", [Object.keys(started.tools ?? {}).includes("emailStartConversation"), started.toolsFrom?.emailStartConversation], [true, "channel email"]);
-  is("and one that may not does not", Object.keys((await agent({ email: emailChannel({ allowFrom: ["a@b.co"], mailbox: "gmail" }) })).tools ?? {}).includes("emailStartConversation"), false);
+  const bringing = { ...door(), brings: { doorSend: fake("Send.") } };
+  const took = await agent({ door: bringing });
+  is("a channel that brings a tool gives it to the agent, under where it came from", [Object.keys(took.tools ?? {}).includes("doorSend"), took.toolsFrom?.doorSend], [true, "channel door"]);
 
-  const took = await agent({ telegram: telegramChannel({ allowFrom: [1], send: { when: "When asked to." } }) });
-  is("the telegram channel that may write first brings the tool for it", [Object.keys(took.tools ?? {}).includes("telegramSendMessage"), took.toolsFrom?.telegramSendMessage], [true, "channel telegram"]);
-  is("and one that may not does not", Object.keys((await agent({ telegram: telegramChannel({ allowFrom: [1] }) })).tools ?? {}).includes("telegramSendMessage"), false);
-
-  // A ability that takes fields.
-  const mail = await agent({}, { abilities: { memory: false, selfImprovement: false, googleMail: { sendTo: ["a@b.co"], search: "label:orders" } } });
-  is("an ability's fields decide its tools", Object.keys(mail.tools ?? {}).sort(), ["emailReadMail", "emailReplyMail", "emailSendMail"]);
+  // An ability that takes fields.
+  const mail = await agent({}, { abilities: { mail: { sendTo: ["a@b.co"], search: "label:orders" } } });
+  is("an ability's fields decide its tools", Object.keys(mail.tools ?? {}).filter((name) => mail.toolsFrom?.[name] === "abilities.mail").sort(), ["mailRead", "mailSend"]);
   const asked = (abilities: unknown) => agent({}, { abilities }).then(() => "loaded", (error: Error) => error.message);
-  is("a field that is not there is refused, saying which there are", (await asked({ googleMail: { sent: true } })).includes("has no field sent. It has search"), true);
-  is("one of the wrong kind", (await asked({ googleMail: { days: "three" } })).includes("days takes a number"), true);
-  is("an ability with no fields takes no object", (await asked({ memory: { x: 1 } })).includes("is true or false"), true);
+  is("a field that is not there is refused, saying which there are", (await asked({ mail: { sent: true } })).includes("has no field sent. It has search"), true);
+  is("one of the wrong kind", (await asked({ mail: { days: "three" } })).includes("days takes a number"), true);
+  is("an ability with no fields takes no object", (await asked({ notes: { x: 1 } })).includes("is true or false"), true);
+  PLUGINS.splice(PLUGINS.indexOf(standIn), 1);
   await rm(folder, { recursive: true, force: true });
 }

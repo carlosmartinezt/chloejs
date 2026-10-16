@@ -7,13 +7,13 @@
 // folder, and hands each message to `receive`. Same rule as `index.ts`:
 // adding a name here is publishing it.
 
-export { telegramChannel, type TelegramOptions } from "./telegram.ts";
-export { slackChannel, type SlackOptions } from "./slack.ts";
-export { discordChannel, type DiscordOptions } from "./discord.ts";
-export { whatsappChannel, type WhatsAppOptions } from "./whatsapp.ts";
-export { emailChannel, openEmail, type EmailOptions, type Mailbox, type OutgoingMail, type Started } from "./email.ts";
+export { telegramChannel, type TelegramOptions } from "#chloe/plugins/telegram/telegram";
+export { slackChannel, type SlackOptions } from "#chloe/plugins/slack/slack";
+export { discordChannel, type DiscordOptions } from "#chloe/plugins/discord/discord";
+export { whatsappChannel, type WhatsAppOptions } from "#chloe/plugins/whatsapp/whatsapp";
+export { emailChannel, openEmail, type EmailOptions, type Mailbox, type OutgoingMail, type Started } from "#chloe/plugins/email/email";
 export { apiChannel } from "./api.ts";
-export { webChannel, type WebOptions, type WebLimits } from "./web.ts";
+export { webChannel, type WebOptions, type WebLimits } from "#chloe/plugins/web-channel/web";
 export {
   defineChannel,
   rulesOf,

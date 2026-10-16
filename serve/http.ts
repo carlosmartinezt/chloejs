@@ -17,7 +17,7 @@ import { z } from "zod";
 
 import { db, RUN_COLUMNS } from "#chloe/core/db";
 import { readEnvFile, writeEnv } from "#chloe/core/env";
-import { settings } from "#chloe/core/settings";
+import { ROUTES, settings } from "#chloe/core/settings";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
 import { tryJob, type Clock } from "#chloe/core/clock";
 import { alwaysOnTools } from "#chloe/core/turn";
@@ -46,8 +46,6 @@ import {
 import type { Certificate } from "./certificate.ts";
 import { checkPass, makePass } from "./pass.ts";
 import { BadRequest, NotFound, Refused } from "./errors.ts";
-import { finish as finishSignIn, setupSteps, signInState } from "#chloe/connections/google/googleService";
-import { googleSignIn } from "#chloe/connections/google/signIn";
 import { channelsOf, connectionsOf, abilityNames, abilitiesOf, signInOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import {
@@ -69,11 +67,12 @@ import {
 import { accept, change, invitation, invite, people, remove, SWITCHES, type Given, type Switch } from "./people.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "#chloe/core/alerts";
+import { PLUGINS } from "#chloe/plugins/index";
+import { providers } from "#chloe/services/emailService";
 import { servePage } from "./page.ts";
 import { receive } from "#chloe/channels/shared";
 import { answer, checkArgs, parkedRuns } from "#chloe/core/steps";
 import { canCarryOn, stopReply, stopped } from "#chloe/core/turn";
-import { PASS_HEADER, webClear, webFile, webHistory, webOrigins, webPass, webTurn, webUsage, webVisitors } from "./web.ts";
 
 /**
  * The address a program on this machine reaches the port at: `serve.host` and
@@ -149,6 +148,8 @@ export interface Route {
   needsApiChannel?: boolean;
   member?: Switch | "filtered";
   origins?(at: Pick<At, "params" | "context">): string[];
+  /** The headers a page on one of `origins` may send, besides content-type. */
+  headers?: string[];
   handle(at: At): Promise<void> | void;
 }
 
@@ -293,7 +294,7 @@ function channelOf(request: IncomingMessage): string {
   return typeof said === "string" && CHANNELS.includes(said) ? said : "api";
 }
 
-export const routes: Route[] = [
+const routes: Route[] = [
   {
     method: "GET",
     path: "/api",
@@ -976,72 +977,6 @@ export const routes: Route[] = [
     },
   },
 
-  // A chat box on a web page. The site's own server gets a visitor a pass with
-  // a token made for that agent; the rest are open, because a visitor's page
-  // holds no token, and each checks the pass instead and answers only the
-  // sites the agent's web channel names. See serve/web.ts.
-  {
-    method: "POST",
-    path: "/api/agents/:id/web/pass",
-    does: "A visitor pass for that agent's web channel, good for an hour, and its greeting. For the site's own server, with a token made for that agent and no other.",
-    takes: '{"visitor": "the site\'s own id for them", "facts": {"name": "optional, anything the agent should be told"}, "origin": "optional, the first of its origins unless said"}',
-    token: true,
-    handle: webPass,
-  },
-  {
-    method: "GET",
-    path: "/api/agents/:id/web/visitors",
-    does: "Everybody that agent's web channel has had, newest first: when they came, their address, country and browser, and what their site said about them.",
-    token: true,
-    handle: webVisitors,
-  },
-  {
-    method: "POST",
-    path: `/api/agents/:id/web/turn`,
-    does: `One turn for the visitor whose pass is in ${PASS_HEADER}, answered as a stream of events: text as it is written, a step as each tool starts, then done with the answer whole.`,
-    takes: '{"text": "...", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}]}',
-    open: true,
-    origins: webOrigins,
-    handle: webTurn,
-  },
-  {
-    method: "GET",
-    path: "/api/agents/:id/web/history",
-    does: `The conversation of the visitor whose pass is in ${PASS_HEADER}, oldest first, and the greeting.`,
-    open: true,
-    origins: webOrigins,
-    handle: webHistory,
-  },
-  {
-    method: "POST",
-    path: "/api/agents/:id/web/clear",
-    does: `Forget the conversation of the visitor whose pass is in ${PASS_HEADER}.`,
-    open: true,
-    origins: webOrigins,
-    handle: webClear,
-  },
-  {
-    method: "GET",
-    path: "/api/web/chat.js",
-    does: 'The chat box, for a page: <script src="/api/web/chat.js" data-agent="<id>" async></script>.',
-    open: true,
-    handle: (at) => webFile(at, "chat.js"),
-  },
-  {
-    method: "GET",
-    path: "/api/web/client.js",
-    does: "What the chat box is built on, for a page with its own look: import { chloeChat } from it.",
-    open: true,
-    handle: (at) => webFile(at, "client.js"),
-  },
-  {
-    method: "GET",
-    path: "/api/agents/:id/web",
-    does: "That agent's web channel: its sites, tools and limits, and how many visitors, messages and dollars the last 24 hours came to.",
-    token: true,
-    handle: webUsage,
-  },
-
   // Writing, and the tokens themselves. The account and nothing else.
   {
     method: "POST",
@@ -1185,6 +1120,17 @@ export const routes: Route[] = [
     path: "/api/config/settings",
     does: "Each setting the Configuration page changes: its value (never a secret's), whether it is set, and whether the file says it plainly, from .env, or as code.",
     handle: async ({ response }) => json(response, await configFields()),
+  },
+  {
+    method: "GET",
+    path: "/api/config/sections",
+    does: "Each plugin's section of the Configuration page, the services mail can be sent with, and the ways to reach a model, in their default order.",
+    handle: ({ response }) =>
+      json(response, {
+        sections: PLUGINS.flatMap((one) => (one.configuration ? [{ id: one.name, ...one.configuration }] : [])),
+        emailProviders: Object.entries(providers()).map(([name, one]) => [name, one.label ?? name]),
+        routes: ROUTES,
+      }),
   },
   {
     method: "POST",
@@ -1389,36 +1335,6 @@ export const routes: Route[] = [
     does: "Everything that agent has changed up to now has been looked at.",
     handle: ({ response, context, params }) => json(response, agentSeen(context.agent(params.id))),
   },
-  // Where Google stands, and finishing a sign-in with what the person got
-  // back. A sign-in starts from a chat or from a connection's own route above.
-  {
-    method: "GET",
-    path: "/api/google",
-    does: "Whether Google can be reached: which account, what is missing, and whether a sign-in is waiting for its answer.",
-    handle: async ({ response }) => json(response, await signInState()),
-  },
-  {
-    method: "GET",
-    path: "/api/google/setup",
-    does: "The steps to make a Google client in Google's console, and the redirect addresses to give it, exactly as written.",
-    handle: ({ response }) => json(response, setupSteps()),
-  },
-  {
-    method: "POST",
-    path: "/api/google/sign-in",
-    does: "Start signing in to Google, and hand back what to tell the person and the link to open. Finished with /api/google/finish.",
-    handle: async ({ response }) => json(response, await googleSignIn.start()),
-  },
-  {
-    method: "POST",
-    path: "/api/google/finish",
-    does: "Finish the sign-in this runtime started, with the address the browser landed on or the code out of it.",
-    takes: '{"answer": "http://127.0.0.1:.../oauth2/callback?code=..."}',
-    handle: async ({ request, response }) => {
-      const { answer } = await body(request, z.object({ answer: z.string().trim().min(1) }));
-      json(response, await finishSignIn(answer));
-    },
-  },
   {
     method: "POST",
     path: "/api/agents/:id/changes/:change/undo",
@@ -1447,9 +1363,14 @@ function wayIn({ request, response }: At, signing: () => string, owner = true): 
   }
 }
 
+/** Every route: the ones above, then each plugin's. */
+function allRoutes(): Route[] {
+  return [...routes, ...PLUGINS.flatMap((one) => one.routes ?? [])];
+}
+
 /** Every route as GET /api lists it: what it does, and who may call it. */
 export function routeList() {
-  return routes.map((one) => ({
+  return allRoutes().map((one) => ({
     method: one.method,
     path: one.path,
     does: one.does,
@@ -1463,7 +1384,7 @@ export function routeList() {
 /** The route whose path matches, with whatever its `:parts` caught. */
 function match(method: string, path: string): { route: Route; params: Record<string, string> } | undefined {
   const parts = path.split("/").filter(Boolean);
-  for (const route of routes) {
+  for (const route of allRoutes()) {
     if (route.method !== method) continue;
     const wanted = route.path.split("/").filter(Boolean);
     if (wanted.length !== parts.length) continue;
@@ -1710,7 +1631,7 @@ function preflight(request: IncomingMessage, response: ServerResponse, path: str
   response.writeHead(204, {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET, POST",
-    "access-control-allow-headers": `content-type, ${PASS_HEADER}`,
+    "access-control-allow-headers": ["content-type", ...(found.route.headers ?? [])].join(", "),
     "access-control-max-age": "600",
     vary: "origin",
   });

@@ -78,7 +78,7 @@ function answerFrom(one: Case, quiet: string[], skills: Map<string, string>) {
     if (name === "ownReadFile") {
       const paths = ((args as { paths?: string[] })?.paths ?? []);
       if (paths.length > 0 && paths.every((path) => skills.has(path))) {
-        return paths.map((path) => ({ path, content: skills.get(path), canWrite: false }));
+        return paths.map((path) => ({ path, content: skills.get(path) }));
       }
     }
 

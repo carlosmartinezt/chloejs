@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { envNames, writeEnv } from "#chloe/core/env";
 import { DEFAULTS, KEYS, nameInEnv, settings } from "#chloe/core/settings";
-import { checkFirst, CONFIG, ABILITIES, loadAgain, loadAll, type Agent, type Home } from "#chloe/load/load";
+import { checkFirst, CONFIG, allAbilities, loadAgain, loadAll, type Agent, type Home } from "#chloe/load/load";
 import { defaultOf, fits, takes, type OptionSpec } from "#chloe/load/options";
 import { typeProblems } from "#chloe/services/selfService";
 import { BadRequest, NotFound } from "./errors.ts";
@@ -120,7 +120,7 @@ export async function changeSettings(changes: { path: string; value: unknown }[]
   let text = await configText();
   const known = new Map(leaves().map((one) => [one.path.join("."), one.was]));
   // A channel's tokens are under the agent that has the channel.
-  const { CHANNELS } = await import("#chloe/channels/catalog");
+  const CHANNELS = (await import("#chloe/channels/catalog")).channelKinds();
   for (const { path } of changes) {
     const [top, id, ...rest] = path.split(".");
     if (top === "agents" && id && CHANNELS.some((kind) => kind.secrets.some((one) => one.path === rest.join(".")))) known.set(path, "");
@@ -177,8 +177,8 @@ export async function changeSettings(changes: { path: string; value: unknown }[]
  * file writes it as code.
  */
 export async function changeAbility(agent: Home, name: string, change: { on?: boolean; set?: Record<string, unknown> }): Promise<Agent> {
-  const ability = ABILITIES.find((one) => one.name === name);
-  if (!ability) throw new BadRequest(`There is no ability called ${name}. There are ${ABILITIES.map((one) => one.name).join(", ")}.`);
+  const ability = allAbilities().find((one) => one.name === name);
+  if (!ability) throw new BadRequest(`There is no ability called ${name}. There are ${allAbilities().map((one) => one.name).join(", ")}.`);
   const set = checked(ability.fields ?? [], change.set, `abilities.${name}`);
   return changeAgentFile(agent, (text) => {
     const out = setOptionsIn(text, "abilities", name, { on: change.on, set }, ability.on);
@@ -211,7 +211,7 @@ export async function changeChannel(
   name: string,
   change: { on?: boolean; set?: Record<string, unknown>; secrets?: Record<string, string> },
 ): Promise<Agent> {
-  const { CHANNELS } = await import("#chloe/channels/catalog");
+  const CHANNELS = (await import("#chloe/channels/catalog")).channelKinds();
   const kind = CHANNELS.find((one) => one.name === name);
   if (!kind) throw new BadRequest(`${agent.id} has no channel chloe ships called ${name}. There are ${CHANNELS.map((one) => one.name).join(", ")}.`);
   const set = checked(kind.fields, change.set, `channels.${name}`);

@@ -29,7 +29,7 @@ import type {
   Picture,
   Visitor,
   Field,
-  GoogleState,
+  Sections,
 } from "./types.ts";
 
 /**
@@ -93,7 +93,7 @@ const memoryOf = (agent: string) => `/agents/${agent}/memory`;
 const GETTING_IN = ["/account", "/login", "/link"];
 const gettingIn = (path: string): boolean => GETTING_IN.includes(path) || path.startsWith("/invitations/");
 
-async function call<T>(path: string, body?: unknown): Promise<T> {
+export async function call<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${at}${path}`, {
     // Named rather than left to the default, because a page and a runtime on
     // two hosts of one site still have to carry the session between them.
@@ -199,13 +199,8 @@ export const api = {
   fields: () => call<Field[]>("/config/settings"),
   /** Several settings in one save. null puts the default back. A secret goes into .env. */
   changeSettings: (changes: { path: string; value: unknown }[]) => call<Field[]>("/config/settings", { changes }),
-  /** Whether Google can be reached, and what is missing. */
-  google: () => call<GoogleState>("/google"),
-  /** The steps in Google's console, and the redirect addresses to give the client. */
-  googleSetup: () => call<{ why: string; steps: string[]; addresses: string[] }>("/google/setup"),
-  /** Signing in to Google from the page, without an agent: what to tell the person and the link to open. */
-  startGoogle: () => call<{ say: string; link?: string }>("/google/sign-in", {}),
-  finishGoogle: (answer: string) => call<{ account: string }>("/google/finish", { answer }),
+  /** Each plugin's section of the Configuration page, and the words a setting may be that plugins add. */
+  sections: () => call<Sections>("/config/sections"),
 
   /** Tokens, for another system. The secret comes back once, when it is made. */
   tokens: () => call<Token[]>("/tokens"),

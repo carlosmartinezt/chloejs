@@ -66,7 +66,7 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
   is("nor read what its commands are", (await call("GET", "/api/agents/test/commands", jenny)).status, 403);
   is("nor reach the tokens", (await call("GET", "/api/tokens", jenny)).status, 403);
   is("nor the people", (await call("GET", "/api/people", jenny)).status, 403);
-  is("nor what belongs to no agent", (await call("GET", "/api/google", jenny)).status, 403);
+  is("nor what belongs to no agent", (await call("GET", "/api/config", jenny)).status, 403);
   is("nor count as the owner to a proxy", (await call("GET", "/api/check", jenny)).status, 403);
   is("nor start a job without run", (await call("POST", "/api/agents/test/job/wake", jenny, {})).status, 403);
 
@@ -98,7 +98,8 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
   is("somebody else's run is not there", (await call("GET", "/api/runs/run-someone", jenny)).status, 404);
   const own = (await call("GET", "/api/runs/run-jenny", jenny)).body;
   is("their own comes without the prompt, the context or the steps", [own.reply, own.prompt, own.context, own.trace], ["to jenny", undefined, undefined, []]);
-  is("nor the web visitors, whatever they were given", (await call("GET", "/api/agents/test/web/visitors", jenny)).status, 403);
+  // A plugin's route too, where it is there, and not there at all where it is not.
+  is("nor the web visitors, whatever they were given", [403, 404].includes((await call("GET", "/api/agents/test/web/visitors", jenny)).status), true);
 
   is("they sign in again with their email", (await call("POST", "/api/login", {}, { email: "JENNY@example.com", password: "jenny's own password" })).status, 200);
   is("a wrong password says nothing about whether the address is somebody's", (await call("POST", "/api/login", {}, { email: "jenny@example.com", password: "wrong one" })).body.error, "Wrong email or password.");

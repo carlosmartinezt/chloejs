@@ -85,15 +85,16 @@ export const gatewayUrl = `http://127.0.0.1:${(gateway.address() as { port: numb
 // read CHLOE_DB before it was set and every case would write into the real
 // run history. That is not hypothetical, it happened while this was written.
 export const { answer, db, reachBy, sweep, waitingFor, waitingOn, work } = await import("@chloejs/core");
-(await import("#chloe/core/settings")).holdSettings({
+const { holdSettings, settings: held } = await import("#chloe/core/settings");
+holdSettings({
   model: {
     key: "test",
     preferredRoute: ["gateway"],
     gatewayUrl,
-    // What opencode can run is read by asking it, so an opencode on the path
-    // would put somebody's own models into what the cases expect. The routing
-    // cases point this at a stand-in of their own.
-    program: { opencode: "/nowhere/opencode" },
+    // Every route's program is nowhere, so no case asks a real one: opencode is
+    // asked what it can run, which would put somebody's own models into what
+    // the cases expect. The routing cases point these at stand-ins of their own.
+    program: Object.fromEntries(Object.keys(held.model.program).map((name) => [name, `/nowhere/${name}`])),
   },
   // Signing in and getting locked out both mail, and the addresses used here
   // are made up.

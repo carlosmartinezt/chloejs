@@ -29,8 +29,18 @@ import { about, is } from "#chloe/ops/check";
     is("an IPv6 host goes in brackets", ownAddress(), "http://[::1]:8080");
     settings.serve = before;
   }
-  is("each agent's own settings are under its name", readSettings({ agents: { tempo: { telegram: "t" } } }).agents.tempo.telegram, "t");
-  is("and what it does not say is empty", readSettings({ agents: { tempo: { telegram: "t" } } }).agents.tempo.slack.app_token, "");
+  // A stand-in plugin's settings, so these cases do not hang on any plugin chloe ships.
+  const { addSettings, ROUTES } = await import("#chloe/core/settings");
+  addSettings({
+    defaults: { connections: { sample: { api_key: "", alerts: true, account: "", client: "" } } } as never,
+    agent: { bot: "", app: { token: "" } } as never,
+    keys: ["connections.sample.api_key"],
+    checks: { "connections.sample.client": (said) => (typeof said === "string" || (typeof said === "object" && said !== null) ? "" : "is a file, or its path.") },
+  });
+  const sample = (from: unknown) => (from as { connections: { sample: Record<string, unknown> } }).connections.sample;
+  const tempo = (from: unknown) => (from as { agents: { tempo: { bot: string; app: { token: string } } } }).agents.tempo;
+  is("each agent's own settings are under its name", tempo(readSettings({ agents: { tempo: { bot: "t" } } } as never)).bot, "t");
+  is("and what it does not say is empty", tempo(readSettings({ agents: { tempo: { bot: "t" } } } as never)).app.token, "");
   let misspelt = "";
   try {
     readSettings({ agents: { tempo: { telegarm: "t" } } } as never);
@@ -41,7 +51,7 @@ import { about, is } from "#chloe/ops/check";
   {
     const { settings, unclaimed } = await import("@chloejs/core");
     const before = settings.agents;
-    settings.agents = { tempo: { telegram: "t", slack: { bot_token: "", app_token: "" }, discord: "", whatsapp: { phone_number_id: "", token: "", app_secret: "" }, email: { address: "", password: "", imap: "", smtp: "" } } };
+    settings.agents = { tempo: {} } as never;
     is("an entry for an agent that exists is claimed", unclaimed(["tempo"]), []);
     is("one left behind by a rename is not", unclaimed(["growth"]), ["tempo"]);
     settings.agents = before;
@@ -57,12 +67,12 @@ import { about, is } from "#chloe/ops/check";
   // Nothing is read from the environment by itself, so the config shows every value.
   {
     process.env.CHLOE_SERVE_HOST = "0.0.0.0";
-    process.env.CHLOE_CONNECTIONS_GOOGLE_ACCOUNT = "env@example.com";
-    is("a setting is never read from the environment by itself", [readSettings({}).serve.host, readSettings({}).connections.google.account], ["127.0.0.1", ""]);
+    process.env.CHLOE_CONNECTIONS_SAMPLE_ACCOUNT = "env@example.com";
+    is("a setting is never read from the environment by itself", [readSettings({}).serve.host, sample(readSettings({})).account], ["127.0.0.1", ""]);
     delete process.env.CHLOE_SERVE_HOST;
-    delete process.env.CHLOE_CONNECTIONS_GOOGLE_ACCOUNT;
+    delete process.env.CHLOE_CONNECTIONS_SAMPLE_ACCOUNT;
   }
-  is("but one the config hands over is read", readSettings({ connections: { resend: { api_key: "re_x" } } }).connections.resend.api_key, "re_x");
+  is("but one the config hands over is read", sample(readSettings({ connections: { sample: { api_key: "re_x" } } } as never)).api_key, "re_x");
 
   // The config is type checked, so these are for a value handed over from .env
   // and for a config that is not TypeScript. Each one says what to set instead
@@ -77,18 +87,18 @@ import { about, is } from "#chloe/ops/check";
   };
   is("a setting that is not a choice is refused, and the choices are named",
     said({ model: { preferredRoute: ["telepathy"] } }),
-    'model.preferredRoute has "telepathy" in it, and each one is "claude", "codex", "antigravity", "opencode", "direct", "gateway".');
+    `model.preferredRoute has "telepathy" in it, and each one is ${ROUTES.map((one) => JSON.stringify(one)).join(", ")}.`);
   is("a key that is no setting is refused, and says what there is",
     said({ modle: {} }).startsWith("settings.modle is not a setting. Under settings there is model,"), true);
   is("a misspelt key under an agent names the agent, not a star",
-    said({ agents: { tempo: { telegarm: "t" } } }),
-    "agents.tempo.telegarm is not a setting. Under agents.tempo there is telegram, slack, discord, whatsapp, email.");
-  is("a switch given a word is refused", said({ connections: { resend: { alerts: "yes" } } }), "connections.resend.alerts is true or false.");
+    said({ agents: { tempo: { telegarm: "t" } } }).startsWith("agents.tempo.telegarm is not a setting. Under agents.tempo there is ") && said({ agents: { tempo: { telegarm: "t" } } }).includes("bot, app"),
+    true);
+  is("a switch given a word is refused", said({ connections: { sample: { alerts: "yes" } } }), "connections.sample.alerts is true or false.");
   is("a list given a word is refused", said({ model: { models: "a,b" } }), "model.models is a list of words.");
   is("a group given a word is refused", said({ model: "claude" }), "model holds more settings, so it is an object.");
-  is("connections.google.client takes the file's own shape", said({ connections: { google: { client: { web: { client_id: "x" } } } } }), "");
-  is("and refuses what is neither that nor a path", said({ connections: { google: { client: 7 } } }), "connections.google.client is the client file, its path, or its contents as one string.");
-  is("a switch handed over as a word is refused too", said({ connections: { resend: { alerts: "true" } } }), "connections.resend.alerts is true or false.");
+  is("a plugin's own check lets a value of another kind through", said({ connections: { sample: { client: { web: { client_id: "x" } } } } }), "");
+  is("and refuses what it does not take, saying what it does", said({ connections: { sample: { client: 7 } } }), "connections.sample.client is a file, or its path.");
+  is("a switch handed over as a word is refused too", said({ connections: { sample: { alerts: "true" } } }), "connections.sample.alerts is true or false.");
 
   const thrown = (declared: unknown) => {
     try {
@@ -101,17 +111,17 @@ import { about, is } from "#chloe/ops/check";
   is("a config written for a remote dashboard says it is gone", thrown({ dashboard: { remote: { api_key: "chl_workspace_x" } } }).includes("dashboard is gone"), true);
   is("and one written for cloud", thrown({ cloud: { api_key: "chl_workspace_x" } }).includes("dashboard is gone"), true);
   is("and one written for page", thrown({ page: "builtin" }).includes("dashboard is gone"), true);
-  is("sign-in alerts are on unless somebody says", readSettings({}).connections.resend.alerts, true);
+  is("a plugin's default is what it is unless somebody says", sample(readSettings({})).alerts, true);
 
   {
     // What loadAll does with the config's settings: into the same object
     // everything already holds.
     const { settings } = await import("@chloejs/core");
-    declareSettings({ connections: { resend: { email_from: "chloe <x@example.com>" } } });
-    is("what the config declares reaches the settings everything reads", settings.connections.resend.email_from, "chloe <x@example.com>");
+    declareSettings({ connections: { sample: { account: "chloe <x@example.com>" } } } as never);
+    is("what the config declares reaches the settings everything reads", sample(settings).account, "chloe <x@example.com>");
     is("and a setting it says nothing about is left at its default", settings.serve.host, "127.0.0.1");
     declareSettings({ model: { preferredRoute: ["gateway"] } });
-    is("declaring again drops what the last one said", settings.connections.resend.email_from, "");
+    is("declaring again drops what the last one said", sample(settings).account, "");
     // Back to what the test config says, which is where the stand-in gateway comes from.
     await (await import("@chloejs/core")).loadSettings();
   }
@@ -253,11 +263,11 @@ export default defineConfig({
     setOptionsIn(text, "abilities", name, change, defaultOn);
   is(
     "a switch where there is no abilities adds it, after the last entry",
-    set(file(""), "selfImprovement", { on: false }, true).split("\n").slice(-4).join("\n"),
-    '  purpose: "Hi.",\n  abilities: { selfImprovement: false },\n});\n',
+    set(file(""), "memory", { on: false }, true).split("\n").slice(-4).join("\n"),
+    '  purpose: "Hi.",\n  abilities: { memory: false },\n});\n',
   );
-  is("one beside another keeps it", set(file("\n  abilities: { scripts: true },"), "selfImprovement", { on: false }, true), file("\n  abilities: { scripts: true, selfImprovement: false },"));
-  is("switching a default-on one back takes it out", set(file("\n  abilities: { scripts: true, selfImprovement: false },"), "selfImprovement", { on: true }, true), file("\n  abilities: { scripts: true, selfImprovement: false },").replace("selfImprovement: false", "selfImprovement: true"));
+  is("one beside another keeps it", set(file("\n  abilities: { scripts: true },"), "memory", { on: false }, true), file("\n  abilities: { scripts: true, memory: false },"));
+  is("switching a default-on one back takes it out", set(file("\n  abilities: { scripts: true, memory: false },"), "memory", { on: true }, true), file("\n  abilities: { scripts: true, memory: false },").replace("memory: false", "memory: true"));
   is("a default-off one switched off is taken out, and abilities with it when nothing is left", set(file("\n  abilities: { web: true },"), "web", { on: false }), file(""));
   is("on, a default-off one is written true", set(file(""), "web", { on: true }).includes("abilities: { web: true }"), true);
 

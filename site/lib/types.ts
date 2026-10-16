@@ -426,12 +426,21 @@ export interface Field {
   key?: string;
 }
 
-/** Where Google stands, from /api/google. */
-export interface GoogleState {
-  ready: boolean;
-  account: string;
-  /** What is missing, in plain words. Empty when nothing is. */
-  missing: string;
-  /** A sign-in was started and waits for its answer. */
-  waiting: boolean;
+/** One plugin's section of the Configuration page, from /api/config/sections. */
+export interface Section {
+  /** The plugin's name, which is also the section's id on the page. */
+  id: string;
+  title: string;
+  about?: string;
+  /** Its settings as a form, each like one of the page's own. */
+  fields: { path: string; label: string; kind?: "words" | "secret" | "switch" | "choice" | "list" | "number"; placeholder?: string; about?: string }[];
+}
+
+/** What /api/config/sections answers. */
+export interface Sections {
+  sections: Section[];
+  /** Every value `email.provider` can take, and what to call it. */
+  emailProviders: [string, string][];
+  /** Every way to reach a model, in the order they are tried by default. */
+  routes: string[];
 }
