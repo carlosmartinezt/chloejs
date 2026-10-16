@@ -4,13 +4,12 @@
 
 **[chloejs.org](https://chloejs.org)**: the docs, the examples and the reference.
 
-**Write your AI agents in code. Choose how predictable they are.**
+**AI agents where your code is in charge.**
 
-Chloe is a TypeScript agent runtime you run yourself. A job is code:
-deterministic where it can be (the same input, the same result, every time),
-**and an LLM only where a step needs judgement**. Jobs run on a schedule, from a
-chat or by hand, and the jobs, the runs, the memory and the evals are files on
-your machine, with any LLM.
+Chloe runs AI agents that chat with you but do their routine work in plain
+TypeScript, asking a model only where a step needs judgement. Jobs run on a
+schedule, from a chat or by hand, and the jobs, the runs, the memory and the
+evals are files on your machine, with any LLM.
 
 ```sh
 npm install @chloejs/core
@@ -18,55 +17,132 @@ npx chloe setup       # the files, a model, a free port: it asks, and checks
 npx chloe             # the agents, the cron lines, one port, and a link that opens the page
 ```
 
-`setup` writes `chloe.config.ts` and a first agent, with a purpose and
-nothing else, which changes itself when you ask it to on the page. It asks which
-model to use and makes one call to be sure it answers. Run it again later and it
-leaves what is already there alone.
+- **Private.** Runs on your machine, in one process and one SQLite file.
+- **Visible.** Every step, its input, its answer and its cost.
+- **Yours to steer.** What an agent changes is a git commit you can undo.
 
-There is no password to set: `npx chloe` prints a link that opens the page
-signed in, once, within the hour, and `npx chloe link` prints another. A
-password is for later, if you want one.
-
-For a coding agent: `npx chloe setup` asks nothing when there is no keyboard,
-taking every default. Its last lines tell the agent to make the first agent into
-what the person asked for, from the guides in
-`node_modules/@chloejs/core/dist/docs/`, for the version installed, and `npx
-skills add carlosmartinezt/chloejs` gets it that far before anything is.
-
-- **No build step in your project**, and an edit to a job is live in under a second
-- **One dependency**, zod, and one SQLite file
-- **Node 22.18** or newer
+No build step in your project, an edit to a job is live in under a second, and
+it needs Node 22.18 or newer.
 
 [Get started](https://chloejs.org/docs/start) ·
 [Examples](https://chloejs.org/examples) ·
 [Primitives](https://chloejs.org/docs/primitives)
 
-## Private by default
+## Start with your own assistant
 
-Chloe sends nothing to anyone you didn't name: no telemetry, no copy of your
-runs, and no remote dashboard. A request leaves the machine only for the model,
-the channels and the connections you set up. The runtime serves its own
-dashboard, on the box it runs on. To reach it from elsewhere, use an SSH
-tunnel, a private network, or your own web server in front of it: see
-[From another machine](https://chloejs.org/docs/the-page#from-another-machine).
+Most people meet Chloe as their own agent before they build anything else on
+it, so it is made to be a good one.
 
-## The least autonomy that does the job
+`setup` writes `chloe.config.ts` and one agent, `agents/assistant`, with a
+purpose and nothing else. Open the link `npx chloe` prints and tell it what you
+want: a note every morning with what is urgent in your mail, a watch on a price,
+a reminder before a bill is due. It changes itself to do it, its words, its jobs
+and its code, and each change is a commit you can read and undo on the page.
 
-Three ways to do a piece of work. Start at the top, and move down only when you
-have to.
+From there it is yours like any other code:
+
+- **Reach it where you are.** Telegram, Slack, Discord, WhatsApp, email, or the
+  page. Only the people in `allowFrom` are answered.
+- **Give it your things, bound.** Mail, calendar, Drive and your notes folders,
+  each tool tied to the search or folder you chose, so a turn that goes wrong
+  cannot widen it.
+- **It remembers.** A folder of notes per agent, in a git repository of its
+  own, one commit per run.
+- **Pay how you like.** A Claude subscription, a ChatGPT plan, a Google AI Pro
+  plan, opencode, or a key. A subscription is spent before a key is.
+- **It tells nobody.** No telemetry, no copy of your runs, no remote dashboard.
+
+The routine part is where it pays off. A morning brief that a model writes from
+scratch every day costs every day and comes back different. In Chloe the
+fetching, filtering and sending are code, and the model is asked one question.
+That is the same runtime, and the same file, you would use for a business.
+
+```ts
+import { defineAgent, prompt } from "@chloejs/core";
+import * as gmail from "@chloejs/core/tools/gmail";
+import * as calendar from "@chloejs/core/tools/calendar";
+import * as web from "@chloejs/core/tools/web";
+import { telegramChannel } from "@chloejs/core/channels";
+import morningBrief from "./jobs/morning-brief.ts";
+
+export default defineAgent({
+  id: "assistant",
+  identity: "Reads my mail and calendar, and tells me what matters.",
+  purpose: prompt("purpose.md"),
+  memory: { folder: "/home/you/notes", commit: true },
+  tools: {
+    gmailReadEmail: gmail.readEmail({ search: "in:inbox", what: "my inbox" }),
+    calendarListEvents: calendar.listEvents({ calendars: ["primary"] }),
+    webReadPage: web.readPage(),
+  },
+  jobs: [morningBrief],
+  channels: { telegram: telegramChannel({ allowFrom: [123456789] }) },
+});
+```
+
+Or ask your coding agent for the agent you want. `npx chloe setup` asks nothing
+when there is no keyboard and takes every default, and its last lines send the
+coding agent to the guides in `node_modules/@chloejs/core/dist/docs/`, for the
+version installed. `npx skills add carlosmartinezt/chloejs` gets it that far
+before anything is installed.
+
+There is no password to set: `npx chloe` prints a link that opens the page
+signed in, once, within the hour, and `npx chloe link` prints another.
+
+## Same invoice. Who decides what happens next?
+
+A typical agent hands the model the whole job: it reads, checks, asks and pays,
+in the order it picks. In Chloe a model reads the invoice, code checks your
+rules, a person approves the payment, and code pays.
+
+```ts
+export default defineJob({
+  id: "pay-invoice",
+  run: async (work) => {
+    const invoice = await work.model("read invoice", {
+      prompt: work.input.text,
+      output: Invoice,
+    });
+
+    const problems = await work.step("check invoice", () => checkRules(invoice));
+    if (problems.length) return { held: problems };
+
+    const yes = await work.ask("pay this invoice?", {
+      question: `Pay ${invoice.vendor} ${invoice.total}?`,
+      answer: z.boolean(),
+      within: "2d",
+      otherwise: false,
+    });
+    if (yes) await work.step("pay", () => pay(invoice));
+    return { paid: yes };
+  },
+});
+```
+
+The answer to an ask is checked against the shape it named. No model reads it.
+The run waits days if it must, and survives a restart while it waits.
+
+## Give the model only as much as the step needs
+
+Four calls. Start at the top, and move down only when you have to.
 
 | | | |
 | --- | --- | --- |
-| `work.step()` | I know what to do. | Deterministic work. You control the workflow and the action. |
-| `work.model()` | I know what to ask. | Judgement, in a shape. You control the workflow, the model controls the answer. |
-| `work.agent()` | I know what I want. | Bounded autonomy. You control the goal and the boundaries, the model controls the order. |
+| `work.step()` | I know what to do. | Deterministic: the same input, the same result, every time. |
+| `work.model()` | I know what to ask. | One question, one typed answer. |
+| `work.agent()` | I know what I want. | The model picks the order, inside your limits. |
+| `work.ask()` | A person should decide. | The run waits, for days if it must. |
 
-There is a fourth. `work.ask()` stops the job and waits for a person.
+Your rules, loops and queries stay in TypeScript, and the `if` above a model
+call decides whether to ask at all. A morning with nothing to report costs
+nothing.
 
-## Ordinary code, one model decision, optional autonomy
+## Hand over the goal, not the keys
 
-A whole job, from the example on chloejs.org. Code loads the inbox, a model says
-what each message is about, and the ones that need looking into get an agent.
+When you only know the outcome, an agent step picks the order. You choose what
+it can reach and how far it can go, in the AI SDK's own words: `tools` is all
+it can reach, `toolApproval` is which of those calls may run, `stopWhen` and
+chloe's `budget` are how far it can go and what it may spend.
 
 ```ts
 export default defineJob({
@@ -99,106 +175,76 @@ export default defineJob({
 });
 ```
 
-## Keep the application in charge
-
-Your rules, loops, conditions and queries stay in TypeScript. The model is asked
-one thing, and the `if` above it decides whether to ask at all.
-
-```ts
-const late = orders.filter((order) => order.daysLate > 2);
-if (late.length === 0) return;
-
-const summary = await work.model("summarise the delays", {
-  prompt: late.map(describe).join("\n"),
-  output: Summary,
-});
-```
-
-A morning with nothing late costs nothing.
-
-## You can point at the line that asks a model
+## See which step asked a model
 
 The run record has one line per step, with what it was, how long it took and
 what it cost. A job that quietly grew a second model call shows up as a second
 line and a bigger number.
 
-## Sometimes you know the goal, not the steps
-
-The model chooses the order. You choose what it can reach and how far it can
-go, in the AI SDK's own words: `tools` is all it can reach, `toolApproval` is
-which of those calls may run, `stopWhen` and chloe's `budget` are how far it
-can go and what it may spend, and `output` is the shape of the answer. Everything it did is on the run.
-
-## Some decisions should not belong to a model
-
-The run stops, the question goes to whoever should answer it, and the job
-carries on when they do. It can wait days, and it survives a restart while it
-waits.
-
-```ts
-const approved = await work.ask("refund $2,400?", {
-  question: "A-4417 arrived broken. Refund it?",
-  answer: z.boolean(),
-  within: "2d",
-  otherwise: false,
-});
-
-if (approved) await work.step("issue refund", () => refund(order));
-```
-
-The answer is checked against the shape the ask named. No model is involved.
-
-## Runs are written down as they go
-
-Every step, model call and tool use of a run is written down, and you can open
-any of them.
-
 - A finished step replays from the record.
 - A run cut off by a restart is closed as failed, and starts again next time.
 - A job waiting on a person survives the restart.
 - Every tool call an agent made is recorded.
-- Cost is tracked per step and per run.
 - Two runs of the same job never overlap.
 
 One rule makes the replay safe: **work happens inside a step, and code outside a
-step only decides.** A finished step is written down and replayed, not run again,
-when a run that was waiting carries on. A line outside one runs again on every
-resume, so it must not send, write or spend.
+step only decides.** A finished step is replayed, not run again, when a run that
+was waiting carries on. A line outside one runs again on every resume, so it
+must not send, write or spend.
 
 ## What comes with it
 
 | | |
 | --- | --- |
-| Durable jobs | Steps are written down as they finish, and replayed on a resume. |
-| Schedules | Cron lines in TypeScript, with real time zones. |
-| Models | A Claude subscription, a ChatGPT plan, a Google AI Pro plan, opencode, an Anthropic or OpenAI key, any model a gateway key reaches, or an AI SDK model like `anthropic("claude-opus-5-5")`. A job can pick its own. |
+| Durable jobs | Finished steps replay on a resume. |
+| Schedules | Cron in TypeScript, in your time zone. |
+| Any model | Any provider, a model per job, on a subscription or a key. |
 | Agents | Tools, approvals and a budget, set where the step is written. |
-| Tools | A description, a schema and one call. Typed at both ends. A tool that needs somebody signed in brings that with it. |
-| Human approvals | A run parks for days and carries on when somebody answers. |
-| Channels | Telegram, Slack, Discord, WhatsApp, email and a chat box on your website, one file each, and no dependency of their own. A question goes out where the person is. |
-| Memory | A folder of notes per agent, in one git repository of their own: one commit per run, under the agent's id. |
-| Self-improvement | An agent can rewrite its purpose, skills and jobs if you let it, never its code. Every change can be undone. |
-| Run history | Every step of every run, with its arguments and its answer. |
-| Cost tracking | Per step, per run, per job. |
-| Structured output | Zod on every model and agent answer, retried once. |
-| Testing and evals | Jobs run for real against a stand-in gateway. Prompts are scored. |
+| Services | Email, Google, files, scripts, the web. |
+| Tools | Built in, your own, or any MCP server. |
+| Approvals | A run waits days for an answer. |
+| Channels | Telegram, Slack, Discord, WhatsApp, email, a chat box on your site, and HTTP. |
+| Memory | Notes and skills an agent keeps, in git. |
+| Self-improvement | An agent changes its words, jobs and code when its owner asks. Every change is a commit you can undo. |
+| Run history | Every step, its input and its answer. |
+| Cost | Per step, per run, per job. |
+| Tests and evals | Tests for code, scores for prompts. |
 
 ## Code is tested. Words are scored.
 
-Your deterministic logic gets ordinary tests. Your prompts get evals. Neither
-spends real money: a test runs against a stand-in gateway, and an eval answers
-every tool from the case.
+Neither spends real money: a test runs jobs for real against a stand-in
+gateway, and an eval answers every tool from the case.
 
 ```sh
 npm run test          # the jobs: does it do the thing
 npm run evals <id>    # the prompts: did the model decide well
 ```
 
+## Is it for you
+
+Most personal AI agents run a prompt on a timer. Chloe's run your code.
+
+Pick Chloe if:
+
+- You want an assistant of your own that you can read, change and grow into
+  real jobs.
+- You want to write your agents in code, and choose which steps an LLM handles.
+- Your agents are jobs: on a schedule, from a chat, or started by hand.
+- You want to see what every step did, and what it cost.
+- You want to own it: on your own machine, with any LLM, in one process and one
+  SQLite file.
+
+Pick something else if:
+
+- You want an LLM to choose every step, the way a chat assistant does.
+- You need the work shared across many machines, or a hosted platform to run it.
+- You are building an app around a model, where the chat is the product.
+
 ## Run it wherever Node runs
 
-Your code, your models, your machine. One process serves the page, keeps every
-cron line and answers the channels. Its dependencies are zod and the AI SDK, its
-state is one SQLite file, so moving machine is copying a folder.
+One process serves the page, keeps every cron line and answers the channels.
+Its dependencies are zod and the AI SDK, and its state is one SQLite file, so
+moving machine is copying a folder.
 
 Three files, and you have an agent:
 
@@ -216,8 +262,8 @@ Either way, `node morning.ts` starts it. See
 
 An agent written for the AI SDK's `ToolLoopAgent` moves across as it is: its
 `id`, `model`, `purpose`, `tools`, `stopWhen` and `toolApproval` go into
-`defineAgent` unchanged, and chloe's own loop runs them, so each
-call is approved, budgeted and written down like any other.
+`defineAgent` unchanged, and chloe's own loop runs them, so each call is
+approved, budgeted and written down like any other.
 
 ```ts
 import { anthropic } from "@ai-sdk/anthropic";
@@ -246,12 +292,14 @@ gateway's public list gives. A call to a tool with `needsApproval` stops the
 job and asks its owner yes or no, then carries on from that call with the
 answer.
 
+### Settings and secrets
+
 A setting is a choice about how the runtime behaves, so it goes in the config
 with the agents, where it is typed and committed:
 
 ```ts
 export default defineConfig({
-  agents: [tempo],
+  agents: [assistant],
   settings: {
     model: { defaultModel: "anthropic/claude-sonnet-5.5" },
     email: { provider: "resend" },
@@ -270,7 +318,7 @@ password, key and token, and nothing else.
 ```
 CHLOE_MODEL_KEY=...
 CHLOE_CONNECTIONS_RESEND_API_KEY=re_...
-CHLOE_AGENTS_TEMPO_TELEGRAM=123456789:ABC...
+CHLOE_AGENTS_ASSISTANT_TELEGRAM=123456789:ABC...
 ```
 
 **The config names each one**, so reading it shows every key there is. chloe
@@ -280,7 +328,7 @@ reads no key it is not handed there:
 settings: {
   model: { key: process.env.CHLOE_MODEL_KEY },
   connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY } },
-  agents: { tempo: { telegram: process.env.CHLOE_AGENTS_TEMPO_TELEGRAM } },
+  agents: { assistant: { telegram: process.env.CHLOE_AGENTS_ASSISTANT_TELEGRAM } },
 }
 ```
 
@@ -289,6 +337,8 @@ config says, or its default. Any value can be kept in `.env` the same way, by
 handing it over as `process.env` and a name. Where things are kept is the one
 exception, `CHLOE_STATE`, `CHLOE_MEMORY` and `CHLOE_DB`, read before the config
 is.
+
+### Commands
 
 ```sh
 npx chloe                        # the one process, on 127.0.0.1:3067 unless serve in settings says
@@ -312,6 +362,15 @@ It listens on `127.0.0.1:3067`, an address only this machine can reach.
 `host: "0.0.0.0"` so the machine around it can reach in, and then a proxy in
 front with the port closed to everything else, because the login lockout
 trusts the address that proxy writes.
+
+## Private by default
+
+Chloe sends nothing to anyone you didn't name: no telemetry, no copy of your
+runs, and no remote dashboard. A request leaves the machine only for the model,
+the channels and the connections you set up. The runtime serves its own
+dashboard, on the box it runs on. To reach it from elsewhere, use an SSH
+tunnel, a private network, or your own web server in front of it: see
+[From another machine](https://chloejs.org/docs/the-page#from-another-machine).
 
 ## What is in here
 
@@ -352,7 +411,7 @@ The entrances, and no others: `@chloejs/core`, `@chloejs/core/services`,
 `@chloejs/core/tools/gmail`, `/calendar`, `/drive`, `/resend`, `/email`, `/web`
 and `/fs`.
 
-## Use code when you know what to do. Use AI when you do not.
+## AI is one part of it
 
 Start with a job that asks nobody anything. Add the step that needs judgement
 when you find it, and read what it cost.
