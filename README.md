@@ -6,10 +6,10 @@
 
 **AI agents where your code is in charge.**
 
-Chloe runs AI agents that chat with you but do their routine work in plain
-TypeScript, asking a model only where a step needs judgement. Jobs run on a
-schedule, from a chat or by hand, and the jobs, the runs, the memory and the
-evals are files on your machine, with any LLM.
+Chloe runs your AI agents on your own machine. The work is plain code, and an
+LLM is asked only when a step needs judgement. Jobs run on a schedule, from a
+chat or by hand, and the jobs, the runs, the memory and the evals are files you
+can read, with any LLM.
 
 ```sh
 npm install @chloejs/core
@@ -89,11 +89,11 @@ before anything is installed.
 There is no password to set: `npx chloe` prints a link that opens the page
 signed in, once, within the hour, and `npx chloe link` prints another.
 
-## Same invoice. Who decides what happens next?
+## Who is in charge
 
-A typical agent hands the model the whole job: it reads, checks, asks and pays,
-in the order it picks. In Chloe a model reads the invoice, code checks your
-rules, a person approves the payment, and code pays.
+![Same invoice. A typical agent: the model decides, reading, checking, asking and paying in the order it picks. With Chloe: your code decides. A model reads the invoice, code checks your rules, a person approves the payment, and code pays.](https://raw.githubusercontent.com/carlosmartinezt/chloejs/main/.github/who-decides.png)
+
+The Chloe side, in full:
 
 ```ts
 export default defineJob({
