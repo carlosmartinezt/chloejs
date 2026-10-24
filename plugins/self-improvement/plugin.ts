@@ -117,12 +117,19 @@ async function whatYouRunOn(agent: Agent, { tools }: Reply): Promise<string> {
  * What it is told in a turn that cannot change it: who can ask for a change,
  * and what to do with a lesson meanwhile. Empty in a turn that can.
  */
-function cannotChange({ tools }: Reply): string {
+function cannotChange({ tools, user }: Reply): string {
   if (Object.values(tools).some((one) => one.changesAgent)) return "";
+  // A token's turn is `api:<token id>`. Without this the model guessed why it
+  // could not, and told its owner a change would be applied after the turn.
+  const where = user?.startsWith("api:")
+    ? "This message came through the API, from a program holding a token, and a token never can: they have to ask " +
+      "on another of your channels, where they are your owner. "
+    : "";
   return (
     "## Changing yourself\n\n" +
-    "You cannot change your own purpose, skills or jobs in this turn: only your owner can ask for that, in a " +
-    "message to you. " +
+    "You cannot change your own purpose, skills or jobs in this turn, and nothing changes them for you after it: " +
+    "only your owner can ask for that, in a message to you. " +
+    where +
     (!tools.memoryEditFile ? "When" : "Keep what you learned in your memory, and when") +
     " it should change one of those files, say which and how in one line, so they can ask."
   );
