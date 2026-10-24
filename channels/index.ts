@@ -32,3 +32,4 @@ export {
   type Button,
 } from "./shared.ts";
 export type { FileToSend } from "#chloe/model/tools/chat";
+export { together } from "#chloe/services/messageService";

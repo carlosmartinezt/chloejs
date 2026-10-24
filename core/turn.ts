@@ -19,7 +19,7 @@ import { ownFolderTools, ownReadTools, ownTrialTools } from "#chloe/model/tools/
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { receivedFolder } from "#chloe/services/receivedService";
-import { chatSendFile, type FileToSend } from "#chloe/model/tools/chat";
+import { chatAsk, chatSendFile, type FileToSend } from "#chloe/model/tools/chat";
 import { NeedsSignIn } from "#chloe/connections/connection";
 import type { Reply } from "#chloe/load/plugin";
 import { PLUGINS } from "#chloe/plugins/index";
@@ -179,6 +179,10 @@ export interface Result {
    * and nothing ran.
    */
   joined?: boolean;
+  /** Set when the reply ends with a question to pick an answer to (`chatAsk`): the answers, to show as buttons. */
+  options?: string[];
+  /** Set with `options` when several may be picked. */
+  multiple?: boolean;
 }
 
 function shown(history: ChatHistory = {}): { limit?: number; days?: number } {
@@ -302,7 +306,7 @@ async function answer({ agent, prompt, asked, attachments, model, thread, source
     "insert into runs (id, agent, started, source, job, model, prompt, asked, kind, owner, thread, held) values (?, ?, ?, ?, ?, ?, ?, ?, 'turn', ?, ?, ?)",
   ).run(runId, agent.id, started, source, job ?? null, using, prompt, asked ?? null, owner ?? null, thread ?? null, trial || inTrial() ? "[]" : null);
 
-  const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent, sendFile, guest });
+  const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent, sendFile, guest, chat: Boolean(thread) });
   const overviews = await overviewsOf(tools);
   const messages: Message[] = [
     { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, await pluginWords(agent, { tools, guest: Boolean(guest), user })) },
@@ -495,7 +499,7 @@ async function go(options: {
   inbox?: Inbox;
 }): Promise<Result> {
   const { agent, runId, trace, job, source, thread, said, calling, writing, instead } = options;
-  const tools = toolsFor(agent, options.without, options);
+  const tools = toolsFor(agent, options.without, { ...options, chat: Boolean(thread) });
   const before = answers(trace);
   const calls: Result["calls"] = [];
   // An eval answers every tool itself, so nothing it does is written anywhere.
@@ -547,14 +551,15 @@ async function go(options: {
       await committed({ error: done.text });
       return { runId, text: done.text, steps, cost, unpriced, calls };
     }
-    const last = signIn ?? done.text;
+    const last = signIn ?? done.ended?.text ?? done.text;
     // Each answer it gave before a message arrived is part of the reply, since
     // only a channel that sends as it goes has sent it.
     const text = [...done.earlier, last].join("\n\n");
     finish(runId, text, steps, cost, unpriced, trace);
     await committed({ summary: oneLineSummary(text) });
     if (thread) remember(thread, "assistant", last, calls);
-    return { runId, text, steps, cost, unpriced, calls };
+    const picking = done.ended?.options?.length ? { options: done.ended.options, ...(done.ended.multiple && { multiple: true }) } : {};
+    return { runId, text, steps, cost, unpriced, calls, ...picking };
   } catch (error) {
     const why = String(error instanceof Error ? error.message : error);
     fail(runId, why, answers(trace), costOf(trace), unpricedOf(trace), trace);
@@ -684,6 +689,8 @@ export async function loop(options: {
   waiting?: { calls: ToolCall[]; reason: string; input: unknown };
   /** With "sign-in": the connection a tool needs somebody to sign in to, and what failed, in words. */
   signIn?: { connection: string; why: string };
+  /** What a tool marked `endsReply` returned, which is the reply. */
+  ended?: { text: string; options?: string[]; multiple?: boolean };
 }> {
   const specs = await Promise.all(Object.entries(options.tools).map(([name, one]) => describe(name, one)));
   const calls: Result["calls"] = [];
@@ -771,6 +778,15 @@ export async function loop(options: {
       if (signIn) {
         const why = String(output).replace(/^[\w-]+ failed: /, "");
         return { text: `${why} Somebody signs in from a chat with this agent, or from the dashboard.`, steps: steps + 1, cost, unpriced, calls, earlier, stopped: "sign-in", signIn: { connection: signIn, why } };
+      }
+      if (one?.endsReply && !failed && !refused) {
+        const reply = output as { text?: unknown; options?: unknown; multiple?: unknown };
+        const ended = {
+          text: String(reply?.text ?? ""),
+          ...(Array.isArray(reply?.options) && { options: reply.options.map(String) }),
+          ...(reply?.multiple === true && { multiple: true }),
+        };
+        return { text: ended.text, steps: steps + 1, cost, unpriced, calls, earlier, stopped: false, ended };
       }
       options.messages.push({
         role: "tool",
@@ -904,15 +920,17 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
  * channel leaves out, less those for its owner unless the owner wrote, and
  * less those that change it unless the owner may. Every turn reads its own
  * folder (`ownListFiles`, `ownReadFile`); a turn its owner wrote also reads
- * its runs and the guides, and may try one of its jobs.
+ * its runs and the guides, and may try one of its jobs. A turn in a
+ * conversation (`chat`) may end with a question to pick from (`chatAsk`).
  */
-function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean; sendFile?: Ask["sendFile"]; guest?: boolean } = {}): Tools {
+function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boolean; mayChangeAgent?: boolean; sendFile?: Ask["sendFile"]; guest?: boolean; chat?: boolean } = {}): Tools {
   const owner = Boolean(who.fromOwner || who.mayChangeAgent);
   const tools: Tools = {
     ...ownFolderTools()(agent),
     ...(owner ? { ...ownReadTools()(agent), ...ownTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
     ...(who.sendFile && !who.guest ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id)]) } : {}),
+    ...(who.chat ? { chatAsk: chatAsk() } : {}),
   };
   for (const name of without) delete tools[name];
   for (const [name, one] of Object.entries(tools)) {
@@ -923,11 +941,12 @@ function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boole
 
 /**
  * The tools every agent has with nothing to switch: reading its own folder and
- * skills in every turn, and for its owner's turns its runs, the guides and
- * trying a job. Each says whether it is for the owner's turns only.
+ * skills in every turn, asking a question to pick from in a conversation, and
+ * for its owner's turns its runs, the guides and trying a job. Each says
+ * whether it is for the owner's turns only.
  */
 export function alwaysOnTools(agent: Agent): { name: string; tool: ChloeTool; ownerOnly: boolean }[] {
-  const all = toolsFor(agent, [], { fromOwner: true });
+  const all = toolsFor(agent, [], { fromOwner: true, chat: true });
   return Object.entries(all)
     .filter(([name]) => !(name in (agent.tools ?? {})) && !(name in (agent.toolsOff ?? {})))
     .map(([name, one]) => ({ name, tool: one, ownerOnly: Boolean(one.forOwner) }));

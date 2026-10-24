@@ -38,9 +38,9 @@
     return body;
   };
 
-  import(new URL("client.js", source).href).then(({ chloeChat }) => draw(chloeChat({ url, agent, pass })));
+  import(new URL("client.js", source).href).then(({ chloeChat, together }) => draw(chloeChat({ url, agent, pass }), together));
 
-  function draw(chat) {
+  function draw(chat, together) {
     const host = document.createElement("div");
     host.setAttribute("data-chloe-chat", "");
     const root = host.attachShadow({ mode: "open" });
@@ -113,6 +113,48 @@
       log.scrollTop = log.scrollHeight;
     }
 
+    /**
+     * The answers to pick from under the last message: a button for each, or
+     * a box to tick for each and "Send". Gone once one is sent, or anything is.
+     */
+    function offer(buttons, multiple) {
+      const box = document.createElement("div");
+      box.className = "choices";
+      const go = (words) => {
+        box.remove();
+        ask(words);
+      };
+      if (multiple) {
+        const ticks = buttons.map((one) => {
+          const label = document.createElement("label");
+          const tick = document.createElement("input");
+          tick.type = "checkbox";
+          tick.value = one.sends;
+          label.append(tick, document.createTextNode(` ${one.label}`));
+          box.append(label);
+          return tick;
+        });
+        const done = element("button", "Send");
+        done.type = "button";
+        done.className = "pick";
+        done.addEventListener("click", () => {
+          const picked = ticks.filter((one) => one.checked).map((one) => one.value);
+          if (picked.length) go(together(picked));
+        });
+        box.append(done);
+      } else {
+        for (const one of buttons) {
+          const button = element("button", one.label);
+          button.type = "button";
+          button.className = "pick";
+          button.addEventListener("click", () => go(one.sends));
+          box.append(button);
+        }
+      }
+      log.append(box);
+      log.scrollTop = log.scrollHeight;
+    }
+
     function working(what) {
       doing.hidden = what === null;
       $(".what").textContent = what ?? "";
@@ -147,6 +189,7 @@
 
     async function ask(words) {
       if (busy || (!words && !images.length)) return;
+      log.querySelector(".choices")?.remove();
       bubble("user", [words, ...images.map((one) => `(${one.name})`)].filter(Boolean).join("\n"));
       text.value = "";
       fit();
@@ -158,7 +201,7 @@
       working("");
       let draft = null;
       try {
-        const { text: answer } = await chat.send(words, {
+        const { text: answer, buttons, multiple } = await chat.send(words, {
           images: sending,
           signal: busy.signal,
           onText: (soFar) => {
@@ -175,6 +218,7 @@
         });
         if (draft) draft.replaceChildren(...markdown(answer));
         else if (answer) bubble("assistant", answer);
+        if (buttons?.length) offer(buttons, multiple);
       } catch (error) {
         if (error.name !== "AbortError") say(error.message);
       } finally {
@@ -347,6 +391,10 @@
     .message code { padding: 1px 4px; }
     .message pre { padding: 8px; white-space: pre-wrap; }
     .message a { color: inherit; }
+    .choices { align-self: flex-start; display: flex; flex-wrap: wrap; gap: 6px; max-width: 85%; }
+    .choices label { display: flex; align-items: center; gap: 4px; width: 100%; cursor: pointer; }
+    .pick { border: 1px solid var(--accent); background: none; color: var(--accent); font: inherit; padding: 5px 12px; border-radius: 999px; cursor: pointer; }
+    .pick:hover { background: var(--accent); color: #fff; }
     .error { align-self: center; margin: 0; font-size: 13px; color: #a3242a; text-align: center; }
     .doing { margin: 0; padding: 0 16px 8px; font-size: 13px; color: #6b6f7a; display: flex; align-items: center; gap: 8px; }
     .dots { display: inline-flex; gap: 3px; }

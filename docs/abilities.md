@@ -168,6 +168,7 @@ brings all of them back (its tools are taken out of `without`).
 
 | Tool | Who gets it | What it does |
 |---|---|---|
+| `chatAsk` | every conversation | Ends the reply with a question and a few answers to pick from, one or several, shown as buttons where the channel has them. Their pick is their next message. [Asking a person](/docs/asking-a-person#from-a-chat). |
 | `chatSendFile` | a conversation on a channel that can send files, never a guest's | Sends a file from its memory, or one it was sent, into that conversation. Telegram can. |
 | `ownListFiles` | every turn | Lists the files in its own folder, and which it may change. Never its memory. |
 | `ownReadFile` | every turn | Reads any of them, several in one call: its own source code and its skills included. The agent is shown every skill's description and the file to read, and reads the one it needs. |

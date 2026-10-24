@@ -5,6 +5,7 @@ import { api } from "../lib/api.ts";
 import { ago, nameOf, many, stateOf, when } from "../lib/format.ts";
 import { Code } from "./components/Code.tsx";
 import { Link } from "./components/Link.tsx";
+import { Pick } from "./components/Pick.tsx";
 import { Standing } from "./components/Tree.tsx";
 
 /** How far back the figures at the top look. */
@@ -128,11 +129,12 @@ function Waiting({ parked, done }: { parked: ParkedRun; done: () => void }) {
   const [sending, setSending] = useState(false);
   const [trouble, setTrouble] = useState("");
 
-  async function send() {
-    if (!text.trim() || sending) return;
+  async function send(picked?: string) {
+    const answer = picked ?? text;
+    if (!answer.trim() || sending) return;
     setSending(true);
     try {
-      await api.answer(parked.id, text);
+      await api.answer(parked.id, answer);
       done();
     } catch (error) {
       setTrouble((error as Error).message);
@@ -146,6 +148,9 @@ function Waiting({ parked, done }: { parked: ParkedRun; done: () => void }) {
         {parked.agent}/{parked.job} asked {ago(parked.asked)}, waiting until {when(parked.expires)}
       </div>
       <p className="q">{parked.question}</p>
+      {parked.options && (
+        <Pick options={parked.options.map((one) => ({ label: one, sends: one }))} multiple={parked.multiple} disabled={sending} pick={(answer) => void send(answer)} />
+      )}
       <div className="reply">
         <input
           value={text}
@@ -153,7 +158,7 @@ function Waiting({ parked, done }: { parked: ParkedRun; done: () => void }) {
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => event.key === "Enter" && void send()}
         />
-        <button className="go" onClick={send} disabled={!text.trim() || sending}>
+        <button className="go" onClick={() => void send()} disabled={!text.trim() || sending}>
           {sending ? "Sending" : "Send answer"}
         </button>
       </div>

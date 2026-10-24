@@ -613,7 +613,9 @@ sweep carries it on. It is left out of `parkedRuns()`, which is the questions.
 they typed against the schema, and "yes" against `z.boolean()` is a yes. No
 model reads it. An answer that does not fit is asked again in plain words. Do
 not add a model there: the whole point of stopping to ask was to take the
-judgement out of the machine.
+judgement out of the machine. `chatAsk` is a chat's own way to offer a few
+answers: it ends the reply, nothing parks, and the pick is the next message,
+which the model reads.
 
 **Setting an environment variable at the top of a file does not beat an
 import.** Imports are hoisted above it, so a module that reads the environment
@@ -782,7 +784,7 @@ comes again.
 
 **Every channel takes `tools` and `job`, read once in `channels/shared.ts`**
 (`Answering`, `bind`). `tools` keeps a turn to the tools named, plus memory
-and skills (a guest: only what is named). `job` hands every message to a
+and skills (a guest: only what is named, and `chatAsk`). `job` hands every message to a
 job, run through the clock once per conversation, not once per job. That job
 is named on the channel only: the loader adds it to the agent's jobs with
 `channels` set (`channelJobs` in `load/load.ts`), and nothing but a message

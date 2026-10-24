@@ -36,13 +36,14 @@
 //
 // What happens to a message once it is read is channels/shared.ts, the same
 // for every channel. This file reads Slack, sends to it, and nothing else.
-import { ownedBy, reachBy, unreach } from "#chloe/services/messageService";
+import { ownedBy, reachBy, together, unreach } from "#chloe/services/messageService";
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
 import type { Attachment } from "#chloe/model/model";
 import { settings, whereKeyGoes } from "#chloe/core/settings";
-import { type Bound, defineChannel, type Incoming, receive, rulesOf, type Shared } from "#chloe/channels/shared";
+import { type Bound, type Button, defineChannel, type Incoming, receive, rulesOf, type Shared } from "#chloe/channels/shared";
 
 const MAX_MESSAGE = 4000; // Slack cuts a message's text at 40000, and advises under 4000.
+const MAX_SECTION = 3000; // The most words a block holds.
 const READS = new Set(["auth.test", "apps.connections.open", "users.info", "conversations.info"]);
 
 /** The options for `slackChannel()`: who may reach the agent, and when it answers in a Slack channel. */
@@ -240,24 +241,32 @@ export function listen(
   // app. A member id as the channel is that person's direct message with the
   // bot. Answers that can be listed become buttons, and anything else is
   // answered by the next message in that chat.
-  reachBy(
-    channel,
-    (to, text, choices) =>
-      send(
-        to,
-        text,
-        undefined,
-        choices?.length
-          ? {
-              blocks: [
-                { type: "section", text: { type: "plain_text", text } },
-                { type: "actions", elements: choices.map((choice, i) => ({ type: "button", action_id: `a:${i}`, text: { type: "plain_text", text: choice }, value: choice })) },
-              ],
-            }
-          : {},
-      ),
-    agentId,
-  );
+  reachBy(channel, (to, text, choices, multiple) => sendButtons(to, text, (choices ?? []).map((one) => ({ label: one, sends: one })), multiple), agentId);
+
+  /**
+   * Buttons under a message's words: one to press for each, or for `multiple`
+   * a box to tick for each and "Send" beside them. Slack shows ten boxes at most.
+   */
+  function actions(buttons: Button[], multiple?: boolean): object {
+    const plain = (text: string) => ({ type: "plain_text", text: text.slice(0, 75) });
+    if (!multiple) return { type: "actions", elements: buttons.slice(0, 25).map((one, i) => ({ type: "button", action_id: `a:${i}`, text: plain(one.label), value: one.sends })) };
+    return {
+      type: "actions",
+      elements: [
+        { type: "checkboxes", action_id: "t", options: buttons.slice(0, 10).map((one) => ({ text: plain(one.label), value: one.sends.slice(0, 150) })) },
+        { type: "button", action_id: "d", text: plain("Send"), value: "d" },
+      ],
+    };
+  }
+
+  /** Words with buttons under them. Words too long to sit in a block go first, on their own. */
+  async function sendButtons(chat: string, text: string, buttons: Button[], multiple?: boolean, thread?: string): Promise<void> {
+    if (!buttons.length) return await send(chat, text, thread);
+    const fits = text.length <= MAX_SECTION;
+    if (!fits) await send(chat, text, thread);
+    const words = fits ? [{ type: "section", text: { type: "mrkdwn", text } }] : [];
+    await call("chat.postMessage", { channel: chat, text: fits ? text : "Pick from these.", ...(thread ? { thread_ts: thread } : {}), blocks: [...words, actions(buttons, multiple)] });
+  }
   if (options.allowFrom?.[0]) ownedBy(agentId, `${channel}:${options.allowFrom[0]}`);
 
   /** Names by id, asked of Slack once each. An id stands in when Slack will not say. */
@@ -359,7 +368,7 @@ export function listen(
       working: () => working(message.channel, message.ts),
       send: (words) => send(message.channel, words, message.thread_ts),
     });
-    if (handled?.text) await send(message.channel, handled.text, message.thread_ts).catch((error) => console.error("slack:", error.message));
+    if (handled?.text) await sendButtons(message.channel, handled.text, handled.buttons ?? [], handled.multiple, message.thread_ts).catch((error) => console.error("slack:", error.message));
   }
 
   /** A slash command is its command and text, sent by whoever typed it, and always addressed to the agent. */
@@ -378,10 +387,15 @@ export function listen(
     if (handled?.text) await reply(handled.text).catch((error) => console.error("slack:", error.message));
   }
 
-  /** A pressed button is its text, sent by whoever pressed it, which is how it answers a waiting job. */
+  /**
+   * A pressed button is its text, sent by whoever pressed it, which is how it
+   * answers a waiting job. "Send" beside boxes sends every ticked one together;
+   * ticking a box sends nothing.
+   */
   async function onButton(payload: any): Promise<void> {
     const agent = options.agent();
-    const choice: string | undefined = payload.actions?.[0]?.value;
+    const action = payload.actions?.[0];
+    const choice: string | undefined = action?.action_id === "d" ? ticked(payload.state?.values) : action?.value;
     const chat: string | undefined = payload.channel?.id ?? payload.container?.channel_id;
     if (!agent || !choice || !chat || !payload.user?.id) return;
     const question: string = payload.message?.text ?? "";
@@ -390,7 +404,13 @@ export function listen(
     if (!handled) return;
     // Take the buttons away so the question cannot be answered twice, and say what was chosen.
     if (message.ts) await call("chat.update", { channel: chat, ts: message.ts, text: `${question}\n\n→ ${choice}`, blocks: [] }).catch(() => {});
-    if (handled.text) await send(chat, handled.text).catch(() => {});
+    if (handled.text) await sendButtons(chat, handled.text, handled.buttons ?? [], handled.multiple).catch(() => {});
+  }
+
+  /** What is ticked in a message's boxes, as one message, or undefined when nothing is. */
+  function ticked(values: Record<string, Record<string, { selected_options?: { value: string }[] }>> = {}): string | undefined {
+    const picked = Object.values(values).flatMap((block) => Object.values(block).flatMap((one) => one.selected_options?.map((option) => option.value) ?? []));
+    return picked.length ? together(picked) : undefined;
   }
 
   function handle(envelope: Envelope): void {

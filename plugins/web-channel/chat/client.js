@@ -10,11 +10,15 @@
 //     pass: () => fetch("/api/chat-pass", { method: "POST" }).then((answer) => answer.json()),
 //   });
 //   const { greeting, messages } = await chat.history();
-//   const { text } = await chat.send("Where is my order?", {
+//   const { text, buttons, multiple } = await chat.send("Where is my order?", {
 //     onText: (soFar) => show(soFar),           // the answer as it is written
 //     onStep: ({ text }) => status(text),        // a tool it started: what it is doing
 //     onSaid: (words) => add(words),             // words it wrote on the way
 //   });
+//
+// `buttons` is set when the answer asks them to pick: each `{ label, sends }`,
+// and pressing one is sending its `sends`. With `multiple` they may pick
+// several, sent as one message with `together()`.
 //
 // `url` is where the runtime's /api is, through your own proxy or the cloud.
 // `pass` asks your site's own server for a pass and returns it, as the pass or
@@ -26,6 +30,11 @@
 /**
  * @param {{ url?: string, agent: string, pass: () => Promise<string | { pass: string, expires?: string, greeting?: string, pictures?: boolean }> }} options
  */
+/** Several picked answers as one message: joined with commas, or as a JSON list when one holds a comma. */
+export function together(picked) {
+  return picked.some((one) => one.includes(",")) ? JSON.stringify(picked) : picked.join(", ");
+}
+
 export function chloeChat({ url = "", agent, pass: ask }) {
   if (typeof ask !== "function") throw new Error("chloeChat needs pass: a function that asks your site's own server for one.");
   const base = `${url.replace(/\/+$/, "")}/api/agents/${encodeURIComponent(agent)}/web`;
@@ -76,7 +85,8 @@ export function chloeChat({ url = "", agent, pass: ask }) {
     /**
      * One message, and the answer. `images` are `{ name, mediaType, data }`,
      * data being base64, on a channel that takes pictures. Resolves to
-     * `{ text, runId }` once the answer is whole.
+     * `{ text, runId }` once the answer is whole, with `buttons` and
+     * `multiple` when it asks them to pick.
      *
      * @param {string} text
      * @param {{ images?: { name: string, mediaType: string, data: string }[], signal?: AbortSignal,
@@ -110,7 +120,7 @@ export function chloeChat({ url = "", agent, pass: ask }) {
         }
       }
       if (!done) throw new Error("The answer stopped before it was finished. Try again.");
-      return { text: done.text, runId: done.runId };
+      return { text: done.text, runId: done.runId, ...(done.buttons && { buttons: done.buttons }), ...(done.multiple && { multiple: true }) };
     },
   };
 }

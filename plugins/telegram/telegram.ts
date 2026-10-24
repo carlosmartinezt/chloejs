@@ -37,7 +37,7 @@ import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { type Agent, type Channel, type ChatHistory, type Running } from "#chloe/load/load";
-import { ownedBy, reachBy, unreach } from "#chloe/services/messageService";
+import { ownedBy, reachBy, together, unreach } from "#chloe/services/messageService";
 import type { Attachment } from "#chloe/model/model";
 import { sendMessage } from "./tools.ts";
 import type { FileToSend } from "#chloe/model/tools/chat";
@@ -153,6 +153,14 @@ export interface TelegramOptions extends Shared {
   uploadPolicy?: { allowedMediaTypes?: string[]; maxBytes?: number };
   /** The address of Telegram's API. Default: "https://api.telegram.org". Only the tests change it. */
   api?: string;
+}
+
+const UNTICKED = "☐";
+const TICKED = "☑";
+
+/** A button's words with its box ticked if it was not, and unticked if it was. */
+function flipped(text: string): string {
+  return text.startsWith(TICKED) ? `${UNTICKED}${text.slice(TICKED.length)}` : `${TICKED}${text.slice(UNTICKED.length)}`;
 }
 
 /** How far each bot has read. Outlives a reader, so one started after an edit is not handed the same messages again. */
@@ -315,11 +323,13 @@ export function listen(
   // else asks for a reply.
   reachBy(
     channel,
-    (to, text, choices) =>
+    (to, text, choices, multiple) =>
       send(Number(to), text, {
-        reply_markup: choices?.length
-          ? { inline_keyboard: [choices.map((choice, i) => ({ text: choice, callback_data: `a:${i}` }))] }
-          : { force_reply: true },
+        reply_markup: multiple && choices?.length
+          ? ticks(choices.map((one) => ({ label: one, sends: one })))
+          : choices?.length
+            ? { inline_keyboard: [choices.map((choice, i) => ({ text: choice, callback_data: `a:${i}` }))] }
+            : { force_reply: true },
       }),
     agentId,
   );
@@ -331,9 +341,19 @@ export function listen(
    * 64 bytes on a button, so one whose text is longer is left out and the
    * words in the reply still say how to write it.
    */
-  function keyboard(buttons: Button[] = []): object {
+  function keyboard(buttons: Button[] = [], multiple?: boolean): object {
+    if (multiple) return buttons.length ? { reply_markup: ticks(buttons) } : {};
     const rows = buttons.filter((one) => Buffer.byteLength(`s:${one.sends}`) <= 64).map((one) => [{ text: one.label, callback_data: `s:${one.sends}` }]);
     return rows.length ? { reply_markup: { inline_keyboard: rows } } : {};
+  }
+
+  /**
+   * Buttons to tick, one a row, and "Send" under them. Pressing one ticks or
+   * unticks it in the message itself, so what is ticked is kept nowhere else.
+   */
+  function ticks(buttons: Button[]): { inline_keyboard: { text: string; callback_data: string }[][] } {
+    const rows = buttons.filter((one) => Buffer.byteLength(`t:${one.sends}`) <= 64).map((one) => [{ text: `${UNTICKED} ${one.label}`, callback_data: `t:${one.sends}` }]);
+    return { inline_keyboard: [...rows, [{ text: "Send", callback_data: "d" }]] };
   }
 
   function wanted(mediaType: string): boolean {
@@ -473,7 +493,7 @@ export function listen(
         send: (words) => send(chatId, words, extra),
         sendFile: (file) => sendDocument(chatId, file, extra),
       });
-      if (handled?.text) await send(chatId, handled.text, { ...extra, ...keyboard(handled.buttons) }).catch((error) => console.error("telegram:", error.message));
+      if (handled?.text) await send(chatId, handled.text, { ...extra, ...keyboard(handled.buttons, handled.multiple) }).catch((error) => console.error("telegram:", error.message));
     } finally {
       showing?.();
     }
@@ -483,6 +503,7 @@ export function listen(
    * A pressed button is sent by whoever pressed it as if they had written it:
    * "a:<n>" sends the button's own text, which is how it answers a waiting
    * job, and "s:<text>" sends that text, which is how a reply's buttons work.
+   * "t:<text>" ticks or unticks a box, and "d" sends every ticked one together.
    */
   async function onButton(query: NonNullable<Update["callback_query"]>): Promise<void> {
     await call("answerCallbackQuery", { callback_query_id: query.id }).catch(() => {});
@@ -491,15 +512,23 @@ export function listen(
     if (!message || !agent) return;
     const data = query.data ?? "";
     const buttons = message.reply_markup?.inline_keyboard?.flat() ?? [];
-    const sends = data.startsWith("s:") ? data.slice(2) : buttons[Number(data.replace(/^a:/, ""))]?.text;
+    if (data.startsWith("t:")) {
+      const rows = message.reply_markup!.inline_keyboard!.map((row) =>
+        row.map((one) => (one.callback_data === data ? { ...one, text: flipped(one.text) } : one)),
+      );
+      await call("editMessageReplyMarkup", { chat_id: message.chat.id, message_id: message.message_id, reply_markup: { inline_keyboard: rows } }).catch(() => {});
+      return;
+    }
+    const ticked = buttons.filter((one) => one.callback_data?.startsWith("t:") && one.text.startsWith(TICKED)).map((one) => one.callback_data!.slice(2));
+    const sends = data === "d" ? (ticked.length ? together(ticked) : "") : data.startsWith("s:") ? data.slice(2) : buttons[Number(data.replace(/^a:/, ""))]?.text;
     if (!sends) return;
-    const label = buttons.find((one) => one.callback_data === data)?.text ?? sends;
+    const label = data === "d" ? sends : (buttons.find((one) => one.callback_data === data)?.text ?? sends);
     const topic = message.message_thread_id;
     const handled = await receive(agent, { ...incoming(message, query.from, sends), addressed: true }, rules);
     if (!handled) return;
     // Take the buttons away so the question cannot be answered twice, and say what was chosen.
     await call("editMessageText", { chat_id: message.chat.id, message_id: message.message_id, text: `${message.text ?? ""}\n\n→ ${label}` }).catch(() => {});
-    if (handled.text) await send(message.chat.id, handled.text, { ...(topic ? { message_thread_id: topic } : {}), ...keyboard(handled.buttons) }).catch(() => {});
+    if (handled.text) await send(message.chat.id, handled.text, { ...(topic ? { message_thread_id: topic } : {}), ...keyboard(handled.buttons, handled.multiple) }).catch(() => {});
   }
 
   /**

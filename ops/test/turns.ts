@@ -386,6 +386,35 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
 }
 
 {
+  about("a reply that asks the person to pick");
+  const { receive } = await import("#chloe/channels/shared");
+  const { turn } = await import("#chloe/core/turn");
+  const base = agentFor(codeJob("unused", async () => ({})));
+  const message = { channel: "test", chat: "1", thread: "test/pick-1", from: { id: "1", name: "Ada" }, text: "book me a table", private: true };
+  const asks = (args: object) => ({ tool_calls: [{ id: "1", type: "function", function: { name: "chatAsk", arguments: JSON.stringify(args) } }] });
+
+  answers.splice(0);
+  answers.push(asks({ question: "Which evening?", options: ["Friday", "Saturday"] }), "never asked");
+  const handled = await receive(base, message, { allowFrom: ["1"] });
+  is("the question is the reply, listing the answers for a channel with no buttons", handled?.text, "Which evening?\n(Friday, Saturday)");
+  is("with a button for each", handled?.buttons, [{ label: "Friday", sends: "Friday" }, { label: "Saturday", sends: "Saturday" }]);
+  is("and the model is not asked again", answers, ["never asked"]);
+
+  answers.splice(0);
+  answers.push("Booked for Friday.");
+  await receive(base, { ...message, text: "Friday" }, { allowFrom: ["1"] });
+  is("the next turn sees the question it asked", JSON.stringify(lastAsked).includes("Which evening?"), true);
+
+  answers.push(asks({ question: "Anything with it?", options: ["wine", "cake", "flowers"], multiple: true }));
+  const several = await receive(base, { ...message, text: "and extras?" }, { allowFrom: ["1"] });
+  is("several may be picked", [several?.text, several?.multiple], ["Anything with it?\n(any of wine, cake, flowers, with commas between)", true]);
+
+  answers.push("Done.");
+  await turn({ agent: base, prompt: "check the bookings", source: "test" });
+  is("a run with nobody to answer cannot ask", lastTools.includes("chatAsk"), false);
+}
+
+{
   about("the owner can ask an agent about its own files and runs");
   const { turn } = await import("#chloe/core/turn");
   const { mkdtemp, writeFile: put } = await import("node:fs/promises");

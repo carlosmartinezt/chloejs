@@ -2,6 +2,9 @@
 // to the person it is talking with. A turn has it only when its channel can
 // send files (`While.sendFile` in channels/shared.ts), and the person is the
 // one the channel says, never one the model names.
+//
+// chatAsk: a question with a few answers to pick from, which ends the reply.
+// Every turn in a conversation has it.
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 
@@ -9,6 +12,7 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import { confine } from "#chloe/core/confine";
+import { choicesHint } from "#chloe/services/messageService";
 import type { ChloeTool } from "../tool.ts";
 
 /** A file to send: where it is on disk, and the name the person sees. */
@@ -41,6 +45,30 @@ export function chatSendFile(send: (file: FileToSend) => Promise<void>, folders:
       return { sent: file.name, bytes: info.size };
     },
   }), { title: "Send file" });
+}
+
+/**
+ * The tool for a turn in a conversation. Its answer is the reply: the
+ * question with a line listing the options, and the options themselves, which
+ * a channel with buttons shows as buttons. Their pick is their next message.
+ */
+export function chatAsk(): ChloeTool {
+  return Object.assign(tool({
+    description:
+      "Ask the person you are talking with to pick from a few answers. Their chat shows each as a button where it can, " +
+      "and a box to tick each when they may pick several. Your reply ends with this question, so say anything else first, " +
+      "in the question itself. What they pick comes back as their next message. Use it only when the answer is one of a short list.",
+    inputSchema: z.object({
+      question: z.string().trim().min(1).describe("The question, as you would write it to them."),
+      options: z.array(z.string().trim().min(1).max(60)).min(2).max(8).describe("The answers to pick from, 2 to 8, each a few words."),
+      multiple: z.boolean().default(false).describe("True when they may pick several."),
+    }),
+    execute: async ({ question, options, multiple }) => ({
+      text: `${question}\n${choicesHint(options, multiple)}`,
+      options,
+      ...(multiple && { multiple }),
+    }),
+  }), { title: "Ask a question", own: true, endsReply: true });
 }
 
 /** The full path of `path` inside the first of `folders` that holds it, or a throw saying where files may come from. */

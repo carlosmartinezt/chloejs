@@ -131,6 +131,29 @@ import { agentFor, answer, answers, codeJob, db, row, work } from "#chloe/ops/te
   is("pressing one answers the job", JSON.parse(row(parked.runId).reply), { go: true });
   is("and the buttons are taken away", calls.find((c) => c.method === "chat.update")?.body.text, "Go?\n\n→ yes");
 
+  // A question that takes several answers has a box to tick for each, and Send.
+  calls.length = 0;
+  socket = undefined;
+  const several = codeJob("ticks", async ({ ask }) => ({ picked: await ask("which?", { question: "Which?", answer: z.array(z.enum(["cheese", "ham"])), who: "slack:U7" }) }));
+  const withTicks = agentFor(several);
+  const boxed = listen({ agentId: "test", token: "b", appToken: "a", api, allowFrom: ["U7"], agent: () => withTicks });
+  await until(() => !!socket);
+  const toppings = await work({ agent: withTicks, job: several });
+  const boxes = calls.find((c) => c.method === "chat.postMessage")?.body.blocks?.[1]?.elements;
+  is("each answer is a box to tick, with Send beside them", [boxes?.[0]?.options?.map((o: { value: string }) => o.value), boxes?.[1]?.action_id], [["cheese", "ham"], "d"]);
+  push("interactive", {
+    type: "block_actions",
+    user: { id: "U7" },
+    channel: { id: "D1" },
+    message: { ts: "3.2", text: "Which?" },
+    actions: [{ action_id: "d", value: "d" }],
+    state: { values: { b1: { t: { selected_options: [{ value: "ham" }] } } } },
+  });
+  await until(() => calls.some((c) => c.method === "chat.update"));
+  boxed.stop();
+  await pause(50);
+  is("Send answers with every one ticked", JSON.parse(row(toppings.runId).reply), { picked: ["ham"] });
+
   // A slash command runs the job it names, and is answered where it was typed.
   calls.length = 0;
   socket = undefined;

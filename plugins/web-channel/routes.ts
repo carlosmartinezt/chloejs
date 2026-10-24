@@ -372,7 +372,11 @@ export async function webTurn(at: At): Promise<void> {
         },
       },
     );
-    event("done", { runId: handled?.runId, text: handled?.text ?? "", ...(handled?.buttons?.length ? { buttons: handled.buttons } : {}) });
+    event("done", {
+      runId: handled?.runId,
+      text: handled?.text ?? "",
+      ...(handled?.buttons?.length ? { buttons: handled.buttons, ...(handled.multiple && { multiple: true }) } : {}),
+    });
   } catch (error) {
     console.error(`web: ${agent.id} turn failed`, error);
     event("error", { message: "Something went wrong on my end. Try that again." });

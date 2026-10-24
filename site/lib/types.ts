@@ -186,6 +186,10 @@ export interface ParkedRun {
   question: string;
   asked: string;
   expires: string;
+  /** The answers that fit, when they can be listed. */
+  options?: string[];
+  /** Set when several of `options` may be picked. */
+  multiple?: boolean;
 }
 
 /** One thing in an agent's folder. A folder carries what is under it. */

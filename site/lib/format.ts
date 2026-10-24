@@ -18,6 +18,9 @@ export const ago = (iso: string | null): string => {
   return when(iso);
 };
 
+/** Several picked answers as one message: joined with commas, or as a JSON list when one holds a comma. */
+export const together = (picked: string[]): string => (picked.some((one) => one.includes(",")) ? JSON.stringify(picked) : picked.join(", "));
+
 /** What the page calls an agent: its name if it has one, or its id. */
 const names = new Map<string, string>();
 

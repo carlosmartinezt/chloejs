@@ -201,6 +201,26 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "#chloe
   is("pressing one answers the job", JSON.parse(row(parked.runId).reply), { go: true });
   is("and the buttons are taken away", calls.find((c) => c.method === "editMessageText")?.body.text, "Go?\n\n→ yes");
 
+  // A question that takes several answers has a box to tick for each, and Send.
+  calls.length = 0;
+  const picking = codeJob("ticks", async ({ ask }) => ({ picked: await ask("which?", { question: "Which?", answer: z.array(z.enum(["cheese", "ham"])), who: "telegram:7" }) }));
+  const withTicks = agentFor(picking);
+  const boxed = listen({ agentId: "test", token: "t", api, allowFrom: [7], agent: () => withTicks });
+  const toppings = await work({ agent: withTicks, job: picking });
+  const boxes = calls.find((c) => c.method === "sendMessage")?.body.reply_markup;
+  is("each answer is a box to tick, with Send under them", boxes?.inline_keyboard?.map((row: { text: string }[]) => row[0].text), ["☐ cheese", "☐ ham", "Send"]);
+  const press = (id: number, data: string, markup: unknown) =>
+    inbox.push({ update_id: id, callback_query: { id: `q${id}`, from: me, data, message: { message_id: 51, chat: { id: 7, type: "private" }, text: "Which?", reply_markup: markup } } });
+  press(21, "t:cheese", boxes);
+  await settle(1);
+  const ticked = calls.find((c) => c.method === "editMessageReplyMarkup")?.body.reply_markup;
+  is("pressing one ticks it in the message", ticked?.inline_keyboard?.map((row: { text: string }[]) => row[0].text), ["☑ cheese", "☐ ham", "Send"]);
+  press(22, "d", ticked);
+  await settle(2);
+  boxed.stop();
+  await pause(100);
+  is("Send answers with every one ticked", JSON.parse(row(toppings.runId).reply), { picked: ["cheese"] });
+
   // The other way for messages to arrive: Telegram sends them, with a secret.
   calls.length = 0;
   answers.push("sent to me");

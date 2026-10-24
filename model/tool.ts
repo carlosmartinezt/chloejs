@@ -93,6 +93,14 @@ export type ChloeTool = Tool & {
    * 0 is no limit of its own.
    */
   timeLimit?: number;
+  /**
+   * Set to `true` when what the tool returns is the reply itself, as
+   * `{ text, options?, multiple? }`: the reply ends once it answers, and the
+   * person is sent `text`, with `options` as buttons where the channel has
+   * them (`multiple` when several may be picked). The model is not asked
+   * again. Off by default. `chatAsk` is one.
+   */
+  endsReply?: boolean;
 };
 
 /** Marks each of these tools `own`, and returns them. */

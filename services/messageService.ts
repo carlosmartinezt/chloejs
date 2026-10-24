@@ -17,9 +17,10 @@ import { settings } from "#chloe/core/settings";
  *
  * `to` is the part of the address after the `:`, such as `12345` in
  * `telegram:12345`. `choices` lists the possible answers when there are only a
- * few, so the channel can show them as buttons.
+ * few, so the channel can show them as buttons. With `multiple`, the person
+ * may pick several, and sends them as one message with `together()`.
  */
-export type Send = (to: string, text: string, choices?: string[]) => Promise<void>;
+export type Send = (to: string, text: string, choices?: string[], multiple?: boolean) => Promise<void>;
 
 const ways = new Map<string, Send>();
 
@@ -74,12 +75,13 @@ export function canReach(address: string, agent = ""): boolean {
 /**
  * Sends a message to an address, such as `telegram:12345`, through the
  * channel running for that agent. Pass `choices` to show the possible answers
- * as buttons, where the channel can.
+ * as buttons, where the channel can, and `multiple` when several may be
+ * picked.
  *
  * Throws if no running channel can reach the address. In a trial run it
  * sends nothing, and the run's record keeps what it would have sent.
  */
-export async function deliver(address: string, text: string, agent = "", choices?: string[]): Promise<void> {
+export async function deliver(address: string, text: string, agent = "", choices?: string[], multiple?: boolean): Promise<void> {
   const { channel, to } = split(address);
   const send = way(channel, agent);
   // Refuse rather than park a run nobody will ever see a question from.
@@ -89,7 +91,24 @@ export async function deliver(address: string, text: string, agent = "", choices
     );
   }
   if (holdBack({ kind: "message", to: address, text })) return;
-  await send(to, text, choices);
+  await send(to, text, choices, multiple);
+}
+
+/**
+ * The line under a question saying what may be answered: "(small, large)", or
+ * for `multiple` "(any of red, green, blue, with commas between)". It is what
+ * a channel with no buttons shows, so it goes in the text on every channel.
+ */
+export function choicesHint(choices: string[], multiple?: boolean): string {
+  return multiple ? `(any of ${choices.join(", ")}, with commas between)` : `(${choices.join(", ")})`;
+}
+
+/**
+ * Several picked answers as the one message a person would have typed: joined
+ * with commas, or as a JSON list when one of them holds a comma.
+ */
+export function together(picked: string[]): string {
+  return picked.some((one) => one.includes(",")) ? JSON.stringify(picked) : picked.join(", ");
 }
 
 const owners = new Map<string, string>();

@@ -57,7 +57,7 @@ has.
 not reach the rest. Name each by the tool itself, so a typo is an error in your
 editor, or by its name in the agent's `tools`. The agent's memory and skills
 come with them, and for its owner the tools that read its own files and runs;
-`selfWriteFile` only when named. On [a web page](/docs/channels-web), only what is named.
+`selfWriteFile` only when named. On [a web page](/docs/channels-web), only what is named, and `chatAsk`.
 
 **`job`** sends every message to one job instead of a turn, so code goes first:
 look up who wrote, read their orders, and decide whether a model is needed at
@@ -122,5 +122,6 @@ this order:
 
 Hand `receive()` a `send` to allow `sendWhileWorking`, `calling` to be told as
 each tool starts, and `writing` for the words as they are written. A reply can
-carry `buttons`. `commands(agent)` is the list to show in the platform's own
+carry `buttons`, and `multiple` when several may be picked: send the ticked
+ones as one message with `together()`. `commands(agent)` is the list to show in the platform's own
 command menu.

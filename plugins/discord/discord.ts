@@ -35,7 +35,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { ownedBy, reachBy, unreach } from "#chloe/services/messageService";
+import { ownedBy, reachBy, together, unreach } from "#chloe/services/messageService";
 import type { Agent, Channel, ChatHistory, Running } from "#chloe/load/load";
 import type { Attachment } from "#chloe/model/model";
 import type { FileToSend } from "#chloe/model/tools/chat";
@@ -148,7 +148,7 @@ interface Interaction {
   user?: DiscordUser;
   member?: { user?: DiscordUser };
   message?: DiscordMessage;
-  data?: { custom_id?: string };
+  data?: { custom_id?: string; values?: string[] };
 }
 
 /**
@@ -300,7 +300,15 @@ export function listen(
     }
     return made;
   }
-  const replyButtons = (buttons: Button[] = []) => rows(buttons.map((one) => ({ label: one.label, id: `s:${one.sends}` })));
+  /** A menu to pick several from, sent as one message when it closes. Discord holds 25 choices in one, 100 characters each. */
+  function menu(buttons: Button[]): object[] {
+    const fit = buttons.filter((one) => one.sends.length <= 100).slice(0, 25);
+    if (!fit.length) return [];
+    const options = fit.map((one) => ({ label: one.label.slice(0, 100), value: one.sends }));
+    return [{ type: 1, components: [{ type: 3, custom_id: "m", placeholder: "Pick any", min_values: 1, max_values: fit.length, options }] }];
+  }
+  const replyButtons = (buttons: Button[] = [], multiple?: boolean) =>
+    multiple ? menu(buttons) : rows(buttons.map((one) => ({ label: one.label, id: `s:${one.sends}` })));
 
   // A job of this agent's that stops to ask somebody reaches them through this
   // bot, in a direct message when the address is a person's id. Answers that
@@ -308,8 +316,10 @@ export function listen(
   // message in that chat.
   reachBy(
     channel,
-    async (to, text, choices) =>
-      send(await roomOf(to), text, { components: rows((choices ?? []).map((choice, i) => ({ label: choice, id: `a:${i}` }))) }),
+    async (to, text, choices, multiple) =>
+      send(await roomOf(to), text, {
+        components: multiple ? menu((choices ?? []).map((one) => ({ label: one, sends: one }))) : rows((choices ?? []).map((choice, i) => ({ label: choice, id: `a:${i}` }))),
+      }),
     agentId,
   );
   if (options.allowFrom?.[0]) ownedBy(agentId, `${channel}:${options.allowFrom[0]}`);
@@ -410,7 +420,7 @@ export function listen(
       send: (words) => send(room, words),
       sendFile: (file) => sendFile(room, file),
     });
-    if (handled?.text) await send(room, handled.text, { replyTo, components: replyButtons(handled.buttons) }).catch((error) => console.error("discord:", error.message));
+    if (handled?.text) await send(room, handled.text, { replyTo, components: replyButtons(handled.buttons, handled.multiple) }).catch((error) => console.error("discord:", error.message));
   }
 
   /**
@@ -424,7 +434,8 @@ export function listen(
     const message = interaction.message;
     const id = interaction.data?.custom_id ?? "";
     const pressed = message?.components?.flatMap((row) => row.components ?? []).find((one) => one.custom_id === id);
-    const sends = id.startsWith("s:") ? id.slice(2) : pressed?.label;
+    const picked = interaction.data?.values ?? [];
+    const sends = id === "m" ? (picked.length ? together(picked) : undefined) : id.startsWith("s:") ? id.slice(2) : pressed?.label;
     const allowed = !!user && (!rules.allowFrom?.length || rules.allowFrom.includes(user.id));
     // Discord wants an answer within three seconds, so the buttons are taken away first, saying what was chosen.
     const answer = agent && message && sends && allowed ? { type: 7, data: { content: `${message.content ?? ""}\n\n→ ${pressed?.label ?? sends}`, components: [] } } : { type: 6 };
@@ -432,7 +443,7 @@ export function listen(
     if (answer.type !== 7) return;
     const room = interaction.channel_id ?? message!.channel_id;
     const handled = await receive(agent!, { ...(await incoming({ ...message!, guild_id: interaction.guild_id, channel_id: room }, user!, sends!)), addressed: true }, rules);
-    if (handled?.text) await send(room, handled.text, { components: replyButtons(handled.buttons) }).catch(() => {});
+    if (handled?.text) await send(room, handled.text, { components: replyButtons(handled.buttons, handled.multiple) }).catch(() => {});
   }
 
   function dispatch(kind: string, data: any): void {

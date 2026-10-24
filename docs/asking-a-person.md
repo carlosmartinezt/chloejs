@@ -18,7 +18,7 @@ without asking.
 | Option | Default | What it controls |
 |---|---|---|
 | `question` | required | What they are asked. |
-| `answer` | required | A zod schema the answer must fit, like `z.boolean()`. |
+| `answer` | required | A zod schema the answer must fit, like `z.boolean()`, `z.enum(["small", "large"])`, or `z.array(z.enum([...]))` for any number of them. |
 | `who` | the run's owner | An address, `channel:who`. Below. |
 | `within` | `"2h"` | How long to wait: `"30m"`, `"4h"`, `"2d"`. |
 | `otherwise` | none | What to carry on with when nobody answers. Without it, the job stops and says nobody answered. |
@@ -39,11 +39,38 @@ The run's owner is whoever started it. For a run the clock started, it is
 Telegram, Slack, Discord or WhatsApp channel.
 
 **The answer is read by code, not a model.** "yes" against `z.boolean()` is a
-yes. An answer that does not fit is asked again in plain words. A yes or no
-question arrives with two buttons on Telegram, Slack and Discord, and up to three
-choices arrive as buttons on WhatsApp. Pressing one answers and removes the
-buttons, so nobody answers twice.
+yes, and a choice may be written in any case or as its number in the list, with
+commas between several ("cheese, 3"). An answer that does not fit is asked
+again in plain words. The question goes with a line saying what fits, like
+"(small, large)", so a channel with no buttons still says it.
+
+| Channel | One of a list (8 at most) | Several of a list |
+|---|---|---|
+| Telegram | a button each | a box each to tick, then Send |
+| Slack | a button each | a box each to tick, then Send |
+| Discord | a button each | a menu that takes several |
+| WhatsApp | a button each, up to three | typed, with commas between |
+| the dashboard, the chat box | a button each | a button each to press, then Send |
+| email | typed | typed, with commas between |
+
+Pressing one answers and removes the buttons, so nobody answers twice.
 
 While a job waits it does not start again, so the same question is never asked
 twice. Answering also works from the dashboard, or with
-`POST /api/runs/<id>/answer` and `{"text":"yes"}`.
+`POST /api/runs/<id>/answer` and `{"text":"yes"}`; `GET /api/parked` lists the
+questions waiting, each with its `options` and `multiple` when it has them.
+
+## From a chat
+
+In a conversation the model can do the same with `chatAsk`: a question and 2
+to 8 answers, and whether several may be picked. The question ends its reply,
+shown the same way as above, and what they pick is their next message, which the
+model reads. Nothing waits in between, so it suits a conversation, and a job
+that has to act on the answer uses `work.ask`. Every turn in a conversation has
+it, a visitor's on a web page too, and a job's run has nobody to ask, so none
+does.
+
+Over HTTP, a chat reply that asks carries `buttons`, each `{ label, sends }`,
+and `multiple` when several may be picked; sending a button's `sends` is
+answering. Several go as one message with commas between, or as a JSON list
+when one of them holds a comma.

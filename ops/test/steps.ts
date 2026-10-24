@@ -7,7 +7,7 @@ import { hasToolCall, isStepCount, jsonSchema, Output, tool } from "ai";
 import { z } from "zod";
 import { about, failed, is } from "#chloe/ops/check";
 import type { Job, Line } from "./shared.ts";
-import { agentFor, answer, answers, asked, codeJob, db, gatewayUrl, lastAsked, row, sent, startCounting, sweep, timePasses, waitingFor, waitingOn, work } from "./shared.ts";
+import { agentFor, answer, answers, asked, codeJob, db, gatewayUrl, lastAsked, reachBy, row, sent, startCounting, sweep, timePasses, waitingFor, waitingOn, work } from "./shared.ts";
 
 about("a job with no model in it");
 {
@@ -653,6 +653,43 @@ about("nobody answers");
   await sweep(new Map([[agent.id, agent]]));
   is("it carried on with what the ask said to", JSON.parse(row(first.runId).reply), { deployed: false });
   is("and stopped holding its job", waitingFor("test", "lapsing"), false);
+}
+
+about("an ask for any number of a list");
+{
+  const { parkedRuns } = await import("@chloejs/core");
+  const offered: { text: string; choices?: string[]; multiple?: boolean }[] = [];
+  reachBy("picks", async (_to, text, choices, multiple) => void offered.push({ text, choices, multiple }));
+  const job = codeJob("toppings", ({ ask }) =>
+    ask("toppings", { question: "Which toppings?", answer: z.array(z.enum(["cheese", "ham", "olives"])), who: "picks:1" }),
+  );
+  const agent = agentFor(job);
+  const agents = new Map([[agent.id, agent]]);
+  const first = await work({ agent, job });
+  is("it is sent with a box for each and the line saying how to answer", offered[0], {
+    text: "Which toppings?\n(any of cheese, ham, olives, with commas between)",
+    choices: ["cheese", "ham", "olives"],
+    multiple: true,
+  });
+  is("and a page is told what can be picked", parkedRuns().find((one) => one.id === first.runId)?.options, ["cheese", "ham", "olives"]);
+  is("and that several can", parkedRuns().find((one) => one.id === first.runId)?.multiple, true);
+  const done = await answer(first.runId, "Cheese and 3", agents);
+  is("names in any case and numbers in the list are understood", JSON.parse(done.text), ["cheese", "olives"]);
+
+  const again = await work({ agent, job });
+  await answer(again.runId, "ham, pineapple", agents);
+  is("one that is not on the list is asked again", offered.at(-1)?.text.startsWith("I did not understand that."), true);
+  const last = await answer(again.runId, '["ham"]', agents);
+  is("a list as JSON is understood too", JSON.parse(last.text), ["ham"]);
+}
+
+about("an ask for one of a list, by its number");
+{
+  const job = codeJob("size", ({ ask }) => ask("size", { question: "Which size?", answer: z.enum(["small", "large"]) }));
+  const agent = agentFor(job);
+  const first = await work({ agent, job });
+  const done = await answer(first.runId, "2", new Map([[agent.id, agent]]));
+  is("it is the second in the list", done.text, "large");
 }
 
 about("a job waits for a time");

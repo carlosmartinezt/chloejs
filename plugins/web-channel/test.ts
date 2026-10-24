@@ -108,7 +108,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("of words as they are written, then the tool it started, then the answer", said.map((one) => one.event), ["working", "text", "text", "step", "text", "text", "done"]);
   is("the step says what it is doing", said.find((one) => one.event === "step")?.data, { tool: "readCv", text: "Reading the CV" });
   is("and the answer comes whole at the end", said.at(-1)?.data.text, "He was at Meta from 2019.");
-  is("the model is offered the tools the channel names, and only those", lastTools, ["readCv"]);
+  is("the model is offered the tools the channel names, and only those, with asking them to pick", lastTools, ["readCv", "chatAsk"]);
   const run = row(said.at(-1)?.data.runId as string);
   is("the run says it came from the web, and which visitor", [run.source, run.owner], ["web", `web:${first.visitor}`]);
   const told = lastAsked.find((one) => one.content.includes("<web_context>"))?.content ?? "";
@@ -129,6 +129,15 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
     history.messages.map((one) => one.text),
     ["Where did he work?", "Let me look.", "He was at Meta from 2019."],
   );
+
+  // A reply that asks them to pick ends with the answers, for the box to draw.
+  answers.push({ tool_calls: [{ id: "c2", type: "function", function: { name: "chatAsk", arguments: '{"question":"Which job?","options":["Meta","Google"],"multiple":true}' } }] });
+  const offered = (await turn(first.pass, "Tell me about one of his jobs.")).events.at(-1)?.data;
+  is("a reply that asks them to pick carries the answers, and that several may be picked", [offered?.text, (offered?.buttons as { sends: string }[] | undefined)?.map((one) => one.sends), offered?.multiple], [
+    "Which job?\n(any of Meta, Google, with commas between)",
+    ["Meta", "Google"],
+    true,
+  ]);
 
   // A visitor is a guest: a slash is only text.
   const before = asked;

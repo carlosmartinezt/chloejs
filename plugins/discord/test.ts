@@ -158,6 +158,28 @@ import { agentFor, answers, codeJob, db, row, work } from "#chloe/ops/test/share
   is("pressing one answers the job", JSON.parse(row(parked.runId).reply), { go: true });
   const callback = calls.find((c) => c.path.includes("/interactions/"));
   is("and the buttons are taken away, saying what was chosen", [callback?.body.type, callback?.body.data?.content, callback?.body.data?.components], [7, "Go?\n\n→ yes", []]);
+
+  // A question that takes several answers is a menu that takes several.
+  calls.length = 0;
+  sent.length = 0;
+  socket = undefined;
+  const several = codeJob("ticks", async ({ ask }) => ({ picked: await ask("which?", { question: "Which?", answer: z.array(z.enum(["cheese", "ham"])), who: "discord:700" }) }));
+  const withTicks = agentFor(several);
+  const boxed = listen({ agentId: "test", token: "t", api, allowFrom: ["700"], agent: () => withTicks });
+  await ready();
+  const toppings = await work({ agent: withTicks, job: several });
+  const asked = calls.find((c) => c.path.endsWith("/messages"));
+  const menu = asked?.body.components?.[0]?.components?.[0];
+  is("each answer is in one menu, and any number may be picked", [menu?.type, menu?.options?.map((o: { value: string }) => o.value), menu?.max_values], [3, ["cheese", "ham"], 2]);
+  packet(
+    0,
+    { id: "i2", token: "it", type: 3, channel_id: "dm-700", user: { id: "700" }, message: { id: "q2", channel_id: "dm-700", content: "Which?", author: { id: "100" }, components: asked?.body.components }, data: { custom_id: "m", values: ["cheese", "ham"] } },
+    "INTERACTION_CREATE",
+  );
+  await until(() => !!row(toppings.runId).reply);
+  boxed.stop();
+  await pause(50);
+  is("closing it answers with every one picked", JSON.parse(row(toppings.runId).reply), { picked: ["cheese", "ham"] });
   discord.close();
   discord.closeAllConnections();
 }

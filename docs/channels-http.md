@@ -39,5 +39,6 @@ reply answers both. `POST /api/agents/shop/chat/stop` with the same `thread`
 stops the reply, and the first call answers `Stopped.` Without this channel a token gets a 403 for that agent, and only
 somebody signed in on the dashboard can reach it. It takes `chatHistory` and
 nothing else. A job that stops to ask somebody waits in `GET /api/parked`,
-because HTTP cannot push a question out.
+because HTTP cannot push a question out. A reply that asks them to pick carries
+`buttons` and `multiple` ([Asking a person](/docs/asking-a-person#from-a-chat)).
 

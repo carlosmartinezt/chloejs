@@ -319,8 +319,11 @@ export function listen(
    * Buttons when they fit, words when they do not. A long answer cannot carry
    * them: the API takes 1024 characters on a message that has buttons, and
    * losing the end of what the agent said is worse than typing a word back.
+   * WhatsApp has nothing to tick, so with `multiple` it is words, which
+   * already say the choices and that several go with commas between.
    */
-  async function reply(to: string, text: string, buttons: Button[] = []): Promise<void> {
+  async function reply(to: string, text: string, buttons: Button[] = [], multiple?: boolean): Promise<void> {
+    if (multiple) return await send(to, text);
     const fits =
       buttons.length > 0 &&
       buttons.length <= MAX_BUTTONS &&
@@ -333,7 +336,7 @@ export function listen(
 
   // A job of this agent's that stops to ask somebody reaches them at their
   // number. An answer that can be listed is a button.
-  reachBy(channel, (to, text, choices) => reply(to, text, (choices ?? []).map((one) => ({ label: one, sends: one }))), agentId);
+  reachBy(channel, (to, text, choices, multiple) => reply(to, text, (choices ?? []).map((one) => ({ label: one, sends: one })), multiple), agentId);
   if (options.allowFrom?.[0]) ownedBy(agentId, `${channel}:${asNumber(options.allowFrom[0])}`);
 
   /** Marks the message read and shows "typing...", until the returned function is called. */
@@ -412,7 +415,7 @@ export function listen(
       working: () => (message.id ? typing(message.id) : () => {}),
       send: (words) => send(from, words),
     });
-    if (handled?.text) await reply(from, handled.text, handled.buttons).catch((error) => console.error("whatsapp:", (error as Error).message));
+    if (handled?.text) await reply(from, handled.text, handled.buttons, handled.multiple).catch((error) => console.error("whatsapp:", (error as Error).message));
   }
 
   /**

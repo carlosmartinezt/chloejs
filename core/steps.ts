@@ -19,7 +19,7 @@ import { randomUUID } from "node:crypto";
 import { isStepCount, Output as Outputs, type InferGenerateOutput, type OutputInterface as Output, type StopCondition, type ToolApprovalConfiguration } from "ai";
 import { z } from "zod";
 
-import { deliver, owner as whoOwns } from "#chloe/services/messageService";
+import { choicesHint, deliver, owner as whoOwns } from "#chloe/services/messageService";
 import { duringRun, inTrial } from "#chloe/core/current";
 import { limited, minutesText, until } from "#chloe/core/limit";
 import { db } from "#chloe/core/db";
@@ -94,6 +94,10 @@ interface Parked {
   agent?: AgentWait;
   /** Set when it is `work.wait()`: nobody was asked, `who` and `question` are "", and it carries on at `expires`. */
   wait?: true;
+  /** The answers that fit, when they can be listed. */
+  options?: string[];
+  /** Set when several of `options` may be picked. */
+  multiple?: true;
 }
 
 /** An agent step stopped at a call a person has to approve, as much as it takes to carry on from there. */
@@ -274,12 +278,16 @@ export interface AskStep<S extends z.ZodType> {
   question: string;
   /**
    * The shape the person's answer must have, as a zod schema, like
-   * `z.boolean()` or `z.enum(["small", "large"])`. Required.
+   * `z.boolean()`, `z.enum(["small", "large"])`, or
+   * `z.array(z.enum(["red", "green", "blue"]))` for any number of them.
+   * Required.
    *
-   * Plain words count: "yes", "ok" or "no" fit `z.boolean()`, and "12" fits
-   * `z.number()`. The question is sent with a short hint, like "(yes or no)".
-   * On channels that have buttons, a yes or no question, or a list of 8
-   * choices or fewer, is sent with a button for each answer.
+   * Plain words count: "yes", "ok" or "no" fit `z.boolean()`, "12" fits
+   * `z.number()`, and a choice may be written in any case or as its number
+   * in the list, with commas between several. The question is sent with a
+   * short hint, like "(yes or no)". On channels that have buttons, a yes or no
+   * question, or a list of 8 choices or fewer, is sent with a button for each
+   * answer, and a list of which several may be picked with one to tick each.
    *
    * If an answer does not fit, the person is asked again, up to 3 times. After
    * that, the run stops with an error.
@@ -1137,9 +1145,10 @@ async function waitFor(ctx: Ctx, name: string, waiting: { calls: ToolCall[]; rea
     asked: new Date().toISOString(),
     expires: new Date(Date.now() + minutes(WAIT) * 60_000).toISOString(),
     agent,
+    ...choices(z.boolean()),
   };
   save(ctx);
-  await deliver(ctx.owner, `${question}\n${hint(z.boolean())}`, ctx.agent.id, choices(z.boolean()));
+  await sendQuestion(ctx.owner, question, z.boolean(), ctx.agent.id);
   throw new Waiting(`waiting on ${ctx.owner}`);
 }
 
@@ -1157,7 +1166,7 @@ async function decision(ctx: Ctx, waited: Parked): Promise<Decided> {
   if (confusions > 3) return "no";
   ctx.parked = { ...waited, reply: undefined, confusions };
   save(ctx);
-  await deliver(waited.who, `I did not understand that. ${waited.question}\n${hint(z.boolean())}`, ctx.agent.id, choices(z.boolean()));
+  await sendQuestion(waited.who, `I did not understand that. ${waited.question}`, z.boolean(), ctx.agent.id);
   throw new Waiting(`waiting on ${waited.who}`);
 }
 
@@ -1215,7 +1224,7 @@ async function askStep<S extends z.ZodType>(ctx: Ctx, name: string, options: Ask
     }
     ctx.parked = { ...waiting, reply: undefined, confusions };
     save(ctx);
-    await deliver(who, `I did not understand that. ${options.question}\n${hint(options.answer)}`, ctx.agent.id, choices(options.answer));
+    await sendQuestion(who, `I did not understand that. ${options.question}`, options.answer, ctx.agent.id);
     throw new Waiting(`waiting on ${who}`);
   }
 
@@ -1227,9 +1236,10 @@ async function askStep<S extends z.ZodType>(ctx: Ctx, name: string, options: Ask
     question: options.question,
     asked: new Date().toISOString(),
     expires: new Date(Date.now() + minutes(options.within ?? WAIT) * 60_000).toISOString(),
+    ...choices(options.answer),
   };
   save(ctx);
-  await deliver(who, `${options.question}\n${hint(options.answer)}`, ctx.agent.id, choices(options.answer));
+  await sendQuestion(who, options.question, options.answer, ctx.agent.id);
   throw new Waiting(`waiting on ${who}`);
 }
 
@@ -1293,7 +1303,7 @@ async function waitStep(ctx: Ctx, name: string, length: string): Promise<void> {
  */
 async function endTrial(ctx: Ctx, who: string, question: string, answer: z.ZodType): Promise<never> {
   if (!who) throw new Error("This would ask the run's owner, and it has none. Give the agent a channel with a chat in it.");
-  await deliver(who, `${question}\n${hint(answer)}`, ctx.agent.id, choices(answer));
+  await sendQuestion(who, question, answer, ctx.agent.id);
   throw new TrialEnds(`A trial ends at a question for a person. It would ask ${who}: ${question}`);
 }
 
@@ -1331,6 +1341,9 @@ function understand(text: string, schema: z.ZodType): { ok: true; value: unknown
   if (["yes", "y", "yep", "ok", "okay", "sure", "go", "go ahead", "do it", "true"].includes(low)) tries.push(true);
   if (["no", "n", "nope", "stop", "dont", "don't", "no thanks", "false"].includes(low)) tries.push(false);
   if (trimmed !== "" && Number.isFinite(Number(trimmed))) tries.push(Number(trimmed));
+  const listed = choices(schema);
+  const picked = listed && (listed.multiple ? picks(trimmed, listed.options) : pick(trimmed, listed.options));
+  if (picked !== undefined) tries.push(picked);
   try {
     tries.push(JSON.parse(trimmed));
   } catch {
@@ -1345,21 +1358,44 @@ function understand(text: string, schema: z.ZodType): { ok: true; value: unknown
   return { ok: false };
 }
 
+/** One choice as a person wrote it: itself, in any case, or its number in the list. */
+function pick(word: string, options: string[]): string | undefined {
+  const low = word.toLowerCase();
+  return options.find((one) => one === word) ?? options.find((one) => one.toLowerCase() === low) ?? (/^\d+$/.test(word) ? options[Number(word) - 1] : undefined);
+}
+
+/** Several choices as a person wrote them, with commas or "and" between, or undefined when one is not a choice. */
+function picks(text: string, options: string[]): string[] | undefined {
+  const words = text.split(/\s*,\s*|\s+and\s+/i).filter(Boolean);
+  const picked = words.map((one) => pick(one, options));
+  return picked.every((one) => one !== undefined) ? [...new Set(picked as string[])] : undefined;
+}
+
+/** Sends a question with the line saying what fits, and its answers as buttons where they can be listed. */
+function sendQuestion(who: string, question: string, answer: z.ZodType, agent: string): Promise<void> {
+  const listed = choices(answer);
+  return deliver(who, `${question}\n${hint(answer)}`, agent, listed?.options, listed?.multiple);
+}
+
 /** One line telling the person what kind of answer fits. */
 function hint(schema: z.ZodType): string {
-  const shape = schemaOf(schema) as { type?: string; enum?: unknown[] };
-  if (shape.enum) return `(${shape.enum.join(", ")})`;
+  const shape = schemaOf(schema) as Listing;
+  const named = shape.enum ?? shape.items?.enum;
+  if (named) return choicesHint(named.map(String), shape.type === "array");
   if (shape.type === "boolean") return "(yes or no)";
   if (shape.type === "number" || shape.type === "integer") return "(a number)";
   if (shape.type === "string") return "";
   return `(as JSON: ${JSON.stringify(shape)})`;
 }
 
-/** The answers that fit, when they can be listed. Each one is understood back by understand(). */
-function choices(schema: z.ZodType): string[] | undefined {
-  const shape = schemaOf(schema) as { type?: string; enum?: unknown[] };
-  if (shape.enum && shape.enum.length <= 8) return shape.enum.map(String);
-  if (shape.type === "boolean") return ["yes", "no"];
+type Listing = { type?: string; enum?: unknown[]; items?: { enum?: unknown[] } };
+
+/** The answers that fit, when they can be listed, and whether several may be picked. Each one is understood back by understand(). */
+function choices(schema: z.ZodType): { options: string[]; multiple?: true } | undefined {
+  const shape = schemaOf(schema) as Listing;
+  if (shape.enum && shape.enum.length <= 8) return { options: shape.enum.map(String) };
+  if (shape.type === "array" && shape.items?.enum && shape.items.enum.length <= 8) return { options: shape.items.enum.map(String), multiple: true };
+  if (shape.type === "boolean") return { options: ["yes", "no"] };
   return undefined;
 }
 
@@ -1431,6 +1467,10 @@ export interface ParkedRun {
   asked: string;
   /** When the wait ends, as an ISO date string. After that, `sweep()` stops waiting and continues the run. */
   expires: string;
+  /** The answers that fit, when they can be listed, so a page can show each as a button. */
+  options?: string[];
+  /** Set when several of `options` may be picked, sent back as one answer with commas between. */
+  multiple?: boolean;
 }
 
 /** Returns every run that is waiting for a person right now. A run in `work.wait()` is not one. */
@@ -1456,6 +1496,8 @@ function everyParked(): (ParkedRun & { wait?: true })[] {
       question: parked.question,
       asked: parked.asked,
       expires: parked.expires,
+      ...(parked.options ? { options: parked.options } : {}),
+      ...(parked.multiple ? { multiple: true } : {}),
       ...(parked.wait ? { wait: true as const } : {}),
     };
   });

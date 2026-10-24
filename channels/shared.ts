@@ -434,6 +434,12 @@ export interface Handled {
    * Pressing one sends its `sends` text as if the person had typed it.
    */
   buttons?: Button[];
+  /**
+   * Set when several of `buttons` may be picked: the person ticks any of them
+   * and sends them as one message, their `sends` put together with
+   * `together()`. The text already lists them for a channel that cannot.
+   */
+  multiple?: boolean;
 }
 
 /** One button under a reply. */
@@ -872,7 +878,8 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
     await sending;
     // The reply it joined answers it, on that reply's own message.
     if (result.joined) return { text: "", runId: result.runId, steps: 0, cost: 0, joined: true };
-    return { text: result.text || "(no reply)", runId: result.runId, steps: result.steps, cost: result.cost, ...(result.unpriced ? { unpriced: result.unpriced } : {}) };
+    const picking = result.options?.length ? { buttons: result.options.map((one) => ({ label: one, sends: one })), ...(result.multiple && { multiple: true }) } : {};
+    return { text: result.text || "(no reply)", runId: result.runId, steps: result.steps, cost: result.cost, ...(result.unpriced ? { unpriced: result.unpriced } : {}), ...picking };
   } catch (error) {
     if (error instanceof ReplyStopped) return { text: error.message, steps: 0, cost: 0 };
     console.error(`${message.channel}: turn failed`, error);
@@ -913,7 +920,7 @@ function ownerOf(message: Incoming, rules: Rules): { fromOwner: boolean; mayChan
 /**
  * The tools a turn goes without because its channel names the ones it may
  * have: everything not named, less the memory tools, which come with the
- * agent. A guest gets only what is named, and their own note
+ * agent. A guest gets only what is named, `chatAsk`, and their own note
  * when the agent keeps one per person.
  */
 function leftOut(agent: Agent, rules: Rules): string[] {

@@ -11,6 +11,7 @@ import { Card, Prompt } from "./Log.tsx";
 import { go, href } from "../lib/route.ts";
 import { ideasFor } from "../lib/ideas.ts";
 import { Collapse } from "./components/Collapse.tsx";
+import { Pick, type Option } from "./components/Pick.tsx";
 
 interface Line extends Said {
   cost?: number;
@@ -18,6 +19,9 @@ interface Line extends Said {
   failed?: boolean;
   /** Pictures sent with it, as addresses for this page. Gone on a reload, as they are on the runtime. */
   pictures?: string[];
+  /** The answers it asks to pick from, shown under it while it is the last line. Gone on a reload: the words still list them. */
+  buttons?: Option[];
+  multiple?: boolean;
 }
 
 /** A picture waiting to be sent, and the address it is shown by. */
@@ -317,14 +321,17 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     }
   }
 
-  async function send() {
+  /** Sends what is in the box, or `picked`, an answer pressed under the last reply, leaving the box as it is. */
+  async function send(picked?: string) {
     const link = file ? `${window.location.origin}${href({ at: "memory", agent, path: file })}` : "";
-    const words = [prompt.trim(), link].filter(Boolean).join("\n\n");
-    const sending = pictures;
+    const words = picked ?? [prompt.trim(), link].filter(Boolean).join("\n\n");
+    const sending = picked ? [] : pictures;
     if ((!words && !sending.length) || waiting) return;
-    setPrompt("");
-    setPictures([]);
-    setFile("");
+    if (!picked) {
+      setPrompt("");
+      setPictures([]);
+      setFile("");
+    }
     setTrouble("");
     setLines((said) => [
       ...said,
@@ -338,7 +345,14 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     const here = (line: Line) => open.current === to && setLines((said) => [...said, line]);
     try {
       const answer = await api.say(agent, words, to, sending.map(({ name, mediaType, data }) => ({ name, mediaType, data })));
-      here({ role: "assistant", content: answer.text, cost: answer.cost, unpriced: answer.unpriced, at: new Date().toISOString() });
+      here({
+        role: "assistant",
+        content: answer.text,
+        cost: answer.cost,
+        unpriced: answer.unpriced,
+        at: new Date().toISOString(),
+        ...(answer.buttons?.length && { buttons: answer.buttons, multiple: answer.multiple }),
+      });
       // The answer moves it to the top of the list beside, and a conversation
       // started here goes into the address now that it exists.
       api.threads(agent).then(setThreads, () => {});
@@ -546,6 +560,9 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                   <div className="said">
                     <Markdown text={line.content} />
                   </div>
+                  {line.buttons && at === lines.length - 1 && (
+                    <Pick options={line.buttons} multiple={line.multiple} disabled={waiting} pick={(text) => void send(text)} />
+                  )}
                   <div className="meta num">
                     {[nameOf(agent), line.at && when(line.at), line.cost !== undefined && (line.unpriced ? spent(line.cost, line.unpriced) : money(line.cost))].filter(Boolean).join(", ")}
                   </div>
@@ -638,7 +655,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
               <button
                 className="go"
                 aria-label={`Send to ${nameOf(agent)}`}
-                onClick={send}
+                onClick={() => void send()}
                 disabled={waiting || (!prompt.trim() && !pictures.length && !file)}
               >
                 <Icons.Send />

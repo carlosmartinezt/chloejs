@@ -141,6 +141,15 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "#chloe
   await until(() => !!row(parked.runId).reply);
   is("pressing one answers the waiting job", JSON.parse(row(parked.runId).reply), { go: true });
 
+  // WhatsApp has nothing to tick, so a question that takes several is words.
+  calls.length = 0;
+  const several = codeJob("ticks", async ({ ask }) => ({ picked: await ask("which?", { question: "Which?", answer: z.array(z.enum(["cheese", "ham"])), who: "whatsapp:+447700900123" }) }));
+  const withTicks = agentFor(several);
+  const boxed = listen({ agentId: "test", phoneNumberId: "55501", token: "permanent", appSecret: SECRET, verifyToken: "w", allowFrom: ["+447700900123"], api, agent: () => withTicks });
+  await work({ agent: withTicks, job: several });
+  is("a question that takes several is words, saying how to answer", calls.find((c) => c.body.type === "text")?.body.text.body, "Which?\n(any of cheese, ham, with commas between)");
+  boxed.stop();
+
   // WhatsApp's own refusals are worth reading out loud, and the 24 hour rule
   // is the one that catches people.
   const said: string[] = [];
