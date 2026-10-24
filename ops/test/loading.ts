@@ -378,10 +378,26 @@ PLUGINS.push(standIn);
   const { defineAgent } = await import("@chloejs/core");
   const { allAbilities, resolveAgent } = await import("#chloe/load/load");
   const { chmod } = await import("node:fs/promises");
+  const { mkdtempSync } = await import("node:fs");
+  const { holdSettings, settings } = await import("#chloe/core/settings");
   const folder = await realpath(await mkdtemp(join(tmpdir(), "chloe-abilities-")));
   await mkdir(join(folder, "scripts"));
   await writeFile(join(folder, "scripts/hi.sh"), "#!/bin/sh\necho hi\n");
   await chmod(join(folder, "scripts/hi.sh"), 0o755);
+  // The shell ability, the machine plugin's, is the one that needs its
+  // environment: a machine of its own, with a workspace the shell user owns.
+  // Held only while that plugin is here, and cast, because the copy of this
+  // suite without the plugin does not know its settings and must still
+  // compile. Its own cases are in plugins/machine/test.ts, gone with the
+  // plugin.
+  const shell = allAbilities().some((one) => (one.name as string) === "shell");
+  const workspace = shell ? mkdtempSync(join(tmpdir(), "chloe-machine-")) : "";
+  holdSettings({
+    model: { key: settings.model.key, preferredRoute: settings.model.preferredRoute, gatewayUrl: settings.model.gatewayUrl, program: settings.model.program },
+    email: settings.email,
+    owner: settings.owner,
+    ...(shell && { machine: { own: true, user: "shell", workspace, hosts: ["127.0.0.1"] } as unknown as import("#chloe/core/settings").MachineSettings }),
+  });
   const agent = (abilities: Record<string, unknown>) =>
     resolveAgent(defineAgent({ id: "switches", folder, model: "m", identity: "", purpose: "Hi.", abilities: abilities as never }));
   const from = (await agent(Object.fromEntries(allAbilities().map((one) => [one.name, one.preview ?? true])))).toolsFrom ?? {};
@@ -417,6 +433,7 @@ PLUGINS.push(standIn);
   const typo = await resolveAgent(tool("notesEd")).then(() => "loaded", (error: Error) => error.message);
   is("a name that is no tool is refused, saying what there is", typo.includes('without names "notesEd"') && typo.includes("notesEdit"), true);
   await rm(folder, { recursive: true, force: true });
+  if (shell) await rm(workspace, { recursive: true, force: true });
 }
 
 {

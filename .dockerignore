@@ -1,0 +1,10 @@
+# What the machine image does not need, so a build from a clone stays small:
+# the clone's own state and builds, and installed packages, which the image
+# installs itself.
+.git
+.claude
+**/node_modules
+data
+**/data
+dist
+site/page

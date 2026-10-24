@@ -159,7 +159,7 @@ export function pages(): Page[] {
  * one: a cron line, an import list, a settings shape, a tool binding. Every
  * other block names a file.
  */
-const MAY_WRITE = new Set(["jobs", "models", "settings", "entrances", "connections"]);
+const MAY_WRITE = new Set(["jobs", "models", "settings", "entrances", "connections", "machines"]);
 
 /** What is wrong with the pages, one line each. Empty when nothing is. */
 export function problems(): string[] {

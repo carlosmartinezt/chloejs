@@ -1,0 +1,5 @@
+# chloe's own user may run anything as the machine's shell user, and only as
+# the shell user. That one user owns nothing but the workspace folders it makes,
+# so what an agent's commands do cannot reach chloe's own files, its memory or
+# any key. See docs/machines.md.
+runtime ALL=(shell) NOPASSWD: ALL

@@ -72,6 +72,15 @@ export interface AgentSettings {
 }
 
 /**
+ * The machine chloe runs in, when it runs in one of its own. Each field is the
+ * machine plugin's, declared and given its default by it, so with that plugin
+ * out this is empty and a config that sets one of them is refused, the way any
+ * unknown setting is.
+ */
+export interface MachineSettings {
+}
+
+/**
  * The outside services that tools and channels work through, one section
  * each, under `connections` in settings. Each is added by the plugin that
  * reaches that service.
@@ -249,6 +258,8 @@ export interface Settings {
      */
     url: string;
   };
+  /** The machine chloe runs in, when it runs in one of its own. The machine plugin fills in every field. */
+  machine: MachineSettings;
   /**
    * The owner of every agent's runs, written as `channel:id`, like
    * "telegram:123456789". When a job stops to ask a question or to get a tool
@@ -295,6 +306,7 @@ export const DEFAULTS: Settings = {
   } as Connections,
   agents: {},
   serve: { host: "127.0.0.1", port: 3067, url: "" },
+  machine: {} as MachineSettings,
   owner: "",
   node: "",
 };

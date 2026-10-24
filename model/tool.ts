@@ -87,6 +87,14 @@ export type ChloeTool = Tool & {
    */
   changesAgent?: boolean;
   /**
+   * Set to `true` when outside text could be what asks for this tool, so it is
+   * refused for the rest of a reply once a tool that is not `own` has answered
+   * in it, the way tools that change the agent are. Off by default. The shell
+   * in a machine of its own is one: a crafted mail could tell the agent to run
+   * a command that carries its notes away.
+   */
+  afterOutside?: boolean;
+  /**
    * The most minutes one call may take. It is then told to stop, through the
    * `abortSignal` its `execute` is handed, and the model is told it ran out
    * of time and can try another way. Default: 10, as long as one model call.

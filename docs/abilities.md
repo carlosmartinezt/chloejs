@@ -27,6 +27,7 @@ rename breaks nothing ([A prompt with tools](/docs/prompts#skills-and-scripts)).
 | `scripts` | off | `scriptRun` |
 | `memoryPerUser` | off | `memoryWriteUserNotes` |
 | `folders` | off | `folderListFiles`, `folderReadFile`, `folderSearchFiles` |
+| `shell` | off | `shellRun` |
 | `web` | off | `webReadPage`, `webSearch` |
 | `googleMail` | off | `emailReadMail`, `emailReplyMail`, `emailSendMail` |
 | `googleCalendar` | off | `calendarListEvents`, `calendarAddEvent` |
@@ -69,6 +70,19 @@ is left out everywhere. A folder that is not there, or a path that is not full,
 stops the agent loading. Somebody you invited gets these tools when you give
 them chat; a guest on a web channel gets them only when the channel names
 them.
+
+### shell
+
+`shellRun` runs one shell command in the machine's workspace, as the machine's
+shell user, through the proxy chloe runs for it. Only in a machine of its own
+(`machine.own` in settings): on a shared computer the shell is the whole
+computer, and an agent that turns this on without one does not load, saying so.
+What the command runs as cannot read the agent's memory, its keys or its own
+files, and reaches only the hosts in `machine.hosts`. A command is refused for
+the rest of a reply once a tool that reads from outside has answered in it,
+and the shell's own output does not count as from outside, so two commands in a
+row are fine. [Machines](/docs/machines) says what the machine's image makes,
+and what holds where.
 
 ### web
 

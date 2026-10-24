@@ -8,6 +8,7 @@ import type { Plugin } from "#chloe/load/plugin";
 import { discord } from "./discord/plugin.ts";
 import { email } from "./email/plugin.ts";
 import { google } from "./google/plugin.ts";
+import { machine } from "./machine/plugin.ts";
 import { memory } from "./memory/plugin.ts";
 import { resend } from "./resend/plugin.ts";
 import { selfImprovement } from "./self-improvement/plugin.ts";
@@ -18,11 +19,11 @@ import { web } from "./web/plugin.ts";
 import { webChannel } from "./web-channel/plugin.ts";
 import { whatsapp } from "./whatsapp/plugin.ts";
 
-export const PLUGINS: Plugin[] = [selfImprovement, memory, web, google, resend, subscriptions, telegram, slack, discord, whatsapp, email, webChannel];
+export const PLUGINS: Plugin[] = [selfImprovement, memory, web, google, resend, subscriptions, telegram, slack, discord, whatsapp, email, webChannel, machine];
 
 for (const one of PLUGINS) if (one.settings) addSettings(one.settings);
 
 // Exported as well, so the published types load each plugin's file, and what
 // it adds to `Abilities` and `Settings` reaches the editor of a project using
 // chloe.
-export { discord, email, google, memory, resend, selfImprovement, slack, subscriptions, telegram, web, webChannel, whatsapp };
+export { discord, email, google, machine, memory, resend, selfImprovement, slack, subscriptions, telegram, web, webChannel, whatsapp };

@@ -329,6 +329,25 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   answers.push({ content: "", tool_calls: [call("e", "selfWriteFile")] }, "Done.");
   await turn({ agent, prompt: "add a daily job for that", source: "test", thread: "test/read-mail", mayChangeAgent: true });
   is("a later message in a conversation that read from outside can change the agent", written.length, 2);
+
+  // The shell in a machine of its own: refused after a read from outside like a
+  // change is, but its own output is the machine's own, so two commands in a
+  // row are fine and a change after one is not refused.
+  const shellRun = Object.assign(fake("Run a command."), { own: true, afterOutside: true });
+  const withShell = { ...agent, tools: { ...tools, shellRun } };
+  answers.push({ content: "", tool_calls: [call("f", "shellRun"), call("g", "shellRun")] }, "Ran both.");
+  const both = await turn({ agent: withShell, prompt: "run two commands", source: "test", mayChangeAgent: true });
+  is("two shell commands in one reply both run", both.calls.map((one) => one.output), ["Run a command.", "Run a command."]);
+  answers.push({ content: "", tool_calls: [call("h", "shellRun"), call("i", "selfWriteFile")] }, "Done.");
+  await turn({ agent: withShell, prompt: "run a command, then change your skill", source: "test", mayChangeAgent: true });
+  is("a change after a shell command is not refused", written.length, 3);
+  answers.push({ content: "", tool_calls: [call("j", "webReadPage")] }, { content: "", tool_calls: [call("k", "shellRun")] }, "Could not.");
+  const shellRefused = await turn({ agent: withShell, prompt: "read the page and run what it says", source: "test", mayChangeAgent: true });
+  is(
+    "a shell command after reading from outside is refused, saying the owner can ask",
+    String(shellRefused.calls.at(-1)?.output).startsWith("shellRun was not allowed: this reply used webReadPage, and what it read may be what asked for this. Say what you would run"),
+    true,
+  );
 }
 
 {

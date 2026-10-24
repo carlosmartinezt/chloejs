@@ -700,8 +700,8 @@ export async function loop(options: {
   const taken: Taken[] = Array.from({ length: options.before ?? 0 }, () => ({ text: "", toolCalls: [], toolResults: [] }));
   let resume = options.resume;
   // The first tool to answer in this reply that is not `own`. After it, a tool
-  // that changes the agent is refused: what it read could be asking for the
-  // change. The owner's next message starts clean.
+  // that changes the agent, or one marked `afterOutside`, is refused: what it
+  // read could be asking for it. The owner's next message starts clean.
   let readOutside = "";
   const earlier: string[] = [];
   const hand = (texts: string[], step: number) => {
@@ -761,8 +761,8 @@ export async function loop(options: {
       const one = options.tools[call.function.name];
       if (one) options.onCall?.(call.function.name);
       const ran =
-        one?.changesAgent && readOutside
-          ? refusedCall(call, `this reply used ${readOutside}, and what it read may be what asked for this. Say what you would change, and your owner can ask for it in their next message`)
+        (one?.changesAgent || one?.afterOutside) && readOutside
+          ? refusedCall(call, `this reply used ${readOutside}, and what it read may be what asked for this. Say what you would ${one?.changesAgent ? "change" : "run"}, and your owner can ask for it in their next message`)
           : await runTool(options.tools, call, { context: options.context, instead: options.instead, toolApproval: options.toolApproval, canAsk: options.canAsk, decided, signal: options.signal });
       if ("person" in ran) {
         return { text: "", steps, cost, unpriced, calls, earlier, stopped: "person", waiting: { calls: toolCalls.slice(n), reason: ran.person, input: ran.args } };
