@@ -274,8 +274,9 @@ export interface Settings {
      * like `["podman", "start", "journal"]`: run when it is asked for and does
      * not answer, and before one of its jobs is due. Everything about such an agent
      * (its chat, runs, memory and files) is asked of that copy, which keeps
-     * its runs and records every memory file it serves. Only the owner
-     * reaches them from here. Default: {} (none).
+     * its runs and records every memory file it serves. The owner reaches
+     * them as the owner, a token as a token, and nobody invited at all.
+     * Default: {} (none).
      */
     elsewhere: Record<string, { address: string; key: string; start: string[] }>;
     /**

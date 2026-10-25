@@ -512,7 +512,7 @@ const routes: Route[] = [
     handle: async ({ request, response, context, who }) =>
       json(response, [
         ...[...context.agents().values()].filter((one) => sees(who, one.id)).map(summary),
-        ...(who?.kind === "account" ? await summariesElsewhere(request) : []),
+        ...(await summariesElsewhere(request, who)),
       ]),
   },
   {
@@ -763,8 +763,8 @@ const routes: Route[] = [
           ? db.prepare(`select ${RUN_COLUMNS} from runs where agent = ? order by started desc limit ?`).all(agent, limit)
           : db.prepare(`select ${RUN_COLUMNS} from runs order by started desc limit ?`).all(limit)
       ) as { id: string; agent: string; started: string }[];
-      if (who?.kind !== "account" || (agent && !elsewhere(agent))) return json(response, here);
-      json(response, newestFirst([...here, ...(await listsElsewhere<{ id: string; agent: string; started: string }>(`/api/runs?limit=${limit}`, request, agent ?? undefined))]).slice(0, limit));
+      if (agent && !elsewhere(agent)) return json(response, here);
+      json(response, newestFirst([...here, ...(await listsElsewhere<{ id: string; agent: string; started: string }>(`/api/runs?limit=${limit}`, request, who, agent ?? undefined))]).slice(0, limit));
     },
   },
   {
@@ -814,9 +814,8 @@ const routes: Route[] = [
     member: "filtered",
     handle: async ({ request, response, who }) => {
       const here = parkedRuns().filter((one) => may(who, one.agent, "read"));
-      if (who?.kind !== "account") return json(response, here);
       const seen = new Set(here.map((one) => one.id));
-      json(response, [...here, ...(await listsElsewhere<ParkedRun>("/api/parked", request)).filter((one) => !seen.has(one.id))]);
+      json(response, [...here, ...(await listsElsewhere<ParkedRun>("/api/parked", request, who)).filter((one) => !seen.has(one.id))]);
     },
   },
   {
@@ -826,7 +825,7 @@ const routes: Route[] = [
     token: true,
     member: "filtered",
     handle: async ({ request, response, context, who }) => {
-      const there = who?.kind === "account" ? await runningElsewhere(request) : { agents: [], running: [] };
+      const there = await runningElsewhere(request, who);
       json(response, {
         ok: true,
         agents: [...[...context.agents().keys()].filter((one) => sees(who, one)), ...there.agents],
@@ -1636,15 +1635,23 @@ async function api(
 ): Promise<void> {
   if (request.method === "OPTIONS") return preflight(request, response, path, context);
 
-  // An agent that runs in another copy of chloe: that copy answers, for the owner only.
+  // An agent that runs in another copy of chloe: that copy answers. A token's
+  // call is checked here as far as this copy can (the route, and the one agent
+  // the token is for), passed on as a token's, and that copy checks the rest.
   const there = await whereElse(path, url);
   if (there) {
     const who = caller(request);
     if (!who) return json(response, { error: "Sign in first." }, 401);
-    if (who.kind !== "account") {
-      return json(response, { error: `${there.agent} runs in another copy of chloe, and only its owner reaches it from here.` }, 403);
+    if (who.kind === "member") {
+      return json(response, { error: `${there.agent} runs in another copy of chloe, which nobody invited here reaches.` }, 403);
     }
-    return passOn(request, response, there, `${path}${url.search}`);
+    if (who.kind === "token") {
+      if (!match(request.method ?? "GET", path)?.route.token) return json(response, { error: "A token cannot do that. That one is the account's." }, 403);
+      if (who.token.agent && who.token.agent !== there.agent) {
+        return json(response, { error: `This token is for ${who.token.agent}, and reaches nothing else.` }, 403);
+      }
+    }
+    return passOn(request, response, there, `${path}${url.search}`, who);
   }
 
   const found = match(request.method ?? "GET", path);

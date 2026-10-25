@@ -6,8 +6,10 @@
 // keeps none of its runs, its memory or its files, and holds only the key. A
 // request is passed on whole, as the owner, with the visitor's address in
 // `x-forwarded-for`, so that copy's lockout, memory passes and memory audit
-// all see the person and not this copy. Only the owner is passed on: a token
-// or somebody invited here is nobody there.
+// all see the person and not this copy. The owner is passed on as the owner,
+// and a token as a token (its id, name and the one agent it is for, when it
+// is for one), so that copy applies its own rules for tokens. Somebody invited
+// here is nobody there.
 //
 // A copy that sleeps (`serve.stopAfter` there) is started again with the
 // `start` command its entry names: when it is asked for and does not answer,
@@ -20,7 +22,7 @@ import { request as secureRequest } from "node:https";
 import { db } from "#chloe/core/db";
 import { settings } from "#chloe/core/settings";
 import { dueWithin } from "#chloe/timer/cron";
-import { from } from "./login.ts";
+import { from, type Caller } from "./login.ts";
 
 /** Where one agent runs, the key that copy takes as its owner, and how to start it when it sleeps. */
 export interface Elsewhere {
@@ -144,6 +146,17 @@ export async function whereElse(path: string, url: URL): Promise<Elsewhere | und
   return undefined;
 }
 
+/**
+ * The agents elsewhere this caller may see: every one for the owner and for a
+ * token made for no one agent, the one a token was made for, and none for
+ * somebody invited, who is nobody in another copy.
+ */
+export function seenBy(who: Caller): Elsewhere[] {
+  if (who?.kind === "account") return allElsewhere();
+  if (who?.kind === "token") return allElsewhere().filter((one) => !who.token.agent || one.agent === who.token.agent);
+  return [];
+}
+
 /** One entry per copy, for asking a copy that runs several of the agents. */
 function byAddress(): Elsewhere[] {
   const seen = new Map<string, Elsewhere>();
@@ -151,18 +164,21 @@ function byAddress(): Elsewhere[] {
   return [...seen.values()];
 }
 
-/** The headers every call to another copy carries: the owner key, and who is really asking. */
-function headersFor(where: Elsewhere, request?: IncomingMessage): Record<string, string> {
+/** The headers every call to another copy carries: the owner key, where the caller is, and whether it is a token. */
+function headersFor(where: Elsewhere, request?: IncomingMessage, who?: Caller): Record<string, string> {
   return {
     authorization: `Bearer ${where.key}`,
     ...(request ? { "x-forwarded-for": from(request) } : {}),
+    ...(who?.kind === "token"
+      ? { "x-chloe-caller": "token", "x-chloe-token-id": who.token.id, "x-chloe-token-name": who.token.name, "x-chloe-token-agent": who.token.agent ?? "" }
+      : {}),
   };
 }
 
 /** One call to another copy, as the owner, answered as JSON. Throws when it does not answer, or answers with an error. */
-export async function ask<T>(where: Elsewhere, path: string, request?: IncomingMessage): Promise<T> {
+export async function ask<T>(where: Elsewhere, path: string, request?: IncomingMessage, who?: Caller): Promise<T> {
   await awake(where);
-  const once = () => fetch(`${where.address}${path}`, { headers: headersFor(where, request), signal: AbortSignal.timeout(WAIT) });
+  const once = () => fetch(`${where.address}${path}`, { headers: headersFor(where, request, who), signal: AbortSignal.timeout(WAIT) });
   const answer = await once().catch(async (error: Error) => {
     // It may have gone to sleep since it last answered.
     answered.delete(where.address);
@@ -190,7 +206,7 @@ const MOST = 25_000_000;
  * long that is. The call is read first, so that when the copy turns out to be
  * down it can be started and the same call sent once more.
  */
-export async function passOn(request: IncomingMessage, response: ServerResponse, where: Elsewhere, path: string): Promise<void> {
+export async function passOn(request: IncomingMessage, response: ServerResponse, where: Elsewhere, path: string, who: Caller): Promise<void> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
@@ -203,24 +219,24 @@ export async function passOn(request: IncomingMessage, response: ServerResponse,
   }
   const body = Buffer.concat(chunks);
   await awake(where);
-  const refused = await sendOnce(request, response, where, path, body);
+  const refused = await sendOnce(request, response, where, path, body, who);
   if (!refused) return;
   // It answered a moment ago and not now: it may have gone to sleep since.
   answered.delete(where.address);
   if (where.start.length) {
     await awake(where);
-    if (!(await sendOnce(request, response, where, path, body))) return;
+    if (!(await sendOnce(request, response, where, path, body, who))) return;
   }
   response.writeHead(502, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify({ error: `${where.agent} runs at ${where.address}, which did not answer: ${refused.message}` }));
 }
 
 /** One try at passing a call on. Resolves with the error when the copy could not be reached, before anything was answered. */
-function sendOnce(request: IncomingMessage, response: ServerResponse, where: Elsewhere, path: string, body: Buffer): Promise<Error | undefined> {
+function sendOnce(request: IncomingMessage, response: ServerResponse, where: Elsewhere, path: string, body: Buffer, who: Caller): Promise<Error | undefined> {
   return new Promise((done) => {
     const target = new URL(path, where.address);
     const send = target.protocol === "https:" ? secureRequest : plainRequest;
-    const headers: Record<string, string> = { ...headersFor(where, request), "content-length": String(body.length) };
+    const headers: Record<string, string> = { ...headersFor(where, request, who), "content-length": String(body.length) };
     for (const name of ["content-type", "x-chloe-channel"]) {
       const value = request.headers[name];
       if (typeof value === "string") headers[name] = value;
@@ -252,10 +268,10 @@ function sendOnce(request: IncomingMessage, response: ServerResponse, where: Els
  * listed, saying why, so it does not vanish from the page while its machine is
  * down.
  */
-export async function summariesElsewhere(request: IncomingMessage): Promise<Record<string, unknown>[]> {
+export async function summariesElsewhere(request: IncomingMessage, who: Caller): Promise<Record<string, unknown>[]> {
   return Promise.all(
-    allElsewhere().map((one) =>
-      ask<Record<string, unknown>>(one, `/api/agents/${encodeURIComponent(one.agent)}`, request).then((got) => ({ ...got, elsewhere: one.address }), (error: Error) => ({
+    seenBy(who).map((one) =>
+      ask<Record<string, unknown>>(one, `/api/agents/${encodeURIComponent(one.agent)}`, request, who).then((got) => ({ ...got, elsewhere: one.address }), (error: Error) => ({
         elsewhere: one.address,
         id: one.agent,
         identity: `Runs at ${one.address}, which is not answering: ${error.message}`,
@@ -277,14 +293,14 @@ export async function summariesElsewhere(request: IncomingMessage): Promise<Reco
  * What every other copy answers for a list (runs, waiting jobs), cut to the
  * agents this copy shows from it. A copy that does not answer adds nothing.
  */
-export async function listsElsewhere<Row extends { agent: string }>(path: string, request: IncomingMessage, agent?: string): Promise<Row[]> {
-  const wanted = agent ? allElsewhere().filter((one) => one.agent === agent) : allElsewhere();
+export async function listsElsewhere<Row extends { agent: string }>(path: string, request: IncomingMessage, who: Caller, agent?: string): Promise<Row[]> {
+  const wanted = agent ? seenBy(who).filter((one) => one.agent === agent) : seenBy(who);
   const copies = new Map<string, string[]>();
   for (const one of wanted) copies.set(one.address, [...(copies.get(one.address) ?? []), one.agent]);
   const lists = await Promise.all(
     [...copies].map(async ([address, agents]) => {
       const one = wanted.find((each) => each.address === address)!;
-      const rows = await ask<Row[]>(one, path, request).catch(() => []);
+      const rows = await ask<Row[]>(one, path, request, who).catch(() => []);
       return rows.filter((row) => agents.includes(row.agent));
     }),
   );
@@ -292,11 +308,13 @@ export async function listsElsewhere<Row extends { agent: string }>(path: string
 }
 
 /** Which jobs are running right now in the other copies, as `<agent>/<job>`. */
-export async function runningElsewhere(request: IncomingMessage): Promise<{ agents: string[]; running: string[] }> {
+export async function runningElsewhere(request: IncomingMessage, who: Caller): Promise<{ agents: string[]; running: string[] }> {
+  const shown = new Set(seenBy(who).map((one) => one.agent));
   const answers = await Promise.all(
-    byAddress().map((one) => ask<{ agents: string[]; running: string[] }>(one, "/api/health", request).catch(() => undefined)),
+    byAddress()
+      .filter((one) => shown.has(one.agent))
+      .map((one) => ask<{ agents: string[]; running: string[] }>(one, "/api/health", request, who).catch(() => undefined)),
   );
-  const shown = new Set(allElsewhere().map((one) => one.agent));
   return {
     agents: [...new Set(answers.flatMap((one) => one?.agents ?? []))].filter((one) => shown.has(one)),
     running: [...new Set(answers.flatMap((one) => one?.running ?? []))].filter((one) => shown.has(one.split("/")[0])),

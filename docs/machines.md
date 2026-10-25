@@ -197,8 +197,10 @@ asked of the machine, which keeps its runs and writes every memory file it
 serves to its own audit log, with your address, before serving it. The frame a
 memory file is shown in is served by your own copy, sandboxed as always.
 
-Only you reach it from your page: a token or somebody invited there is nobody
-in the machine. When the machine does not answer, the agent stays on the list
+You reach it as yourself. A token of your copy's reaches it as a token: your
+copy refuses what no token may do and a token made for another agent, and the
+machine applies its own rules for tokens (the agent has to bind an api channel
+to be chatted to). Somebody invited to your copy is nobody in the machine. When the machine does not answer, the agent stays on the list
 saying so. The owner key reaches everything the machine's login does, and is
 for your own copy of chloe and nothing else.
 

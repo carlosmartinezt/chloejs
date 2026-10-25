@@ -292,9 +292,18 @@ export function caller(request: IncomingMessage): Caller {
   const found = read();
   const values = carried(request);
   if (found && values.some((value) => holds(value, found))) return { kind: "account" };
-  // The owner's other copy of chloe, showing this one's agents on its page.
+  // The owner's other copy of chloe, showing this one's agents on its page. It
+  // says when it is passing on a token's call rather than the owner's, and the
+  // call is then a token's here too, so it gets no more than it would there.
   const ownerKey = settings.serve.ownerKey;
-  if (ownerKey && values.some((value) => same(value, ownerKey))) return { kind: "account" };
+  if (ownerKey && values.some((value) => same(value, ownerKey))) {
+    if (request.headers["x-chloe-caller"] !== "token") return { kind: "account" };
+    const said = (name: string) => (typeof request.headers[name] === "string" ? (request.headers[name] as string) : "");
+    return {
+      kind: "token",
+      token: { id: said("x-chloe-token-id") || "elsewhere", name: said("x-chloe-token-name") || "a token of the owner's other copy", agent: said("x-chloe-token-agent") || undefined, hash: "", created: "" },
+    };
+  }
   for (const value of values) {
     const member = memberIn(value);
     if (member) return member;

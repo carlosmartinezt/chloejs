@@ -15,7 +15,7 @@ import { agentFor, codeJob } from "./shared.ts";
   const { settings } = await import("#chloe/core/settings");
 
   const KEY = "the other copy's owner key, long enough";
-  const seen: { method: string; path: string; authorization?: string; forwarded?: string; cookie?: string; body: string }[] = [];
+  const seen: { method: string; path: string; authorization?: string; forwarded?: string; cookie?: string; caller?: string; tokenAgent?: string; body: string }[] = [];
   const reply = (request: IncomingMessage): [number, unknown, string?] => {
     const path = request.url ?? "";
     // A memory file needs its pass and nothing else, as in a real copy.
@@ -47,6 +47,8 @@ import { agentFor, codeJob } from "./shared.ts";
         authorization: request.headers.authorization,
         forwarded: request.headers["x-forwarded-for"] as string | undefined,
         cookie: request.headers.cookie,
+        caller: request.headers["x-chloe-caller"] as string | undefined,
+        tokenAgent: request.headers["x-chloe-token-agent"] as string | undefined,
         body,
       });
       const [status, value, type] = reply(request);
@@ -109,8 +111,16 @@ import { agentFor, codeJob } from "./shared.ts";
   forgetTokens();
   const { secret } = makeToken("for a test");
   const bearer = { authorization: `Bearer ${secret}` };
-  is("a token here is nobody there", (await fetch(`${at}/api/agents/far/threads`, { headers: bearer })).status, 403);
-  is("so its list has none of them", ((await (await fetch(`${at}/api/agents`, { headers: bearer })).json()) as { id: string }[]).map((one) => one.id), ["test"]);
+  is("a token's call is passed on", (await fetch(`${at}/api/agents/far/threads`, { headers: bearer })).status, 200);
+  is("saying it is a token's, so that copy applies its rules for tokens", last().caller, "token");
+  is("and the owner's is not marked one", (await fetch(`${at}/api/agents/far/threads`, { headers: as }), last().caller), undefined);
+  is("a token's list has them", ((await (await fetch(`${at}/api/agents`, { headers: bearer })).json()) as { id: string }[]).map((one) => one.id), ["test", "far"]);
+  const sentBefore = seen.length;
+  is("a route no token may call is refused here", (await fetch(`${at}/api/agents/far/memory`, { headers: bearer })).status, 403);
+  is("without asking the other copy", seen.length, sentBefore);
+  const { secret: forTest } = makeToken("for test only", "test");
+  const narrow = { authorization: `Bearer ${forTest}` };
+  is("a token made for another agent is refused", (await fetch(`${at}/api/agents/far/threads`, { headers: narrow })).status, 403);
   is("and nobody signed in is asked to", (await fetch(`${at}/api/agents/far/threads`)).status, 401);
 
   // The frame is served from here, with this copy's pass, so the policy that
@@ -189,6 +199,8 @@ import { agentFor, codeJob } from "./shared.ts";
   settings.serve = { ...before, ownerKey: KEY };
   is("a copy with an owner key takes it as the owner", (await fetch(`${at}/api/tokens`, { headers: { authorization: `Bearer ${KEY}` } })).status, 200);
   is("and nothing else as one", (await fetch(`${at}/api/tokens`, { headers: { authorization: "Bearer not the key" } })).status, 401);
+  is("a token's call passed on with it is a token's, and gets no more", (await fetch(`${at}/api/tokens`, { headers: { authorization: `Bearer ${KEY}`, "x-chloe-caller": "token" } })).status, 403);
+  is("not even reading a memory", (await fetch(`${at}/api/agents/test/memory`, { headers: { authorization: `Bearer ${KEY}`, "x-chloe-caller": "token" } })).status, 403);
   settings.serve = before;
   is("a copy without one takes no key at all", (await fetch(`${at}/api/tokens`, { headers: { authorization: `Bearer ${KEY}` } })).status, 401);
   is("not even an empty one", (await fetch(`${at}/api/tokens`, { headers: { authorization: "Bearer " } })).status, 401);
