@@ -29,6 +29,8 @@ interface Held extends Picture {
   url: string;
 }
 
+/** How long a line under "Thinking" stays after the next one shows, in ms. */
+const FOLD = 3000;
 /** The most pictures one turn takes, which is the runtime's own limit. */
 const MOST = 4;
 /** The longest side a picture is sent at. Past this a model shrinks it anyway. */
@@ -122,7 +124,9 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   const [naming, setNaming] = useState("");
   const [archived, setArchived] = useState(false);
   const [doing, setDoing] = useState<Step[]>([]);
-  // The steps under "Thinking" opened, to read what each one was asked and got back.
+  // When this page first saw each line of `doing`, which is what folds it away.
+  const seen = useRef<number[]>([]);
+  // The lines under "Thinking" that had folded away, opened again.
   const [showing, setShowing] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [summary, setSummary] = useState<AgentSummary | null>(null);
@@ -164,6 +168,10 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   // A pick for this conversation beats what the agent runs on otherwise.
   const waiting = waitingOn.has(thread);
   const since = waitingOn.get(thread);
+  // A line under "Thinking" folds away once the one after it has been showing a
+  // few seconds, so the newest is always there and the rest scroll past.
+  const foldedAt = (at: number) => at < doing.length - 1 && now - (seen.current[at + 1] ?? now) > FOLD;
+  const folded = doing.filter((_, at) => foldedAt(at)).length;
   const open = useRef(thread);
   // The conversations this page is waiting on an answer from.
   const asking = useRef(new Set<string>());
@@ -246,7 +254,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
 
   useEffect(() => {
     foot.current?.scrollIntoView({ block: "end" });
-  }, [lines, waiting]);
+  }, [lines, waiting, doing.length]);
 
   // What it is doing while it is doing it. A turn writes its trace step by
   // step, so the run it is in the middle of says which tools it has reached
@@ -254,6 +262,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   // not ask for has no answer coming back to wait on, so when its run
   // finishes, the conversation is read again instead.
   useEffect(() => {
+    seen.current = [];
     if (!waiting) {
       setDoing([]);
       setShowing(false);
@@ -277,7 +286,11 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
           if (live) setThreads(all);
         }
         const run = await api.run(id);
-        if (live) setDoing(run.trace.filter((step) => step.tool ?? step.name));
+        if (live) {
+          const steps = run.trace.filter((step) => step.tool ?? step.name ?? (step.wants?.length && step.say?.trim()));
+          while (seen.current.length < steps.length) seen.current.push(Date.now());
+          setDoing(steps);
+        }
         if (live && run.finished && !asking.current.has(thread)) {
           done(thread);
           api.said(thread).then((said) => open.current === thread && setLines(said), () => {});
@@ -578,17 +591,25 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                 </span>
                 Thinking
                 {since !== undefined && <span className="num">{lasted(now - since)}</span>}
-                {doing.length > 0 && (
+                {folded > 0 && (
                   <button className="plain num doing" aria-expanded={showing} onClick={() => setShowing(!showing)}>
-                    {used(doing.map((step) => titled(step.tool ?? step.name ?? "")))}
+                    {showing ? "Hide earlier" : many(folded, "earlier step")}
                   </button>
                 )}
               </p>
             )}
-            {waiting && showing && (
+            {waiting && doing.length > 0 && (
               <div className="did">
                 {doing.map((step, at) => (
-                  <Card key={at} name={titled(step.tool ?? step.name ?? "")} step={step} />
+                  <div key={at} className={!showing && foldedAt(at) ? "line folded" : "line"}>
+                    <div>
+                      {step.tool ?? step.name ? (
+                        <Card name={titled(step.tool ?? step.name ?? "")} step={step} />
+                      ) : (
+                        <p className="thought">{step.say}</p>
+                      )}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
@@ -689,15 +710,4 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
 function lasted(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
-}
-
-/** The tools reached for so far, in order, a run of the same one said once with how many times. The last few only. */
-function used(names: string[]): string {
-  const runs: { name: string; times: number }[] = [];
-  for (const name of names) {
-    const last = runs.at(-1);
-    if (last?.name === name) last.times++;
-    else runs.push({ name, times: 1 });
-  }
-  return runs.slice(-4).map(({ name, times }) => (times > 1 ? `${name} ×${times}` : name)).join(", ");
 }

@@ -859,6 +859,17 @@ pre.painted .keyword { color: var(--accent); }
 .thinking { display: flex; align-items: center; gap: 10px; color: var(--dim); }
 .thinking .doing { color: var(--accent); padding: 0; font: inherit; }
 .thinking .doing:hover:enabled { text-decoration: underline; }
+/* The lines under "Thinking": each folds to nothing once it is old, unless it was opened to read. */
+.did .line { display: grid; grid-template-rows: 1fr; }
+.did .line > div { overflow: hidden; min-height: 0; }
+.did .line.folded:not(:has(details[open])) { grid-template-rows: 0fr; opacity: 0; }
+.did .thought { margin: 0; padding: 5px 10px; color: var(--dim); white-space: pre-wrap; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+@media (prefers-reduced-motion: no-preference) {
+  .did .line { transition: grid-template-rows .4s ease, opacity .4s ease; }
+  .did .line:last-child { animation: rise .3s ease both; }
+}
+@keyframes rise { from { opacity: 0; transform: translateY(4px); } }
 .dots { display: inline-flex; gap: 4px; }
 .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .25; }
 @media (prefers-reduced-motion: no-preference) {
