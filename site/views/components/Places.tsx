@@ -10,8 +10,9 @@ import { Link } from "./Link.tsx";
  * this, so moving between them never moves the column out from under the
  * pointer.
  *
- * The order is what somebody does with an agent, most often first: read what
- * it is told, read what it knows, then how it is reached and what it reaches.
+ * The whole of it comes first: its configuration, and everything a reply
+ * starts with. Then its parts, in the order somebody works on them, most often
+ * first: what it is told, what it knows, how it is reached and what it reaches.
  */
 export function Places({ agent, view }: { agent: string; view: View }) {
   const on = (at: View["at"]) => view.at === at;
@@ -19,8 +20,16 @@ export function Places({ agent, view }: { agent: string; view: View }) {
     <div className="places">
       {/* The name is the way back to the whole of it, and a heading for the
           rest. The bar switches agents; this only says whose these are. */}
-      <Link to={{ at: "agent", agent }} className="whose" current={on("agent") || on("file")}>
+      <Link to={{ at: "agent", agent }} className="whose" current={on("file")}>
         {nameOf(agent)}
+      </Link>
+      <Link to={{ at: "agent", agent }} current={on("agent")}>
+        <Icons.Files />
+        Config
+      </Link>
+      <Link to={{ at: "prompt", agent }} current={on("prompt")}>
+        <Icons.Eye />
+        System Prompt
       </Link>
       <Link to={{ at: "purpose", agent }} current={on("purpose")}>
         <Icons.Inspect />

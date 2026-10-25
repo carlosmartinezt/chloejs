@@ -20,6 +20,7 @@ import { Channels } from "./views/Channels.tsx";
 import { Connections } from "./views/Connections.tsx";
 import { Home } from "./views/Home.tsx";
 import { Purpose } from "./views/Purpose.tsx";
+import { SystemPrompt } from "./views/SystemPrompt.tsx";
 import { Invitation } from "./views/Invitation.tsx";
 import { Jobs } from "./views/Jobs.tsx";
 import { Skills } from "./views/Skills.tsx";
@@ -287,6 +288,7 @@ export function App() {
         <main className="pane">
           {view.at === "purpose" && <Purpose agent={view.agent} />}
           {view.at === "skills" && <Skills agent={view.agent} />}
+          {view.at === "prompt" && <SystemPrompt agent={view.agent} />}
           {view.at === "jobs" && jobsOf(view.agent)}
           {view.at === "abilities" && <Abilities agent={view.agent} />}
           {view.at === "tools" && <Tools agent={view.agent} />}

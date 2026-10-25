@@ -404,6 +404,13 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   is("a token reads what commands the agent understands", [listed.status, ((await listed.json()) as { command: string }[]).map((one) => one.command)], [200, ["reading", "models", "clear"]]);
   is("and with no token it is nobody's", (await fetch(`${at}/api/agents/test/commands`)).status, 401);
 
+  // Everything a reply to the owner starts with, for the Purpose page's whole prompt.
+  const prompt = await fetch(`${at}/api/agents/test/prompt`, { headers: { authorization: `Bearer ${secret}` } });
+  const told = ((await prompt.json()) as { text: string }).text;
+  is("the whole prompt starts with its name and ends with the date", [prompt.status, told.startsWith("Your name is "), /Today is \d{4}-\d{2}-\d{2}\.$/.test(told)], [200, true, true]);
+  is("and says it is talking with its owner on the dashboard", told.includes("You are talking with your owner on the dashboard"), true);
+  is("with a mark where its purpose goes, which has a page of its own", told.split("\n\n")[1], "<Purpose goes here>");
+
   server.close();
 }
 

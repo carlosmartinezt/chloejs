@@ -20,7 +20,7 @@ import { readEnvFile, writeEnv } from "#chloe/core/env";
 import { ROUTES, settings } from "#chloe/core/settings";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
 import { tryJob, type Clock } from "#chloe/core/clock";
-import { alwaysOnTools } from "#chloe/core/turn";
+import { PURPOSE_HERE, alwaysOnTools, ownerPrompt } from "#chloe/core/turn";
 import { choices, choose, modelFor, type Scope } from "#chloe/model/choices";
 import { commands } from "#chloe/channels/shared";
 import { current, forget } from "#chloe/model/memory";
@@ -520,6 +520,13 @@ const routes: Route[] = [
       const agent = context.agent(params.id);
       return json(response, { text: agent.purpose, path: agent.purposeFile });
     },
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:id/prompt",
+    does: `Everything it is told before a conversation starts, as a reply to its owner on the dashboard begins: what the runtime adds, with ${PURPOSE_HERE} where its purpose goes (GET /api/agents/:id/purpose is that).`,
+    token: true,
+    handle: async ({ response, context, params }) => json(response, { text: await ownerPrompt(context.agent(params.id), PURPOSE_HERE), purpose: PURPOSE_HERE }),
   },
   {
     method: "GET",

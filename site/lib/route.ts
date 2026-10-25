@@ -14,6 +14,8 @@ export type View =
   /** What it is told to do, and the words it reaches for when it needs them. */
   | { at: "purpose"; agent: string }
   | { at: "skills"; agent: string }
+  /** Everything a reply starts with: its purpose and what the runtime adds. */
+  | { at: "prompt"; agent: string }
   /** What it runs on a clock, and what it can do. */
   | { at: "jobs"; agent: string }
   /** Everything chloe brings it, built in. */
@@ -69,6 +71,7 @@ export function href(view: View): string {
       return view.thread ? `/agents/${view.agent}/chat/${encodeURIComponent(conversation(view.agent, view.thread))}` : `/agents/${view.agent}`;
     case "purpose":
     case "skills":
+    case "prompt":
     case "jobs":
     case "abilities":
     case "tools":
@@ -125,6 +128,7 @@ export function read(path = window.location.pathname, search = window.location.s
       !rest.length &&
       (what === "purpose" ||
         what === "skills" ||
+        what === "prompt" ||
         what === "jobs" ||
         what === "abilities" ||
         what === "tools" ||

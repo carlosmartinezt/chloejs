@@ -152,6 +152,7 @@ export const api = {
   files: (agent: string) => call<Entry[]>(`/agents/${agent}/files`),
   /** `path` is the file the words are in, when they are in one and not written into the agent's definition. */
   purpose: (agent: string) => call<{ text: string; path?: string }>(`/agents/${agent}/purpose`),
+  prompt: (agent: string) => call<{ text: string; purpose: string }>(`/agents/${agent}/prompt`),
   agentSkills: (agent: string) => call<Skill[]>(`/agents/${agent}/skills`),
   agentTools: (agent: string) => call<AgentTool[]>(`/agents/${agent}/tools`),
   abilities: (agent: string) => call<AgentAbility[]>(`/agents/${agent}/abilities`),

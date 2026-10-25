@@ -963,6 +963,22 @@ export function dashboardAddress(): string {
   return settings.serve.url.replace(/\/+$/, "");
 }
 
+/**
+ * The instructions a reply of this agent starts with when its owner writes from
+ * the dashboard: its purpose and everything the runtime and its plugins add.
+ * A reply on another channel, to somebody else or with other tools differs only
+ * in the parts those change. `purpose` stands in for the agent's own, to show
+ * the rest without it.
+ */
+export async function ownerPrompt(agent: Agent, purpose = agent.purpose): Promise<string> {
+  const tools = toolsFor(agent, [], { fromOwner: true, mayChangeAgent: true, chat: true });
+  const words = await pluginWords(agent, { tools, guest: false });
+  return systemPrompt({ ...agent, purpose }, { name: "your owner", source: "the dashboard", asYouGo: true }, await overviewsOf(tools), words);
+}
+
+/** What the System Prompt page shows where the agent's purpose goes: it is on a page of its own. */
+export const PURPOSE_HERE = "<Purpose goes here>";
+
 function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, plugins: string[] = []): string {
   // Without its own name, the only name a model is shown is Chloe's, and it answers to that.
   const parts = [`Your name is ${agent.name ?? agent.id}.`, agent.purpose];
