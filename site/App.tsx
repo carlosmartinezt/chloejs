@@ -478,20 +478,13 @@ function Agent({
       <dl className="facts">
         <dt>identity</dt>
         <dd>{agent.identity}</dd>
-        <dt>purpose</dt>
+        <dt>runs in</dt>
         <dd>
-          <Link to={{ at: "purpose", agent: id }}>what it is told</Link>
+          {agent.machine ? `a ${agent.machine} of its own` : agent.elsewhere ? "another copy of chloe" : "this computer"}
+          {agent.elsewhere && <span className="dim">, at {agent.elsewhere}</span>}
         </dd>
         <dt>model</dt>
         <dd>{agent.model}</dd>
-        <dt>skills</dt>
-        <dd>
-          <Names names={agent.skills} agent={id} held={held} folder="skills" ending=".md" />
-        </dd>
-        <dt>
-          <Link to={{ at: "abilities", agent: id }}>abilities</Link>
-        </dt>
-        <dd>{(agent.abilities ?? []).filter((one) => one.on).map((one) => one.label).join(", ") || "none"}</dd>
         {/* The tools its agent.ts names, and a connection's, each under where it comes from. */}
         {own.length > 0 && (
           <>

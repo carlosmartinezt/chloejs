@@ -13,15 +13,22 @@ const LINES = 4000;
 
 /**
  * An agent's changes, newest first: what it did to its memory and to its own
- * files, with the ones it made since you last looked marked, and a button that
- * says you have.
+ * files, with the ones it made since you last looked marked. Showing them
+ * counts as looking: the marks stay until the page is left.
  */
 export function AgentChanges({ agent }: { agent: string }) {
   const [found, setFound] = useState<Changes | null>(null);
   const [trouble, setTrouble] = useState("");
 
   const load = useCallback(
-    () => api.changes(agent, { limit: 30 }).then(setFound, (error: Error) => setTrouble(error.message)),
+    () =>
+      api.changes(agent, { limit: 30 }).then(
+        (got) => {
+          setFound(got);
+          if (got.unseen > 0) void api.seen(agent);
+        },
+        (error: Error) => setTrouble(error.message),
+      ),
     [agent],
   );
   useEffect(() => {
@@ -37,13 +44,7 @@ export function AgentChanges({ agent }: { agent: string }) {
           Changes
           {found && found.unseen > 0 && <span className="new-count">{found.unseen} new since you last looked</span>}
         </h2>
-        {found && found.unseen > 0 ? (
-          <button className="small" onClick={() => void api.seen(agent).then(load)}>
-            Seen
-          </button>
-        ) : (
-          found?.seen && <span className="dim">You last looked {ago(found.seen)}</span>
-        )}
+        {found?.seen && found.unseen === 0 && <span className="dim">You last looked {ago(found.seen)}</span>}
       </div>
       {trouble && <p className="bad">{trouble}</p>}
       {!found && !trouble && <p className="dim">Loading</p>}

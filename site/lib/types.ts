@@ -6,6 +6,10 @@ export interface AgentSummary {
   /** What to call it on the page, when that is not its id. */
   name?: string;
   identity: string;
+  /** What the copy it runs in is, when that copy is a machine of its own. */
+  machine?: "container" | "virtual machine";
+  /** The address of the other copy it runs in, when it is not this one. */
+  elsewhere?: string;
   /** What its runs go to now: what its definition names. */
   model: string;
   /** What its definition names. */

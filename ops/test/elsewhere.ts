@@ -76,9 +76,11 @@ import { agentFor, codeJob } from "./shared.ts";
   const as = { cookie: `${cookieName()}=${token}` };
   const last = () => seen.at(-1)!;
 
-  const listed = (await (await fetch(`${at}/api/agents`, { headers: as })).json()) as { id: string; name?: string }[];
+  const listed = (await (await fetch(`${at}/api/agents`, { headers: as })).json()) as { id: string; name?: string; elsewhere?: string }[];
   is("the owner's list has this copy's agents and the one elsewhere", listed.map((one) => one.id), ["test", "far"]);
   is("the one elsewhere as its own copy describes it", listed[1].name, "Far");
+  is("with the address of the copy it runs in", listed[1].elsewhere, otherAt);
+  is("and this copy's own say nothing of one", listed[0].elsewhere, undefined);
 
   const threads = await fetch(`${at}/api/agents/far/threads`, { headers: as });
   is("a route about it is answered by its own copy", await threads.json(), [{ thread: "far/one" }]);

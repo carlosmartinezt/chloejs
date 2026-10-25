@@ -8,6 +8,7 @@
 // are generated from that list. A route nobody wrote down is a route nobody
 // documented, and a documented route that does not exist is worse than either.
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createSecureServer } from "node:https";
 import { createServer as createPortHolder, type Server as PortHolder, type Socket } from "node:net";
@@ -244,12 +245,26 @@ function onTheApi(agent: Agent): boolean {
   return hasChannel(agent, "api");
 }
 
+/**
+ * What this copy runs in when it is a machine of its own (`machine.own`): a
+ * container when the container's maker left its mark (podman's
+ * /run/.containerenv, docker's /.dockerenv), a virtual machine when not.
+ * Undefined on a shared computer. The setting is the machine plugin's, so it is
+ * missing with that plugin out.
+ */
+function machineKind(): "container" | "virtual machine" | undefined {
+  if (!(settings.machine as { own?: boolean }).own) return undefined;
+  return existsSync("/run/.containerenv") || existsSync("/.dockerenv") ? "container" : "virtual machine";
+}
+
 /** One agent's configuration, the same shape from the list and from its own route. */
 export function summary(agent: Agent) {
   return {
     id: agent.id,
     name: agent.name,
     identity: agent.identity,
+    /** What this copy runs in, when it is a machine of its own. */
+    machine: machineKind(),
     /** What its runs go to. */
     model: modelFor(agent),
     /** What its definition names. */
@@ -491,7 +506,7 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents",
-    does: "Every agent that is loaded, with its configuration. The owner also gets those that run elsewhere (serve.elsewhere), as their own copy says.",
+    does: "Every agent that is loaded, with its configuration. The owner also gets those that run elsewhere (serve.elsewhere), as their own copy says, with that copy's address as elsewhere.",
     token: true,
     member: "filtered",
     handle: async ({ request, response, context, who }) =>

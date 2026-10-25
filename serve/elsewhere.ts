@@ -247,14 +247,16 @@ function sendOnce(request: IncomingMessage, response: ServerResponse, where: Els
 }
 
 /**
- * The summary of every agent that runs elsewhere, as its own copy gives it.
- * One that does not answer is still listed, saying why, so it does not vanish
- * from the page while its machine is down.
+ * The summary of every agent that runs elsewhere, as its own copy gives it,
+ * with that copy's address as `elsewhere`. One that does not answer is still
+ * listed, saying why, so it does not vanish from the page while its machine is
+ * down.
  */
 export async function summariesElsewhere(request: IncomingMessage): Promise<Record<string, unknown>[]> {
   return Promise.all(
     allElsewhere().map((one) =>
-      ask<Record<string, unknown>>(one, `/api/agents/${encodeURIComponent(one.agent)}`, request).catch((error: Error) => ({
+      ask<Record<string, unknown>>(one, `/api/agents/${encodeURIComponent(one.agent)}`, request).then((got) => ({ ...got, elsewhere: one.address }), (error: Error) => ({
+        elsewhere: one.address,
         id: one.agent,
         identity: `Runs at ${one.address}, which is not answering: ${error.message}`,
         model: "",

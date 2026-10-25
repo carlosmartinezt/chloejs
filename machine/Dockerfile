@@ -57,9 +57,13 @@ RUN mkdir -p /home/runtime/data /home/runtime/workspace/routines \
  && chmod 1777 /home/runtime/workspace
 
 # The machine's config and its agent import the runtime by name, the way any
-# project does: node_modules/@chloejs/core is the clone itself.
+# project does: node_modules/@chloejs/core is the clone itself. An agent's code
+# also imports zod and the AI SDK, which a project installs beside the runtime,
+# so they are the runtime's own copies.
 RUN mkdir -p /home/runtime/node_modules/@chloejs \
- && ln -s /home/runtime/chloe /home/runtime/node_modules/@chloejs/core
+ && ln -s /home/runtime/chloe /home/runtime/node_modules/@chloejs/core \
+ && ln -s /home/runtime/chloe/node_modules/zod /home/runtime/node_modules/zod \
+ && ln -s /home/runtime/chloe/node_modules/ai /home/runtime/node_modules/ai
 
 COPY machine/entrypoint.sh /usr/bin/machine-entrypoint
 RUN chmod 755 /usr/bin/machine-entrypoint

@@ -479,7 +479,7 @@ p { margin: 0 0 10px; }
 .waiting .who { font: 400 var(--size-small)/1.5 var(--sans); color: var(--wait); }
 .waiting .q { font: 500 var(--size-lead)/1.5 var(--sans); max-width: 58ch; margin: 6px 0 14px; }
 .waiting .reply { display: flex; gap: 10px; flex-wrap: wrap; }
-.waiting .pick { margin: -4px 0 14px; }
+.waiting div.pick { margin: -4px 0 14px; }
 .waiting input { flex: 1 1 260px; }
 @media (prefers-reduced-motion: no-preference) {
   .waiting { animation: arrive .35s cubic-bezier(.2,.7,.3,1) both; }
@@ -1238,7 +1238,7 @@ button.pill { padding: 5px 12px; border: 1px solid var(--line-2); border-radius:
 button.pill:hover:enabled { border-color: var(--accent); color: var(--accent); }
 button.pill[aria-pressed="true"] { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
 button.pill[aria-pressed="true"]:disabled { opacity: 1; }
-.pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+div.pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 
 /* The invite card: the fields side by side, then the switches with what each means. */
 .ready { margin: 18px 0 34px; padding: 22px 24px 24px; background: var(--surface);
