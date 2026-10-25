@@ -711,6 +711,9 @@ export async function loadAll(given?: Config): Promise<Map<string, Agent>> {
   for (const one of listed) {
     if (!one?.id) throw new Error("chloe.config.ts lists an agent with no id.");
     if (folders.has(one.id)) throw new Error(`chloe.config.ts lists two agents called ${one.id}.`);
+    if (Object.hasOwn(configured.serve.elsewhere, one.id)) {
+      throw new Error(`chloe.config.ts lists ${one.id} in agents and in serve.elsewhere. It runs here or elsewhere: take it out of one.`);
+    }
     folders.set(one.id, one.folder);
     memories.set(one.id, memoryFolder(one.id, one.memory));
   }

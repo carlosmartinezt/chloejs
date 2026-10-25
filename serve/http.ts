@@ -70,8 +70,9 @@ import { signedInFrom } from "#chloe/core/alerts";
 import { PLUGINS } from "#chloe/plugins/index";
 import { providers } from "#chloe/services/emailService";
 import { servePage } from "./page.ts";
+import { elsewhere, framedElsewhere, listsElsewhere, passOn, runningElsewhere, summariesElsewhere, whereElse } from "./elsewhere.ts";
 import { receive } from "#chloe/channels/shared";
-import { answer, checkArgs, parkedRuns } from "#chloe/core/steps";
+import { answer, checkArgs, parkedRuns, type ParkedRun } from "#chloe/core/steps";
 import { canCarryOn, stopReply, stopped } from "#chloe/core/turn";
 
 /**
@@ -219,6 +220,13 @@ function refusedMember(route: Route, params: Record<string, string>, given: Give
   const theirs = given[params.id];
   if (!theirs) return `There is no agent called ${JSON.stringify(params.id)}.`;
   return theirs.includes(route.member) ? undefined : `You have not been given ${route.member} on ${params.id}. Its owner can allow it.`;
+}
+
+/** Runs from this copy and others as one list: each once, newest first. */
+function newestFirst<Row extends { id: string; started: string }>(rows: Row[]): Row[] {
+  const once = new Map<string, Row>();
+  for (const row of rows) if (!once.has(row.id)) once.set(row.id, row);
+  return [...once.values()].sort((a, b) => (a.started < b.started ? 1 : a.started > b.started ? -1 : 0));
 }
 
 /** The most pictures one chat turn takes. */
@@ -483,11 +491,14 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents",
-    does: "Every agent that is loaded, with its configuration.",
+    does: "Every agent that is loaded, with its configuration. The owner also gets those that run elsewhere (serve.elsewhere), as their own copy says.",
     token: true,
     member: "filtered",
-    handle: ({ response, context, who }) =>
-      json(response, [...context.agents().values()].filter((one) => sees(who, one.id)).map(summary)),
+    handle: async ({ request, response, context, who }) =>
+      json(response, [
+        ...[...context.agents().values()].filter((one) => sees(who, one.id)).map(summary),
+        ...(who?.kind === "account" ? await summariesElsewhere(request) : []),
+      ]),
   },
   {
     method: "GET",
@@ -708,10 +719,10 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/runs",
-    does: "Every agent's runs, newest first. Takes ?agent= and ?limit=. Somebody invited gets only their own.",
+    does: "Every agent's runs, newest first. Takes ?agent= and ?limit=. Somebody invited gets only their own. The owner also gets the runs of agents that run elsewhere.",
     token: true,
     member: "filtered",
-    handle: ({ response, url, who }) => {
+    handle: async ({ request, response, url, who }) => {
       const agent = url.searchParams.get("agent");
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
       const only = readable(who);
@@ -725,12 +736,13 @@ const routes: Route[] = [
             .all(...agents, memberOf(who), limit),
         );
       }
-      json(
-        response,
+      const here = (
         agent
           ? db.prepare(`select ${RUN_COLUMNS} from runs where agent = ? order by started desc limit ?`).all(agent, limit)
-          : db.prepare(`select ${RUN_COLUMNS} from runs order by started desc limit ?`).all(limit),
-      );
+          : db.prepare(`select ${RUN_COLUMNS} from runs order by started desc limit ?`).all(limit)
+      ) as { id: string; agent: string; started: string }[];
+      if (who?.kind !== "account" || (agent && !elsewhere(agent))) return json(response, here);
+      json(response, newestFirst([...here, ...(await listsElsewhere<{ id: string; agent: string; started: string }>(`/api/runs?limit=${limit}`, request, agent ?? undefined))]).slice(0, limit));
     },
   },
   {
@@ -778,20 +790,27 @@ const routes: Route[] = [
     does: "Every job waiting on an answer. A question nobody answers is a job that never finishes.",
     token: true,
     member: "filtered",
-    handle: ({ response, who }) => json(response, parkedRuns().filter((one) => may(who, one.agent, "read"))),
+    handle: async ({ request, response, who }) => {
+      const here = parkedRuns().filter((one) => may(who, one.agent, "read"));
+      if (who?.kind !== "account") return json(response, here);
+      const seen = new Set(here.map((one) => one.id));
+      json(response, [...here, ...(await listsElsewhere<ParkedRun>("/api/parked", request)).filter((one) => !seen.has(one.id))]);
+    },
   },
   {
     method: "GET",
     path: "/api/health",
-    does: "Which agents are loaded and which jobs are running right now.",
+    does: "Which agents are loaded and which jobs are running right now, those that run elsewhere included for the owner.",
     token: true,
     member: "filtered",
-    handle: ({ response, context, who }) =>
+    handle: async ({ request, response, context, who }) => {
+      const there = who?.kind === "account" ? await runningElsewhere(request) : { agents: [], running: [] };
       json(response, {
         ok: true,
-        agents: [...context.agents().keys()].filter((one) => sees(who, one)),
-        running: context.clock.running().filter((one) => may(who, one.split("/")[0], "read")),
-      }),
+        agents: [...[...context.agents().keys()].filter((one) => sees(who, one)), ...there.agents],
+        running: [...context.clock.running().filter((one) => may(who, one.split("/")[0], "read")), ...there.running],
+      });
+    },
   },
 
   // Doing. A token may do these, and only to an agent that binds an api channel.
@@ -1254,7 +1273,8 @@ const routes: Route[] = [
     does: "A pass to show that memory's files in a frame, for ten minutes. See pass.ts.",
     member: "memory",
     handle: ({ request, response, context, params }) => {
-      const pass = makePass(context.agent(params.id).id, from(request));
+      // An agent that runs elsewhere has its frame served from here too, so the pass is this copy's.
+      const pass = makePass(elsewhere(params.id)?.agent ?? context.agent(params.id).id, from(request));
       json(response, { pass, at: `/memory/${encodeURIComponent(pass)}` });
     },
   },
@@ -1535,10 +1555,13 @@ async function framed(request: IncomingMessage, response: ServerResponse, url: U
     void response.writeHead(status, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" }).end(text);
   if (!whose) return refuse(403, "This pass has run out. Open the file again.");
   const agent = context.agents().get(whose);
-  if (!agent) return refuse(404, "Not here.");
+  const there = agent ? undefined : elsewhere(whose);
+  if (!agent && !there) return refuse(404, "Not here.");
 
   const path = rest.map(decodeURIComponent).join("/");
-  const found = await memoryRaw(agent, path, from(request), `/memory/${raw}`);
+  const found = agent
+    ? await memoryRaw(agent, path, from(request), `/memory/${raw}`)
+    : await framedElsewhere(there!, path, request, `/memory/${raw}`);
   if (!found) return refuse(404, "Not here.");
 
   const here = `${overHttps(request) ? "https" : "http"}://${request.headers.host ?? "localhost"}`;
@@ -1581,6 +1604,18 @@ async function api(
   context: Context,
 ): Promise<void> {
   if (request.method === "OPTIONS") return preflight(request, response, path, context);
+
+  // An agent that runs in another copy of chloe: that copy answers, for the owner only.
+  const there = await whereElse(path, url);
+  if (there) {
+    const who = caller(request);
+    if (!who) return json(response, { error: "Sign in first." }, 401);
+    if (who.kind !== "account") {
+      return json(response, { error: `${there.agent} runs in another copy of chloe, and only its owner reaches it from here.` }, 403);
+    }
+    return passOn(request, response, there, `${path}${url.search}`);
+  }
+
   const found = match(request.method ?? "GET", path);
   if (!found) throw new NotFound(`No route for ${request.method} ${path}. GET /api lists them.`);
   const { route, params } = found;

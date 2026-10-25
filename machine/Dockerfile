@@ -6,8 +6,13 @@
 #
 #   podman build -t chloe-machine -f machine/Dockerfile .
 #
-# An agent that needs a tool this image has not got adds a line on top of it,
-# in its own Dockerfile: see "Adding a tool" in docs/machines.md.
+# or from the installed package in a project:
+#
+#   podman build -t chloe-machine -f node_modules/@chloejs/core/machine/Dockerfile node_modules/@chloejs/core
+#
+# The first runs chloe from its source, the second from the package's build.
+# Either way an agent that needs a tool this image has not got adds a line on
+# top of it, in its own Dockerfile: see "Adding a tool" in docs/machines.md.
 FROM node:22-bookworm-slim
 
 # git for clones, curl for checking the things a routine watches, ca-certificates
@@ -45,7 +50,8 @@ RUN chmod 440 /etc/sudoers.d/chloe-machine
 # make folders there, but cannot remove routines, which is chloe's own and
 # readable by the shell user and never writable by it.
 RUN mkdir -p /home/runtime/data /home/runtime/workspace/routines \
- && chown runtime:runtime /home/runtime/data /home/runtime/workspace/routines \
+ && chown runtime:runtime /home/runtime /home/runtime/data /home/runtime/workspace/routines \
+ && chmod 755 /home/runtime \
  && chmod 700 /home/runtime/data \
  && chmod 755 /home/runtime/workspace/routines \
  && chmod 1777 /home/runtime/workspace

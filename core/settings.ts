@@ -257,6 +257,24 @@ export interface Settings {
      * Default: "" (unknown, and an agent gives the path on the dashboard).
      */
     url: string;
+    /**
+     * A key that signs a request in as the owner, sent as
+     * `Authorization: Bearer <key>`. It is for your other copy of chloe, the
+     * one whose page shows this copy's agents (`serve.elsewhere` there). It
+     * reaches everything the owner's login does, so keep it long and in
+     * `.env`. Default: "" (none: only the login signs anybody in).
+     */
+    ownerKey: string;
+    /**
+     * Agents that run in another copy of chloe, such as one in a machine of
+     * its own, that this copy's page shows with its own agents, by agent id:
+     * `{ journal: { address: "http://127.0.0.1:3167", key: process.env.CHLOE_SERVE_ELSEWHERE_JOURNAL_KEY } }`.
+     * `key` is that copy's `serve.ownerKey`. Everything about such an agent
+     * (its chat, runs, memory and files) is asked of that copy, which keeps
+     * its runs and records every memory file it serves. Only the owner
+     * reaches them from here. Default: {} (none).
+     */
+    elsewhere: Record<string, { address: string; key: string }>;
   };
   /** The machine chloe runs in, when it runs in one of its own. The machine plugin fills in every field. */
   machine: MachineSettings;
@@ -305,7 +323,7 @@ export const DEFAULTS: Settings = {
   connections: {
   } as Connections,
   agents: {},
-  serve: { host: "127.0.0.1", port: 3067, url: "" },
+  serve: { host: "127.0.0.1", port: 3067, url: "", ownerKey: "", elsewhere: {} },
   machine: {} as MachineSettings,
   owner: "",
   node: "",
@@ -320,8 +338,9 @@ const AGENT_DEFAULTS = {
  * when nobody says. An entry is filled in from this, so an agent that says only
  * `telegram` has empty Slack tokens rather than missing ones.
  */
-const RECORDS: Record<string, AgentSettings> = {
+const RECORDS: Record<string, object> = {
   agents: AGENT_DEFAULTS,
+  "serve.elsewhere": { address: "", key: "" },
 };
 
 /**
@@ -366,7 +385,7 @@ export function nameInEnv(path: string[]): string {
  * from your config with `process.env`. "agents" means the channel tokens of
  * every agent.
  */
-export const KEYS: string[] = ["model.key", "model.keys", "agents"];
+export const KEYS: string[] = ["model.key", "model.keys", "agents", "serve.ownerKey", "serve.elsewhere"];
 
 /** A setting whose kind is not its default's, and what is wrong with a value given for it, or "". */
 const CHECKS: Record<string, (said: unknown) => string> = {};
@@ -436,7 +455,7 @@ const isGroup = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 
 /** Whether a path holds entries somebody named, like `agents`. */
-function recordAt(path: string[]): AgentSettings | undefined {
+function recordAt(path: string[]): object | undefined {
   return RECORDS[path.join(".")];
 }
 

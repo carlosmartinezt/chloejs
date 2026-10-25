@@ -292,6 +292,9 @@ export function caller(request: IncomingMessage): Caller {
   const found = read();
   const values = carried(request);
   if (found && values.some((value) => holds(value, found))) return { kind: "account" };
+  // The owner's other copy of chloe, showing this one's agents on its page.
+  const ownerKey = settings.serve.ownerKey;
+  if (ownerKey && values.some((value) => same(value, ownerKey))) return { kind: "account" };
   for (const value of values) {
     const member = memberIn(value);
     if (member) return member;

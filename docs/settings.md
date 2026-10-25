@@ -52,7 +52,7 @@ message saying a key is missing gives both the name and the config line.
 | `connections.resend` | The Resend key, and chloe's alert mail. | [Connections](/docs/connections#resend) |
 | `connections.brave` | The Brave Search key `web.search` uses. Without one it searches DuckDuckGo. | [Connections](/docs/connections#brave-search) |
 | `agents.<id>` | Each agent's channel tokens, under the `id` in its `agent.ts`. | [Channels](/docs/channels) |
-| `serve` | Where the port listens: `127.0.0.1:3067`. Change takes a restart. `serve.url` is the address the dashboard is opened at from elsewhere, so an agent can link to a file in its memory. | [The site](/docs/the-page) |
+| `serve` | Where the port listens: `127.0.0.1:3067`. Change takes a restart. `serve.url` is the address the dashboard is opened at from elsewhere, so an agent can link to a file in its memory. `serve.elsewhere` names agents that run in another copy of chloe, shown on this page, and `serve.ownerKey` is the key a copy takes as its owner. | [The site](/docs/the-page), [Machines](/docs/machines#seeing-it-on-your-own-page) |
 | `machine` | Whether this chloe runs in a machine of its own, the shell user, the workspace, and the hosts the shell may reach. | [Machines](/docs/machines) |
 | `owner` | Who a run the clock started belongs to, as `channel:who`. | [Asking a person](/docs/asking-a-person) |
 | `node` | Which node `npx chloe install` runs. Empty is whichever is on the path. | |

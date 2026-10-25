@@ -33,6 +33,7 @@ for (const part of [
   "services",
   "server",
   "memory-routes",
+  "elsewhere",
   "people",
   "setup",
   "plugins",

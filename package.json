@@ -93,6 +93,7 @@
   "files": [
     "bin",
     "dist",
+    "machine",
     "ops/install.sh"
   ],
   "engines": {

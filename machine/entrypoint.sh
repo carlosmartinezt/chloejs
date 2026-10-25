@@ -42,9 +42,15 @@ chmod 755 "$workspace/routines"
 chmod 700 /home/runtime/data
 
 # chloe runs as the runtime user, from the machine's home, which is the project
-# it runs in: its chloe.config.ts and .env are at the top.
+# it runs in: its chloe.config.ts and .env are at the top. The runtime itself is
+# either a clone, run from its source, or the installed package, run from its
+# built server.
 cd /home/runtime
 export HOME=/home/runtime
 export CHLOE_STATE=/home/runtime/data
+if [ -f /home/runtime/chloe/dist/server.js ]; then
+  exec setpriv --reuid=runtime --regid=runtime --init-groups --inh-caps=-all \
+    node /home/runtime/chloe/dist/server.js
+fi
 exec setpriv --reuid=runtime --regid=runtime --init-groups --inh-caps=-all \
   node --conditions=chloe-source /home/runtime/chloe/server.ts

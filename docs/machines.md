@@ -50,15 +50,24 @@ surviving, and everything that matters is committed somewhere you own.
 
 ## The base image
 
-`machine/Dockerfile` in [the repo](https://github.com/carlosmartinezt/chloejs)
-builds it: Node, git, the runtime from the clone, the two users, the sudoers
-line and the start script.
+`machine/Dockerfile` builds it: Node, git, the runtime, the two users, the
+sudoers line and the start script. From a clone:
 
 ```sh
 git clone https://github.com/carlosmartinezt/chloejs
 cd chloejs
 podman build -t chloe-machine -f machine/Dockerfile .
 ```
+
+In a project that installed the package, the same image builds from the package
+itself, with no clone:
+
+```sh
+podman build -t chloe-machine -f node_modules/@chloejs/core/machine/Dockerfile node_modules/@chloejs/core
+```
+
+A clone runs chloe from its source; the package runs its build. Both are the
+same image.
 
 Run it with the two capabilities the start script needs, and a volume for what
 should survive the machine's disk:
@@ -153,6 +162,45 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg
 
 Nothing an agent installs this way reaches the `runtime` user's files, whatever
 the tool does: the users, not the packages, are the boundary.
+
+## Seeing it on your own page
+
+A machine runs a copy of chloe of its own, with its own page and login. To see
+its agent on the page you already use, beside your other agents, give the
+machine an owner key and name the agent in your own copy's config.
+
+In the machine's config, the key it takes as its owner:
+
+```ts
+settings: {
+  machine: { own: true },
+  serve: { host: "0.0.0.0", port: 3067, ownerKey: process.env.CHLOE_SERVE_OWNER_KEY },
+}
+```
+
+In your own copy's config, where the agent runs and that key, by the agent's id,
+and the agent left out of `agents`, since it runs there and not here:
+
+```ts
+settings: {
+  serve: {
+    elsewhere: {
+      journal: { address: "http://127.0.0.1:3167", key: process.env.CHLOE_SERVE_ELSEWHERE_JOURNAL_KEY },
+    },
+  },
+}
+```
+
+The two `.env` files hold the same long key. Your page then lists the agent with
+the rest, and everything about it (its chat, runs, memory, files and jobs) is
+asked of the machine, which keeps its runs and writes every memory file it
+serves to its own audit log, with your address, before serving it. The frame a
+memory file is shown in is served by your own copy, sandboxed as always.
+
+Only you reach it from your page: a token or somebody invited there is nobody
+in the machine. When the machine does not answer, the agent stays on the list
+saying so. The owner key reaches everything the machine's login does, and is
+for your own copy of chloe and nothing else.
 
 ## What is true and what is not
 
