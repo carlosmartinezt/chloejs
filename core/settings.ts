@@ -269,12 +269,24 @@ export interface Settings {
      * Agents that run in another copy of chloe, such as one in a machine of
      * its own, that this copy's page shows with its own agents, by agent id:
      * `{ journal: { address: "http://127.0.0.1:3167", key: process.env.CHLOE_SERVE_ELSEWHERE_JOURNAL_KEY } }`.
-     * `key` is that copy's `serve.ownerKey`. Everything about such an agent
+     * `key` is that copy's `serve.ownerKey`, and `start`, when that copy
+     * sleeps (`serve.stopAfter` there), is the command that starts it again,
+     * like `["podman", "start", "journal"]`: run when it is asked for and does
+     * not answer, and before one of its jobs is due. Everything about such an agent
      * (its chat, runs, memory and files) is asked of that copy, which keeps
      * its runs and records every memory file it serves. Only the owner
      * reaches them from here. Default: {} (none).
      */
-    elsewhere: Record<string, { address: string; key: string }>;
+    elsewhere: Record<string, { address: string; key: string; start: string[] }>;
+    /**
+     * Minutes with nothing to do before this copy stops itself: no request,
+     * no run going or waiting, and no job due in the next few. For a machine
+     * of its own that the owner's copy wakes again (`start` under
+     * `serve.elsewhere` there), so it costs nothing while it sleeps. A copy
+     * whose agents bind a channel other than api never stops, because that
+     * channel listens. Default: 0 (never).
+     */
+    stopAfter: number;
   };
   /** The machine chloe runs in, when it runs in one of its own. The machine plugin fills in every field. */
   machine: MachineSettings;
@@ -323,7 +335,7 @@ export const DEFAULTS: Settings = {
   connections: {
   } as Connections,
   agents: {},
-  serve: { host: "127.0.0.1", port: 3067, url: "", ownerKey: "", elsewhere: {} },
+  serve: { host: "127.0.0.1", port: 3067, url: "", ownerKey: "", elsewhere: {}, stopAfter: 0 },
   machine: {} as MachineSettings,
   owner: "",
   node: "",
@@ -340,7 +352,7 @@ const AGENT_DEFAULTS = {
  */
 const RECORDS: Record<string, object> = {
   agents: AGENT_DEFAULTS,
-  "serve.elsewhere": { address: "", key: "" },
+  "serve.elsewhere": { address: "", key: "", start: [] },
 };
 
 /**

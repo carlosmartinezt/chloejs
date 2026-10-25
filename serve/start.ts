@@ -14,14 +14,16 @@ import { ROOT } from "#chloe/core/paths";
 import { banner } from "#chloe/core/banner";
 import { bold, dim } from "#chloe/core/style";
 import { PROVIDERS, settings, unclaimed, type Route } from "#chloe/core/settings";
-import { closeCutOff, going, trim } from "#chloe/core/db";
+import { closeCutOff, going, trim, waiting } from "#chloe/core/db";
 import { checksDone, CONFIG, loadAll, type Agent, type Config, type Running } from "#chloe/load/load";
 import { sdkModel } from "#chloe/model/key";
 import { neededBy } from "#chloe/model/tool";
 import { run } from "#chloe/services/runService";
 import { learnModels, modelRoute, runnable } from "#chloe/model/model";
 import { certificate } from "#chloe/serve/certificate";
-import { claimPort, ownAddress, remoteAddress, serve as listen } from "#chloe/serve/http";
+import { claimPort, ownAddress, quietFor, remoteAddress, serve as listen } from "#chloe/serve/http";
+import { keepOnTime } from "#chloe/serve/elsewhere";
+import { dueWithin } from "#chloe/timer/cron";
 import { startClock } from "#chloe/core/clock";
 import { hasPassword, makeLink } from "#chloe/serve/login";
 import { alertsSay } from "#chloe/core/alerts";
@@ -404,6 +406,23 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
     process.exit(0);
   }
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => void stop());
+
+  // A copy that sleeps between uses stops itself once there has been nothing
+  // to do for serve.stopAfter minutes; the owner's copy starts it again.
+  const listens = () => [...agents.values()].flatMap((one) => one.channels.filter((channel) => channel.name !== "api").map((channel) => `${one.id}/${channel.name}`));
+  if (settings.serve.stopAfter > 0 && listens().length) {
+    console.log(`serve.stopAfter is set, but ${listens().join(", ")} listens for messages, so this copy stays up.`);
+  }
+  const idle = setInterval(() => {
+    const after = settings.serve.stopAfter;
+    if (!(after > 0) || stopping || listens().length) return;
+    if (quietFor() < after * 60_000 || waiting() > 0 || clock.running().length) return;
+    if ([...agents.values()].some((one) => one.jobs.some((job) => job.cron && dueWithin(job.cron, 5, job.timezone)))) return;
+    console.log(`stopping: nothing to do for ${after} minute${after === 1 ? "" : "s"} (serve.stopAfter)`);
+    void stop();
+  }, 30_000);
+  idle.unref();
+  keepOnTime();
 }
 
 /**

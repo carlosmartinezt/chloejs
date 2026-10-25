@@ -1421,6 +1421,14 @@ function match(method: string, path: string): { route: Route; params: Record<str
   }
 }
 
+/** When this copy was last asked anything over its port, for `serve.stopAfter`. */
+let lastAsked = Date.now();
+
+/** How long it has been since anything was asked over the port, in milliseconds. */
+export function quietFor(): number {
+  return Date.now() - lastAsked;
+}
+
 export function serve(options: {
   host: string;
   port: number;
@@ -1446,6 +1454,7 @@ export function serve(options: {
   };
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    lastAsked = Date.now();
     let url: URL;
     let path: string;
     try {

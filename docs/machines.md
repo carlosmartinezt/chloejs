@@ -202,6 +202,43 @@ in the machine. When the machine does not answer, the agent stays on the list
 saying so. The owner key reaches everything the machine's login does, and is
 for your own copy of chloe and nothing else.
 
+## Sleeping between uses
+
+A machine that is not working costs only its disk, so a machine can stop itself
+when there is nothing to do and be started again when it is wanted. In the
+machine's config, the minutes with nothing to do before it stops:
+
+```ts
+serve: { host: "0.0.0.0", port: 3067, ownerKey: process.env.CHLOE_SERVE_OWNER_KEY, stopAfter: 15 },
+```
+
+Nothing to do means no request over its port, no run going or waiting for an
+answer or a time, and no job due in the next five minutes. A machine whose agent
+binds a channel other than api never stops, because that channel listens for
+messages, and it says so as it starts.
+
+In your own copy's config, the command that starts it again, beside its
+address:
+
+```ts
+journal: { address: "http://127.0.0.1:3167", key: process.env.CHLOE_SERVE_ELSEWHERE_JOURNAL_KEY, start: ["podman", "start", "journal"] },
+```
+
+Your copy runs it when the machine is asked for and does not answer, which is
+what opening your page does, and waits up to a minute for it to answer. It also
+runs it a minute or two before one of the agent's jobs is due, from the jobs the
+machine last said it has, so the job runs on time. When your copy starts and
+does not know them yet, it wakes the machine once to ask. While your page is
+open it asks every twenty seconds, so an open page keeps the machine awake.
+
+When your copy runs as a systemd service, start the machine outside the
+service's own group of processes, or restarting your copy kills the
+container's monitor with it and leaves Podman unable to start it again:
+
+```ts
+start: ["systemd-run", "--user", "--scope", "--quiet", "podman", "start", "journal"],
+```
+
 ## What is true and what is not
 
 A container shares its host's kernel, so code inside it is one escape from

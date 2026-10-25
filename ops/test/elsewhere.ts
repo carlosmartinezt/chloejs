@@ -37,7 +37,7 @@ import { agentFor, codeJob } from "./shared.ts";
     if (path === "/api/agents/far/memory/pass") return [200, { pass: "P1", at: "/memory/P1" }];
     return [404, { error: "Not here." }];
   };
-  const other = createServer((request, response) => {
+  const standIn = (request: IncomingMessage, response: import("node:http").ServerResponse) => {
     let body = "";
     request.on("data", (chunk) => (body += chunk));
     request.on("end", () => {
@@ -53,12 +53,13 @@ import { agentFor, codeJob } from "./shared.ts";
       response.writeHead(status, { "content-type": type ?? "application/json" });
       response.end(typeof value === "string" ? value : JSON.stringify(value));
     });
-  }).listen(0, "127.0.0.1");
+  };
+  let other = createServer(standIn).listen(0, "127.0.0.1");
   await new Promise<void>((done) => other.once("listening", done));
   const otherAt = `http://127.0.0.1:${(other.address() as { port: number }).port}`;
 
   const before = settings.serve;
-  settings.serve = { ...before, elsewhere: { far: { address: otherAt, key: KEY } } };
+  settings.serve = { ...before, elsewhere: { far: { address: otherAt, key: KEY, start: [] } } };
 
   const server = serve({
     host: "127.0.0.1",
@@ -137,6 +138,50 @@ import { agentFor, codeJob } from "./shared.ts";
   const down = (await (await fetch(`${at}/api/agents`, { headers: as })).json()) as { id: string; identity: string }[];
   is("when its copy is down it is still listed, saying so", down[1]?.identity.includes("not answering"), true);
   is("and a call about it says which copy did not answer", (await fetch(`${at}/api/agents/far/threads`, { headers: as })).status, 502);
+
+  // A copy that sleeps: asked for while it is down, its start command runs and
+  // the call waits until it answers. The command here leaves a mark, and the
+  // stand-in comes back up on its port when it sees it.
+  const { mkdtemp } = await import("node:fs/promises");
+  const { existsSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const mark = `${await mkdtemp(`${tmpdir()}/chloe-start-`)}/started`;
+  const otherPort = (other.address() as { port: number } | null)?.port ?? Number(new URL(otherAt).port);
+  settings.serve = { ...before, elsewhere: { far: { address: otherAt, key: KEY, start: [process.execPath, "-e", `require("fs").writeFileSync(${JSON.stringify(mark)}, "")`] } } };
+  const comesBack = (async () => {
+    const until = Date.now() + 20_000;
+    while (!existsSync(mark) && Date.now() < until) await new Promise((done) => setTimeout(done, 50));
+    other = createServer(standIn).listen(otherPort, "127.0.0.1");
+  })();
+  const woken = await fetch(`${at}/api/agents/far/threads`, { headers: as });
+  await comesBack;
+  is("a copy that is down is started with its command", existsSync(mark), true);
+  is("and the call waits for it and is answered", woken.status, 200);
+  // Down again a moment after it answered: the call does not trust that, but
+  // starts it once more and sends the same call, body and all.
+  await new Promise<void>((done) => other.close(() => done()));
+  const { rmSync } = await import("node:fs");
+  rmSync(mark);
+  const backAgain = (async () => {
+    const until = Date.now() + 20_000;
+    while (!existsSync(mark) && Date.now() < until) await new Promise((done) => setTimeout(done, 50));
+    other = createServer(standIn).listen(otherPort, "127.0.0.1");
+  })();
+  const again = await fetch(`${at}/api/agents/far/chat`, {
+    method: "POST",
+    headers: { ...as, "content-type": "application/json" },
+    body: JSON.stringify({ prompt: "still there?", thread: "far/one" }),
+  });
+  await backAgain;
+  is("one that went down just after answering is started again", again.status, 200);
+  is("and gets the call whole", JSON.parse(last().body), { prompt: "still there?", thread: "far/one" });
+  other.close();
+
+  const { dueWithin } = await import("#chloe/timer/cron");
+  const at0659 = new Date("2026-10-26T10:59:30Z");
+  is("a job at 7 in New York is due within two minutes at 6:59 there", dueWithin("0 7 * * *", 2, "America/New_York", at0659), true);
+  is("but not within two minutes at 6:50", dueWithin("0 7 * * *", 2, "America/New_York", new Date("2026-10-26T10:50:00Z")), false);
+  is("and a line that cannot be read is never due", dueWithin("not cron", 60), false);
 
   // The other half: a copy that takes a key as its owner.
   settings.serve = { ...before, ownerKey: KEY };

@@ -203,6 +203,11 @@ const GOING = "finished is null and parked is null";
  * How many runs are going. Every run happens in the service, so while it runs
  * this is the work in its hands, which is what a stop waits for.
  */
+/** How many runs have not finished: those going, and those waiting for an answer or a time. */
+export function waiting(): number {
+  return Number((db.prepare("select count(*) as n from runs where finished is null").get() as { n: number }).n);
+}
+
 export function going(): number {
   return Number((db.prepare(`select count(*) as n from runs where ${GOING}`).get() as { n: number }).n);
 }

@@ -90,6 +90,22 @@ export function due(cron: Cron, at: Date, timezone = "UTC"): boolean {
   );
 }
 
+/**
+ * Whether a cron line is due at any minute from now through `minutes` from
+ * now, in `timezone`. A line that cannot be read is never due.
+ */
+export function dueWithin(line: string, minutes: number, timezone = "UTC", from = new Date()): boolean {
+  let cron: Cron;
+  try {
+    cron = parse(line);
+  } catch {
+    return false;
+  }
+  const start = Math.floor(from.getTime() / 60_000) * 60_000;
+  for (let step = 0; step <= minutes; step++) if (due(cron, new Date(start + step * 60_000), timezone)) return true;
+  return false;
+}
+
 // Intl is the only thing here that knows when New York changed its clocks. An
 // offset worked out by hand is wrong twice a year.
 function inZone(at: Date, timezone: string) {

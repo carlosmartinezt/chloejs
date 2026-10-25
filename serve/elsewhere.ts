@@ -8,27 +8,105 @@
 // `x-forwarded-for`, so that copy's lockout, memory passes and memory audit
 // all see the person and not this copy. Only the owner is passed on: a token
 // or somebody invited here is nobody there.
+//
+// A copy that sleeps (`serve.stopAfter` there) is started again with the
+// `start` command its entry names: when it is asked for and does not answer,
+// and a minute or two before one of its jobs is due, read off the jobs it
+// last said it has.
+import { execFile } from "node:child_process";
 import { request as plainRequest, type IncomingMessage, type ServerResponse } from "node:http";
 import { request as secureRequest } from "node:https";
 
 import { db } from "#chloe/core/db";
 import { settings } from "#chloe/core/settings";
+import { dueWithin } from "#chloe/timer/cron";
 import { from } from "./login.ts";
 
-/** Where one agent runs, and the key that copy takes as its owner. */
+/** Where one agent runs, the key that copy takes as its owner, and how to start it when it sleeps. */
 export interface Elsewhere {
   agent: string;
   address: string;
   key: string;
+  start: string[];
 }
 
 /** How long a list waits for another copy before showing this copy's own without it. */
 const WAIT = 5_000;
 
+/** How long a copy that was started has to answer. */
+const WAKING = 60_000;
+
 /** The agent with that id, when it runs in another copy. */
 export function elsewhere(agent: string): Elsewhere | undefined {
   const found = Object.hasOwn(settings.serve.elsewhere, agent) ? settings.serve.elsewhere[agent] : undefined;
-  return found?.address ? { agent, address: found.address.replace(/\/+$/, ""), key: found.key } : undefined;
+  return found?.address ? { agent, address: found.address.replace(/\/+$/, ""), key: found.key, start: found.start ?? [] } : undefined;
+}
+
+/** When each copy last answered, by address: one that answered just now is not asked again before a call. */
+const answered = new Map<string, number>();
+
+/** The starts going on now, by address, so many calls at once start a copy once. */
+const starting = new Map<string, Promise<void>>();
+
+/** Whether that copy answers now. */
+async function answers(where: Elsewhere): Promise<boolean> {
+  if (Date.now() - (answered.get(where.address) ?? 0) < 20_000) return true;
+  try {
+    await fetch(`${where.address}/api/health`, { headers: { authorization: `Bearer ${where.key}` }, signal: AbortSignal.timeout(1_500) });
+    answered.set(where.address, Date.now());
+    return true;
+  } catch {
+    answered.delete(where.address);
+    return false;
+  }
+}
+
+/**
+ * Makes sure that copy is up: when it does not answer and its entry says how,
+ * starts it and waits until it answers. One that has no `start` is left as it
+ * is, and the call that follows says it did not answer.
+ */
+export async function awake(where: Elsewhere): Promise<void> {
+  if (!where.start.length || (await answers(where))) return;
+  const going = starting.get(where.address);
+  if (going) return going;
+  const started = (async () => {
+    console.log(`${where.agent}: starting it (${where.start.join(" ")})`);
+    await new Promise<void>((done) =>
+      execFile(where.start[0], where.start.slice(1), { timeout: 30_000 }, (error, _out, said) => {
+        if (error) console.error(`${where.agent}: ${where.start.join(" ")} failed: ${said.trim() || error.message}`);
+        done();
+      }),
+    );
+    const until = Date.now() + WAKING;
+    while (Date.now() < until && !(await answers(where))) await new Promise((done) => setTimeout(done, 500));
+  })().finally(() => starting.delete(where.address));
+  starting.set(where.address, started);
+  return started;
+}
+
+/** The jobs each agent elsewhere last said it has, by agent, for waking it before one is due. */
+const jobsOf = new Map<string, { cron?: string; timezone?: string }[]>();
+
+/**
+ * Wakes each copy that sleeps a minute or two before one of its agent's jobs
+ * is due, so the job runs on time there. At the start a copy whose jobs are
+ * not known yet is woken once to say what they are; it goes back to sleep on
+ * its own.
+ */
+export function keepOnTime(): void {
+  const look = async () => {
+    for (const one of allElsewhere()) {
+      if (!one.start.length) continue;
+      if (!jobsOf.has(one.agent)) {
+        await ask<{ jobs?: { cron?: string; timezone?: string }[] }>(one, `/api/agents/${encodeURIComponent(one.agent)}`).catch(() => undefined);
+        continue;
+      }
+      if (jobsOf.get(one.agent)!.some((job) => job.cron && dueWithin(job.cron, 2, job.timezone))) await awake(one);
+    }
+  };
+  void look();
+  setInterval(() => void look(), 60_000).unref();
 }
 
 /** Every agent that runs in another copy. */
@@ -83,29 +161,72 @@ function headersFor(where: Elsewhere, request?: IncomingMessage): Record<string,
 
 /** One call to another copy, as the owner, answered as JSON. Throws when it does not answer, or answers with an error. */
 export async function ask<T>(where: Elsewhere, path: string, request?: IncomingMessage): Promise<T> {
-  const answer = await fetch(`${where.address}${path}`, { headers: headersFor(where, request), signal: AbortSignal.timeout(WAIT) });
+  await awake(where);
+  const once = () => fetch(`${where.address}${path}`, { headers: headersFor(where, request), signal: AbortSignal.timeout(WAIT) });
+  const answer = await once().catch(async (error: Error) => {
+    // It may have gone to sleep since it last answered.
+    answered.delete(where.address);
+    if (!where.start.length) throw error;
+    await awake(where);
+    return once();
+  });
   if (!answer.ok) {
     const said = (await answer.json().catch(() => ({}))) as { error?: string };
     throw new Error(said.error ?? `${answer.status}`);
   }
-  return (await answer.json()) as T;
+  answered.set(where.address, Date.now());
+  const value = (await answer.json()) as T;
+  // An agent's own summary says its jobs, which is what waking it on time needs.
+  if (path === `/api/agents/${encodeURIComponent(where.agent)}`) jobsOf.set(where.agent, (value as { jobs?: { cron?: string; timezone?: string }[] }).jobs ?? []);
+  return value;
 }
+
+/** The most a call passed on may carry: a chat turn with its pictures fits well inside. */
+const MOST = 25_000_000;
 
 /**
  * Passes one API call on to the copy that runs its agent, and its answer back,
- * both streamed and neither cut short: a chat turn answers when it is done,
- * however long that is.
+ * streamed and never cut short: a chat turn answers when it is done, however
+ * long that is. The call is read first, so that when the copy turns out to be
+ * down it can be started and the same call sent once more.
  */
-export function passOn(request: IncomingMessage, response: ServerResponse, where: Elsewhere, path: string): Promise<void> {
+export async function passOn(request: IncomingMessage, response: ServerResponse, where: Elsewhere, path: string): Promise<void> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += (chunk as Buffer).length;
+    if (size > MOST) {
+      response.writeHead(413, { "content-type": "application/json; charset=utf-8" });
+      return void response.end(JSON.stringify({ error: "That is too much to pass on." }));
+    }
+    chunks.push(chunk as Buffer);
+  }
+  const body = Buffer.concat(chunks);
+  await awake(where);
+  const refused = await sendOnce(request, response, where, path, body);
+  if (!refused) return;
+  // It answered a moment ago and not now: it may have gone to sleep since.
+  answered.delete(where.address);
+  if (where.start.length) {
+    await awake(where);
+    if (!(await sendOnce(request, response, where, path, body))) return;
+  }
+  response.writeHead(502, { "content-type": "application/json; charset=utf-8" });
+  response.end(JSON.stringify({ error: `${where.agent} runs at ${where.address}, which did not answer: ${refused.message}` }));
+}
+
+/** One try at passing a call on. Resolves with the error when the copy could not be reached, before anything was answered. */
+function sendOnce(request: IncomingMessage, response: ServerResponse, where: Elsewhere, path: string, body: Buffer): Promise<Error | undefined> {
   return new Promise((done) => {
     const target = new URL(path, where.address);
     const send = target.protocol === "https:" ? secureRequest : plainRequest;
-    const headers: Record<string, string> = headersFor(where, request);
-    for (const name of ["content-type", "content-length", "x-chloe-channel"]) {
+    const headers: Record<string, string> = { ...headersFor(where, request), "content-length": String(body.length) };
+    for (const name of ["content-type", "x-chloe-channel"]) {
       const value = request.headers[name];
       if (typeof value === "string") headers[name] = value;
     }
     const out = send(target, { method: request.method, headers }, (answer) => {
+      answered.set(where.address, Date.now());
       const kept: Record<string, string> = {};
       for (const name of ["content-type", "content-length", "cache-control"]) {
         const value = answer.headers[name];
@@ -113,17 +234,15 @@ export function passOn(request: IncomingMessage, response: ServerResponse, where
       }
       response.writeHead(answer.statusCode ?? 502, kept);
       answer.pipe(response);
-      answer.on("end", done);
-      answer.on("error", () => (response.destroy(), done()));
+      answer.on("end", () => done(undefined));
+      answer.on("error", () => (response.destroy(), done(undefined)));
     });
     out.on("error", (error) => {
-      if (!response.headersSent) {
-        response.writeHead(502, { "content-type": "application/json; charset=utf-8" });
-        response.end(JSON.stringify({ error: `${where.agent} runs at ${where.address}, which did not answer: ${error.message}` }));
-      } else response.destroy();
-      done();
+      if (!response.headersSent) return done(error);
+      response.destroy();
+      done(undefined);
     });
-    request.pipe(out);
+    out.end(body);
   });
 }
 
