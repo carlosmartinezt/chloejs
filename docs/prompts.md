@@ -130,7 +130,9 @@ which file it would change, so its purpose need not say it.
 
 In every turn but a visitor's, an agent that may change itself is also told
 two things about growing. What it cannot do, it cannot do yet: it says so, and
-what learning it would take. And work it does the same way again and again,
-above all a job in words on a schedule, can become a habit: a job in code that
-asks a model only where it needs judgement, and costs a fraction of the turn.
-It offers to make one when it notices such work.
+what learning it would take. And its way of working is to find a way code can
+do the work, so the same request gets the same answer every time: a habit, a
+skill whose script does it when asked or a job in code on a schedule, asking a
+model only where it needs judgement and costing a fraction of the turn. Before
+doing something by hand it looks for a habit that already does it, and it
+offers to make one when it does by hand work it will be asked for again.

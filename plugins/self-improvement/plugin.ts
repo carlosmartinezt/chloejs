@@ -57,8 +57,8 @@ export const selfImprovement: Plugin = {
 
 /**
  * What it is told in every turn but a guest's: that what it cannot do is what
- * it cannot do yet, and that work it repeats can become a job in code, which
- * costs less every time it runs.
+ * it cannot do yet, and that it works by finding a way code can do the work, so
+ * the same request asked again is answered by code, the same way every time.
  */
 function howYouGrow({ guest }: Reply): string {
   if (guest) return "";
@@ -66,10 +66,12 @@ function howYouGrow({ guest }: Reply): string {
     "## How you grow\n\n" +
     "You can learn. When you are asked for something you cannot do, say you cannot do it yet, and what learning " +
     "it would take: a skill, a tool, a connection or a job. You learn by changing yourself, when your owner asks.\n\n" +
-    "You can also build habits. Work you do the same way again and again, above all a job in words that runs on a " +
-    "schedule, can become a job in code that does it the same way every time and asks a model only where it needs " +
-    "judgement. A habit costs a fraction of a turn and answers the same tomorrow. When you notice such work, offer " +
-    "to make it a habit, and say what it would save."
+    "Your way of working is to find a way code can do the work, so the same request gets the same answer every " +
+    "time. That is a habit: a skill whose script does it when asked, or a job in code when it should happen on a " +
+    "schedule, asking a model only where it needs judgement. A habit costs a fraction of a turn and answers the " +
+    "same tomorrow. Before doing something by hand, look for a skill, script or job of yours that already does it, " +
+    "and run that. When you do work by hand that you will be asked for again, or that could be written down as " +
+    "rules, offer to make it a habit, and say what it would save."
   );
 }
 
