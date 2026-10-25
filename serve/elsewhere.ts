@@ -196,12 +196,16 @@ export async function framedElsewhere(
   request: IncomingMessage,
   under: string,
 ): Promise<{ body: Buffer; type: string } | null> {
+  // A segment that walks up would leave the memory once the address is read,
+  // so it is refused here rather than trusted to the other copy.
+  const segments = path.split("/");
+  if (segments.some((one) => one === "" || one === "." || one === "..")) return null;
   const { pass } = await ask<{ pass: string }>(where, `/api/agents/${encodeURIComponent(where.agent)}/memory/pass`, request);
   const theirs = `/memory/${encodeURIComponent(pass)}`;
-  const answer = await fetch(`${where.address}${theirs}/${path.split("/").map(encodeURIComponent).join("/")}`, {
-    headers: headersFor(where, request),
-    signal: AbortSignal.timeout(WAIT),
-  });
+  const target = new URL(`${theirs}/${segments.map(encodeURIComponent).join("/")}`, where.address);
+  if (!target.pathname.startsWith(`${theirs}/`)) return null;
+  // The pass is all a frame needs, so the file is asked for without the owner key.
+  const answer = await fetch(target, { headers: { "x-forwarded-for": from(request) }, signal: AbortSignal.timeout(WAIT) });
   if (answer.status === 404) return null;
   if (!answer.ok) throw new Error(`${where.agent}'s memory runs at ${where.address}, which answered ${answer.status}.`);
   const type = answer.headers.get("content-type") ?? "application/octet-stream";

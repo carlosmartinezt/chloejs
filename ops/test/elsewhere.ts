@@ -18,6 +18,8 @@ import { agentFor, codeJob } from "./shared.ts";
   const seen: { method: string; path: string; authorization?: string; forwarded?: string; cookie?: string; body: string }[] = [];
   const reply = (request: IncomingMessage): [number, unknown, string?] => {
     const path = request.url ?? "";
+    // A memory file needs its pass and nothing else, as in a real copy.
+    if (path === "/memory/P1/note.html") return [200, '<link rel="stylesheet" href="/memory/P1/style.css"><h1>A note</h1>', "text/html; charset=utf-8"];
     if (request.headers.authorization !== `Bearer ${KEY}`) return [401, { error: "Sign in first." }];
     if (path === "/api/agents/far") return [200, { id: "far", name: "Far", identity: "Runs in its own machine.", jobs: [] }];
     if (path === "/api/agents/far/threads") return [200, [{ thread: "far/one" }]];
@@ -33,7 +35,6 @@ import { agentFor, codeJob } from "./shared.ts";
     if (path === "/api/parked") return [200, []];
     if (path === "/api/health") return [200, { ok: true, agents: ["far"], running: ["far/nightly"] }];
     if (path === "/api/agents/far/memory/pass") return [200, { pass: "P1", at: "/memory/P1" }];
-    if (path === "/memory/P1/note.html") return [200, '<link rel="stylesheet" href="/memory/P1/style.css"><h1>A note</h1>', "text/html; charset=utf-8"];
     return [404, { error: "Not here." }];
   };
   const other = createServer((request, response) => {
@@ -120,6 +121,16 @@ import { agentFor, codeJob } from "./shared.ts";
   is("asked of its copy with a pass made there for the same visitor", seen.at(-2)!.path, "/api/agents/far/memory/pass");
   is("so that copy records the read itself", last().path, "/memory/P1/note.html");
   is("and its links carry this copy's pass", html.includes(`href="${under}/style.css"`), true);
+  is("the file itself is asked for with the pass alone, never the owner key", last().authorization, undefined);
+  const asked = seen.length;
+  // Sent raw, because fetch would resolve the dots itself before sending.
+  const { request: send } = await import("node:http");
+  const port = (server.address() as { port: number }).port;
+  const walked = await new Promise<number>((done) => {
+    send({ host: "127.0.0.1", port, path: `${under}/..%2F..%2F..%2Fapi%2Ftokens` }, (answer) => (answer.resume(), done(answer.statusCode ?? 0))).end();
+  });
+  is("a path that walks out of the memory is refused", walked, 404);
+  is("and nothing is asked of the other copy for it", seen.length, asked);
 
   other.close();
   await new Promise((done) => setTimeout(done, 50));
