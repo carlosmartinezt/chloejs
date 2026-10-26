@@ -51,6 +51,21 @@ export const Chat = () => (
   </Icon>
 );
 
+/** One conversation, in the list of them. */
+export const Conversation = () => (
+  <Icon>
+    <path d="M8 2.8c3.1 0 5.4 2 5.4 4.6S11.1 12 8 12c-.8 0-1.6-.1-2.3-.4L2.8 13l.8-2.4c-.6-.8-1-1.9-1-3.2 0-2.6 2.3-4.6 5.4-4.6Z" />
+  </Icon>
+);
+
+/** Starting a conversation, above the list of them. */
+export const NewConversation = () => (
+  <Icon>
+    <path d="M8 2.8c3.1 0 5.4 2 5.4 4.6S11.1 12 8 12c-.8 0-1.6-.1-2.3-.4L2.8 13l.8-2.4c-.6-.8-1-1.9-1-3.2 0-2.6 2.3-4.6 5.4-4.6Z" />
+    <path d="M8 5.3v4.2M5.9 7.4h4.2" />
+  </Icon>
+);
+
 /** What it has been doing: line after line. */
 export const Log = () => (
   <Icon>

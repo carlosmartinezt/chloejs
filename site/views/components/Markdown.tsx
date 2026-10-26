@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Code } from "./Code.tsx";
+import { Code, CopyButton } from "./Code.tsx";
 
 /**
  * The marks inside a line: **bold**, `code`, *italic* and [words](address).
@@ -25,6 +25,15 @@ export function rich(words: string): ReactNode[] {
   }
   if (at < words.length) out.push(words.slice(at));
   return out;
+}
+
+/** The words as a reader sees them: headings, quotes and the marks inside a line taken off. */
+export function unmarked(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.replace(/^\s*#{1,6}\s+/, "").replace(/^\s*>\s?/, ""))
+    .join("\n")
+    .replace(MARKS, (_, bold, code, text, _to, em) => bold ?? code ?? text ?? em);
 }
 
 /** Only an address a browser can follow safely. Anything else stays as text. */
@@ -69,7 +78,17 @@ function blocks(text: string): ReactNode[] {
       at++;
       while (at < lines.length && !lines[at].trimStart().startsWith(end)) code.push(lines[at++]);
       at++;
-      out.push(<Code key={key++} text={code.join("\n")} language={fence[2]} />);
+      // A fence marked `writing` is words to be used somewhere else, a song or
+      // a message to send: read as prose, and copied without its marks.
+      if (fence[2].trim().toLowerCase() === "writing") {
+        out.push(
+          <div key={key++} className="writing">
+            <div className="label">Writing</div>
+            <CopyButton text={unmarked(code.join("\n"))} />
+            <div className="read">{blocks(code.join("\n"))}</div>
+          </div>,
+        );
+      } else out.push(<Code key={key++} text={code.join("\n")} language={fence[2]} />);
       continue;
     }
 

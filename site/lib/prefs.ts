@@ -121,3 +121,7 @@ export const setSort = (next: Sort): void => save("sort", `${next.by}:${next.dow
 /** How much of the log's width its list takes, as a share: two fifths unless dragged. */
 export const logShare = (): number => Number(load("logShare")) || 0.4;
 export const setLogShare = (share: number): void => save("logShare", share.toFixed(3));
+
+/** How wide the chat's list of conversations is, in pixels: 0 is the page's usual width. */
+export const chatWidth = (): number => Number(load("chatWidth")) || 0;
+export const setChatWidth = (width: number): void => save("chatWidth", width ? String(Math.round(width)) : "");

@@ -11,15 +11,6 @@ import * as Icons from "./Icons.tsx";
  */
 export function Code({ text, language }: { text: string; language?: string }) {
   const pieces = tokens(text, languageOf(language ?? ""));
-  // null until the button has been pressed, then whether the browser allowed it.
-  const [copied, setCopied] = useState<boolean | null>(null);
-
-  async function take() {
-    const done = await copy(text);
-    setCopied(done);
-    if (done) setTimeout(() => setCopied(null), 1500);
-  }
-
   return (
     <div className="code">
       <pre className="painted">
@@ -33,14 +24,30 @@ export function Code({ text, language }: { text: string; language?: string }) {
           ),
         )}
       </pre>
-      <button
-        className="plain copy"
-        aria-label={copied ? "Copied" : "Copy this"}
-        title={copied === false ? "This browser would not let the page copy" : copied ? "Copied" : "Copy"}
-        onClick={() => void take()}
-      >
-        {copied ? <Icons.Tick /> : <Icons.Copy />}
-      </button>
+      <CopyButton text={text} />
     </div>
+  );
+}
+
+/** A button that puts `text` on the clipboard, and shows a tick when it did. */
+export function CopyButton({ text }: { text: string }) {
+  // null until the button has been pressed, then whether the browser allowed it.
+  const [copied, setCopied] = useState<boolean | null>(null);
+
+  async function take() {
+    const done = await copy(text);
+    setCopied(done);
+    if (done) setTimeout(() => setCopied(null), 1500);
+  }
+
+  return (
+    <button
+      className="plain copy"
+      aria-label={copied ? "Copied" : "Copy this"}
+      title={copied === false ? "This browser would not let the page copy" : copied ? "Copied" : "Copy"}
+      onClick={() => void take()}
+    >
+      {copied ? <Icons.Tick /> : <Icons.Copy />}
+    </button>
   );
 }

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { AgentSummary, Picture, Said, Step, Thread } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
@@ -9,6 +9,7 @@ import { Trail } from "./components/Link.tsx";
 import { ContextMenu, type Choice } from "./components/ContextMenu.tsx";
 import { Card, Prompt } from "./Log.tsx";
 import { go, href } from "../lib/route.ts";
+import { chatWidth, setChatWidth } from "../lib/prefs.ts";
 import { ideasFor } from "../lib/ideas.ts";
 import { Collapse } from "./components/Collapse.tsx";
 import { Pick, type Option } from "./components/Pick.tsx";
@@ -123,6 +124,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   const [menu, setMenu] = useState<{ x: number; y: number; one: Thread } | null>(null);
   const [naming, setNaming] = useState("");
   const [archived, setArchived] = useState(false);
+  const [width, setWidth] = useState(chatWidth);
   const [doing, setDoing] = useState<Step[]>([]);
   // When this page first saw each line of `doing`, which is what folds it away.
   const seen = useRef<number[]>([]);
@@ -401,15 +403,34 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   const hidden = threads.filter((one) => one.archived).length;
   const blank = lines.length === 0 && !waiting && !loading;
 
+  // The list of conversations widens when its edge is dragged, so a long name
+  // can be read, up to a limit that leaves the conversation room.
+  const drag = (event: PointerEvent<HTMLDivElement>) => {
+    const edge = event.currentTarget;
+    const { left } = (edge.parentElement as HTMLElement).getBoundingClientRect();
+    edge.setPointerCapture(event.pointerId);
+    let now = width;
+    const move = (moved: globalThis.PointerEvent) => {
+      now = Math.min(Math.max(moved.clientX - left, 220), 480);
+      setWidth(now);
+    };
+    const done = () => {
+      edge.removeEventListener("pointermove", move);
+      setChatWidth(now);
+    };
+    edge.addEventListener("pointermove", move);
+    edge.addEventListener("lostpointercapture", done, { once: true });
+  };
+
   return (
-    <div className="chat">
+    <div className="chat" style={width ? ({ "--rail-w": `${width}px` } as CSSProperties) : undefined}>
       {/* Starting again, and every conversation this agent is in, each of
           which can be renamed or archived from its menu. The agent's other
           pages are Config in the bar. */}
       <nav className="past rail">
         <Collapse closeOn={thread} label="Past conversations">
           <button className="new-chat" onClick={newChat}>
-            <Icons.Plus />
+            <Icons.NewConversation />
             New chat
           </button>
 
@@ -447,6 +468,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                         onClick={() => go({ at: "chat", agent, thread: one.thread })}
                         onDoubleClick={() => setNaming(one.thread)}
                       >
+                        <Icons.Conversation />
                         <span className={one.archived ? "headline dim" : "headline"}>{one.label || called(one)}</span>
                         {fromWeb(one) && (
                           <span className="num dim" title="A visitor, on a web page">
@@ -490,6 +512,8 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
         )}
         </Collapse>
       </nav>
+
+      <div className="edge" role="separator" aria-orientation="vertical" title="Drag to resize" onPointerDown={drag} />
 
       <div
         className={blank ? "talking blank" : "talking"}

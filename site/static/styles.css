@@ -102,6 +102,10 @@ a { color: inherit; }
    a double tap must not either. This does not reach a file shown in the memory
    viewer, which is its own document and may be zoomed to read it. */
 html { touch-action: pan-x pan-y; }
+/* The page never stretches past its ends. A Mac pulls the whole window down
+   past the bar when a scroll runs out, chat's list or thread included, and
+   shows a blank band above everything. */
+html { overscroll-behavior: none; }
 
 /* A copy somebody is working on says so above everything else, in the one
    colour the page keeps for something that wants reading. It scrolls away with
@@ -722,6 +726,14 @@ pre.painted .keyword { color: var(--accent); }
 .code-editor > textarea::selection { background: var(--accent-soft); color: transparent; }
 /* The button to take a copy of a block sits in its corner, over the code. */
 .code { position: relative; }
+/* Writing to be copied and used somewhere else: a card of prose, its lines kept as written. */
+.writing { position: relative; margin: 4px 0 14px; padding: 12px 20px 16px; border: 1px solid var(--line);
+  border-radius: 16px; background: var(--surface); }
+.writing .label { margin-bottom: 10px; font: 400 var(--size-small)/1.6 var(--sans); color: var(--dim); }
+.writing .read p { white-space: pre-line; }
+.writing .read > :last-child { margin-bottom: 0; }
+.writing .copy { position: absolute; top: 8px; right: 10px; padding: 7px; border-radius: 8px; color: var(--dim); }
+.writing .copy:hover:enabled { background: var(--inline); color: var(--ink); }
 .code .copy { position: absolute; top: 5px; right: 5px; padding: 5px;
   border-radius: 6px; background: var(--surface); }
 .code .copy:hover:enabled { background: var(--inline); color: var(--accent); }
@@ -808,26 +820,32 @@ pre.painted .keyword { color: var(--accent); }
 .rows th, .rows td { padding: 4px 10px 4px 0; white-space: nowrap; }
 /* Chat is the one page that fills the window: the transcript scrolls and the
    box it is typed into stays where the hands are. */
-.chat { display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); height: calc(100vh - var(--bar-h) - var(--dev-h)); }
+.chat { display: grid; grid-template-columns: var(--rail-w) 0 minmax(0, 1fr); height: calc(100vh - var(--bar-h) - var(--dev-h)); }
+/* The edge takes no room of its own: it lies over the list's border, wide
+   enough to catch, and shows only when the pointer is on it. */
+.chat > .edge { z-index: 2; margin: 0 -3px; }
+.chat > .edge::after { left: 2px; background: transparent; }
+.chat > .edge:hover::after, .chat > .edge:active::after { left: 1px; background: var(--accent); }
 /* Without this each column grows to fit its content instead of scrolling
    inside the window, and the box you type into ends up below the fold. */
 .chat > * { min-height: 0; }
 .chat .past { overflow: auto; padding: 12px 10px 24px; }
 /* The list is as quiet as a shelf of files: one plain line each, its label
    said in words rather than in small capitals. */
-.chat .past h2 { margin: 18px 0 6px; padding: 0 12px;
-  font: 500 var(--size-small)/1 var(--sans); color: var(--dim); }
+.chat .past h2 { margin: 22px 0 4px; padding: 0 10px;
+  font: 400 var(--size-body)/1 var(--sans); color: color-mix(in srgb, var(--dim) 70%, transparent); }
 /* A row is a name, not a statement: the button style's 500 is for what acts,
    and this one only opens. */
-.chat .run-list button[id] { font-weight: 400; }
+.chat .run-list button[id] { gap: 9px; padding: 7px 10px; font-weight: 400; font-size: var(--size-body);
+  line-height: 1.6; color: var(--ink); }
+.chat .past button svg { flex: none; width: 19px; height: 19px; stroke-width: 1.25; color: var(--dim); }
 .chat .past .places + .new-chat { margin-top: 12px; }
 .chat .past .empty { font-size: var(--size-small); padding: 0 8px; }
-/* Starting again. The one thing up here that is meant to be pressed, so it is
-   the only thing up here that is filled in. */
-.chat .new-chat { display: flex; width: 100%; justify-content: flex-start; gap: 9px;
-  padding: 10px 12px; border-radius: 9px; font: 500 var(--size-body)/1 var(--sans);
-  background: var(--accent-soft); color: var(--accent); }
-.chat .new-chat:hover:enabled { background: var(--accent); color: var(--on-accent); }
+/* Starting again, a row like the conversations under it. */
+.chat .new-chat { display: flex; align-items: center; width: 100%; justify-content: flex-start; gap: 9px;
+  padding: 7px 10px; border-radius: 8px; font: 400 var(--size-body)/1.6 var(--sans);
+  background: none; color: var(--ink); }
+.chat .new-chat:hover:enabled { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
 /* A conversation being renamed, in its row's place. */
 .run-list input.naming { padding: 7px 11px; font-size: var(--size-body); border-radius: 8px; border-color: var(--accent); }
 .talking { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -897,6 +915,7 @@ pre.painted .keyword { color: var(--accent); }
   font: 400 var(--size-small)/1.5 var(--sans); color: var(--dim); }
 @media (max-width: 860px) {
   .chat { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .chat > .edge { display: none; }
   .chat .past { position: relative; overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); padding: 0; }
   /* A model's name is often longer than the line, so it drops under the trail
      rather than widening the page. */

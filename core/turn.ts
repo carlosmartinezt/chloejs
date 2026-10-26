@@ -911,9 +911,15 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
   return (
     `## Who you are talking to\n\n` +
     `You are talking with ${name} on ${source}, directly. Write to them as "you", never by name or in the third person.` +
-    (asYouGo ? " What you write before calling a tool is sent to them straight away, so write that to them too." : "")
+    (asYouGo ? " What you write before calling a tool is sent to them straight away, so write that to them too." : "") +
+    (onPage(source)
+      ? "\n\nYour reply is shown as markdown. Writing they will copy and use somewhere else, like a song, a poem, an email or a message to send, goes inside a fenced block marked `writing`, which shows as a card with a copy button. Anything you say about it goes outside the block."
+      : "")
   );
 }
+
+/** Whether a reply is read on the dashboard's own chat, which shows a `writing` fence as a card to copy. */
+const onPage = (source: string): boolean => source === "chat" || source === DASHBOARD;
 
 /**
  * The tools a turn of this agent has: its own, less any its
@@ -973,8 +979,11 @@ export function dashboardAddress(): string {
 export async function ownerPrompt(agent: Agent, purpose = agent.purpose): Promise<string> {
   const tools = toolsFor(agent, [], { fromOwner: true, mayChangeAgent: true, chat: true });
   const words = await pluginWords(agent, { tools, guest: false });
-  return systemPrompt({ ...agent, purpose }, { name: "your owner", source: "the dashboard", asYouGo: true }, await overviewsOf(tools), words);
+  return systemPrompt({ ...agent, purpose }, { name: "your owner", source: DASHBOARD, asYouGo: true }, await overviewsOf(tools), words);
 }
+
+/** Where the System Prompt page says the owner is writing from. */
+const DASHBOARD = "the dashboard";
 
 /** What the System Prompt page shows where the agent's purpose goes: it is on a page of its own. */
 export const PURPOSE_HERE = "<Purpose goes here>";

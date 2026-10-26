@@ -252,10 +252,12 @@ describe("what the server can do, from its list of routes", () => {
 
 describe("markdown, rendered", () => {
   let render: (text: string) => string;
+  let unmarked: (text: string) => string;
 
   // Node cannot import a .tsx file, so the renderer is built with the same
   // esbuild the page itself is built with, and the bundled module is loaded
-  // in memory. It includes its own copy of react, which is this repo's.
+  // in memory. React is left out of the bundle and pointed at this file's own,
+  // because a component with a hook, rendered by another copy, finds no React.
   before(async () => {
     const made = await build({
       entryPoints: [`${import.meta.dirname}/views/components/Markdown.tsx`],
@@ -263,12 +265,24 @@ describe("markdown, rendered", () => {
       write: false,
       format: "esm",
       jsx: "automatic",
+      external: ["react", "react/jsx-runtime"],
       logLevel: "silent",
     });
-    const module = (await import(
-      `data:text/javascript;base64,${Buffer.from(made.outputFiles[0].contents).toString("base64")}`
-    )) as { Markdown: (props: { text: string }) => ReactNode };
+    const code = made.outputFiles[0].text.replace(/from "(react(?:\/jsx-runtime)?)"/g, (_, name) => `from "${import.meta.resolve(name)}"`);
+    const module = (await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`)) as {
+      Markdown: (props: { text: string }) => ReactNode;
+      unmarked: (text: string) => string;
+    };
     render = (text) => renderToStaticMarkup(createElement(module.Markdown, { text }));
+    unmarked = module.unmarked;
+  });
+
+  test("a writing fence is a card of prose, copied without its marks", () => {
+    const html = render("Here it is.\n\n```writing\n**(Chorus)**\n\n*Read the signs* and go\n```\n");
+    ok(html.includes('class="writing"'), "a card");
+    ok(html.includes("<strong>(Chorus)</strong>"), "its marks rendered");
+    ok(!html.includes("<pre"), "not code");
+    strictEqual(unmarked("# Song\n**(Chorus)**\n*Read the signs* and [go](https://x.org)"), "Song\n(Chorus)\nRead the signs and go");
   });
 
   test("an indented # line is a paragraph, and the render comes to an end", () => {
