@@ -88,6 +88,13 @@ export interface Ask {
    * it is talking to them, so it writes to them as "you". Default: none.
    */
   talkingTo?: string;
+  /**
+   * The timezone of the person this reply is to, like "Europe/Madrid", so the
+   * model is told their date rather than the server's. A channel that knows
+   * where its writer is sets it; one that cannot tell leaves it out and the
+   * job's `timezone` decides, else UTC. Default: none.
+   */
+  timeZone?: string;
   /** Who this run belongs to, as an address like "telegram:12345". It is saved with the run. Default: none. */
   owner?: string;
   /**
@@ -298,7 +305,7 @@ export async function turn(options: Ask): Promise<Result> {
 }
 
 /** One reply, recorded as `runId`. `mine` is its place in `going`, when it is in a conversation with somebody. */
-async function answer({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, owner, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal, trial }: Ask, runId: string, mine?: Going): Promise<Result> {
+async function answer({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, timeZone, owner, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal, trial }: Ask, runId: string, mine?: Going): Promise<Result> {
   const using = model ?? modelFor(agent);
 
   const started = new Date().toISOString();
@@ -309,7 +316,7 @@ async function answer({ agent, prompt, asked, attachments, model, thread, source
   const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent, sendFile, guest, chat: Boolean(thread) });
   const overviews = await overviewsOf(tools);
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, await pluginWords(agent, { tools, guest: Boolean(guest), user })) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, await pluginWords(agent, { tools, guest: Boolean(guest), user }), todayIn(zoneFor(timeZone, agent, job))) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -903,23 +910,111 @@ async function runTool(
 }
 
 /**
- * The agent's own purpose talk about people in the third person, because
+ * One section of the words a reply starts with. Every contributor hands over
+ * whole sections, and each section's heading names who put it there, so where
+ * an instruction comes from is readable in the prompt itself and a new feature
+ * is a new section rather than a patch on another one's words.
+ */
+interface Section {
+  /** What the section is about, shown as its heading, like "Your skills". */
+  about: string;
+  /** Who put it there, shown in the heading, like "the runtime" or "the memory plugin". */
+  from: string;
+  /** The words of the instruction, with no heading of their own. */
+  text: string;
+}
+
+/** One section as it stands in the prompt: a heading naming what it covers and who put it there, then the words. */
+const said = ({ about, from, text }: Section): string => `## ${about} (from ${from})\n\n${text}`;
+
+/**
+ * The agent's own purpose talks about people in the third person, because
  * they describe them. This is what stops that carrying over into a
  * conversation with one of them.
  */
-function talkingWith({ name, source, asYouGo }: { name: string; source: string; asYouGo: boolean }): string {
-  return (
-    `## Who you are talking to\n\n` +
-    `You are talking with ${name} on ${source}, directly. Write to them as "you", never by name or in the third person.` +
-    (asYouGo ? " What you write before calling a tool is sent to them straight away, so write that to them too." : "") +
-    (onPage(source)
-      ? "\n\nYour reply is shown as markdown. Writing they will copy and use somewhere else, like a song, a poem, an email or a message to send, goes inside a fenced block marked `writing`, which shows as a card with a copy button. Anything you say about it goes outside the block."
-      : "")
-  );
+function talkingWith({ name, source, asYouGo }: { name: string; source: string; asYouGo: boolean }): Section {
+  return {
+    about: "Who you are talking to",
+    from: "the runtime",
+    text:
+      `You are talking with ${name} on ${source}, directly. Write to them as "you", never by name or in the third person.` +
+      (asYouGo ? " What you write before calling a tool is sent to them straight away, so write that to them too." : ""),
+  };
 }
 
-/** Whether a reply is read on the dashboard's own chat, which shows a `writing` fence as a card to copy. */
-const onPage = (source: string): boolean => source === "chat" || source === DASHBOARD;
+/**
+ * What a reply read on a page of the dashboard is shown as, so writing the
+ * person will copy and use somewhere else comes out as a card with a copy
+ * button. Its own section, so what a future page shows is added here as a new
+ * section rather than patched into another one's words.
+ */
+function howShown(source: string): Section | undefined {
+  // Whether a reply is read on the dashboard's own chat, which shows a `writing` fence as a card to copy.
+  const onPage = source === "chat" || source === DASHBOARD;
+  if (!onPage) return undefined;
+  return {
+    about: "How your reply is shown",
+    from: "the runtime",
+    text:
+      "Your reply is shown as markdown. Writing they will copy and use somewhere else, like a song, a poem, an email or a message to send, " +
+      "goes inside a fenced block marked `writing`, which shows as a card with a copy button. Anything you say about it goes outside the block.",
+  };
+}
+
+/** Its skills as one section: what each covers, for the model to open the one it needs. Undefined when it has none. */
+function skillsOf(agent: Agent): Section | undefined {
+  if (agent.skills.length === 0) return undefined;
+  return {
+    about: "Your skills",
+    from: "the runtime",
+    text:
+      "Read one's file with ownReadFile before doing the thing it covers. They are in your own folder, not your memory.\n\n" +
+      agent.skills.map((s) => `- **${s.name}** (${s.file}): ${s.description}`).join("\n"),
+  };
+}
+
+/** What each plugin adds to this reply's purpose, each section carrying the plugin's own name. */
+async function pluginWords(agent: Agent, reply: Reply): Promise<Section[]> {
+  const each = await Promise.all(
+    PLUGINS.map(async (one) =>
+      ((await one.words?.(agent, reply)) ?? []).map(({ about, text }) => ({ about, from: `the ${one.name} plugin`, text })),
+    ),
+  );
+  return each.flat();
+}
+
+/**
+ * A timezone name `Intl` can read, or undefined when there is not one. The
+ * writer's word for where they are is not trusted to be one: a browser or a
+ * token caller can send anything.
+ */
+function zoneOf(said: string | undefined): string | undefined {
+  if (!said) return undefined;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: said });
+    return said;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Which timezone's date the model is told: the writer's when the channel
+ * carried it, else the job's, else UTC.
+ */
+function zoneFor(timeZone: string | undefined, agent: Agent, job: string | undefined): string {
+  return zoneOf(timeZone) ?? zoneOf(agent.jobs.find((one) => one.id === job)?.timezone) ?? "UTC";
+}
+
+/** Today's date in `zone`, as YYYY-MM-DD, with daylight saving handled through `Intl`. */
+function todayIn(zone: string): string {
+  const date = { year: "numeric", month: "2-digit", day: "2-digit" } as const;
+  try {
+    return new Intl.DateTimeFormat("en-CA", { ...date, timeZone: zone }).format(new Date());
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", { ...date, timeZone: "UTC" }).format(new Date());
+  }
+}
 
 /**
  * The tools a turn of this agent has: its own, less any its
@@ -958,12 +1053,6 @@ export function alwaysOnTools(agent: Agent): { name: string; tool: ChloeTool; ow
     .map(([name, one]) => ({ name, tool: one, ownerOnly: Boolean(one.forOwner) }));
 }
 
-/** What each plugin adds to this reply's purpose, in the order of the list. */
-async function pluginWords(agent: Agent, reply: Reply): Promise<string[]> {
-  const words = await Promise.all(PLUGINS.map((one) => one.words?.(agent, reply) ?? ""));
-  return words.filter(Boolean);
-}
-
 /** The dashboard's address from other machines, `serve.url`, without a trailing slash. Empty when unset. */
 export function dashboardAddress(): string {
   return settings.serve.url.replace(/\/+$/, "");
@@ -974,12 +1063,13 @@ export function dashboardAddress(): string {
  * the dashboard: its purpose and everything the runtime and its plugins add.
  * A reply on another channel, to somebody else or with other tools differs only
  * in the parts those change. `purpose` stands in for the agent's own, to show
- * the rest without it.
+ * the rest without it, and `timeZone` is the owner's, so the date is the one
+ * their replies are told.
  */
-export async function ownerPrompt(agent: Agent, purpose = agent.purpose): Promise<string> {
+export async function ownerPrompt(agent: Agent, purpose = agent.purpose, timeZone?: string): Promise<string> {
   const tools = toolsFor(agent, [], { fromOwner: true, mayChangeAgent: true, chat: true });
   const words = await pluginWords(agent, { tools, guest: false });
-  return systemPrompt({ ...agent, purpose }, { name: "your owner", source: DASHBOARD, asYouGo: true }, await overviewsOf(tools), words);
+  return systemPrompt({ ...agent, purpose }, { name: "your owner", source: DASHBOARD, asYouGo: true }, await overviewsOf(tools), words, todayIn(zoneFor(timeZone, agent, undefined)));
 }
 
 /** Where the System Prompt page says the owner is writing from. */
@@ -988,20 +1078,25 @@ const DASHBOARD = "the dashboard";
 /** What the System Prompt page shows where the agent's purpose goes: it is on a page of its own. */
 export const PURPOSE_HERE = "<Purpose goes here>";
 
-function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, plugins: string[] = []): string {
+/**
+ * The words one reply starts with: the agent's name and its purpose, then
+ * sections that each say who put them there, then today's date in the writer's
+ * timezone. `plugins` are the plugin sections; the overviews of its tools stand
+ * between them and its skills, self-headed as each one is.
+ */
+function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, plugins: Section[], today: string): string {
   // Without its own name, the only name a model is shown is Chloe's, and it answers to that.
   const parts = [`Your name is ${agent.name ?? agent.id}.`, agent.purpose];
-  if (person) parts.push(talkingWith(person));
-  parts.push(...plugins);
-  if (overviews) parts.push(overviews);
-  if (agent.skills.length > 0) {
-    parts.push(
-      "## Your skills\n\n" +
-        "Read one's file with ownReadFile before doing the thing it covers. They are in your own folder, not your memory.\n\n" +
-        agent.skills.map((s) => `- **${s.name}** (${s.file}): ${s.description}`).join("\n"),
-    );
+  if (person) {
+    parts.push(said(talkingWith(person)));
+    const shown = howShown(person.source);
+    if (shown) parts.push(said(shown));
   }
-  parts.push(`Today is ${new Date().toISOString().slice(0, 10)}.`);
+  parts.push(...plugins.map(said));
+  if (overviews) parts.push(overviews);
+  const skills = skillsOf(agent);
+  if (skills) parts.push(said(skills));
+  parts.push(`Today is ${today}.`);
   return parts.join("\n\n");
 }
 

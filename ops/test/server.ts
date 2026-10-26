@@ -410,6 +410,16 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   is("the whole prompt starts with its name and ends with the date", [prompt.status, told.startsWith("Your name is "), /Today is \d{4}-\d{2}-\d{2}\.$/.test(told)], [200, true, true]);
   is("and says it is talking with its owner on the dashboard", told.includes("You are talking with your owner on the dashboard"), true);
   is("with a mark where its purpose goes, which has a page of its own", told.split("\n\n")[1], "<Purpose goes here>");
+  is("each section labelled with what it covers and who put it there", [told.includes("## Who you are talking to (from the runtime)"), told.includes("## How your reply is shown (from the runtime)")], [true, true]);
+  is("and it says its reply is shown as markdown, with writing as a card to copy", told.includes("Your reply is shown as markdown") && told.includes("fenced block marked `writing`"), true);
+
+  // The date is the writer's, not the server's.
+  const zone = new Intl.DateTimeFormat("en-CA", { timeZone: "Pacific/Kiritimati", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const theirDate = await fetch(`${at}/api/agents/test/prompt?timeZone=${encodeURIComponent("Pacific/Kiritimati")}`, { headers: { authorization: `Bearer ${secret}` } });
+  is("a writer's timezone makes it say their date", ((await theirDate.json()) as { text: string }).text.includes(`Today is ${zone}.`), true);
+  const serverDate = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const nonsense = await fetch(`${at}/api/agents/test/prompt?timeZone=${encodeURIComponent("Mars/Olympus")}`, { headers: { authorization: `Bearer ${secret}` } });
+  is("and one a browser made up falls back to the server's date", ((await nonsense.json()) as { text: string }).text.includes(`Today is ${serverDate}.`), true);
 
   server.close();
 }

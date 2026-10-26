@@ -290,10 +290,11 @@ export function webVisitors(at: At): void {
 export async function webTurn(at: At): Promise<void> {
   const { request, response, context } = at;
   const { agent, web, pass } = visitorOf(at);
-  const { text, images } = await context.body(
+  const { text, images, timeZone } = await context.body(
     request,
     z.object({
       text: z.string().trim().max(LONGEST, `is longer than ${LONGEST} characters`),
+      timeZone: z.string().optional(),
       images: z.array(Picture).max(PICTURES).default([]),
     }),
     6 << 20,
@@ -348,6 +349,7 @@ export async function webTurn(at: At): Promise<void> {
         thread,
         from: { id: pass.v, name: facts.name || "a visitor" },
         context: facts,
+        timeZone,
         text,
         private: true,
         model: web.model,

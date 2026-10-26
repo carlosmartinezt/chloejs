@@ -23,6 +23,18 @@ export interface Reply {
   user?: string;
 }
 
+/**
+ * One section of the words a plugin adds to a reply's purpose. The section's
+ * heading names what it is about and the plugin it came from, so a reader of
+ * the prompt can tell who put each instruction there.
+ */
+export interface WordsSection {
+  /** What the section is about, shown as its heading, like "Your note on them". */
+  about: string;
+  /** The words of the instruction, with no heading of their own. */
+  text: string;
+}
+
 /** One setting in a plugin's section of the Configuration page, shown the way the page's own are. */
 export interface ConfigField {
   /** The setting, as a path with dots, like "connections.brave.api_key". */
@@ -78,8 +90,8 @@ export interface Plugin {
    * `site/plugins.ts`, under the plugin's name.
    */
   configuration?: { title: string; about?: string; fields: ConfigField[] };
-  /** A section it adds to the purpose of every reply, or "" for none. */
-  words?(agent: Agent, reply: Reply): string | Promise<string>;
+  /** Sections it adds to the words every reply starts with, each a heading the model reads and the plugin's name beside it. Empty for none. */
+  words?(agent: Agent, reply: Reply): WordsSection[] | Promise<WordsSection[]>;
   /** Where else a new agent made on the page can run, beside this computer. */
   places?: Place[];
 }

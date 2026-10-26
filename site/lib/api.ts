@@ -60,6 +60,13 @@ export function frameUnder(base: string, handed: string): string {
   return base.replace(/\/api$/, "") + handed;
 }
 
+/**
+ * The browser's timezone, so a chat tells the model the writer's date rather
+ * than the server's. Empty when the browser will not say, and the runtime
+ * falls back to the job's timezone.
+ */
+const zone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+
 /** Signing in sets the cookie a browser uses, and hands back the same value for anything that is not one. */
 interface Session {
   ok: true;
@@ -157,7 +164,7 @@ export const api = {
   files: (agent: string) => call<Entry[]>(`/agents/${agent}/files`),
   /** `path` is the file the words are in, when they are in one and not written into the agent's definition. */
   purpose: (agent: string) => call<{ text: string; path?: string }>(`/agents/${agent}/purpose`),
-  prompt: (agent: string) => call<{ text: string; purpose: string }>(`/agents/${agent}/prompt`),
+  prompt: (agent: string) => call<{ text: string; purpose: string }>(`/agents/${agent}/prompt${zone ? `?timeZone=${encodeURIComponent(zone)}` : ""}`),
   agentSkills: (agent: string) => call<Skill[]>(`/agents/${agent}/skills`),
   agentTools: (agent: string) => call<AgentTool[]>(`/agents/${agent}/tools`),
   abilities: (agent: string) => call<AgentAbility[]>(`/agents/${agent}/abilities`),
@@ -190,9 +197,14 @@ export const api = {
   archiveThread: (thread: string, archived: boolean) =>
     call<{ thread: string; archived: string | null }>(`/threads/${encodeURIComponent(thread)}/archive`, { archived }),
   forget: (thread: string) => call<unknown>(`/threads/${encodeURIComponent(thread)}/forget`, {}),
-  /** Pictures go with this turn only: the runtime keeps the line saying they were attached, never the picture. */
+  /** Pictures go with this turn only: the runtime keeps the line saying they were attached, never the picture. The browser's timezone goes too, so the model is told the writer's date. */
   say: (agent: string, prompt: string, thread: string, images: Picture[] = []) =>
-    call<{ runId: string; text: string; cost: number; unpriced?: number; buttons?: { label: string; sends: string }[]; multiple?: boolean }>(`/agents/${agent}/chat`, images.length ? { prompt, thread, images } : { prompt, thread }),
+    call<{ runId: string; text: string; cost: number; unpriced?: number; buttons?: { label: string; sends: string }[]; multiple?: boolean }>(`/agents/${agent}/chat`, {
+      prompt,
+      thread,
+      ...(zone ? { timeZone: zone } : {}),
+      ...(images.length ? { images } : {}),
+    }),
 
   /** What .env sets, by name. A value goes in and never comes back out. */
   keys: () => call<Key[]>("/keys"),

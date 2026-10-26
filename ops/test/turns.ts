@@ -182,7 +182,9 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   const system = lastAsked.find((m) => m.role === "system")?.content ?? "";
   is("a turn is told its name first, which is its label or else its id", system.startsWith("Your name is test."), true);
   is("a turn on a channel is told who it is talking to, and to say you", system.includes('You are talking with Me on test, directly. Write to them as "you"'), true);
+  is("in a section headed with what it covers and who put it there", system.includes("## Who you are talking to (from the runtime)"), true);
   is("and not that its lines on the way are sent, when they are not", system.includes("sent to them straight away"), false);
+  is("and told today's date last", /Today is \d{4}-\d{2}-\d{2}\.$/.test(system.split("\n\n").slice(-1)[0]), true);
   answers.push("Hi.");
   await receive(brief, { channel: "test", chat: "s", thread: "test/guest", from: { id: "2", name: "Them" }, text: "hello", private: true }, { guests: true });
   await receive(brief, { channel: "test", chat: "s", thread: "test/guest", from: { id: "2", name: "Them" }, text: "/clear", private: true }, { guests: true });

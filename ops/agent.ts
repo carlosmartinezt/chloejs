@@ -201,7 +201,10 @@ let thread = `terminal:${name}:${new Date().toISOString()}`;
 let last: Result | undefined;
 
 async function ask(prompt: string): Promise<void> {
-  last = await api<Result>(`/api/agents/${encodeURIComponent(name)}/chat`, { prompt, thread });
+  // The terminal writer's timezone, so the model says their date. The process
+  // knows it from the system, and a machine that cannot say leaves it out.
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  last = await api<Result>(`/api/agents/${encodeURIComponent(name)}/chat`, { prompt, thread, ...(timeZone ? { timeZone } : {}) });
   show(last);
 }
 

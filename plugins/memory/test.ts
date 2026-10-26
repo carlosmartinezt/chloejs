@@ -53,7 +53,7 @@ import { agentFor, answers, codeJob, lastAsked, row } from "#chloe/ops/test/shar
   is("the note is kept as that person's, on that channel", existsSync(userNotesFile(folder, "test:42")), true);
   answers.push("Sure.");
   await from("42", "what do I like?");
-  is("the next turn starts out with what it noted", lastAsked[0].content.includes("## Your note on them\n\nLikes short answers."), true);
+  is("the next turn starts out with what it noted, in a section naming where it came from", lastAsked[0].content.includes("## Your note on them (from the memory plugin)\n\nLikes short answers."), true);
   answers.push("No notes.");
   await from("43", "and me?");
   is("which nobody else is shown", lastAsked[0].content.includes("Likes short answers."), false);

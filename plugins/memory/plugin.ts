@@ -49,7 +49,11 @@ export const memory: Plugin = {
     },
   ],
   async words(agent, reply) {
-    return [memoryLinks(agent, reply), await noteOn(agent, reply)].filter(Boolean).join("\n\n");
+    const sections = [
+      { about: "Links to your memory", text: memoryLinks(agent, reply) },
+      { about: "Your note on them", text: await noteOn(agent, reply) },
+    ];
+    return sections.filter((one) => one.text);
   },
 };
 
@@ -58,7 +62,6 @@ function memoryLinks(agent: Agent, { tools, guest }: Reply): string {
   if (guest || !tools.memoryReadFile) return "";
   const at = `${dashboardAddress()}/agents/${agent.id}/memory`;
   return (
-    "## Links to your memory\n\n" +
     `A file in your memory opens on the dashboard at ${at}/<its path in your memory>. Only your owner can open it.` +
     (dashboardAddress() ? "" : " The dashboard's address is not set (serve.url in chloe.config.ts), so give this path and say it goes after that address.")
   );
@@ -66,6 +69,5 @@ function memoryLinks(agent: Agent, { tools, guest }: Reply): string {
 
 /** Its note on the person this reply is to, in the purpose rather than the message, so it is not kept in the conversation again each turn. */
 async function noteOn(agent: Agent, { tools, user }: Reply): Promise<string> {
-  const note = user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
-  return note ? `## Your note on them\n\n${note}` : "";
+  return user && tools.memoryWriteUserNotes ? await userNotes(agent.memory.folder, user) : "";
 }

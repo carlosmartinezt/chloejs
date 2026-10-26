@@ -38,6 +38,9 @@ export function together(picked) {
 export function chloeChat({ url = "", agent, pass: ask }) {
   if (typeof ask !== "function") throw new Error("chloeChat needs pass: a function that asks your site's own server for one.");
   const base = `${url.replace(/\/+$/, "")}/api/agents/${encodeURIComponent(agent)}/web`;
+  // The visitor's timezone, so the model says their date, not the server's.
+  // Read once: a browser that cannot say one leaves it out.
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   /** @type {{ pass: string, expires: number, greeting?: string, pictures?: boolean } | null} */
   let held = null;
 
@@ -97,7 +100,7 @@ export function chloeChat({ url = "", agent, pass: ask }) {
       const answer = await call("turn", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text, ...(images?.length ? { images } : {}) }),
+        body: JSON.stringify({ text, ...(images?.length ? { images } : {}), ...(timeZone ? { timeZone } : {}) }),
         signal,
       });
       let draft = "";

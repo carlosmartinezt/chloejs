@@ -76,8 +76,8 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
         const [event, data] = block.split("\n");
         return { event: event.slice(7), data: JSON.parse(data.slice(6)) as Record<string, unknown> };
       });
-  const turn = async (pass: string, text: string, headers: Record<string, string> = {}) => {
-    const answer = await post("/api/agents/test/web/turn", { text }, { "x-chloe-pass": pass, ...headers });
+  const turn = async (pass: string, text: string, headers: Record<string, string> = {}, timeZone?: string) => {
+    const answer = await post("/api/agents/test/web/turn", timeZone ? { text, timeZone } : { text }, { "x-chloe-pass": pass, ...headers });
     return { status: answer.status, events: answer.headers.get("content-type")?.startsWith("text/event-stream") ? events(await answer.text()) : [], body: answer.ok ? null : await answer.json() };
   };
 
@@ -235,6 +235,12 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   answers.push("Hello Ada.");
   is("a pass with facts is used like any other", (await turn(vouched.pass, "hi")).status, 200);
   is("and the model is told them, as plain words", lastAsked.some((one) => one.content.includes("name: Ada script") && one.content.includes("plan: pro")), true);
+
+  // A visitor's timezone goes with their message, so the model says their date.
+  answers.push("Hi.");
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Pacific/Kiritimati", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  await turn(vouched.pass, "what day is it?", {}, "Pacific/Kiritimati");
+  is("the model is told their date, not the server's", lastAsked.find((one) => one.role === "system")?.content.includes(`Today is ${date}.`), true);
 
   // A visitor's turn may keep a note on them, and the runtime says who they are.
   let noted = "";

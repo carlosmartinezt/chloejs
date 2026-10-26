@@ -562,9 +562,10 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents/:id/prompt",
-    does: `Everything it is told before a conversation starts, as a reply to its owner on the dashboard begins: what the runtime adds, with ${PURPOSE_HERE} where its purpose goes (GET /api/agents/:id/purpose is that).`,
+    does: `Everything it is told before a conversation starts, as a reply to its owner on the dashboard begins: what the runtime adds, each section saying who it is from, with ${PURPOSE_HERE} where its purpose goes (GET /api/agents/:id/purpose is that). Takes ?timeZone=, the owner's, so the date is the one their replies are told.`,
     token: true,
-    handle: async ({ response, context, params }) => json(response, { text: await ownerPrompt(context.agent(params.id), PURPOSE_HERE), purpose: PURPOSE_HERE }),
+    handle: async ({ response, context, params, url }) =>
+      json(response, { text: await ownerPrompt(context.agent(params.id), PURPOSE_HERE, url.searchParams.get("timeZone") ?? undefined), purpose: PURPOSE_HERE }),
   },
   {
     method: "GET",
@@ -862,18 +863,19 @@ const routes: Route[] = [
     method: "POST",
     path: "/api/agents/:id/chat",
     does: "One turn with the agent. Send the same thread again and it remembers what was said. Pictures are seen in this turn only and never kept.",
-    takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}]}',
+    takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "timeZone": "optional, like Europe/Madrid, so it says the writer\'s date", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}]}',
     token: true,
     needsApiChannel: true,
     member: "chat",
     handle: async ({ request, response, context, params, who }) => {
       const agent = context.agent(params.id);
-      const { prompt, thread, model, images } = await body(
+      const { prompt, thread, model, images, timeZone } = await body(
         request,
         z.object({
           prompt: z.string().trim(),
           thread: z.string().optional(),
           model: z.string().optional(),
+          timeZone: z.string().optional(),
           images: z.array(Picture).max(PICTURES).default([]),
         }),
         8 << 20,
@@ -912,6 +914,7 @@ const routes: Route[] = [
         // The page's chat says who wrote, the way a channel's message does, so
         // the agent and whoever reads the run can see it.
         context: channel === "chat" ? (member ? { address: member.email, role: "member" } : { role: "owner" }) : undefined,
+        timeZone,
         text: prompt,
         private: true,
         model: member ? undefined : model,

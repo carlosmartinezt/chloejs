@@ -66,7 +66,7 @@ export const webChannel: Plugin = {
       method: "POST",
       path: `/api/agents/:id/web/turn`,
       does: `One turn for the visitor whose pass is in ${PASS_HEADER}, answered as a stream of events: text as it is written, a step as each tool starts, then done with the answer whole.`,
-      takes: '{"text": "...", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}]}',
+      takes: '{"text": "...", "timeZone": "optional, like Europe/Madrid, so it says the visitor\'s date", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}]}',
       open: true,
       origins: webOrigins,
       headers: [PASS_HEADER],

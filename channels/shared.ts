@@ -105,6 +105,13 @@ export interface Incoming {
    */
   context?: Record<string, string>;
   /**
+   * The writer's timezone, like "Europe/Madrid", when the channel knows it, so
+   * the model is told their date rather than the server's. A channel on a
+   * browser page knows; a platform that does not say where its writers are
+   * leaves it out. Default: none.
+   */
+  timeZone?: string;
+  /**
    * Fetches the files on the message. It is only called when the model is
    * going to read them.
    *
@@ -865,6 +872,7 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
       calling: calling && ((tool) => inOrder(() => calling(tool))),
       writing: writing && ((delta) => inOrder(() => writing(delta))),
       talkingTo: message.from.name,
+      timeZone: message.timeZone,
       model: message.model ?? (message.thread ? chosen(agent.id, `chat:${message.thread}`) : undefined),
       source: message.channel,
       owner: `${message.channel}:${message.from.id}`,

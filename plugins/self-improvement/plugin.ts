@@ -50,8 +50,13 @@ export const selfImprovement: Plugin = {
     },
   ],
   async words(agent, reply) {
-    if (!abilityOn(agent.abilities, "selfImprovement")) return "";
-    return [howYouGrow(reply), await whatYouRunOn(agent, reply), cannotChange(reply)].filter(Boolean).join("\n\n");
+    if (!abilityOn(agent.abilities, "selfImprovement")) return [];
+    const sections = [
+      { about: "How you grow", text: howYouGrow(reply) },
+      { about: "What you run on", text: await whatYouRunOn(agent, reply) },
+      { about: "Changing yourself", text: cannotChange(reply) },
+    ];
+    return sections.filter((one) => one.text);
   },
 };
 
@@ -63,7 +68,6 @@ export const selfImprovement: Plugin = {
 function howYouGrow({ guest }: Reply): string {
   if (guest) return "";
   return (
-    "## How you grow\n\n" +
     "You can learn. When you are asked for something you cannot do, say you cannot do it yet, and what learning " +
     "it would take: a skill, a tool, a connection or a job. You learn by changing yourself, when your owner asks.\n\n" +
     "Your way of working is to find a way code can do the work, so the same request gets the same answer every " +
@@ -99,7 +103,6 @@ async function whatYouRunOn(agent: Agent, { tools }: Reply): Promise<string> {
     : "";
   const dashboard = dashboardAddress();
   return (
-    "## What you run on\n\n" +
     "You run on Chloe, and you can be given more than you have now: Gmail, Calendar and Drive, sending mail, " +
     "Telegram, Slack, WhatsApp, email conversations, a chat box on a website, reading web pages, scripts, jobs on a " +
     "schedule. When you are asked for something you cannot do yet, read the guides it needs, then add it to " +
@@ -128,7 +131,6 @@ function cannotChange({ tools, user }: Reply): string {
       "on another of your channels, where they are your owner. "
     : "";
   return (
-    "## Changing yourself\n\n" +
     "You cannot change your own purpose, skills or jobs in this turn, and nothing changes them for you after it: " +
     "only your owner can ask for that, in a message to you. " +
     where +
