@@ -18,7 +18,10 @@ for (const part of ["steps", "settings", "connections", "routes", "loading"]) aw
 // Then whatever the repo that installed chloe tests about its own jobs. A
 // file named `<job>.test.ts` anywhere in an agent's folder runs its cases as
 // it loads, so there is no list of them to keep and nothing to register.
-for (const agent of (await (await import("@chloejs/core")).loadAll()).values()) {
+// An agent in a machine of its own is tested here too: its tests are code on this computer.
+const loaded = await (await import("@chloejs/core")).loadAll();
+const { agentsInMachines } = await import("#chloe/load/load");
+for (const agent of [...loaded.values(), ...agentsInMachines()]) {
   for (const found of await readdir(agent.folder, { recursive: true, withFileTypes: true })) {
     if (!found.isFile() || !found.name.endsWith(".test.ts")) continue;
     await import(pathToFileURL(join(found.parentPath, found.name)).href);
@@ -33,7 +36,7 @@ for (const part of [
   "services",
   "server",
   "memory-routes",
-  "elsewhere",
+  "machines",
   "people",
   "setup",
   "plugins",

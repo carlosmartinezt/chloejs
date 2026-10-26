@@ -11,15 +11,7 @@ import { about, is } from "#chloe/ops/check";
   is("what the config says is what it says", readSettings(base).model.preferredRoute, ["gateway"]);
   is("and one key declared leaves its neighbours alone", readSettings(base).model.judgeModel, "a");
   is("a setting nobody set is empty rather than missing", readSettings({}).node, "");
-  is("the port listens on this machine only unless the config says", readSettings({}).serve, { host: "127.0.0.1", port: 3067, url: "", ownerKey: "", elsewhere: {}, stopAfter: 0 });
-  is("an agent elsewhere is filled in like any entry", readSettings({ serve: { elsewhere: { far: { address: "http://127.0.0.1:3167" } } } }).serve.elsewhere.far, { address: "http://127.0.0.1:3167", key: "", start: [] });
-  let misspeltElsewhere = "";
-  try {
-    readSettings({ serve: { elsewhere: { far: { adress: "http://127.0.0.1:3167" } } } } as never);
-  } catch (error) {
-    misspeltElsewhere = error instanceof Error ? error.message : "";
-  }
-  is("and a misspelt key in one is refused, naming it", misspeltElsewhere.includes("serve.elsewhere.far.adress is not a setting"), true);
+  is("the port listens on this machine only unless the config says", readSettings({}).serve, { host: "127.0.0.1", port: 3067, url: "", ownerKey: "", stopAfter: 0 });
   let portAsText = "";
   try {
     readSettings({ serve: { port: "8080" } } as never);

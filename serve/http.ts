@@ -72,7 +72,7 @@ import { PLUGINS } from "#chloe/plugins/index";
 import { providers } from "#chloe/services/emailService";
 import { servePage } from "./page.ts";
 import { makeAgent, places } from "./newAgent.ts";
-import { elsewhere, framedElsewhere, listsElsewhere, passOn, runningElsewhere, summariesElsewhere, whereElse } from "./elsewhere.ts";
+import { allInMachines, inMachine, framedInMachine, listsInMachines, passOn, runningInMachines, summariesInMachines, whichMachine } from "./machines.ts";
 import { receive } from "#chloe/channels/shared";
 import { answer, checkArgs, parkedRuns, type ParkedRun } from "#chloe/core/steps";
 import { canCarryOn, stopReply, stopped } from "#chloe/core/turn";
@@ -507,13 +507,13 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents",
-    does: "Every agent that is loaded, with its configuration. The owner also gets those that run elsewhere (serve.elsewhere), as their own copy says, with that copy's address as elsewhere.",
+    does: "Every agent that is loaded, with its configuration. The owner also gets those that run in a machine of their own (workspace.sandbox in their agent.ts), as their machine says, with its address as address.",
     token: true,
     member: "filtered",
     handle: async ({ request, response, context, who }) =>
       json(response, [
         ...[...context.agents().values()].filter((one) => sees(who, one.id)).map(summary),
-        ...(await summariesElsewhere(request, who)),
+        ...(await summariesInMachines(request, who)),
       ]),
   },
   {
@@ -525,12 +525,12 @@ const routes: Route[] = [
   {
     method: "POST",
     path: "/api/agents",
-    does: "Make an agent: its files and its line in chloe.config.ts, here, or in a machine of its own that this copy makes and shows through serve.elsewhere. No model is asked. Answers once it is listed and its machine answers.",
+    does: "Make an agent: its files and its line in chloe.config.ts, to run here, or in a machine of its own that this copy makes and shows. No model is asked. Answers once it is listed and its machine answers.",
     takes: '{"id": "inbox", "name": "Inbox", "where": "here or a name from GET /api/places", "model": "optional, this copy\'s default model when not given"}',
     handle: async ({ request, response, context }) => {
       const given = await body(request, z.object({ id: z.string().trim(), name: z.string().optional(), model: z.string().optional(), where: z.string() }));
       try {
-        await makeAgent(given, [...context.agents().keys(), ...Object.keys(settings.serve.elsewhere)]);
+        await makeAgent(given, [...context.agents().keys(), ...allInMachines().map((one) => one.agent)]);
       } catch (error) {
         if (error instanceof NotFound || error instanceof BadRequest) throw error;
         throw new BadRequest((error as Error).message);
@@ -765,7 +765,7 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/runs",
-    does: "Every agent's runs, newest first. Takes ?agent= and ?limit=. Somebody invited gets only their own. The owner also gets the runs of agents that run elsewhere.",
+    does: "Every agent's runs, newest first. Takes ?agent= and ?limit=. Somebody invited gets only their own. The owner also gets the runs of agents that run in a machine of their own.",
     token: true,
     member: "filtered",
     handle: async ({ request, response, url, who }) => {
@@ -787,8 +787,8 @@ const routes: Route[] = [
           ? db.prepare(`select ${RUN_COLUMNS} from runs where agent = ? order by started desc limit ?`).all(agent, limit)
           : db.prepare(`select ${RUN_COLUMNS} from runs order by started desc limit ?`).all(limit)
       ) as { id: string; agent: string; started: string }[];
-      if (agent && !elsewhere(agent)) return json(response, here);
-      json(response, newestFirst([...here, ...(await listsElsewhere<{ id: string; agent: string; started: string }>(`/api/runs?limit=${limit}`, request, who, agent ?? undefined))]).slice(0, limit));
+      if (agent && !inMachine(agent)) return json(response, here);
+      json(response, newestFirst([...here, ...(await listsInMachines<{ id: string; agent: string; started: string }>(`/api/runs?limit=${limit}`, request, who, agent ?? undefined))]).slice(0, limit));
     },
   },
   {
@@ -839,17 +839,17 @@ const routes: Route[] = [
     handle: async ({ request, response, who }) => {
       const here = parkedRuns().filter((one) => may(who, one.agent, "read"));
       const seen = new Set(here.map((one) => one.id));
-      json(response, [...here, ...(await listsElsewhere<ParkedRun>("/api/parked", request, who)).filter((one) => !seen.has(one.id))]);
+      json(response, [...here, ...(await listsInMachines<ParkedRun>("/api/parked", request, who)).filter((one) => !seen.has(one.id))]);
     },
   },
   {
     method: "GET",
     path: "/api/health",
-    does: "Which agents are loaded and which jobs are running right now, those that run elsewhere included for the owner.",
+    does: "Which agents are loaded and which jobs are running right now, those in machines of their own included for the owner.",
     token: true,
     member: "filtered",
     handle: async ({ request, response, context, who }) => {
-      const there = await runningElsewhere(request, who);
+      const there = await runningInMachines(request, who);
       json(response, {
         ok: true,
         agents: [...[...context.agents().keys()].filter((one) => sees(who, one)), ...there.agents],
@@ -1320,8 +1320,8 @@ const routes: Route[] = [
     does: "A pass to show that memory's files in a frame, for ten minutes. See pass.ts.",
     member: "memory",
     handle: ({ request, response, context, params }) => {
-      // An agent that runs elsewhere has its frame served from here too, so the pass is this copy's.
-      const pass = makePass(elsewhere(params.id)?.agent ?? context.agent(params.id).id, from(request));
+      // An agent in a machine has its frame served from here too, so the pass is this copy's.
+      const pass = makePass(inMachine(params.id)?.agent ?? context.agent(params.id).id, from(request));
       json(response, { pass, at: `/memory/${encodeURIComponent(pass)}` });
     },
   },
@@ -1611,13 +1611,13 @@ async function framed(request: IncomingMessage, response: ServerResponse, url: U
     void response.writeHead(status, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" }).end(text);
   if (!whose) return refuse(403, "This pass has run out. Open the file again.");
   const agent = context.agents().get(whose);
-  const there = agent ? undefined : elsewhere(whose);
+  const there = agent ? undefined : inMachine(whose);
   if (!agent && !there) return refuse(404, "Not here.");
 
   const path = rest.map(decodeURIComponent).join("/");
   const found = agent
     ? await memoryRaw(agent, path, from(request), `/memory/${raw}`)
-    : await framedElsewhere(there!, path, request, `/memory/${raw}`);
+    : await framedInMachine(there!, path, request, `/memory/${raw}`);
   if (!found) return refuse(404, "Not here.");
 
   const here = `${overHttps(request) ? "https" : "http"}://${request.headers.host ?? "localhost"}`;
@@ -1664,7 +1664,7 @@ async function api(
   // An agent that runs in another copy of chloe: that copy answers. A token's
   // call is checked here as far as this copy can (the route, and the one agent
   // the token is for), passed on as a token's, and that copy checks the rest.
-  const there = await whereElse(path, url);
+  const there = await whichMachine(path, url);
   if (there) {
     const who = caller(request);
     if (!who) return json(response, { error: "Sign in first." }, 401);

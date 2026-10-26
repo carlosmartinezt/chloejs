@@ -11,7 +11,7 @@ import type { Tools } from "#chloe/model/tool";
 import type { Route } from "#chloe/serve/http";
 import type { EmailProvider } from "#chloe/services/emailService";
 import type { Ability } from "./abilities.ts";
-import type { Agent } from "./load.ts";
+import type { Agent, DefinedAgent } from "./load.ts";
 
 /** One reply, as a plugin's words see it. */
 export interface Reply {
@@ -94,9 +94,37 @@ export interface Plugin {
   words?(agent: Agent, reply: Reply): WordsSection[] | Promise<WordsSection[]>;
   /** Where else a new agent made on the page can run, beside this computer. */
   places?: Place[];
+  /**
+   * Runs the agents whose definition says they run in a machine of their own,
+   * in place of this copy running them. This copy shows them on its page.
+   */
+  machines?: Machines;
 }
 
-/** Somewhere a new agent can run: a machine of its own that this copy makes, and shows through `serve.elsewhere`. */
+/** How this copy reaches an agent's machine once it is ready. */
+export interface MachineAddress {
+  /** Its page and API, like "http://127.0.0.1:3167". */
+  address: string;
+  /** The key the machine takes as its owner. */
+  key: string;
+  /** The command that starts it when it has stopped. */
+  start: string[];
+}
+
+/** Agents that run in machines of their own, which a plugin makes and keeps in step with their definitions. */
+export interface Machines {
+  /** Whether the agent runs in one of these machines, and not in this copy. */
+  holds(agent: DefinedAgent): boolean;
+  /**
+   * Makes the agent's machine, or makes it over when its definition has
+   * changed, starts it, and waits until it lists the agent. Does nothing more
+   * when it is already as the definition says. Throws, in words, when it
+   * cannot.
+   */
+  ready(agent: DefinedAgent): Promise<MachineAddress>;
+}
+
+/** Somewhere a new agent made on the page can run: a machine of its own, which its agent.ts names. */
 export interface Place {
   /** What the page sends to pick it, like `"container"`. */
   name: string;
@@ -106,10 +134,6 @@ export interface Place {
   about: string;
   /** Why it cannot be used here, in words, or "" when it can. */
   missing(): Promise<string>;
-  /**
-   * Makes the machine with the agent's files in it, and starts it. Hands back
-   * how this copy reaches it, which becomes its `serve.elsewhere` entry. Leaves
-   * nothing behind when it fails.
-   */
-  make(agent: { id: string; files: Record<string, string>; model: string }): Promise<{ address: string; key: string; start: string[] }>;
+  /** What the new agent's agent.ts says as its `workspace`, like `{ sandbox: { type: "podman" } }`. */
+  workspace(): Promise<string>;
 }

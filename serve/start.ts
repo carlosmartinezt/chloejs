@@ -15,14 +15,14 @@ import { banner } from "#chloe/core/banner";
 import { bold, dim } from "#chloe/core/style";
 import { PROVIDERS, settings, unclaimed, type Route } from "#chloe/core/settings";
 import { closeCutOff, going, trim, waiting } from "#chloe/core/db";
-import { checksDone, CONFIG, loadAll, type Agent, type Config, type Running } from "#chloe/load/load";
+import { agentsInMachines, checksDone, CONFIG, loadAll, type Agent, type Config, type Running } from "#chloe/load/load";
 import { sdkModel } from "#chloe/model/key";
 import { neededBy } from "#chloe/model/tool";
 import { run } from "#chloe/services/runService";
 import { learnModels, modelRoute, runnable } from "#chloe/model/model";
 import { certificate } from "#chloe/serve/certificate";
 import { claimPort, ownAddress, quietFor, remoteAddress, serve as listen } from "#chloe/serve/http";
-import { keepOnTime } from "#chloe/serve/elsewhere";
+import { keepMachines, keepOnTime } from "#chloe/serve/machines";
 import { dueWithin } from "#chloe/timer/cron";
 import { startClock } from "#chloe/core/clock";
 import { hasPassword, makeLink } from "#chloe/serve/login";
@@ -59,6 +59,8 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
   // First, while nothing has started: a copy that cannot have the port is a
   // second one, and must not touch the first one's runs on its way out.
   const heldPort = await claimPort(options.remote ? "0.0.0.0" : settings.serve.host, settings.serve.port);
+  // Only the copy that holds the port makes machines.
+  keepMachines(agentsInMachines());
   const remote = options.remote ? certificate() : undefined;
   // What each route can run, and what a call on a provider's own key costs.
   // Not waited for here: a call on a provider's own key that finishes first
@@ -73,7 +75,7 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
 
   /** An entry under `agents` in settings that no agent claims is usually one that was renamed. */
   function sayUnclaimed(): void {
-    for (const name of unclaimed([...agents.keys()])) {
+    for (const name of unclaimed([...agents.keys(), ...agentsInMachines().map((one) => one.id)])) {
       console.error(`settings: "agents" has an entry for ${name}, and no agent is called that. If it was renamed, rename the entry too.`);
     }
   }
@@ -175,6 +177,7 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
     const lines = process.stdout.isTTY ? [banner(["is running in", dim(ROOT)])] : ["", bold("Chloe is running."), ""];
 
     lines.push(row("Agents", [...agents.keys()].join(", ") || dim("none yet. Write one in agents/, and list it in chloe.config.ts")));
+    if (agentsInMachines().length) lines.push(row("In machines", agentsInMachines().map((one) => one.id).join(", ")));
 
     // With no password, the link is the way in, so it is printed where whoever
     // started this will look for it.
@@ -284,6 +287,7 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
           // A self write being checked may put a file back: read what it leaves.
           await checksDone();
           agents = await loadAll(given);
+          keepMachines(agentsInMachines());
           // A stop that came while the files were read must not start the channels again.
           if (stopping) return;
           // What each route can run, for the list somebody picks from. Asked here
@@ -293,7 +297,7 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
           watchFolders();
           startChannels(changedChannels);
           changedChannels.clear();
-          console.log(`reloaded: ${[...agents.keys()].join(", ")}`);
+          console.log(`reloaded: ${[...agents.keys(), ...agentsInMachines().map((one) => `${one.id} (in its machine)`)].join(", ")}`);
         } catch (error) {
           console.error(
             "reload failed, keeping the agents that were already loaded:",
@@ -350,6 +354,8 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
         wanted.set(dirname(file), new Set([...(names ?? []), basename(file)]));
       }
     }
+    // An agent in a machine runs there, from its folder lent to it; here a change makes its machine over when it has to.
+    for (const agent of agentsInMachines()) for (const folder of foldersIn(agent.folder, "")) wanted.set(folder, "all");
     // An agent kept in the project's own folder still reloads only for the settings there.
     if (wanted.get(ROOT) === "all") wanted.set(ROOT, new Set(SETTINGS));
     for (const [folder, watcher] of watching) {

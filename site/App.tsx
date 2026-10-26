@@ -480,8 +480,8 @@ function Agent({
         <dd>{agent.identity}</dd>
         <dt>runs in</dt>
         <dd>
-          {agent.machine ? `a ${agent.machine} of its own` : agent.elsewhere ? "another copy of chloe" : "this computer"}
-          {agent.elsewhere && <span className="dim">, at {agent.elsewhere}</span>}
+          {agent.machine ? `a ${agent.machine} of its own` : agent.address ? "a machine of its own" : "this computer"}
+          {agent.address && <span className="dim">, at {agent.address}</span>}
         </dd>
         <dt>model</dt>
         <dd>{agent.model}</dd>

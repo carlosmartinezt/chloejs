@@ -8,8 +8,8 @@ export interface AgentSummary {
   identity: string;
   /** What the copy it runs in is, when that copy is a machine of its own. */
   machine?: "container" | "virtual machine";
-  /** The address of the other copy it runs in, when it is not this one. */
-  elsewhere?: string;
+  /** The address of the machine it runs in, when it runs in one of its own. */
+  address?: string;
   /** What its runs go to now: what its definition names. */
   model: string;
   /** What its definition names. */

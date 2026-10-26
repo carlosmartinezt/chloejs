@@ -6,7 +6,7 @@ import { statSync } from "node:fs";
 
 import { settings } from "#chloe/core/settings";
 import type { Plugin } from "#chloe/load/plugin";
-import { cannotMake, makeMachine } from "./make.ts";
+import { cannotMake, readyMachine, runner, type Workspace } from "./make.ts";
 import { shellRun, workspaceFolder } from "./tools.ts";
 
 declare module "#chloe/load/abilities" {
@@ -23,6 +23,24 @@ declare module "#chloe/load/abilities" {
      * as from outside, so two commands in one reply are fine.
      */
     shell?: boolean;
+  }
+}
+
+declare module "#chloe/load/load" {
+  interface AgentConfig {
+    /**
+     * Where the agent works. With `sandbox`, in a machine of its own, which
+     * this copy makes and keeps as its definition says, and shows on its
+     * page:
+     *
+     * ```ts
+     * workspace: { sandbox: { type: "podman", image: "./machine/Dockerfile" } }
+     * ```
+     *
+     * Its folder is lent to the machine, so an edit here is live there.
+     * Default: none, and the agent runs in this copy. See docs/machines.md.
+     */
+    workspace?: Workspace;
   }
 }
 
@@ -58,17 +76,20 @@ declare module "#chloe/core/settings" {
      */
     hosts: string[];
     /**
-     * The image a machine made from the page starts from, with podman or
-     * docker. Default: "chloe-machine", the base image built from the
-     * machine/ folder of the repo. An image of your own on top of it adds the
-     * programs your agents need (see "Adding a tool" in docs/machines.md).
+     * The image a machine starts from when its agent's sandbox names none,
+     * and the base every agent's own Dockerfile is built on. Default:
+     * "chloe-machine", the base image, built from the machine/ folder of the
+     * package the first time a machine needs it. An image of your own on top
+     * of it adds the programs your agents need (see "Adding a tool" in
+     * docs/machines.md).
      */
     image: string;
     /**
-     * Names in this copy's .env handed to each machine it makes, into that
+     * Names in this copy's .env handed to every machine it makes, into that
      * machine's .env under the same name: a program's token, like
-     * "CLAUDE_CODE_OAUTH_TOKEN". The model's own keys are handed over
-     * without being named here. Default: [] (none).
+     * "CLAUDE_CODE_OAUTH_TOKEN". The settings' own secrets are handed over
+     * without being named here, and `keys` in an agent's sandbox names its
+     * own. Default: [] (none).
      */
     keys: string[];
   }
@@ -97,11 +118,16 @@ export const machine: Plugin = {
     {
       name: "container",
       label: "A container",
-      about: "A machine of its own on this computer, with podman or docker: a shell, and its own disk to clone and build on. Sleeps when idle.",
+      about: "A machine of its own on this computer, with podman or docker: a shell, and its own disk to clone and build on.",
       missing: cannotMake,
-      make: makeMachine,
+      workspace: async () => `{ sandbox: { type: ${JSON.stringify(await runner())} } }`,
     },
   ],
+  machines: {
+    // The machine's own copy runs the agent it was made for.
+    holds: (agent) => Boolean(agent.workspace?.sandbox) && !settings.machine.own,
+    ready: readyMachine,
+  },
   abilities: [
     {
       name: "shell",

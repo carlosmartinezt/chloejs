@@ -1,4 +1,4 @@
-// An agent that runs in another copy of chloe, shown on this copy's page: what
+// An agent that runs in a machine of its own, shown on this copy's page: what
 // is passed on, as whom, and what the lists add. The other copy is a stand-in
 // that answers the few routes asked of it and writes down what it was sent.
 
@@ -7,7 +7,7 @@ import { about, is } from "#chloe/ops/check";
 import { agentFor, codeJob } from "./shared.ts";
 
 {
-  about("an agent that runs elsewhere");
+  about("an agent that runs in a machine of its own");
 
   const { serve } = await import("#chloe/serve/http");
   const { makeToken, forgetTokens } = await import("#chloe/serve/tokens");
@@ -61,7 +61,8 @@ import { agentFor, codeJob } from "./shared.ts";
   const otherAt = `http://127.0.0.1:${(other.address() as { port: number }).port}`;
 
   const before = settings.serve;
-  settings.serve = { ...before, elsewhere: { far: { address: otherAt, key: KEY, start: [] } } };
+  const { showMachine } = await import("#chloe/serve/machines");
+  showMachine("far", { address: otherAt, key: KEY, start: [] });
 
   const server = serve({
     host: "127.0.0.1",
@@ -78,11 +79,11 @@ import { agentFor, codeJob } from "./shared.ts";
   const as = { cookie: `${cookieName()}=${token}` };
   const last = () => seen.at(-1)!;
 
-  const listed = (await (await fetch(`${at}/api/agents`, { headers: as })).json()) as { id: string; name?: string; elsewhere?: string }[];
-  is("the owner's list has this copy's agents and the one elsewhere", listed.map((one) => one.id), ["test", "far"]);
-  is("the one elsewhere as its own copy describes it", listed[1].name, "Far");
-  is("with the address of the copy it runs in", listed[1].elsewhere, otherAt);
-  is("and this copy's own say nothing of one", listed[0].elsewhere, undefined);
+  const listed = (await (await fetch(`${at}/api/agents`, { headers: as })).json()) as { id: string; name?: string; address?: string }[];
+  is("the owner's list has this copy's agents and the one in a machine", listed.map((one) => one.id), ["test", "far"]);
+  is("the one in a machine as its machine describes it", listed[1].name, "Far");
+  is("with the address of the copy it runs in", listed[1].address, otherAt);
+  is("and this copy's own say nothing of one", listed[0].address, undefined);
 
   const threads = await fetch(`${at}/api/agents/far/threads`, { headers: as });
   is("a route about it is answered by its own copy", await threads.json(), [{ thread: "far/one" }]);
@@ -159,7 +160,7 @@ import { agentFor, codeJob } from "./shared.ts";
   const { tmpdir } = await import("node:os");
   const mark = `${await mkdtemp(`${tmpdir()}/chloe-start-`)}/started`;
   const otherPort = (other.address() as { port: number } | null)?.port ?? Number(new URL(otherAt).port);
-  settings.serve = { ...before, elsewhere: { far: { address: otherAt, key: KEY, start: [process.execPath, "-e", `require("fs").writeFileSync(${JSON.stringify(mark)}, "")`] } } };
+  showMachine("far", { address: otherAt, key: KEY, start: [process.execPath, "-e", `require("fs").writeFileSync(${JSON.stringify(mark)}, "")`] });
   const comesBack = (async () => {
     const until = Date.now() + 20_000;
     while (!existsSync(mark) && Date.now() < until) await new Promise((done) => setTimeout(done, 50));
@@ -205,5 +206,6 @@ import { agentFor, codeJob } from "./shared.ts";
   is("a copy without one takes no key at all", (await fetch(`${at}/api/tokens`, { headers: { authorization: `Bearer ${KEY}` } })).status, 401);
   is("not even an empty one", (await fetch(`${at}/api/tokens`, { headers: { authorization: "Bearer " } })).status, 401);
 
+  showMachine("far", undefined);
   server.close();
 }

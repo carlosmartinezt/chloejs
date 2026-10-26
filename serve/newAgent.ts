@@ -1,20 +1,21 @@
 // A new agent, made from the page: its files written and its line added to
 // chloe.config.ts, on this computer or in a machine of its own. No model is
 // asked anything: the same request makes the same agent. The record of it is
-// the config, as for any agent: its line in `agents` here, or its
-// `serve.elsewhere` entry and key when it runs in a machine.
+// the config, as for any agent: its line in `agents`, and in a machine of its
+// own, the `workspace` its agent.ts says.
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { writeEnv } from "#chloe/core/env";
 import { ROOT } from "#chloe/core/paths";
-import { nameInEnv, settings } from "#chloe/core/settings";
+import { settings } from "#chloe/core/settings";
 import { AGENT_ID, newAgentFiles } from "#chloe/load/newAgent";
 import type { Place } from "#chloe/load/plugin";
 import { PLUGINS } from "#chloe/plugins/index";
-import { addAgentIn, configText, saveConfig, setInConfig } from "./config.ts";
+import { makeRepo } from "#chloe/services/historyService";
+import { addAgentIn, configText, saveConfig } from "./config.ts";
 import { BadRequest } from "./errors.ts";
+import { whenReady } from "./machines.ts";
 
 /** Where a new agent can run: this computer, then each place a plugin adds, with why one cannot be used here. */
 export async function places(): Promise<{ name: string; label: string; about: string; missing: string }[]> {
@@ -48,14 +49,19 @@ export async function makeAgent(given: { id: string; name?: string; model?: stri
   }
 }
 
-/** Its folder in agents/, and its line in the config. The folder goes again when the config would not load. */
-async function makeHere(id: string, name: string | undefined, model: string | undefined): Promise<void> {
+/**
+ * Its folder in agents/, and its line in the config. In a machine of its own,
+ * the folder is a repository of its own, so the machine may change it. The
+ * folder goes again when the config would not load.
+ */
+async function makeHere(id: string, name: string | undefined, model: string | undefined, workspace?: string): Promise<void> {
   const folder = join(ROOT, "agents", id);
   if (existsSync(folder)) throw new BadRequest(`agents/${id} is already there. Pick another id, or list that folder in chloe.config.ts.`);
   const text = addAgentIn(await configText(), id, `./agents/${id}/agent.ts`);
   await mkdir(folder, { recursive: true });
   try {
-    for (const [file, body] of Object.entries(newAgentFiles({ id, name, model }))) await writeFile(join(folder, file), body);
+    for (const [file, body] of Object.entries(newAgentFiles({ id, name, model, workspace, shell: Boolean(workspace) }))) await writeFile(join(folder, file), body);
+    if (workspace) await makeRepo(folder, id);
     await saveConfig(text);
   } catch (error) {
     await rm(folder, { recursive: true, force: true });
@@ -63,22 +69,15 @@ async function makeHere(id: string, name: string | undefined, model: string | un
   }
 }
 
-/** A machine made by the place, then its entry in `serve.elsewhere` and its key in .env. */
+/** How long a request waits for a new agent's machine, which may first build the base image. */
+const MACHINE_WITHIN = 10 * 60_000;
+
+/** The agent's folder here, with the place's `workspace` in its agent.ts, then its machine, which this copy makes once the config lists it. */
 async function makeIn(place: Place, id: string, name: string | undefined, model: string): Promise<void> {
   const missing = await place.missing();
   if (missing) throw new BadRequest(missing);
   if (!model) throw new BadRequest("Say which model it uses: this copy has no model.defaultModel to give it.");
-  // Refused now, before a machine is made, when the config's settings are code.
-  setInConfig(await configText(), ["serve", "elsewhere", id], "{}");
-
-  const made = await place.make({ id, files: newAgentFiles({ id, name, shell: true }), model });
-  const key = nameInEnv(["serve", "elsewhere", id, "key"]);
-  const entry = `{ address: ${JSON.stringify(made.address)}, key: process.env.${key}, start: [${made.start.map((one) => JSON.stringify(one)).join(", ")}] }`;
-  writeEnv({ [key]: made.key });
-  try {
-    await saveConfig(setInConfig(await configText(), ["serve", "elsewhere", id], entry));
-  } catch (error) {
-    writeEnv({ [key]: null });
-    throw new Error(`The machine for ${id} was made, and is not listed: ${(error as Error).message}`);
-  }
+  await makeHere(id, name, model, await place.workspace());
+  const problem = await whenReady(id, MACHINE_WITHIN);
+  if (problem) throw new Error(`${id} is made and listed, and its machine is not ready: ${problem}`);
 }

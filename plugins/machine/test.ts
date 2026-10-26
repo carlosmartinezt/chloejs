@@ -145,31 +145,40 @@ holdMachine({ own: true, user: "shell", workspace, hosts: ["127.0.0.1", "*.local
 }
 
 {
-  about("the config and keys a machine made from the page is given");
+  about("the config and keys a machine is given");
 
   const { machineConfig, startCommand } = await import("./make.ts");
-  const { DEFAULTS } = await import("#chloe/core/settings");
-  holdMachine({ own: false, user: "shell", workspace, hosts: [], image: "chloe-machine", keys: ["A_CLI_TOKEN"] });
-  process.env.A_CLI_TOKEN = "cli-token";
-  const { config, env } = machineConfig(
-    "inbox",
-    { ...DEFAULTS.model, key: "gateway-key", keys: { anthropic: "anthropic-key", openai: "" } },
-    "anthropic/claude-sonnet-5",
-    "owner-key",
-  );
-  is("it runs the one agent, in a machine of its own", config.includes("agents: [agent]") && config.includes("machine: { own: true }"), true);
+  const { declareSettings, declaredSettings } = await import("#chloe/core/settings");
+  const before = declaredSettings();
+  declareSettings({
+    model: { defaultModel: "anthropic/claude-sonnet-5", key: "gateway-key", keys: { anthropic: "anthropic-key" } },
+    connections: { resend: { api_key: "resend-key", email_to: "me@example.com" } },
+    agents: { inbox: { telegram: "inbox-bot" }, other: { telegram: "other-bot" } },
+    serve: { port: 4000, ownerKey: "this copy's own" },
+    machine: { hosts: ["github.com"] },
+  } as never);
+  const { config, env } = machineConfig("inbox", "owner-key");
+  declareSettings(before);
+  is("it runs the one agent, in a machine of its own, with the hosts this copy says", config.includes("agents: [agent]") && config.includes('machine: { own: true, hosts: ["github.com"] }'), true);
   is(
-    "with the model it was given, and each key read from .env",
-    config.includes('model: { defaultModel: "anthropic/claude-sonnet-5", key: process.env.CHLOE_MODEL_KEY, keys: { anthropic: process.env.CHLOE_MODEL_KEYS_ANTHROPIC } }'),
+    "with this copy's settings, each secret read from .env",
+    config.includes('model: { defaultModel: "anthropic/claude-sonnet-5", key: process.env.CHLOE_MODEL_KEY, keys: { anthropic: process.env.CHLOE_MODEL_KEYS_ANTHROPIC } }') &&
+      config.includes('connections: { resend: { api_key: process.env.CHLOE_CONNECTIONS_RESEND_API_KEY, email_to: "me@example.com" } }'),
     true,
   );
+  is("and of the agents' own settings, only its own", config.includes("agents: { inbox: { telegram: process.env.CHLOE_AGENTS_INBOX_TELEGRAM } }") && !config.includes("other"), true);
   is(
-    "its .env holds those keys, the names in machine.keys and the owner key, and no key that is empty",
+    "its .env holds those secrets and the owner key, and nothing of this copy's own serving",
     env,
-    { CHLOE_SERVE_OWNER_KEY: "owner-key", CHLOE_MODEL_KEY: "gateway-key", CHLOE_MODEL_KEYS_ANTHROPIC: "anthropic-key", A_CLI_TOKEN: "cli-token" },
+    {
+      CHLOE_SERVE_OWNER_KEY: "owner-key",
+      CHLOE_MODEL_KEY: "gateway-key",
+      CHLOE_MODEL_KEYS_ANTHROPIC: "anthropic-key",
+      CHLOE_CONNECTIONS_RESEND_API_KEY: "resend-key",
+      CHLOE_AGENTS_INBOX_TELEGRAM: "inbox-bot",
+    },
   );
-  is("it sleeps when idle, and answers on every address inside the machine", config.includes('serve: { host: "0.0.0.0", port: 3067, ownerKey: process.env.CHLOE_SERVE_OWNER_KEY, stopAfter: 15 }'), true);
-  delete process.env.A_CLI_TOKEN;
+  is("it answers on every address inside the machine", config.includes('serve: { host: "0.0.0.0", port: 3067, ownerKey: process.env.CHLOE_SERVE_OWNER_KEY }'), true);
 
   is("under systemd it is started in a scope of its own", startCommand("podman", "chloe-inbox", true), ["systemd-run", "--user", "--scope", "--quiet", "podman", "start", "chloe-inbox"]);
   is("and plainly anywhere else", startCommand("docker", "chloe-inbox", false), ["docker", "start", "chloe-inbox"]);

@@ -259,31 +259,18 @@ export interface Settings {
     url: string;
     /**
      * A key that signs a request in as the owner, sent as
-     * `Authorization: Bearer <key>`. It is for your other copy of chloe, the
-     * one whose page shows this copy's agents (`serve.elsewhere` there). It
-     * reaches everything the owner's login does, so keep it long and in
-     * `.env`. Default: "" (none: only the login signs anybody in).
+     * `Authorization: Bearer <key>`. It is for the copy of chloe that made
+     * this one's machine, and shows this copy's agent on its page: that copy
+     * writes it here. It reaches everything the owner's login does, so keep
+     * it long and in `.env`. Default: "" (none: only the login signs anybody
+     * in).
      */
     ownerKey: string;
     /**
-     * Agents that run in another copy of chloe, such as one in a machine of
-     * its own, that this copy's page shows with its own agents, by agent id:
-     * `{ journal: { address: "http://127.0.0.1:3167", key: process.env.CHLOE_SERVE_ELSEWHERE_JOURNAL_KEY } }`.
-     * `key` is that copy's `serve.ownerKey`, and `start`, when that copy
-     * sleeps (`serve.stopAfter` there), is the command that starts it again,
-     * like `["podman", "start", "journal"]`: run when it is asked for and does
-     * not answer, and before one of its jobs is due. Everything about such an agent
-     * (its chat, runs, memory and files) is asked of that copy, which keeps
-     * its runs and records every memory file it serves. The owner reaches
-     * them as the owner, a token as a token, and nobody invited at all.
-     * Default: {} (none).
-     */
-    elsewhere: Record<string, { address: string; key: string; start: string[] }>;
-    /**
      * Minutes with nothing to do before this copy stops itself: no request,
      * no run going or waiting, and no job due in the next few. For a machine
-     * of its own that the owner's copy wakes again (`start` under
-     * `serve.elsewhere` there), so it costs nothing while it sleeps. A copy
+     * of its own, which the copy that made it starts again when it is asked
+     * for, so it costs nothing while it sleeps. A copy
      * whose agents bind a channel other than api never stops, because that
      * channel listens. Default: 0 (never).
      */
@@ -336,7 +323,7 @@ export const DEFAULTS: Settings = {
   connections: {
   } as Connections,
   agents: {},
-  serve: { host: "127.0.0.1", port: 3067, url: "", ownerKey: "", elsewhere: {}, stopAfter: 0 },
+  serve: { host: "127.0.0.1", port: 3067, url: "", ownerKey: "", stopAfter: 0 },
   machine: {} as MachineSettings,
   owner: "",
   node: "",
@@ -353,7 +340,6 @@ const AGENT_DEFAULTS = {
  */
 const RECORDS: Record<string, object> = {
   agents: AGENT_DEFAULTS,
-  "serve.elsewhere": { address: "", key: "", start: [] },
 };
 
 /**
@@ -398,7 +384,7 @@ export function nameInEnv(path: string[]): string {
  * from your config with `process.env`. "agents" means the channel tokens of
  * every agent.
  */
-export const KEYS: string[] = ["model.key", "model.keys", "agents", "serve.ownerKey", "serve.elsewhere"];
+export const KEYS: string[] = ["model.key", "model.keys", "agents", "serve.ownerKey"];
 
 /** A setting whose kind is not its default's, and what is wrong with a value given for it, or "". */
 const CHECKS: Record<string, (said: unknown) => string> = {};
@@ -583,6 +569,14 @@ export const settings: Settings = readSettings({});
 
 /** What the config declared last, kept so `holdSettings` can go over it again. */
 let declared: DeclaredSettings = {};
+
+/**
+ * The settings the config says, as it said them, without the defaults: what
+ * a machine this copy makes is given of this copy's settings.
+ */
+export function declaredSettings(): DeclaredSettings {
+  return declared;
+}
 
 /** What the test suite holds over the config, so a run never reaches a real account. Empty outside it. */
 let held: DeclaredSettings = {};

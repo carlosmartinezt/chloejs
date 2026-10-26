@@ -13,6 +13,8 @@ export interface NewAgent {
   model?: string;
   /** Turns on `abilities.shell`, which loads only in a machine of its own. */
   shell?: boolean;
+  /** Where it works, as code for its agent.ts, like `{ sandbox: { type: "podman" } }`, when it runs in a machine of its own. */
+  workspace?: string;
 }
 
 /** What an id may be: lower case letters, digits and dashes, starting with a letter. */
@@ -27,6 +29,7 @@ export function newAgentFiles(agent: NewAgent): Record<string, string> {
     `  identity: "Just set up. Tell it what you want done, and it changes itself to do it.",`,
     `  purpose: prompt("purpose.md"),`,
     ...(agent.shell ? ["  abilities: { shell: true },"] : []),
+    ...(agent.workspace ? [`  workspace: ${agent.workspace},`] : []),
   ];
   return {
     "agent.ts": `// A new agent. Talk to it on the page and ask it to change: its purpose,

@@ -4,8 +4,8 @@
 // `WRITABLE`, never its evals or its memory. What a person changed by hand in
 // those files is committed first, under their own name. Code is loaded first,
 // as the next reload would load it, and put back when it does not load.
-import { existsSync } from "node:fs";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { constants, existsSync } from "node:fs";
+import { access, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, extname } from "node:path";
 
 import { confine } from "#chloe/core/confine";
@@ -52,6 +52,10 @@ export function whyNot(agent: Home, path: string): string | undefined {
 export async function changeOwnFiles(agent: Home, files: { path: string; content: string }[], message: string) {
   if (files.length === 0) throw new Error("Say at least one file to write.");
   if (message.trim().length < 10) throw new Error("Say what changed and why, as a commit message.");
+  // An agent in a machine of its own whose folder is lent to it read only is changed where the folder is kept.
+  if (!(await access(agent.folder, constants.W_OK).then(() => true, () => false))) {
+    throw new Error("Your folder is read only here, so nothing was written. It is changed on the computer that keeps it, by your owner.");
+  }
   const checked: Written[] = [];
   for (const { path, content } of files) {
     const one = { ...(await checkOne(agent, path, content)), content };

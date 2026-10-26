@@ -10,7 +10,8 @@ An agent that writes code to run your routines needs somewhere to run it: to
 clone a repository, install what it needs, try the build. On a shared computer
 that place is the whole computer, so chloe gives an agent a shell only in a
 machine of its own: a container, or a small virtual machine, with one agent in
-it. The machine's config says so with `machine.own` in settings, and the shell
+it. An agent says it runs in one with `workspace.sandbox` in its agent.ts. The
+machine's config says so with `machine.own` in settings, and the shell
 ability refuses to load anywhere else: on a shared computer the shell is the
 whole computer, and no boundary in chloe holds that.
 
@@ -48,10 +49,69 @@ the `runtime` user's and readable by the shell user and never writable by it.
 Clones and loose code are scratch: a routine never depends on a workspace folder
 surviving, and everything that matters is committed somewhere you own.
 
+## Running an agent in one
+
+Say so in the agent's own `agent.ts`, and list it in `chloe.config.ts` like
+any other agent:
+
+```ts
+export default defineAgent({
+  id: "builder",
+  model: "anthropic/claude-sonnet-5",
+  purpose: prompt("purpose.md"),
+  abilities: { shell: true },
+  workspace: {
+    sandbox: { type: "podman", image: "./machine/Dockerfile" },
+  },
+});
+```
+
+Your copy of chloe does not run it. It makes the machine, keeps it as the
+definition says, and shows the agent on its page with the others:
+
+- builds the image from the Dockerfile, as `chloe-<id>:<hash>`, and again
+  when the file or the base image changes;
+- makes the container `chloe-<id>`, with the volumes `chloe-<id>-data` (its
+  memory, runs and keys) and `chloe-<id>-work` (its work), on a free port on
+  loopback, from your own port plus 100;
+- lends it the agent's folder at `workspace/routines`, so an edit you make is
+  live in the machine at once;
+- writes the machine's config and `.env`: your copy's settings, all but
+  `serve` and `machine`, and of `agents` only this agent's own, each secret
+  read from its `.env` under the name it has in yours; the names in
+  `machine.keys` and in the sandbox's `keys`; and a key that makes your copy
+  its owner, kept in your state folder as `machines/<id>.key`;
+- runs the sandbox's `setup` script inside it, and starts it.
+
+It does all of that again, keeping the volumes, when anything the machine is
+made from changes, and only starts it when nothing has. Nothing about the
+machine is written by hand: no port, no key, no command.
+
+| In `sandbox` | What it is |
+|---|---|
+| `type` | `"podman"` or `"docker"`. Required. |
+| `image` | A Dockerfile, as a path from the agent's folder, starting `FROM chloe-machine`; or an image's name. Default: `machine.image`. |
+| `lend` | Files and folders of this computer the machine sees at the same path, each `"read"` or `"write"`. |
+| `env` | Plain values for the machine's environment, like where a lent file is. |
+| `keys` | Names in your `.env` it is also given, under the same name. |
+| `setup` | A script in the agent's folder, run in the machine as chloe's user each time the machine is made: a clone, a package install. |
+
+`workspace.filesystem` says where the work is kept: `{ type: "volume" }`, the
+default, or `{ type: "local", path: "/srv/work" }`, a folder of this computer.
+
+The agent's folder is read only in the machine, unless it is a git repository
+of its own, when the machine may change it and a self change is a commit
+there, as it is here. A folder inside your project's repository is changed
+from your computer. Anything lent for writing, or a folder that is its own
+repository, makes the machine's runtime user you, on this computer (Podman's
+`keep-id`), so it can write there.
+
 ## The base image
 
 `machine/Dockerfile` builds it: Node, git, the runtime, the two users, the
-sudoers line and the start script. From a clone:
+sudoers line and the start script. The first machine your copy makes builds it
+from the installed package, as `chloe-machine`. To build it again after the
+runtime changes, from a clone:
 
 ```sh
 git clone https://github.com/carlosmartinezt/chloejs
@@ -59,49 +119,14 @@ cd chloejs
 podman build -t chloe-machine -f machine/Dockerfile .
 ```
 
-In a project that installed the package, the same image builds from the package
-itself, with no clone:
+or in a project that installed the package:
 
 ```sh
 podman build -t chloe-machine -f node_modules/@chloejs/core/machine/Dockerfile node_modules/@chloejs/core
 ```
 
 A clone runs chloe from its source; the package runs its build. Both are the
-same image.
-
-Run it with the two capabilities the start script needs, and a volume for what
-should survive the machine's disk:
-
-```sh
-podman run --detach --name journal \\
-  --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \\
-  --publish 3067:3067 \\
-  --volume journal-data:/home/runtime/data \\
-  chloe-machine
-```
-
-A machine runs one agent. To make one, write its files into
-`workspace/routines/` (an `agent.ts`, a purpose, whatever it needs), then a
-config like this at `/home/runtime/chloe.config.ts`, and its keys in `.env`
-beside it:
-
-```ts
-import { defineConfig } from "@chloejs/core";
-
-import journal from "./workspace/routines/agent.ts";
-
-export default defineConfig({
-  agents: [journal],
-  settings: {
-    machine: { own: true },
-    serve: { host: "0.0.0.0", port: 3067 },
-    model: { key: process.env.CHLOE_MODEL_KEY },
-  },
-});
-```
-
-`serve.host` is `0.0.0.0` because the machine's own port is behind whatever
-fronts it, and nothing else can reach it.
+same image, and every agent's own image is built again on top of it.
 
 ## The shell
 
@@ -153,7 +178,8 @@ stranger's program.
 ## Adding a tool
 
 The image carries Node, git and the runtime. An agent whose work needs more
-adds it in its own Dockerfile, one line at a time:
+adds it in its own Dockerfile, one line at a time, named as `image` in its
+sandbox:
 
 ```dockerfile
 FROM chloe-machine
@@ -167,114 +193,45 @@ the tool does: the users, not the packages, are the boundary.
 
 The page's **New agent** (on All agents) makes an agent and says where it
 runs: **This computer**, a folder in `agents/` listed in `chloe.config.ts`
-with no shell, or **A container**, a machine of its own made with podman or
-docker. No model is asked anything: the same form makes the same agent, and
-the agent changes itself into what you ask for once you talk to it.
+with no shell, or **A container**, the same folder with a `workspace` of
+`{ sandbox: { type: "podman" } }` (or docker), the shell on, and the folder a
+git repository of its own, so the agent can change itself in its machine. No
+model is asked anything: the same form makes the same agent, and the agent
+changes itself into what you ask for once you talk to it. It answers once the
+machine lists the agent.
 
-For a container, your copy of chloe:
+`POST /api/agents` does the same for a program, and `GET /api/places` says
+where an agent can be made here and why one cannot.
 
-- makes `chloe-<id>` from `machine.image`, with its volumes `chloe-<id>-data`
-  and `chloe-<id>-work`, published on a free port on loopback, from your own
-  port plus 100;
-- writes the agent's files into `workspace/routines/` as a git repository,
-  with `abilities.shell` on;
-- writes the machine's config: your `model` settings, with the model you chose
-  as its default, `machine.own`, and `stopAfter: 15`;
-- writes its `.env`: a new owner key, the keys your model settings read, and
-  each name in `machine.keys`;
-- answers once the machine lists the agent, about ten seconds, and adds its
-  `serve.elsewhere` entry to your config and its key to your `.env`.
+## On your page
 
-When a step fails, the container and its volumes are removed. `POST
-/api/agents` does the same for a program, and `GET /api/places` says where an
-agent can be made here and why one cannot.
-
-```ts
-settings: {
-  machine: {
-    image: "my-machine",                 // FROM chloe-machine, plus the programs your agents need
-    keys: ["CLAUDE_CODE_OAUTH_TOKEN"],   // names in your .env each machine is also given
-  },
-}
-```
-
-## Seeing it on your own page
-
-A machine runs a copy of chloe of its own, with its own page and login. To see
-its agent on the page you already use, beside your other agents, give the
-machine an owner key and name the agent in your own copy's config.
-
-In the machine's config, the key it takes as its owner:
-
-```ts
-settings: {
-  machine: { own: true },
-  serve: { host: "0.0.0.0", port: 3067, ownerKey: process.env.CHLOE_SERVE_OWNER_KEY },
-}
-```
-
-In your own copy's config, where the agent runs and that key, by the agent's id,
-and the agent left out of `agents`, since it runs there and not here:
-
-```ts
-settings: {
-  serve: {
-    elsewhere: {
-      journal: { address: "http://127.0.0.1:3167", key: process.env.CHLOE_SERVE_ELSEWHERE_JOURNAL_KEY },
-    },
-  },
-}
-```
-
-The two `.env` files hold the same long key. Your page then lists the agent with
-the rest, and everything about it (its chat, runs, memory, files and jobs) is
-asked of the machine, which keeps its runs and writes every memory file it
-serves to its own audit log, with your address, before serving it. The frame a
-memory file is shown in is served by your own copy, sandboxed as always.
+Everything about an agent in a machine (its chat, runs, memory, files and
+jobs) is asked of the machine, which keeps its runs and writes every memory
+file it serves to its own audit log, with your address, before serving it.
+The frame a memory file is shown in is served by your own copy, sandboxed as
+always. While its machine is being made, the page says so.
 
 You reach it as yourself. A token of your copy's reaches it as a token: your
 copy refuses what no token may do and a token made for another agent, and the
 machine applies its own rules for tokens (the agent has to bind an api channel
-to be chatted to). Somebody invited to your copy is nobody in the machine. When the machine does not answer, the agent stays on the list
-saying so. The owner key reaches everything the machine's login does, and is
-for your own copy of chloe and nothing else.
+to be chatted to). Somebody invited to your copy is nobody in the machine. When
+the machine does not answer, the agent stays on the list saying so. The key
+your copy keeps reaches everything the machine's login does, and is for your
+own copy of chloe and nothing else.
+
+A machine that has stopped is started again when it is asked for, and a
+minute or two before one of the agent's jobs is due, from the jobs the machine
+last said it has. Under systemd it is started in a scope of its own, so
+restarting your copy does not stop it.
 
 ## Sleeping between uses
 
-A machine that is not working costs only its disk, so a machine can stop itself
-when there is nothing to do and be started again when it is wanted. In the
-machine's config, the minutes with nothing to do before it stops:
-
-```ts
-serve: { host: "0.0.0.0", port: 3067, ownerKey: process.env.CHLOE_SERVE_OWNER_KEY, stopAfter: 15 },
-```
-
-Nothing to do means no request over its port, no run going or waiting for an
-answer or a time, and no job due in the next five minutes. A machine whose agent
-binds a channel other than api never stops, because that channel listens for
-messages, and it says so as it starts.
-
-In your own copy's config, the command that starts it again, beside its
-address:
-
-```ts
-journal: { address: "http://127.0.0.1:3167", key: process.env.CHLOE_SERVE_ELSEWHERE_JOURNAL_KEY, start: ["podman", "start", "journal"] },
-```
-
-Your copy runs it when the machine is asked for and does not answer, which is
-what opening your page does, and waits up to a minute for it to answer. It also
-runs it a minute or two before one of the agent's jobs is due, from the jobs the
-machine last said it has, so the job runs on time. When your copy starts and
-does not know them yet, it wakes the machine once to ask. While your page is
-open it asks every twenty seconds, so an open page keeps the machine awake.
-
-When your copy runs as a systemd service, start the machine outside the
-service's own group of processes, or restarting your copy kills the
-container's monitor with it and leaves Podman unable to start it again:
-
-```ts
-start: ["systemd-run", "--user", "--scope", "--quiet", "podman", "start", "journal"],
-```
+A machine your copy makes never stops by itself. `serve.stopAfter`, in the
+config of a copy that runs in a machine, is the idle minutes before it stops
+itself (no request over its port, no run going or waiting, no job due in the
+next five minutes), for a machine that costs money while it runs; your copy
+starts it again as above. A copy whose agent binds a channel other than api
+never stops, because that channel listens for messages.
 
 ## What is true and what is not
 

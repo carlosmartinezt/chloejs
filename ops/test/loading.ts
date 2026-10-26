@@ -392,10 +392,13 @@ PLUGINS.push(standIn);
   // plugin.
   const shell = allAbilities().some((one) => (one.name as string) === "shell");
   const workspace = shell ? mkdtempSync(join(tmpdir(), "chloe-machine-")) : "";
-  holdSettings({
+  const suite = {
     model: { key: settings.model.key, preferredRoute: settings.model.preferredRoute, gatewayUrl: settings.model.gatewayUrl, program: settings.model.program },
     email: settings.email,
     owner: settings.owner,
+  };
+  holdSettings({
+    ...suite,
     ...(shell && { machine: { own: true, user: "shell", workspace, hosts: ["127.0.0.1"] } as unknown as import("#chloe/core/settings").MachineSettings }),
   });
   const agent = (abilities: Record<string, unknown>) =>
@@ -434,6 +437,8 @@ PLUGINS.push(standIn);
   is("a name that is no tool is refused, saying what there is", typo.includes('without names "notesEd"') && typo.includes("notesEdit"), true);
   await rm(folder, { recursive: true, force: true });
   if (shell) await rm(workspace, { recursive: true, force: true });
+  // The rest of the suite is not in a machine.
+  holdSettings(suite);
 }
 
 {

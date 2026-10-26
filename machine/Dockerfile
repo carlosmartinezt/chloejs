@@ -31,10 +31,11 @@ RUN cd /home/runtime/chloe \
 
 # Two users. runtime runs chloe and owns everything private: its data folder,
 # its .env, the routines. shell runs the agent's commands and owns the workspace
-# folders it makes there, and nothing else.
+# folders it makes there, and nothing else. runtime is 1000, the uid a machine
+# that writes on its host maps the host's user to (plugins/machine/make.ts).
 RUN userdel -r node 2>/dev/null || true \
- && useradd -m runtime \
- && useradd -m -s /bin/bash shell \
+ && useradd -m -u 1000 runtime \
+ && useradd -m -u 1001 -s /bin/bash shell \
  && chown -R runtime:runtime /home/runtime/chloe \
  && chmod 755 /home/runtime
 

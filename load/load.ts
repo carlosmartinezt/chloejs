@@ -26,6 +26,7 @@ import type { Connection } from "#chloe/connections/connection";
 import type { ToolConnection } from "#chloe/connections/connection";
 import { makeRepo } from "#chloe/services/historyService";
 import { allAbilities, abilityTools, type Abilities } from "./abilities.ts";
+import { PLUGINS } from "#chloe/plugins/index";
 export { allAbilities, abilityOn, abilityToolSet, abilityValues, type Ability, type Abilities, type FoldersAbility } from "./abilities.ts";
 import { work, type Data, type Envelope, type Result as RunResult, type Work } from "#chloe/core/steps";
 import { turn, type Result as TurnResult } from "#chloe/core/turn";
@@ -706,14 +707,18 @@ export async function loadAll(given?: Config): Promise<Map<string, Agent>> {
   const { config, listed } = given ? { config: given, listed: given.agents } : await readConfig();
   declareSettings(config.settings);
 
-  const folders = new Map<string, string>();
-  const memories = new Map<string, string>();
+  const ids = new Set<string>();
   for (const one of listed) {
     if (!one?.id) throw new Error("chloe.config.ts lists an agent with no id.");
-    if (folders.has(one.id)) throw new Error(`chloe.config.ts lists two agents called ${one.id}.`);
-    if (Object.hasOwn(configured.serve.elsewhere, one.id)) {
-      throw new Error(`chloe.config.ts lists ${one.id} in agents and in serve.elsewhere. It runs here or elsewhere: take it out of one.`);
-    }
+    if (ids.has(one.id)) throw new Error(`chloe.config.ts lists two agents called ${one.id}.`);
+    ids.add(one.id);
+  }
+  const elsewhere = listed.filter((one) => PLUGINS.some((plugin) => plugin.machines?.holds(one)));
+  const here = listed.filter((one) => !elsewhere.includes(one));
+
+  const folders = new Map<string, string>();
+  const memories = new Map<string, string>();
+  for (const one of here) {
     folders.set(one.id, one.folder);
     memories.set(one.id, memoryFolder(one.id, one.memory));
   }
@@ -721,8 +726,22 @@ export async function loadAll(given?: Config): Promise<Map<string, Agent>> {
   setAgentDirs(folders, memories);
 
   const all = new Map<string, Agent>();
-  for (const one of listed) all.set(one.id, await resolveAgent(one));
+  for (const one of here) all.set(one.id, await resolveAgent(one));
+  inMachines = elsewhere;
   return all;
+}
+
+/** The agents the last `loadAll` left to machines of their own. */
+let inMachines: DefinedAgent[] = [];
+
+/**
+ * The agents `chloe.config.ts` lists that run in a machine of their own
+ * (`workspace.sandbox` in their agent.ts), as the last `loadAll` read them.
+ * This copy does not run them, and `loadAll` leaves them out of what it
+ * returns: their machine does.
+ */
+export function agentsInMachines(): DefinedAgent[] {
+  return inMachines;
 }
 
 /**
