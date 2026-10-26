@@ -1,7 +1,7 @@
 ---
 title: Models
 order: 7
-summary: Which model answers, how each call reaches it and who pays, every model setting, and picking one from a chat.
+summary: Which model answers, how each call reaches it and who pays, every model setting, Auto, and picking one from a chat.
 ---
 
 A model is named as provider and name, `"anthropic/claude-sonnet-5"`. An agent,
@@ -17,8 +17,8 @@ The first of these that is set wins.
 | One step | `model` on `work.model()` or `work.agent()` |
 | A pick for one job | `/model <name> for <job>` in a chat |
 | One job | `model` in `defineJob`, or in a markdown job's frontmatter |
-| A pick for one chat | `/model <name>` in that chat (chat turns only) |
-| The agent | `model` in `defineAgent` |
+| A pick for one chat | `/model <name>`, or `/model auto`, in that chat (chat turns only) |
+| The agent | `model` in `defineAgent`, or the quick model when it has `auto: true` (see Auto, below) |
 | Every agent | `model.defaultModel` in settings, which `npx chloe setup` writes |
 
 An agent with none of these is refused as it loads. A model given as an AI SDK
@@ -66,7 +66,7 @@ A key is a secret, so it goes in `.env`, and the config hands it over:
 | `model.program` | `claude`, `codex`, `agy`, `opencode` | Where each command is, when it is not on the path under that name. |
 | `model.timeLimit` | `10` | The most minutes one model call may take, on any route. A call still going is stopped, its program killed, and the run fails saying so, instead of holding its job. 0 is no limit. A whole step and one tool call have a limit of their own: see [Step, model, agent](/docs/primitives). |
 | `model.judgeModel` | `"anthropic/claude-sonnet-5"` | Who marks an eval. |
-| `model.namingModel` | `"anthropic/claude-haiku-4.5"` | Who names a new conversation on the dashboard. Empty leaves them unnamed. |
+| `model.quickModel` | the route's own | What Auto hands an easy message, and who names a new conversation on the dashboard. Empty takes the quick model of the route the agent's own model goes by: the claude command's `haiku`, codex's `gpt-6-luna` while it lists it. The direct, gateway, antigravity and opencode routes have none, so name one here to use Auto on them. With none, the agent's own model names conversations. |
 
 A call that fails in a way a fresh try might fix, such as the provider
 cutting the stream or dropping the connection, is tried again twice, a few
@@ -123,17 +123,47 @@ on an account that pays per call, only a price on a plan. codex and antigravity
 name no price, so what their runs cost is unknown, and a `budget` or a web
 chat's dollar limit cannot be kept on them.
 
+## Auto
+
+An agent with `auto: true` in `defineAgent`, or a chat picked onto it with
+`/model auto`, asks the quick model about each message before it answers:
+does this need the agent's own model? The quick model sees the message and
+the last few in the conversation, never the agent's tools, and answers in a
+line. An easy message is then answered by the quick model, and anything else
+by the agent's own, in the same way as without Auto.
+
+```ts
+export default defineAgent({
+  model: "anthropic/claude-opus-5-5",
+  auto: true,
+  identity: "Answers the shop's customers.",
+});
+```
+
+- The quick model is found from the route the agent's own model goes by, so
+  the same account pays for both: Opus through the claude command gets the
+  command's Haiku. `model.quickModel` names one instead.
+- A conversation that went to the agent's own model stays there for the hour,
+  without asking again.
+- When the quick model fails, or answers in words it cannot be read from, the
+  agent's own model answers.
+- The run's first line says which model it went to and why, and what asking
+  cost is in the run's cost.
+- Jobs are not on Auto: each keeps the model it names.
+
+On a subscription, a quick model saves the plan's limits and time, not money.
+
 ## Picking one from a chat
 
 `/models` lists what may be picked, with a button each on Telegram. A model
 that more than one route here can run is listed once for each, the others as
 `<name> via <route>`, and so it is on the dashboard.
 `/model <name>` picks one for that chat, `/model <name> for <job>` for one job,
-and `/model default` takes a pick back, with the same `for`. A pick is a trial
+`/model auto` puts that chat on Auto, and `/model default` takes a pick back, with the same `for`. A pick is a trial
 and is not how an agent's model is set: what it runs on is `model` in its own
 definition, and there is no pick for the whole agent. The run record still says
 which model made each run.
 
 Over the API: `GET /api/models`, and `POST /api/agents/<id>/model` with
-`{ "scope", "model" }`, where scope is `job:<id>` or `chat:<thread>`
-and an empty model takes the pick back.
+`{ "scope", "model" }`, where scope is `job:<id>` or `chat:<thread>`,
+`"auto"` puts a chat on Auto, and an empty model takes the pick back.

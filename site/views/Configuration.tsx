@@ -183,10 +183,10 @@ const model = (sections: Sections | null): Ask[] => [
     about: "A call still going then is stopped and its run fails. 0 is no limit.",
   },
   {
-    path: "model.namingModel",
-    label: "Model that names a chat",
-    placeholder: "anthropic/claude-haiku-4.5",
-    about: "Gives each new chat a short name from its first message.",
+    path: "model.quickModel",
+    label: "Quick model",
+    placeholder: "the quick one of each agent's route",
+    about: "What Auto hands an easy message, and what names a new chat. Empty takes the quick model of the way each agent's own model is reached.",
   },
   {
     path: "model.judgeModel",

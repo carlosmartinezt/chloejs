@@ -22,10 +22,10 @@ import { ROUTES, settings } from "#chloe/core/settings";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
 import { tryJob, type Clock } from "#chloe/core/clock";
 import { PURPOSE_HERE, alwaysOnTools, ownerPrompt } from "#chloe/core/turn";
-import { choices, choose, modelFor, type Scope } from "#chloe/model/choices";
+import { AUTO, choices, choose, modelFor, type Scope } from "#chloe/model/choices";
 import { commands } from "#chloe/channels/shared";
 import { current, forget } from "#chloe/model/memory";
-import { models } from "#chloe/model/model";
+import { models, quickFor } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
 import { changeChannel, changeAbility, changeSettings, changeTool, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
@@ -270,6 +270,10 @@ export function summary(agent: Agent) {
     model: modelFor(agent),
     /** What its definition names. */
     declaredModel: agent.model,
+    /** Whether its definition puts it on Auto. */
+    auto: Boolean(agent.auto),
+    /** The quick model Auto hands an easy message, when it has one. */
+    quick: quickFor(agent.model),
     /** Every choice made on the fly: for one job, or for one chat. */
     chosen: choices(agent.id),
     channels: agent.channels.map((one) => one.name).sort(),
@@ -905,7 +909,7 @@ const routes: Route[] = [
       // A new conversation on the page is named while the agent answers, and
       // the answer waits a little for it, so the list has the name with it.
       const fresh = channel === "chat" && prompt && !prompt.startsWith("/") && !db.prepare("select 1 from messages where thread = ? limit 1").get(under);
-      const naming = fresh ? nameThread(under, prompt) : undefined;
+      const naming = fresh ? nameThread(agent, under, prompt) : undefined;
       const handled = await receive(agent, {
         channel,
         chat: under,
@@ -969,8 +973,8 @@ const routes: Route[] = [
   {
     method: "POST",
     path: "/api/agents/:id/model",
-    does: "Pick a model on the fly: for one job, or one chat. An empty model takes the pick back.",
-    takes: '{"scope": "job:<id>" | "chat:<thread>", "model": "..." or ""}',
+    does: "Pick a model on the fly: for one job, or one chat. An empty model takes the pick back, and \"auto\" puts a chat on Auto.",
+    takes: '{"scope": "job:<id>" | "chat:<thread>", "model": "...", "auto" or ""}',
     handle: async ({ request, response, context, params }) => {
       const agent = context.agent(params.id);
       const { scope, model } = await body(
@@ -980,7 +984,9 @@ const routes: Route[] = [
       if (scope.startsWith("job:") && !agent.jobs.some((one) => one.id === scope.slice(4))) {
         throw new BadRequest(`${agent.id} has no job called ${scope.slice(4)}.`);
       }
-      if (model && !models(agent).some((one) => one.model === model)) {
+      if (model === AUTO && !scope.startsWith("chat:")) throw new BadRequest("Auto is a pick for a chat. A job keeps the model it names.");
+      if (model === AUTO && !quickFor(agent.model)) throw new BadRequest(`${agent.id} has no quick model to hand a message to. Set model.quickModel in the config.`);
+      if (model && model !== AUTO && !models(agent).some((one) => one.model === model)) {
         throw new BadRequest(`${model} is not on offer here. GET /api/models lists what is.`);
       }
       choose(agent.id, scope as Scope, model);

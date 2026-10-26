@@ -44,7 +44,7 @@ const SITE_GUIDES = "https://chloejs.org/docs";
 const OPENROUTER = "https://openrouter.ai/api/v1/chat/completions";
 
 /** What a project with no key yet gets: a model that loads, so the page has one, until a key arrives or setup runs again. */
-const LATER = { defaultModel: "openrouter/free", gatewayUrl: OPENROUTER, judgeModel: "openrouter/free", namingModel: "openrouter/free" };
+const LATER = { defaultModel: "openrouter/free", gatewayUrl: OPENROUTER, judgeModel: "openrouter/free" };
 
 /** How each provider is called in a sentence. */
 const SAID: Record<Provider, string> = { anthropic: "Anthropic", openai: "OpenAI" };
@@ -375,13 +375,12 @@ async function answeredFrom(question: string, listed: string[], preferredRoute: 
  * under `named` and read by the config as `model.keys`. The direct route goes
  * first, because somebody who chose a key meant to use it, and a subscription
  * on this box would otherwise be ahead of it in the order. The default judge
- * and namer are Anthropic's, so on any other provider they are the chosen
- * model too.
+ * is Anthropic's, so on any other provider it is the chosen model too.
  */
 async function onOwnKey(provider: Provider, key: string | undefined, named: string): Promise<string> {
   const asked = (await ask(`Which model? (${OWN_DEFAULT[provider]}) `)).trim();
   const model = asked ? (asked.includes("/") ? asked : `${provider}/${asked}`) : OWN_DEFAULT[provider];
-  const others: Record<string, string> = provider === "anthropic" ? {} : { judgeModel: model, namingModel: model };
+  const others: Record<string, string> = provider === "anthropic" ? {} : { judgeModel: model };
   const { ROUTES } = await import("#chloe/core/settings");
   const preferredRoute = ["direct", ...ROUTES.filter((one) => one !== "direct")].join(",");
   return await settle({ defaultModel: model, ...others, preferredRoute }, key, named, ["keys", provider]);

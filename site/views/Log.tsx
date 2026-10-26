@@ -631,6 +631,7 @@ function RunThread({ run }: { run: Run }) {
       return;
     }
     if (step.carried) return show(<p key={at} className="event num">{step.carried}</p>);
+    if (step.chose) return show(<p key={at} className="event num">{step.chose}</p>);
     if (step.heard !== undefined) return show(<Prompt key={at} source={run.source} at={step.at} prompt={step.heard} />);
     if (step.kind) return work({ name: step.name ?? "", tool: true, step });
     if (step.tool) return work({ name: step.tool, tool: true, step });

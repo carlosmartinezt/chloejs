@@ -40,9 +40,9 @@ import { z } from "zod";
 import type { Agent, Channel, ChatHistory, Job, Running } from "#chloe/load/load";
 import type { JobConfig } from "#chloe/load/job";
 import type { Attachment } from "#chloe/model/model";
-import { choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices";
+import { AUTO, choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices";
 import { current, remember, startAgain } from "#chloe/model/memory";
-import { models, UsageLimit } from "#chloe/model/model";
+import { models, quickFor, UsageLimit } from "#chloe/model/model";
 import { clock, type Fired, ran } from "#chloe/core/clock";
 import { settings } from "#chloe/core/settings";
 import { answer, waitingOn, WrongArgs } from "#chloe/core/steps";
@@ -605,7 +605,7 @@ function bound(agent: Agent, message: Incoming, asked: { pick?: string; target?:
     // where to shorten it. Any of them can still be named in full.
     const some = offered.slice(0, SHOWN);
     const lines = [
-      `This chat: ${here ?? modelFor(agent)}${here ? "" : " (the default)"}`,
+      `This chat: ${here ?? (agent.auto ? AUTO : modelFor(agent))}${here ? "" : " (the default)"}`,
       ...made.map((one) => `${one.scope.slice(4)}: ${one.model}`),
       "",
       offered.length ? "I can run:" : "There is nothing to pick from: nothing this box is set up for runs the models on offer.",
@@ -614,7 +614,9 @@ function bound(agent: Agent, message: Incoming, asked: { pick?: string; target?:
         ? [`...and ${offered.length - some.length} more. Name any of them, or set model.models in chloe.config.ts to choose what shows here.`]
         : []),
       "",
-      "Pick one for this chat, or write /model <name>, /model <name> for <job>, or /model default.",
+      quickFor(agent.model)
+        ? "Pick one for this chat, or write /model <name>, /model <name> for <job>, /model auto, or /model default."
+        : "Pick one for this chat, or write /model <name>, /model <name> for <job>, or /model default.",
     ];
     return { text: lines.join("\n"), buttons: some.map((one) => ({ label: one.model, sends: `/model ${one.model}` })) };
   }
@@ -639,6 +641,13 @@ function bound(agent: Agent, message: Incoming, asked: { pick?: string; target?:
     choose(agent.id, scope, "");
     const now = scope.startsWith("job:") ? modelFor(agent, agent.jobs.find((one) => one.id === scope.slice(4))) : modelFor(agent);
     return { text: `${where} is back on the default, ${now}.` };
+  }
+  if (asked.pick.toLowerCase() === AUTO) {
+    if (scope.startsWith("job:")) return { text: "Auto is for a chat. A job keeps the model it names." };
+    const quick = quickFor(agent.model);
+    if (!quick) return { text: "There is no quick model to hand a message to. Set model.quickModel in chloe.config.ts." };
+    choose(agent.id, scope, AUTO);
+    return { text: `${where} is on Auto: ${quick} for an easy message, ${agent.model} for the rest.` };
   }
   const model = offered.find((one) => one.model.toLowerCase() === asked.pick!.toLowerCase());
   if (!model) return { text: `I cannot run ${asked.pick}. /models lists what I can.` };

@@ -19,6 +19,9 @@ db.exec(`
 // own definition, and a pick is a trial for one chat or one job.
 db.prepare("delete from choices where scope = 'agent'").run();
 
+/** The pick for one chat that hands each message to the quick model first, as `auto` on an agent does. */
+export const AUTO = "auto";
+
 /** "job:<id>" for one job, "chat:<thread>" for one conversation. */
 export type Scope = `job:${string}` | `chat:${string}`;
 

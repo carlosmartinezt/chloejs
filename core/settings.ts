@@ -174,14 +174,14 @@ export interface Settings {
      */
     judgeModel: string;
     /**
-     * The model that gives each new conversation in the dashboard chat a
-     * short name, from its first message. A small, fast model is enough.
-     * Default: "anthropic/claude-haiku-4.5".
-     *
-     * Set it to "" to turn naming off. The conversations are then listed by
-     * the time of their last message.
+     * The quick model: what an agent on Auto hands a message that does not
+     * need its own model, and what gives each new conversation in the
+     * dashboard chat a short name. Default: "", which takes the quick model of
+     * the route the agent's own model goes by, so the same account pays (the
+     * Claude CLI's "haiku", for one). With neither, Auto is not offered and
+     * the agent's own model names its conversations.
      */
-    namingModel: string;
+    quickModel: string;
     /**
      * The command each route that runs a program starts. Change one if the
      * program has another name, or is not on the PATH (then give its full
@@ -314,7 +314,7 @@ export const DEFAULTS: Settings = {
     keys: { anthropic: "", openai: "" },
     timeLimit: 10,
     judgeModel: "anthropic/claude-sonnet-5",
-    namingModel: "anthropic/claude-haiku-4.5",
+    quickModel: "",
     // Each plugin whose routes run a program adds its own.
     program: {} as Programs,
   },

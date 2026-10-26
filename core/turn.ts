@@ -13,7 +13,8 @@ import { oneLineSummary } from "#chloe/core/markdown";
 import { settings } from "#chloe/core/settings";
 import { abilityOn, type Agent, type ChatHistory } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
-import { modelFor } from "#chloe/model/choices";
+import { decide } from "#chloe/model/auto";
+import { AUTO, modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
 import { ownFolderTools, ownReadTools, ownTrialTools } from "#chloe/model/tools/self";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
@@ -306,7 +307,10 @@ export async function turn(options: Ask): Promise<Result> {
 
 /** One reply, recorded as `runId`. `mine` is its place in `going`, when it is in a conversation with somebody. */
 async function answer({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, timeZone, owner, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal, trial }: Ask, runId: string, mine?: Going): Promise<Result> {
-  const using = model ?? modelFor(agent);
+  // Auto when the chat's pick says so, or the agent does and nothing picked another.
+  const auto = model === AUTO || (!model && agent.auto) ? await decide(agent, asked ?? prompt, thread, signal) : undefined;
+  const using = auto?.model ?? model ?? modelFor(agent);
+  const trace: LoopStep[] = auto ? [{ step: 0, at: new Date().toISOString(), chose: auto.why, ...(auto.cost !== undefined && { cost: auto.cost }), ...(auto.unpriced && { unpriced: true }) }] : [];
 
   const started = new Date().toISOString();
   db.prepare(
@@ -333,7 +337,7 @@ async function answer({ agent, prompt, asked, attachments, model, thread, source
       return taken;
     },
   };
-  const result = await go({ agent, runId, model: using, messages, trace: [], job, source, thread, said, calling, writing, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal, inbox });
+  const result = await go({ agent, runId, model: using, messages, trace, job, source, thread, said, calling, writing, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal, inbox });
   // A reply that stopped early (out of steps, a sign-in) never asked for its
   // last messages, and nothing else will read them.
   if (!mine) return result;
@@ -619,6 +623,8 @@ export interface LoopStep {
   unpriced?: boolean;
   /** Set on the line where a run the service stopped picked up again: what happened, in words. */
   carried?: string;
+  /** Set on the first line of a reply on Auto: which model it went to, and why, in words. */
+  chose?: string;
   /** A message the person sent while the reply was going, handed to the model here. */
   heard?: string;
 }

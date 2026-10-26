@@ -2,22 +2,22 @@
 // thing said in it, so the list says what each is about and not only when.
 
 import { db } from "#chloe/core/db";
-import { settings } from "#chloe/core/settings";
+import type { Agent } from "#chloe/load/load";
 
-import { ask } from "./model.ts";
+import { ask, quickFor } from "./model.ts";
 
 const ASKED =
   "Name this conversation in two to five plain words, from the first thing somebody said in it. " +
   "Reply with the name alone: no quotes and no full stop.";
 
 /**
- * Names the conversation from `prompt`, unless somebody named it first. Never
- * throws: one that could not be named is called by when it last moved, as
- * before, and the reason is in the log.
+ * Names `agent`'s conversation from `prompt`, unless somebody named it first,
+ * with its quick model, or its own when it has none. Never throws: one that
+ * could not be named is called by when it last moved, and the reason is in
+ * the log.
  */
-export async function nameThread(thread: string, prompt: string): Promise<void> {
-  const model = settings.model.namingModel;
-  if (!model) return;
+export async function nameThread(agent: Agent, thread: string, prompt: string): Promise<void> {
+  const model = quickFor(agent.model) ?? agent.model;
   try {
     const { text } = await ask({
       model,

@@ -1,6 +1,7 @@
 // Picking a model on the fly, and an answer cut short.
 
 import { about, is } from "#chloe/ops/check";
+import type { Agent } from "./shared.ts";
 import { agentFor, answers, codeJob, db } from "./shared.ts";
 
 {
@@ -77,6 +78,71 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
     choose("test", "chat:test/api-pick", "");
   } finally {
     settings.model.models = listBefore;
+  }
+}
+
+{
+  about("Auto: the quick model says whether a message needs the agent's own");
+  const { settings } = await import("#chloe/core/settings");
+  const { quickFor } = await import("#chloe/model/model");
+  const { choose } = await import("#chloe/model/choices");
+  const { receive } = await import("#chloe/channels/shared");
+  const { turn } = await import("#chloe/core/turn");
+  const job = codeJob("nightly", async () => ({}));
+  const agent = { ...agentFor(job), auto: true };
+  const own = agent.model;
+  const quick = "openai/gpt-6-luna";
+  const before = settings.model.quickModel;
+  const reply = async (text: string, thread: string, on: Agent = agent) => {
+    const done = await turn({ agent: on, prompt: text, asked: text, source: "test", thread });
+    const run = db.prepare("select model, cost, trace from runs where id = ?").get(done.runId) as { model: string; cost: number; trace: string };
+    return { text: done.text, model: run.model, cost: run.cost, chose: (JSON.parse(run.trace) as { chose?: string }[])[0]?.chose };
+  };
+  try {
+    settings.model.quickModel = "";
+    is("a route with no quick model of its own, and no setting, gives none", quickFor(own), undefined);
+    answers.length = 0;
+    answers.push("Hello.");
+    is("so a message goes to the agent's own model, saying why", await reply("hi", "test/auto-none"), {
+      text: "Hello.", model: own, cost: 0.0002, chose: `Auto: ${own}, as there is no quick model to hand it to.` });
+
+    settings.model.quickModel = own;
+    is("a quick model that is the agent's own is none", quickFor(own), undefined);
+    settings.model.quickModel = quick;
+    is("model.quickModel names it", quickFor(own), quick);
+
+    answers.push("quick: a greeting", "Hi there.");
+    is("an easy message is answered by the quick model, both calls priced", await reply("hello", "test/auto-easy"), {
+      text: "Hi there.", model: quick, cost: 0.0004, chose: `Auto: ${quick}, a greeting` });
+
+    answers.push("strong: needs a plan", "Here is a plan.");
+    is("a hard one goes to the agent's own model", await reply("plan my week", "test/auto-hard"), {
+      text: "Here is a plan.", model: own, cost: 0.0004, chose: `Auto: ${own}, needs a plan` });
+    answers.push("Done.");
+    is("and the conversation stays there, with no quick model asked", await reply("thanks", "test/auto-hard"), {
+      text: "Done.", model: own, cost: 0.0002, chose: `Auto: ${own}, as this conversation went to it within the hour.` });
+
+    answers.push("perhaps", "Fine.");
+    is("an answer that cannot be read goes to the agent's own model", (await reply("hmm", "test/auto-unread")).chose, `Auto: ${own}, as the quick model's answer could not be read.`);
+
+    const plain = agentFor(job);
+    answers.push("Plain.");
+    is("an agent not on Auto asks nothing first", (await reply("hello", "test/auto-off", plain)).chose, undefined);
+
+    const from = (text: string, thread = "test/auto-pick") =>
+      receive(plain, { channel: "api", chat: thread, thread, from: { id: "1", name: "me" }, text, private: true, fromOwner: true });
+    is("/model auto puts one chat on Auto", (await from("/model auto"))?.text, `This chat is on Auto: ${quick} for an easy message, ${own} for the rest.`);
+    answers.push("quick: thanks", "You're welcome.");
+    await from("thanks");
+    const picked = db.prepare("select model from runs where thread = 'test/auto-pick' order by started desc limit 1").get() as { model: string };
+    is("and its next message goes where the quick model said", picked.model, quick);
+    is("Auto is not a pick for a job", (await from("/model auto for nightly"))?.text, "Auto is for a chat. A job keeps the model it names.");
+    choose("test", "chat:test/auto-pick", "");
+    settings.model.quickModel = "";
+    is("and with no quick model it is refused", (await from("/model auto"))?.text, "There is no quick model to hand a message to. Set model.quickModel in chloe.config.ts.");
+  } finally {
+    settings.model.quickModel = before;
+    answers.length = 0;
   }
 }
 

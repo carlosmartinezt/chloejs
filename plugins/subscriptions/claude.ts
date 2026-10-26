@@ -124,6 +124,14 @@ export function readStream(out: string, handed: string[] = []): { answer?: CliAn
  * and so on, from what it answers when it starts, which costs no call. Each
  * name it resolves an alias to, once. Empty when the CLI is missing or fails.
  */
+/** The model the CLI's "haiku" stood for when it was last asked what it runs. */
+let quick: string | undefined;
+
+/** The CLI's own quick model, "haiku" as it resolved it, from when it was last asked. */
+export function claudeQuick(): string | undefined {
+  return quick;
+}
+
 export async function claudeModels(): Promise<string[]> {
   const cli = settings.model.program.claude;
   const asking = JSON.stringify({ type: "control_request", request_id: "models", request: { subtype: "initialize" } }) + "\n";
@@ -136,7 +144,9 @@ export async function claudeModels(): Promise<string[]> {
     });
     for (const line of out.split("\n")) {
       if (!line.includes('"control_response"')) continue;
-      const models = (JSON.parse(line) as { response?: { response?: { models?: { resolvedModel?: string }[] } } }).response?.response?.models ?? [];
+      const models = (JSON.parse(line) as { response?: { response?: { models?: { value?: string; resolvedModel?: string }[] } } }).response?.response?.models ?? [];
+      const haiku = models.find((one) => one.value === "haiku")?.resolvedModel;
+      quick = haiku && `anthropic/${haiku}`;
       return [...new Set(models.flatMap((one) => (one.resolvedModel ? [`anthropic/${one.resolvedModel}`] : [])))];
     }
   } catch {

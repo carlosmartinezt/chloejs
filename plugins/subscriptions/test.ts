@@ -342,6 +342,12 @@ import { agentFor, answers, codeJob, db } from "#chloe/ops/test/shared";
         ["openai/gpt-6-luna", "codex"],
       ],
     );
+    const { quickFor } = await import("#chloe/model/model");
+    is(
+      "each route's quick model is its own: the claude command's haiku, codex's while it lists it, on the route named",
+      [quickFor("anthropic/claude-opus-5-5"), quickFor("openai/gpt-5.5"), quickFor("anthropic/claude-opus-5-5 via claude"), quickFor("deepseek/deepseek-v4-pro")],
+      ["anthropic/claude-haiku-5-5", "openai/gpt-6-luna", "anthropic/claude-haiku-5-5 via claude", undefined],
+    );
     Object.assign(settings.model, { models: ["anthropic/claude-opus-5.5"], key: "k", preferredRoute: ["gateway", "claude"] });
     is("another route is offered in its own spelling", models().map((one) => one.model), ["anthropic/claude-opus-5.5", "anthropic/claude-opus-5-5 via claude"]);
     Object.assign(settings.model, { models: ["anthropic/claude-sonnet-5"], key: "", gatewayUrl, preferredRoute: ["direct", "claude", "codex", "opencode", "gateway"], keys: { anthropic: "a", openai: "" } });

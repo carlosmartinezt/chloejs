@@ -48,6 +48,8 @@ export interface ModelRoute {
   carries(provider: string): boolean;
   /** The models it said it runs when last asked, or none: then it runs whatever its provider has by name. */
   listed(): string[];
+  /** The small, fast model it hands an easy message, from what it said it runs when last asked, or none. */
+  quick?(): string | undefined;
   /** Asks the program again what it runs. Called at startup and each reload, only when the program is here. */
   learn(): Promise<void>;
   /** Asks the model. */
@@ -156,6 +158,21 @@ function canRun(model: string): boolean {
   if (sdkModel(viaOf(model).name)) return true;
   const route = routeFor(model);
   return carries(route, providerOf(model)) && runnable(route);
+}
+
+/**
+ * The quick model for an agent whose own model is `model`: `model.quickModel`
+ * in settings, else the quick model of the route `model` goes by, on that
+ * same route, so an easy message is paid for the same way. Nothing when
+ * neither names one this box can run, or when it is `model` itself.
+ */
+export function quickFor(model: string): string | undefined {
+  const own = settings.model.quickModel;
+  const route = routeFor(model);
+  const quick = own || modelRoute(route)?.quick?.();
+  if (!quick) return undefined;
+  const named = own || !viaOf(model).via ? quick : `${quick} via ${route}`;
+  return spelling(viaOf(named).name) !== spelling(viaOf(model).name) && canRun(named) ? named : undefined;
 }
 
 /** The gateway's own list, once it has answered. Empty until then, and it is only an offer. */

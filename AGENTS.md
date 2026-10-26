@@ -520,6 +520,13 @@ A model picked on the fly (`/models` in a chat, `POST /api/agents/<id>/model`)
 is a row in `model/choices.ts`, and `modelFor()` there is the one place that
 says which wins: a pick for the job, the job's own, a pick for the agent, the
 agent's own. The three runners read it; nothing else decides a model.
+Auto is the one exception, and only for a reply: `decide()` in `model/auto.ts`,
+called at the top of `answer()` in `core/turn.ts` when the chat's pick is
+`"auto"` or the agent says `auto: true` and nothing picked another. It asks the
+quick model (`quickFor()` in `model/model.ts`: `model.quickModel`, else the
+`quick` of the route the agent's model goes by) and the reply runs on what it
+said, with the reason as the run's first line. Never decide after a reply has
+started: a tool may already have acted.
 
 `npm run test` runs jobs for real against an in-memory database and a stand-in
 gateway on a loopback port, so it costs nothing and it either passes or it does

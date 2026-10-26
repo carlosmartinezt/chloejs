@@ -9,7 +9,7 @@
 import type { Plugin } from "#chloe/load/plugin";
 import { providerOf, type ModelRoute } from "#chloe/model/model";
 import { antigravityModels, viaAntigravity } from "./antigravity.ts";
-import { claudeModels, viaClaude } from "./claude.ts";
+import { claudeModels, claudeQuick, viaClaude } from "./claude.ts";
 import { codexModels, viaCodex } from "./codex.ts";
 import { forgetOpencodeModels, opencodeModels, viaOpencode } from "./opencode.ts";
 
@@ -36,27 +36,40 @@ declare module "#chloe/core/settings" {
   }
 }
 
-/** A route whose program says what it runs when asked, and runs one provider's models. */
-function listing(name: ModelRoute["name"], provider: string, ask: ModelRoute["ask"], models: () => Promise<string[]>): Omit<ModelRoute, "says" | "setup"> {
+/**
+ * A route whose program says what it runs when asked, and runs one provider's
+ * models. `quick` picks its quick model from that list.
+ */
+function listing(
+  name: ModelRoute["name"],
+  provider: string,
+  ask: ModelRoute["ask"],
+  models: () => Promise<string[]>,
+  quick?: (known: string[]) => string | undefined,
+): Omit<ModelRoute, "says" | "setup"> {
   let known: string[] = [];
   return {
     name,
     carries: (asked) => asked === provider,
     listed: () => known,
+    quick: () => (known.length ? quick?.(known) : undefined),
     learn: async () => void (known = await models()),
     ask,
   };
 }
 
+/** Codex says no model is its quick one, so this one is, while Codex lists it. */
+const CODEX_QUICK = "openai/gpt-6-luna";
+
 const claude: ModelRoute = {
-  ...listing("claude", "anthropic", viaClaude, claudeModels),
+  ...listing("claude", "anthropic", viaClaude, claudeModels, claudeQuick),
   says: "Claude, on a subscription",
   subscription: true,
   setup: { what: "Claude subscription (for dev purposes only)", model: "anthropic/claude-sonnet-5.5" },
 };
 
 const codex: ModelRoute = {
-  ...listing("codex", "openai", viaCodex, codexModels),
+  ...listing("codex", "openai", viaCodex, codexModels, (known) => known.find((one) => one === CODEX_QUICK)),
   says: "Codex, on a ChatGPT plan",
   subscription: true,
   setup: { what: "ChatGPT subscription (for dev purposes only)", model: "openai/gpt-6-luna" },

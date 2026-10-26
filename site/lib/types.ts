@@ -14,6 +14,10 @@ export interface AgentSummary {
   model: string;
   /** What its definition names. */
   declaredModel: string;
+  /** Whether its definition puts it on Auto. */
+  auto?: boolean;
+  /** The quick model Auto hands an easy message, when it has one. Without one, Auto is not offered. */
+  quick?: string;
   /** Every pick made on the fly: "job:<id>" or "chat:<thread>". */
   chosen: { scope: string; model: string; at: string }[];
   /** The ways in it binds: telegram, api, whatever else. */
@@ -80,6 +84,8 @@ export interface Step {
   dropped?: string;
   /** Set on the line where a run the service stopped picked up again. */
   carried?: string;
+  /** Set on the first line of a reply on Auto: which model it went to, and why. */
+  chose?: string;
   /** A message the person sent while the reply was going, read by the model here. */
   heard?: string;
   /** Set on a prompt run's model line: the tools it asked for by name. */

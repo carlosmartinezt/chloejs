@@ -185,7 +185,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     });
   open.current = thread;
   const picked = summary?.chosen.find((one) => one.scope === `chat:${thread}`)?.model;
-  const model = picked ?? summary?.model ?? "";
+  const model = picked === "auto" || (!picked && summary?.auto) ? "Auto" : (picked ?? summary?.model ?? "");
   const titled = (name: string) => summary?.titles?.[name] ?? words(name);
 
   async function pick(to: string) {
@@ -554,7 +554,17 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
               search="Search models"
               choices={[
                 { head: "For this conversation" },
-                { label: `Default (${summary.model})`, run: () => void pick(""), current: !picked },
+                { label: `Default (${summary.auto ? "Auto" : summary.model})`, run: () => void pick(""), current: !picked },
+                ...(summary.quick && !summary.auto
+                  ? [
+                      {
+                        label: "Auto",
+                        title: `${summary.quick} for an easy message, ${summary.model} for the rest`,
+                        run: () => void pick("auto"),
+                        current: picked === "auto",
+                      },
+                    ]
+                  : []),
                 ...byRoute(offered).flatMap(([route, models]): Choice[] => [
                   "line",
                   { head: route },

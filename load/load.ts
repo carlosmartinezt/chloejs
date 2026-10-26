@@ -100,6 +100,14 @@ export interface AgentConfig {
    * does not load. A job can use another model with its own `model`.
    */
   model?: string | SdkModel;
+  /**
+   * Auto: each message in a conversation goes first to the quick model
+   * (`model.quickModel`, or the quick one of the route `model` goes by), which
+   * says whether it needs `model`. It answers the easy ones itself. Once a
+   * conversation has gone to `model` it stays there for the hour. Jobs keep
+   * their own model. Default: false.
+   */
+  auto?: boolean;
   /** One line on what the agent does. The dashboard shows it wherever agents are listed. Required. */
   identity: string;
   /**
