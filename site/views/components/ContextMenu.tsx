@@ -28,7 +28,8 @@ type Pressable = Extract<Choice, { label: string }>;
  * shifted back in rather than cut off.
  *
  * Given `search`, it opens with a box at the top that keeps only the choices
- * whose label has every word typed, and Enter runs the first one left.
+ * whose label has every word typed, and Enter runs the first one left. The box
+ * has the focus as it opens, except on a touch screen.
  */
 export function ContextMenu({
   at,
@@ -60,7 +61,10 @@ export function ContextMenu({
     menu.style.top = `${Math.min(at.y, window.innerHeight - height - 6)}px`;
     // Measured once, so the menu does not shrink and jump about as the search narrows it.
     if (search) menu.style.minWidth = `${width}px`;
-    menu.querySelector<HTMLElement>(search ? "input" : "button:not(:disabled)")?.focus();
+    // On a touch screen the search box waits to be tapped: focused at once, it
+    // would bring the keyboard up over the list on every open.
+    const touch = window.matchMedia("(pointer: coarse)").matches;
+    menu.querySelector<HTMLElement>(search && !touch ? "input" : "button:not(:disabled)")?.focus({ preventScroll: true });
   }, [at, from, search]);
 
   useEffect(() => {

@@ -100,8 +100,13 @@ a { color: inherit; }
 
 /* A phone pans the page and nothing else: two fingers on it must not zoom, and
    a double tap must not either. This does not reach a file shown in the memory
-   viewer, which is its own document and may be zoomed to read it. */
+   viewer, which is its own document and may be zoomed to read it. Safari also
+   zooms into a box whose text is under 16px as it takes focus, which the
+   viewport's maximum-scale in index.html stops. */
 html { touch-action: pan-x pan-y; }
+/* A press on a button presses it, as in an app: it does not select its words,
+   open the press-and-hold menu, or flash grey. */
+button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 /* The page never stretches past its ends. A Mac pulls the whole window down
    past the bar when a scroll runs out, chat's list or thread included, and
    shows a blank band above everything. */
@@ -874,6 +879,8 @@ pre.painted .keyword { color: var(--accent); }
 .talking .head button.model { border: 0; background: none; padding: 2px 6px; border-radius: 6px; cursor: pointer; }
 .talking .head button.model:hover, .talking .head button.model[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 .talking .head .model.picked { color: var(--accent); }
+.facts button.own-model { border: 0; background: none; padding: 1px 6px; margin-left: -6px; border-radius: 6px; color: inherit; font: inherit; cursor: pointer; }
+.facts button.own-model:hover, .facts button.own-model[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 .thinking { display: flex; align-items: center; gap: 10px; color: var(--dim); }
 .thinking .doing { color: var(--accent); padding: 0; font: inherit; }
 .thinking .doing:hover:enabled { text-decoration: underline; }

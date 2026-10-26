@@ -28,7 +28,7 @@ import { current, forget } from "#chloe/model/memory";
 import { models, quickFor } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
-import { changeChannel, changeAbility, changeSettings, changeTool, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
+import { changeChannel, changeAbility, changeModel, changeSettings, changeTool, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
 import { editable, open, save, tree } from "./files.ts";
 import {
   memoryCommit,
@@ -610,6 +610,27 @@ const routes: Route[] = [
         // From the agent as it now loads: the server's own reload comes a moment later.
         const now = await changeAbility(agent, change.name, change);
         json(response, { abilities: await abilitiesOf(now), tools: await toolsOf(now) });
+      } catch (error) {
+        if (error instanceof NotFound || error instanceof BadRequest) throw error;
+        throw new BadRequest((error as Error).message);
+      }
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/own-model",
+    does: "Change the model in its agent.ts, and whether it is on Auto. Hands back the agent as it now loads.",
+    takes: '{"model": "anthropic/claude-opus-5-5"}, {"auto": true}, or both',
+    handle: async ({ request, response, context, params }) => {
+      const agent = context.agent(params.id);
+      const change = await body(request, z.object({ model: z.string().trim().min(1).optional(), auto: z.boolean().optional() }));
+      const model = change.model ?? agent.model;
+      if (change.model && change.model !== agent.model && !models(agent).some((one) => one.model === change.model)) {
+        throw new BadRequest(`${change.model} is not on offer here. GET /api/models lists what is.`);
+      }
+      if (change.auto && !quickFor(model)) throw new BadRequest(`${model} has no quick model to hand a message to. Set model.quickModel in the config.`);
+      try {
+        json(response, summary(await changeModel(agent, change)));
       } catch (error) {
         if (error instanceof NotFound || error instanceof BadRequest) throw error;
         throw new BadRequest((error as Error).message);

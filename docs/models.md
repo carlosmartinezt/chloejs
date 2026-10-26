@@ -151,6 +151,12 @@ export default defineAgent({
   cost is in the run's cost.
 - Jobs are not on Auto: each keeps the model it names.
 
+The owner can change an agent's model, and switch Auto on or off, from the
+model on the agent's page on the dashboard, or with
+`POST /api/agents/<id>/own-model` and `{ "model", "auto" }`. Either writes its
+`agent.ts`, and leaves a model the file says as code, like
+`anthropic("claude-opus-5-5")`, for the file.
+
 On a subscription, a quick model saves the plan's limits and time, not money.
 
 ## Picking one from a chat

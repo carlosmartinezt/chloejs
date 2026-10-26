@@ -6,7 +6,8 @@ import { ago, nameOf, many, money, spent, threadName, when, words } from "../lib
 import * as Icons from "./components/Icons.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { Trail } from "./components/Link.tsx";
-import { ContextMenu, type Choice } from "./components/ContextMenu.tsx";
+import { ContextMenu } from "./components/ContextMenu.tsx";
+import { modelChoices, type Offered } from "../lib/models.ts";
 import { Card, Prompt } from "./Log.tsx";
 import { go, href } from "../lib/route.ts";
 import { chatWidth, setChatWidth } from "../lib/prefs.ts";
@@ -132,7 +133,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   const [showing, setShowing] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [summary, setSummary] = useState<AgentSummary | null>(null);
-  const [offered, setOffered] = useState<{ model: string; route: string }[]>([]);
+  const [offered, setOffered] = useState<Offered[]>([]);
   const [picking, setPicking] = useState<{ x: number; y: number } | null>(null);
   // Up to three things to ask under an empty box, chosen as the agent opens.
   const [ideas, setIdeas] = useState<string[]>([]);
@@ -565,15 +566,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                       },
                     ]
                   : []),
-                ...byRoute(offered).flatMap(([route, models]): Choice[] => [
-                  "line",
-                  { head: route },
-                  ...models.map((one): Choice => ({
-                    label: one.replace(` via ${route}`, ""),
-                    run: () => void pick(one),
-                    current: one === picked,
-                  })),
-                ]),
+                ...modelChoices(offered, (one) => void pick(one), picked),
               ]}
             />
           )}
@@ -754,13 +747,3 @@ function lasted(ms: number): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
 }
 
-/**
- * The models on offer, one group for each way to reach them, the shortest
- * group first: a gateway can list hundreds, and the few a subscription runs
- * would be lost under them.
- */
-function byRoute(offered: { model: string; route: string }[]): [string, string[]][] {
-  const groups = new Map<string, string[]>();
-  for (const { model, route } of offered) groups.set(route, [...(groups.get(route) ?? []), model]);
-  return [...groups].sort((a, b) => a[1].length - b[1].length);
-}

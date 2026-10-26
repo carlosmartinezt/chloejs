@@ -241,6 +241,37 @@ function checked(specs: OptionSpec[], given: Record<string, unknown> | undefined
 }
 
 /**
+ * Changes the model in an agent's agent.ts, and whether it is on Auto, and
+ * hands back the agent as it now loads. Auto is written as `auto: true` on the
+ * line after the model, and switching it off takes the line out. Refused as
+ * `InCode` where the file says its model as code, like `anthropic("...")`.
+ */
+export async function changeModel(agent: Home, change: { model?: string; auto?: boolean }): Promise<Agent> {
+  return changeAgentFile(agent, (text) => setModelIn(text, change));
+}
+
+/** The text of agent.ts with its model and its Auto line as `change` says. */
+export function setModelIn(text: string, change: { model?: string; auto?: boolean }): string {
+  let out = text;
+  if (change.model !== undefined) {
+    const at = agentObject(out);
+    const found = entries(out, at).find((one) => one.key === "model");
+    if (found && typeof literal(out.slice(found.valueStart, found.valueEnd)) !== "string") {
+      throw new InCode("agent.ts says its model as code, so it is changed in the file.");
+    }
+    out = put(out, at, ["model"], JSON.stringify(change.model), "agent.ts");
+  }
+  if (change.auto === undefined) return out;
+  const at = agentObject(out);
+  const all = entries(out, at);
+  const model = all.find((one) => one.key === "model");
+  const lineEnd = model ? out.indexOf("\n", Math.max(model.end, model.valueEnd)) : -1;
+  const own = model && lineEnd !== -1 && lineEnd < closing(out, at) && out.slice(model.valueEnd, model.end).includes(",");
+  if (!change.auto || all.some((one) => one.key === "auto") || !own) return put(out, at, ["auto"], change.auto ? "true" : null, "agent.ts");
+  return `${out.slice(0, lineEnd)}\n${indentAt(out, model.start)}auto: true,${out.slice(lineEnd)}`;
+}
+
+/**
  * Switches one tool off or on by changing `without` in the agent's agent.ts,
  * and hands back the agent as it now loads. A name the agent does not have
  * is refused. Refused as `InCode` where `without` is written as code.

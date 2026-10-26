@@ -11,6 +11,7 @@ import { allowed, landing, may, NOT_GIVEN } from "./lib/given.ts";
 import { announceMenu, watchMenu } from "./lib/menus.ts";
 import { go, href, read, type View } from "./lib/route.ts";
 import { lastAgent, lastFile } from "./lib/tabs.ts";
+import { modelChoices, type Offered } from "./lib/models.ts";
 import type { AgentSummary, Entry, Given, Me, ParkedRun, RunRow } from "./lib/types.ts";
 import { Api } from "./views/Api.tsx";
 import { Chat } from "./views/Chat.tsx";
@@ -298,6 +299,7 @@ export function App() {
             <Agent
               agent={agents.find((one) => one.id === view.agent)}
               id={view.agent}
+              owner={me.owner}
               runs={runs}
               parked={parked}
               running={running}
@@ -445,6 +447,7 @@ function Picker({
 function Agent({
   agent,
   id,
+  owner,
   runs,
   parked,
   running,
@@ -453,6 +456,8 @@ function Agent({
 }: {
   agent?: AgentSummary;
   id: string;
+  /** The owner may change its model; anybody else only sees it. */
+  owner: boolean;
   runs: RunRow[];
   parked: ParkedRun[];
   running: string[];
@@ -484,7 +489,7 @@ function Agent({
           {agent.address && <span className="dim">, at {agent.address}</span>}
         </dd>
         <dt>model</dt>
-        <dd>{agent.model}</dd>
+        <dd>{owner ? <OwnModel agent={agent} /> : `${agent.model}${agent.auto ? ", on Auto" : ""}`}</dd>
         {/* The tools its agent.ts names, and a connection's, each under where it comes from. */}
         {own.length > 0 && (
           <>
@@ -546,6 +551,67 @@ function Agent({
         <h2>Log</h2>
       </div>
       <LogTable rows={mine.slice(0, 12)} agent={id} />
+    </>
+  );
+}
+
+/**
+ * The model in the agent's agent.ts, and whether it is on Auto, as a button
+ * that opens the models on offer. A pick is written into the file.
+ */
+function OwnModel({ agent }: { agent: AgentSummary }) {
+  const [now, setNow] = useState(agent);
+  const [offered, setOffered] = useState<Offered[]>([]);
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const [trouble, setTrouble] = useState("");
+  const close = useCallback(() => setAt(null), []);
+  useEffect(() => setNow(agent), [agent]);
+  useEffect(() => void api.models(agent.id).then(setOffered, () => setOffered([])), [agent.id]);
+
+  async function change(to: { model?: string; auto?: boolean }) {
+    setTrouble("");
+    try {
+      setNow(await api.ownModel(agent.id, to));
+    } catch (error) {
+      setTrouble((error as Error).message);
+    }
+  }
+
+  return (
+    <>
+      <button
+        className="own-model"
+        title="What it runs on, from its agent.ts. Pick another to change the file."
+        aria-haspopup="menu"
+        aria-expanded={Boolean(at)}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          setAt(at ? null : { x: box.left, y: box.bottom + 4 });
+        }}
+      >
+        {now.declaredModel}
+        {now.auto && <span className="dim">, on Auto</span>}
+      </button>
+      {trouble && <p className="bad">{trouble}</p>}
+      {at && (
+        <ContextMenu
+          at={at}
+          close={close}
+          search="Search models"
+          choices={[
+            { head: "In its agent.ts" },
+            now.quick || now.auto
+              ? {
+                  label: now.auto ? "Auto is on: turn it off" : "Auto",
+                  title: now.quick ? `${now.quick} for an easy message, ${now.declaredModel} for the rest` : undefined,
+                  run: () => void change({ auto: !now.auto }),
+                }
+              : { label: "Auto needs a quick model (Configuration)", run: () => go({ at: "configuration" }) },
+            ...modelChoices(offered, (model) => void change({ model }), now.declaredModel),
+          ]}
+        />
+      )}
     </>
   );
 }

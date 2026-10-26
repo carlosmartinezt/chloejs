@@ -299,6 +299,14 @@ export default defineConfig({
   })();
   is("a list written as code is the file's to change", code instanceof InCode, true);
 
+  const { setModelIn } = await import("#chloe/serve/config");
+  is("a model picked on the page is written where the file says it", setModelIn(file(""), { model: "openai/gpt-6-luna" }), file("").replace('"m"', '"openai/gpt-6-luna"'));
+  is("Auto goes on the line after the model", setModelIn(file(""), { auto: true }), file("\n  auto: true,"));
+  is("and off takes the line out", setModelIn(file("\n  auto: true,"), { auto: false }), file(""));
+  is("both at once", setModelIn(file(""), { model: "x/y", auto: true }), file("\n  auto: true,").replace('"m"', '"x/y"'));
+  is("a model the file says as code is the file's to change", (() => { try { return setModelIn(file("").replace('"m"', 'anthropic("m")'), { model: "x/y" }); } catch (error) { return error instanceof InCode; } })(), true);
+  is("but Auto beside it is still the page's", setModelIn(file("").replace('"m"', 'anthropic("m")'), { auto: true }).includes('anthropic("m"),\n  auto: true,'), true);
+
   // Channels are calls in agent.ts, and the page edits the call.
   const { setChannelIn, saidChannel } = await import("#chloe/serve/config");
   const doors = (channels: string, imports = 'import { defineAgent } from "@chloejs/core";\nimport { telegramChannel } from "@chloejs/core/channels";\n') =>

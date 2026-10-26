@@ -146,6 +146,8 @@ export const api = {
   agent: (id: string) => call<AgentSummary>(`/agents/${id}`),
   /** The models somebody may pick for that agent. */
   models: (agent: string) => call<{ model: string; route: string }[]>(`/models?agent=${encodeURIComponent(agent)}`),
+  /** Changes the model in the agent's agent.ts, or whether it is on Auto. */
+  ownModel: (agent: string, change: { model?: string; auto?: boolean }) => call<AgentSummary>(`/agents/${agent}/own-model`, change),
   /** Picks a model for "agent", "job:<id>" or "chat:<thread>". An empty model takes the pick back. */
   pickModel: (agent: string, scope: string, model: string) => call<AgentSummary>(`/agents/${agent}/model`, { scope, model }),
   health: () => call<{ agents: string[]; running: string[] }>("/health"),
