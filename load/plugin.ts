@@ -80,4 +80,24 @@ export interface Plugin {
   configuration?: { title: string; about?: string; fields: ConfigField[] };
   /** A section it adds to the purpose of every reply, or "" for none. */
   words?(agent: Agent, reply: Reply): string | Promise<string>;
+  /** Where else a new agent made on the page can run, beside this computer. */
+  places?: Place[];
+}
+
+/** Somewhere a new agent can run: a machine of its own that this copy makes, and shows through `serve.elsewhere`. */
+export interface Place {
+  /** What the page sends to pick it, like `"container"`. */
+  name: string;
+  /** How the page names it, like "A container". */
+  label: string;
+  /** One line on what the agent gets there. */
+  about: string;
+  /** Why it cannot be used here, in words, or "" when it can. */
+  missing(): Promise<string>;
+  /**
+   * Makes the machine with the agent's files in it, and starts it. Hands back
+   * how this copy reaches it, which becomes its `serve.elsewhere` entry. Leaves
+   * nothing behind when it fails.
+   */
+  make(agent: { id: string; files: Record<string, string>; model: string }): Promise<{ address: string; key: string; start: string[] }>;
 }

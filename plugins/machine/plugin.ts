@@ -6,6 +6,7 @@ import { statSync } from "node:fs";
 
 import { settings } from "#chloe/core/settings";
 import type { Plugin } from "#chloe/load/plugin";
+import { cannotMake, makeMachine } from "./make.ts";
 import { shellRun, workspaceFolder } from "./tools.ts";
 
 declare module "#chloe/load/abilities" {
@@ -56,6 +57,20 @@ declare module "#chloe/core/settings" {
      * Debian's package servers.
      */
     hosts: string[];
+    /**
+     * The image a machine made from the page starts from, with podman or
+     * docker. Default: "chloe-machine", the base image built from the
+     * machine/ folder of the repo. An image of your own on top of it adds the
+     * programs your agents need (see "Adding a tool" in docs/machines.md).
+     */
+    image: string;
+    /**
+     * Names in this copy's .env handed to each machine it makes, into that
+     * machine's .env under the same name: a program's token, like
+     * "CLAUDE_CODE_OAUTH_TOKEN". The model's own keys are handed over
+     * without being named here. Default: [] (none).
+     */
+    keys: string[];
   }
 }
 
@@ -76,8 +91,17 @@ const HOSTS = [
 export const machine: Plugin = {
   name: "machine",
   settings: {
-    defaults: { machine: { own: false, user: "shell", workspace: "", hosts: HOSTS } },
+    defaults: { machine: { own: false, user: "shell", workspace: "", hosts: HOSTS, image: "chloe-machine", keys: [] } },
   },
+  places: [
+    {
+      name: "container",
+      label: "A container",
+      about: "A machine of its own on this computer, with podman or docker: a shell, and its own disk to clone and build on. Sleeps when idle.",
+      missing: cannotMake,
+      make: makeMachine,
+    },
+  ],
   abilities: [
     {
       name: "shell",

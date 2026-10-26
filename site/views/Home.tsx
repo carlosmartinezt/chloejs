@@ -4,7 +4,9 @@ import type { AgentSummary, ParkedRun, RunRow } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
 import { ago, nameOf, many, stateOf, when } from "../lib/format.ts";
 import { Code } from "./components/Code.tsx";
+import { go } from "../lib/route.ts";
 import { Link } from "./components/Link.tsx";
+import { NewAgent } from "./components/NewAgent.tsx";
 import { Pick } from "./components/Pick.tsx";
 import { Standing } from "./components/Tree.tsx";
 
@@ -44,14 +46,18 @@ export function Home({
   runs,
   parked,
   running,
+  owner,
   refresh,
 }: {
   agents: AgentSummary[];
   runs: RunRow[];
   parked: ParkedRun[];
   running: string[];
-  refresh: () => void;
+  /** Only the owner makes agents. */
+  owner: boolean;
+  refresh: () => Promise<unknown> | void;
 }) {
+  const [making, setMaking] = useState(false);
   const since = Date.now() - DAYS * 86_400_000;
   const lately = runs.filter((run) => new Date(run.started).getTime() > since);
   const figures: [number, string][] = [
@@ -64,12 +70,27 @@ export function Home({
   return (
     <>
       {parked.map((one) => (
-        <Waiting key={one.id} parked={one} done={refresh} />
+        <Waiting key={one.id} parked={one} done={() => void refresh()} />
       ))}
 
       <div className="head">
         <h1>Your agents</h1>
+        {owner && !making && (
+          <button className="go small" onClick={() => setMaking(true)}>
+            New agent
+          </button>
+        )}
       </div>
+
+      {making && (
+        <NewAgent
+          done={() => setMaking(false)}
+          made={async (id) => {
+            await refresh();
+            go({ at: "chat", agent: id });
+          }}
+        />
+      )}
 
       {agents.length === 0 ? (
         <First />

@@ -155,6 +155,15 @@ export interface Trial {
 /** Where an agent's changes are: its memory, or its own folder of purpose, skills and jobs. */
 export type Place = "memory" | "folder";
 
+/** Somewhere a new agent can run: this computer, or a kind of machine this copy makes. */
+export interface WhereToRun {
+  name: string;
+  label: string;
+  about: string;
+  /** Why it cannot be used here, or "" when it can. */
+  missing: string;
+}
+
 /** A commit a run made, as its record keeps it. */
 export interface RunCommit {
   in: Place;

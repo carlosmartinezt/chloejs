@@ -6,6 +6,8 @@
 // They are text here rather than files on disk because the published package is
 // dist/ and a .ts file here would be compiled with the runtime.
 
+import { newAgentFiles } from "#chloe/load/newAgent";
+
 /** One file to write: where it goes, and what goes in it. */
 export interface Starter {
   path: string;
@@ -23,8 +25,7 @@ export const STARTER_AGENT = "assistant";
 export function starterFiles(): Starter[] {
   return [
     { path: "chloe.config.ts", body: CONFIG },
-    { path: `agents/${STARTER_AGENT}/agent.ts`, body: AGENT, withConfig: true },
-    { path: `agents/${STARTER_AGENT}/purpose.md`, body: INSTRUCTIONS, withConfig: true },
+    ...Object.entries(newAgentFiles({ id: STARTER_AGENT })).map(([file, body]) => ({ path: `agents/${STARTER_AGENT}/${file}`, body, withConfig: true as const })),
     { path: "tsconfig.json", body: TSCONFIG },
     { path: ".gitignore", body: IGNORE, add: "lines" },
   ];
@@ -107,30 +108,6 @@ export default defineConfig({
     ${STARTER_MODEL_LINE}
   },
 });
-`;
-
-const AGENT = `// Your first agent. Talk to it on the page and ask it to change: its
-// purpose, its jobs, its code. Each change it makes is a commit you can
-// read and undo there.
-import { defineAgent, prompt } from "@chloejs/core";
-
-export default defineAgent({
-  id: "${STARTER_AGENT}",
-  identity: "Just set up. Tell it what you want done, and it changes itself to do it.",
-  purpose: prompt("purpose.md"),
-});
-`;
-
-const INSTRUCTIONS = `You were set up a moment ago, and you do nothing yet: you have no jobs and no
-tools of your own.
-
-When your owner asks for something, do it with what you have. When you cannot
-yet, change yourself so you can: these purpose, a job, a tool, whatever
-it takes. Say what you changed.
-
-Once you know what you are for, rewrite these purpose to say so.
-
-Keep replies short.
 `;
 
 // What the editor and tsc read the project's TypeScript with. Node runs it

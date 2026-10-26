@@ -271,7 +271,7 @@ export function App() {
       ) : !railed ? (
         <main className="pane front">
           {view.at === "home" && (
-            <Home agents={agents} runs={runs} parked={parked} running={running} refresh={() => void refresh()} />
+            <Home agents={agents} runs={runs} parked={parked} running={running} owner={owner} refresh={refresh} />
           )}
           {view.at === "tokens" && <Tokens />}
           {view.at === "people" && <People agents={agents} />}

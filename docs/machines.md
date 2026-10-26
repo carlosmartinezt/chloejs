@@ -163,6 +163,41 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg
 Nothing an agent installs this way reaches the `runtime` user's files, whatever
 the tool does: the users, not the packages, are the boundary.
 
+## Making one from the page
+
+The page's **New agent** (on All agents) makes an agent and says where it
+runs: **This computer**, a folder in `agents/` listed in `chloe.config.ts`
+with no shell, or **A container**, a machine of its own made with podman or
+docker. No model is asked anything: the same form makes the same agent, and
+the agent changes itself into what you ask for once you talk to it.
+
+For a container, your copy of chloe:
+
+- makes `chloe-<id>` from `machine.image`, with its volumes `chloe-<id>-data`
+  and `chloe-<id>-work`, published on a free port on loopback, from your own
+  port plus 100;
+- writes the agent's files into `workspace/routines/` as a git repository,
+  with `abilities.shell` on;
+- writes the machine's config: your `model` settings, with the model you chose
+  as its default, `machine.own`, and `stopAfter: 15`;
+- writes its `.env`: a new owner key, the keys your model settings read, and
+  each name in `machine.keys`;
+- answers once the machine lists the agent, about ten seconds, and adds its
+  `serve.elsewhere` entry to your config and its key to your `.env`.
+
+When a step fails, the container and its volumes are removed. `POST
+/api/agents` does the same for a program, and `GET /api/places` says where an
+agent can be made here and why one cannot.
+
+```ts
+settings: {
+  machine: {
+    image: "my-machine",                 // FROM chloe-machine, plus the programs your agents need
+    keys: ["CLAUDE_CODE_OAUTH_TOKEN"],   // names in your .env each machine is also given
+  },
+}
+```
+
 ## Seeing it on your own page
 
 A machine runs a copy of chloe of its own, with its own page and login. To see

@@ -325,3 +325,61 @@ export default defineConfig({
   is("a channel written some other way is the file's", (() => { try { return door(doors("\n  channels: { telegram: mine },"), "telegram", "telegramChannel", { on: false }); } catch (error) { return error instanceof InCode; } })(), true);
   is("what the file says is read back", [saidChannel(doors(""), "telegram", "telegramChannel").kind, saidChannel(doors("\n  channels: { telegram: telegramChannel() },"), "telegram", "telegramChannel").kind, saidChannel(doors("\n  channels: { telegram: mine },"), "telegram", "telegramChannel").kind, saidChannel(doors('\n  channels: { telegram: telegramChannel({ allowFrom: [1], x: y }) },'), "telegram", "telegramChannel")], ["absent", "fields", "code", { kind: "fields", fields: { allowFrom: "value", x: "code" }, values: { allowFrom: [1] } }]);
 }
+
+{
+  about("an agent made on the page, listed in chloe.config.ts");
+  const { addAgentIn, InCode } = await import("#chloe/serve/config");
+
+  const oneLine = `import { defineConfig } from "@chloejs/core";
+
+import server from "./agents/server/agent.ts";
+
+export default defineConfig({
+  agents: [server],
+  settings: {},
+});
+`;
+  is(
+    "its import goes after the last one, and its name at the end of the list",
+    addAgentIn(oneLine, "inbox", "./agents/inbox/agent.ts"),
+    oneLine
+      .replace('agent.ts";\n', 'agent.ts";\nimport inbox from "./agents/inbox/agent.ts";\n')
+      .replace("agents: [server]", "agents: [server, inbox]"),
+  );
+
+  const laidOut = `import { defineConfig } from "@chloejs/core";
+import server from "./agents/server/agent.ts";
+
+export default defineConfig({
+  agents: [
+    server, // the box
+  ],
+});
+`;
+  is(
+    "a list over several lines gets a line of its own, and a dash in the id is a capital in the name",
+    addAgentIn(laidOut, "my-inbox", "./agents/my-inbox/agent.ts"),
+    laidOut
+      .replace('server/agent.ts";\n', 'server/agent.ts";\nimport myInbox from "./agents/my-inbox/agent.ts";\n')
+      .replace("server, // the box\n", "server, // the box\n    myInbox,\n"),
+  );
+  is(
+    "an empty list takes it alone",
+    addAgentIn(`export default defineConfig({ agents: [] });\n`, "inbox", "./agents/inbox/agent.ts"),
+    `import inbox from "./agents/inbox/agent.ts";\nexport default defineConfig({ agents: [inbox] });\n`,
+  );
+  is(
+    "a name the file already uses is not used again",
+    addAgentIn(oneLine, "server", "./agents/server-2/agent.ts").includes("import serverAgent from"),
+    true,
+  );
+  const inCode = (() => {
+    try {
+      addAgentIn(`const all = [a];\nexport default defineConfig({ agents: all });\n`, "inbox", "./agents/inbox/agent.ts");
+      return "added";
+    } catch (error) {
+      return error instanceof InCode;
+    }
+  })();
+  is("a list that is not written out is the file's to change", inCode, true);
+}

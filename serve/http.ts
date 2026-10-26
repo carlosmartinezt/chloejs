@@ -71,6 +71,7 @@ import { signedInFrom } from "#chloe/core/alerts";
 import { PLUGINS } from "#chloe/plugins/index";
 import { providers } from "#chloe/services/emailService";
 import { servePage } from "./page.ts";
+import { makeAgent, places } from "./newAgent.ts";
 import { elsewhere, framedElsewhere, listsElsewhere, passOn, runningElsewhere, summariesElsewhere, whereElse } from "./elsewhere.ts";
 import { receive } from "#chloe/channels/shared";
 import { answer, checkArgs, parkedRuns, type ParkedRun } from "#chloe/core/steps";
@@ -514,6 +515,28 @@ const routes: Route[] = [
         ...[...context.agents().values()].filter((one) => sees(who, one.id)).map(summary),
         ...(await summariesElsewhere(request, who)),
       ]),
+  },
+  {
+    method: "GET",
+    path: "/api/places",
+    does: "Where a new agent can run: this computer, and each kind of machine this copy can make, with why one cannot be used here.",
+    handle: async ({ response }) => json(response, await places()),
+  },
+  {
+    method: "POST",
+    path: "/api/agents",
+    does: "Make an agent: its files and its line in chloe.config.ts, here, or in a machine of its own that this copy makes and shows through serve.elsewhere. No model is asked. Answers once it is listed and its machine answers.",
+    takes: '{"id": "inbox", "name": "Inbox", "where": "here or a name from GET /api/places", "model": "optional, this copy\'s default model when not given"}',
+    handle: async ({ request, response, context }) => {
+      const given = await body(request, z.object({ id: z.string().trim(), name: z.string().optional(), model: z.string().optional(), where: z.string() }));
+      try {
+        await makeAgent(given, [...context.agents().keys(), ...Object.keys(settings.serve.elsewhere)]);
+      } catch (error) {
+        if (error instanceof NotFound || error instanceof BadRequest) throw error;
+        throw new BadRequest((error as Error).message);
+      }
+      json(response, { id: given.id, where: given.where });
+    },
   },
   {
     method: "GET",

@@ -337,7 +337,8 @@ the core: a plugin is for one big enough to want out on its own. The runtime rea
 the defaults, the secrets and the words a setting may be with `addSettings()`),
 its `abilities` (each with `make` and `check`), the `words` it adds to a
 reply's purpose, the mail services it sends through (`email`), the mailboxes an
-email channel can be on (`mailboxes`), API `routes`, `channels` as the Channels
+email channel can be on (`mailboxes`), where a new agent made on the page can
+run (`places`, `serve/newAgent.ts`), API `routes`, `channels` as the Channels
 page shows them, `modelRoutes`, how it sends `alerts`, and its section of the
 Configuration page (`configuration`). What it adds to a type (`Abilities`,
 `Connections`, `AgentSettings`, `Routes`, `Programs`, `EmailProviders`,

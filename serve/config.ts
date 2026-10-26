@@ -639,6 +639,40 @@ function put(text: string, open: number, path: string[], value: string | null, f
   return remove(text, found);
 }
 
+/**
+ * The text with one more agent listed: an import of `from` after the last
+ * import, and its name at the end of `agents: [...]`, in the way that list is
+ * laid out. Throws `InCode` when the list is not written out as one.
+ */
+export function addAgentIn(text: string, id: string, from: string): string {
+  const config = configObject(text);
+  const list = config === undefined ? undefined : entries(text, config).find((one) => one.key === "agents");
+  if (!list || text[list.valueStart] !== "[") throw new InCode("chloe.config.ts has no agents: [...] written out to add to, so the agent is added in the file.");
+  let name = id.replace(/-([a-z0-9])/g, (_, letter: string) => letter.toUpperCase());
+  while (new RegExp(`\\b${name}\\b`).test(text)) name += "Agent";
+
+  const flat = blank(text);
+  const close = closing(text, list.valueStart);
+  // Where the last name in the list ends, past any comma and comment after it.
+  let end = close;
+  while (end > list.valueStart + 1 && /[\s,]/.test(flat[end - 1])) end--;
+  let listed: string;
+  if (end === list.valueStart + 1) listed = `${text.slice(0, end)}${name}${text.slice(close)}`;
+  else if (!text.slice(list.valueStart, close).includes("\n")) listed = `${text.slice(0, end)}, ${name}${text.slice(close)}`;
+  else {
+    const comma = flat.slice(end, close).includes(",") ? "" : ",";
+    const lineEnd = text.indexOf("\n", end);
+    const at = lineEnd === -1 || lineEnd > close ? close : lineEnd;
+    listed = `${text.slice(0, end)}${comma}${text.slice(end, at)}\n${indentAt(text, end - 1)}${name},${text.slice(at)}`;
+  }
+
+  const line = `import ${name} from ${JSON.stringify(from)};`;
+  const imports = [...listed.matchAll(/^import\s[^;]*?from\s*["'][^"']+["'];?[ \t]*$/gm)];
+  if (!imports.length) return `${line}\n${listed}`;
+  const after = imports[imports.length - 1].index! + imports[imports.length - 1][0].length;
+  return `${listed.slice(0, after)}\n${line}${listed.slice(after)}`;
+}
+
 /** A key as written: plain when it can be, quoted when not. */
 const said = (key: string) => (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : JSON.stringify(key));
 

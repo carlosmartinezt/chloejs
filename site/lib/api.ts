@@ -28,6 +28,7 @@ import type {
   Trial,
   Picture,
   Visitor,
+  WhereToRun,
   Field,
   Sections,
 } from "./types.ts";
@@ -131,6 +132,10 @@ export const api = {
   /** Who is signed in: the owner, or somebody invited, with what they were given. */
   me: () => call<Me>("/me"),
   agents: () => call<AgentSummary[]>("/agents"),
+  /** Where a new agent can run, and why one cannot here. */
+  places: () => call<WhereToRun[]>("/places"),
+  /** Makes an agent there. Answers once it is listed, which for a machine takes a few seconds. */
+  makeAgent: (agent: { id: string; name: string; where: string; model?: string }) => call<{ id: string; where: string }>("/agents", agent),
   agent: (id: string) => call<AgentSummary>(`/agents/${id}`),
   /** The models somebody may pick for that agent. */
   models: (agent: string) => call<{ model: string; route: string }[]>(`/models?agent=${encodeURIComponent(agent)}`),
