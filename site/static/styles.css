@@ -1073,6 +1073,10 @@ pre.token { margin: 0; padding: 11px 13px; border-radius: 8px; background: var(-
   padding: 8px 11px 7px; border-bottom: 0; }
 .context-menu .head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .context-menu .head .who { font: 500 var(--size-small)/1.3 var(--sans); color: var(--ink); }
+/* Stays at the top while a long list scrolls under it. */
+.context-menu .search { position: sticky; top: -4px; z-index: 1; margin: -4px -4px 4px; padding: 6px; background: var(--surface);
+  border-bottom: 1px solid var(--line); }
+.context-menu .search input { padding: 6px 9px; font-size: var(--size-small); }
 
 /* A page this draws itself, with its minimap down the right. */
 .shown-with-map { flex: 1 1 auto; display: flex; min-height: 0; }

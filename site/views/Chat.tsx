@@ -132,7 +132,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   const [showing, setShowing] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [summary, setSummary] = useState<AgentSummary | null>(null);
-  const [offered, setOffered] = useState<string[]>([]);
+  const [offered, setOffered] = useState<{ model: string; route: string }[]>([]);
   const [picking, setPicking] = useState<{ x: number; y: number } | null>(null);
   // Up to three things to ask under an empty box, chosen as the agent opens.
   const [ideas, setIdeas] = useState<string[]>([]);
@@ -164,7 +164,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
       () => setSummary(null),
     );
     setOffered([]);
-    if (owner) api.models(agent).then((all) => setOffered(all.map((one) => one.model)), () => {});
+    if (owner) api.models(agent).then(setOffered, () => {});
   }, [agent, owner]);
 
   // A pick for this conversation beats what the agent runs on otherwise.
@@ -551,11 +551,19 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
               at={picking}
               from="right"
               close={() => setPicking(null)}
+              search="Search models"
               choices={[
                 { head: "For this conversation" },
                 { label: `Default (${summary.model})`, run: () => void pick(""), current: !picked },
-                "line",
-                ...offered.map((one): Choice => ({ label: one, run: () => void pick(one), current: one === picked })),
+                ...byRoute(offered).flatMap(([route, models]): Choice[] => [
+                  "line",
+                  { head: route },
+                  ...models.map((one): Choice => ({
+                    label: one.replace(` via ${route}`, ""),
+                    run: () => void pick(one),
+                    current: one === picked,
+                  })),
+                ]),
               ]}
             />
           )}
@@ -734,4 +742,15 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
 function lasted(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+/**
+ * The models on offer, one group for each way to reach them, the shortest
+ * group first: a gateway can list hundreds, and the few a subscription runs
+ * would be lost under them.
+ */
+function byRoute(offered: { model: string; route: string }[]): [string, string[]][] {
+  const groups = new Map<string, string[]>();
+  for (const { model, route } of offered) groups.set(route, [...(groups.get(route) ?? []), model]);
+  return [...groups].sort((a, b) => a[1].length - b[1].length);
 }
