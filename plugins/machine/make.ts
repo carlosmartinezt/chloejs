@@ -121,16 +121,50 @@ function imageId(program: string, image: string): Promise<string> {
   return call(program, ["image", "inspect", "--format", "{{.Id}}", image]).then((out) => out.trim(), () => "");
 }
 
-/** The base image, `machine.image`, built from this package's machine/Dockerfile when it is the default and not built yet. */
-async function baseImage(program: string): Promise<string> {
-  const base = settings.machine.image;
-  const id = await imageId(program, base);
-  if (id) return id;
-  if (base !== "chloe-machine") throw new Error(`The image ${base} (machine.image) is not built here.`);
-  const source = packageFolder();
-  console.log(`machines: building the base image chloe-machine from ${source}`);
-  await call(program, ["build", "--quiet", "-t", base, "-f", join(source, "machine", "Dockerfile"), source], undefined, 30 * 60_000);
-  return imageId(program, base);
+/**
+ * Which runtime this copy is: the package's version, and the commit when it
+ * runs from a clone. The base image is labelled with the one it was built
+ * from, so a new release or a new commit builds it again; an edit not yet
+ * committed does not.
+ */
+async function runtimeOf(source: string): Promise<string> {
+  const { version } = JSON.parse(await readFile(join(source, "package.json"), "utf8")) as { version: string };
+  const commit = (await isRepoTop(source)) ? (await call("git", ["-C", source, "rev-parse", "HEAD"]).catch(() => "")).trim() : "";
+  return commit ? `${version}-${commit.slice(0, 12)}` : version;
+}
+
+/** Base images built over, removed once no agent's image is built on them. */
+const replaced = new Set<string>();
+
+/** The base image being built now, so machines made at once wait for one build. */
+let building: Promise<string> | undefined;
+
+/**
+ * The base image, `machine.image`. When it is the default, it is built from
+ * this package's machine/Dockerfile when it is missing or was built from
+ * another runtime than this copy's, so every machine runs the runtime this
+ * copy does. One of the owner's own is used as it is.
+ */
+function baseImage(program: string): Promise<string> {
+  building ??= (async () => {
+    const base = settings.machine.image;
+    if (base !== "chloe-machine") {
+      const id = await imageId(program, base);
+      if (!id) throw new Error(`The image ${base} (machine.image) is not built here.`);
+      return id;
+    }
+    const source = packageFolder();
+    const runtime = await runtimeOf(source);
+    const built = await call(program, ["image", "inspect", "--format", '{{index .Labels "chloe.runtime"}}', base]).then((out) => out.trim(), () => undefined);
+    if (built !== runtime) {
+      const before = await imageId(program, base);
+      console.log(`machines: building the base image chloe-machine from ${source}, runtime ${runtime}${built !== undefined ? `, in place of ${built || "an unknown one"}` : ""}`);
+      await call(program, ["build", "--quiet", "--label", `chloe.runtime=${runtime}`, "-t", base, "-f", join(source, "machine", "Dockerfile"), source], undefined, 30 * 60_000);
+      if (before) replaced.add(before);
+    }
+    return imageId(program, base);
+  })().finally(() => (building = undefined));
+  return building;
 }
 
 /** Whether the sandbox's image is a Dockerfile in the agent's folder, rather than an image's name. */
@@ -166,6 +200,7 @@ async function forgetOldImages(program: string, id: string, kept: string): Promi
   for (const one of listed.split("\n").map((line) => line.trim().replace(/^localhost\//, ""))) {
     if (one && one !== kept && one.startsWith(`chloe-${id}:`)) await call(program, ["rmi", one]).catch(() => undefined);
   }
+  for (const old of replaced) if (await call(program, ["rmi", old]).then(() => true, () => false)) replaced.delete(old);
 }
 
 /** The key the agent's machine takes as its owner: made once, and kept in this copy's state folder, readable by this user only. */

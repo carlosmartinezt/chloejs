@@ -109,9 +109,15 @@ repository, makes the machine's runtime user you, on this computer (Podman's
 ## The base image
 
 `machine/Dockerfile` builds it: Node, git, the runtime, the two users, the
-sudoers line and the start script. The first machine your copy makes builds it
-from the installed package, as `chloe-machine`. To build it again after the
-runtime changes, from a clone:
+sudoers line and the start script. Your copy builds it as `chloe-machine`, from
+the package it runs, when a machine needs it and it is missing or was built from
+another runtime: another version, or, in a clone, another commit (an edit not
+yet committed does not count). Every agent's image is then built again on top
+of it, and each machine made over, so they run the runtime your copy does. The
+base image it replaced is removed once nothing is built on it. With
+`machine.image` set to an image of your own, nothing is built for you.
+
+To build it by hand, from a clone:
 
 ```sh
 git clone https://github.com/carlosmartinezt/chloejs
