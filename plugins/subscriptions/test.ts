@@ -127,18 +127,25 @@ import { agentFor, answers, codeJob, db } from "#chloe/ops/test/shared";
         content: "",
         tool_calls: [
           { id: "1", type: "function", function: { name: "memoryListFiles", arguments: "{}" } },
-          { id: "2", type: "function", function: { name: "memoryEditFile", arguments: '{"path":"notes.html","old":"a","new":"b"}' } },
+          { id: "2", type: "function", function: { name: "memoryEditFile", arguments: JSON.stringify({ path: "notes.html", old: "a".repeat(80), new: "b\nc" }) } },
+          { id: "3", type: "function", function: { name: "memorySearchFiles", arguments: '{"words":"Carlos & Jenny","limit":5}' } },
         ],
       },
       { role: "tool", tool_call_id: "1", content: "[]" },
       { role: "tool", tool_call_id: "2", content: "{}" },
+      { role: "tool", tool_call_id: "3", content: "[]" },
     ],
   });
   is("where the route lists tools longer, a past call has the listed name", listed.transcript.includes("(you used mcp__chloe__memoryListFiles)"), true);
   is(
-    "a past call names its file and leaves out the rest, so it is not copied as text",
-    [listed.transcript.includes("(you used mcp__chloe__memoryEditFile on notes.html)"), listed.transcript.includes('"old"')],
+    "a past call names its file and leaves out what is long, so an edit is not copied as text",
+    [listed.transcript.includes("(you used mcp__chloe__memoryEditFile on notes.html, old (...), new (...))"), listed.transcript.includes("aaaa")],
     [true, false],
+  );
+  is(
+    "and says its short arguments, so a search is not asked again for not knowing what it was",
+    listed.transcript.includes('(you used mcp__chloe__memorySearchFiles, words "Carlos & Jenny", limit 5)'),
+    true,
   );
   const { copiedTranscript } = await import("./cli.ts");
   is(

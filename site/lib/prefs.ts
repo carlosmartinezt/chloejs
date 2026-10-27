@@ -123,5 +123,9 @@ export const logShare = (): number => Number(load("logShare")) || 0.4;
 export const setLogShare = (share: number): void => save("logShare", share.toFixed(3));
 
 /** How wide the chat's list of conversations is, in pixels: 0 is the page's usual width. */
+/** The conversation last open with each agent, so going back to its chat opens it again. Empty for a new one. */
+export const lastChat = (agent: string): string => load(`chat.${agent}`);
+export const setLastChat = (agent: string, thread: string): void => save(`chat.${agent}`, thread);
+
 export const chatWidth = (): number => Number(load("chatWidth")) || 0;
 export const setChatWidth = (width: number): void => save("chatWidth", width ? String(Math.round(width)) : "");

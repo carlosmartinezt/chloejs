@@ -10,7 +10,7 @@ import { ContextMenu } from "./components/ContextMenu.tsx";
 import { modelChoices, type Offered } from "../lib/models.ts";
 import { Card, Prompt } from "./Log.tsx";
 import { go, href } from "../lib/route.ts";
-import { chatWidth, setChatWidth } from "../lib/prefs.ts";
+import { chatWidth, lastChat, setChatWidth, setLastChat } from "../lib/prefs.ts";
 import { ideasFor } from "../lib/ideas.ts";
 import { Collapse } from "./components/Collapse.tsx";
 import { Pick, type Option } from "./components/Pick.tsx";
@@ -137,6 +137,9 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   const [picking, setPicking] = useState<{ x: number; y: number } | null>(null);
   // Up to three things to ask under an empty box, chosen as the agent opens.
   const [ideas, setIdeas] = useState<string[]>([]);
+  // The message of theirs being changed, by where it is in `lines`, and what it says now.
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
   const foot = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
 
@@ -198,8 +201,17 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   }
 
   // The conversation in the address, or a new one. Picking one puts it in the
-  // address, so a reload comes back to it.
+  // address, so a reload comes back to it. Coming back to chat with none in
+  // the address opens the one that was open last, which is a new one when
+  // that was.
   useEffect(() => {
+    const back = asked || about ? "" : lastChat(agent);
+    if (back) {
+      window.history.replaceState({ at: "chat", agent, thread: back }, "", href({ at: "chat", agent, thread: back }));
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      return;
+    }
+    setLastChat(agent, asked ?? "");
     setThread(asked ?? freshThread(agent));
     setFile(about ?? "");
   }, [agent, asked, about]);
@@ -210,6 +222,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     setPictures([]);
     setFile("");
     setThread(freshThread(agent));
+    setLastChat(agent, "");
     go({ at: "chat", agent });
   }
 
@@ -239,6 +252,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     if (!thread) return;
     let live = true;
     setLines([]);
+    setEditing(null);
     setLoading(thread === asked);
     api.said(thread).then(
       (said) => live && setLines(said),
@@ -337,8 +351,12 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     }
   }
 
-  /** Sends what is in the box, or `picked`, an answer pressed under the last reply, leaving the box as it is. */
-  async function send(picked?: string) {
+  /**
+   * Sends what is in the box, or `picked`, an answer pressed under the last
+   * reply or a message changed in place, leaving the box as it is. With
+   * `edit`, the line at `edit` and everything after it are taken back first.
+   */
+  async function send(picked?: string, edit?: number) {
     const link = file ? `${window.location.origin}${href({ at: "memory", agent, path: file })}` : "";
     const words = picked ?? [prompt.trim(), link].filter(Boolean).join("\n\n");
     const sending = picked ? [] : pictures;
@@ -349,10 +367,9 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
       setFile("");
     }
     setTrouble("");
-    setLines((said) => [
-      ...said,
-      { role: "user", content: words, at: new Date().toISOString(), pictures: sending.length ? sending.map((one) => one.url) : undefined },
-    ]);
+    const replaces = edit === undefined ? undefined : lines[edit]?.id;
+    const mine: Line = { role: "user", content: words, at: new Date().toISOString(), pictures: sending.length ? sending.map((one) => one.url) : undefined };
+    setLines((said) => [...(edit === undefined ? said : said.slice(0, edit)), mine]);
     const to = thread;
     setWaitingOn((all) => new Map(all).set(to, Date.now()));
     asking.current.add(to);
@@ -360,8 +377,12 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     // again reads it back with the answer in it.
     const here = (line: Line) => open.current === to && setLines((said) => [...said, line]);
     try {
-      const answer = await api.say(agent, words, to, sending.map(({ name, mediaType, data }) => ({ name, mediaType, data })));
+      const answer = await api.say(agent, words, to, sending.map(({ name, mediaType, data }) => ({ name, mediaType, data })), replaces);
+      // The ids it was kept under, so it can be forked or edited without reading it all again.
+      const asked = answer.kept?.find((one) => one.role === "user")?.id;
+      if (asked !== undefined && open.current === to) setLines((said) => said.map((line) => (line === mine ? { ...line, id: asked } : line)));
       here({
+        id: answer.kept?.findLast((one) => one.role === "assistant")?.id,
         role: "assistant",
         content: answer.text,
         cost: answer.cost,
@@ -374,13 +395,35 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
       api.threads(agent).then(setThreads, () => {});
       // /model typed in the box picks one too.
       if (/^\/models?\b/i.test(words)) api.agent(agent).then(setSummary, () => {});
-      if (!asked && open.current === to) window.history.replaceState(null, "", href({ at: "chat", agent, thread: to }));
+      if (!asked && open.current === to) {
+        window.history.replaceState(null, "", href({ at: "chat", agent, thread: to }));
+        setLastChat(agent, to);
+      }
     } catch (error) {
       here({ role: "assistant", content: (error as Error).message, failed: true });
     } finally {
       asking.current.delete(to);
       done(to);
     }
+  }
+
+  /** A new conversation with what was said up to and including `line`, opened. This one stays as it is. */
+  async function fork(line: Line) {
+    if (line.id === undefined) return;
+    try {
+      const made = await api.fork(thread, line.id);
+      api.threads(agent).then(setThreads, () => {});
+      go({ at: "chat", agent, thread: made.thread });
+    } catch (error) {
+      setTrouble((error as Error).message);
+    }
+  }
+
+  /** Sends the message being changed in place of the one it was. */
+  function resend(at: number) {
+    if (!draft.trim()) return;
+    setEditing(null);
+    void send(draft.trim(), at);
   }
 
   /** Puts one conversation's new name or archive state into the list. */
@@ -594,13 +637,58 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                       ))}
                     </div>
                   )}
-                  {(line.content || !line.pictures) && (
-                    <Prompt
-                      prompt={line.content}
-                      at={line.at}
-                      stamp={when}
-                      visitor={thread.includes("/visitor-") ? { agent, id: thread.slice(thread.indexOf("/visitor-") + 9) } : undefined}
-                    />
+                  {editing === at ? (
+                    <div className="msg you editing">
+                      <textarea
+                        autoFocus
+                        value={draft}
+                        onChange={(event) => setDraft(event.target.value)}
+                        onFocus={(event) => event.currentTarget.setSelectionRange(draft.length, draft.length)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault();
+                            resend(at);
+                          }
+                          if (event.key === "Escape") setEditing(null);
+                        }}
+                      />
+                      <div className="row">
+                        <button className="plain" onClick={() => setEditing(null)}>
+                          Cancel
+                        </button>
+                        <button onClick={() => resend(at)} disabled={!draft.trim() || waiting}>
+                          Send
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    (line.content || !line.pictures) && (
+                      <Prompt
+                        whole
+                        prompt={line.content}
+                        at={line.at}
+                        stamp={when}
+                        visitor={thread.includes("/visitor-") ? { agent, id: thread.slice(thread.indexOf("/visitor-") + 9) } : undefined}
+                        actions={
+                          line.id !== undefined &&
+                          !waiting &&
+                          !thread.includes("/visitor-") && (
+                            <button
+                              className="plain act"
+                              title="Edit"
+                              aria-label="Edit"
+                              onClick={() => {
+                                // A channel's note on who wrote it is not theirs to change.
+                                setDraft(line.content.replace(/^\s*<([a-z_]+)>\n?[\s\S]*?\n?<\/\1>\s*/, ""));
+                                setEditing(at);
+                              }}
+                            >
+                              <Icons.Edit />
+                            </button>
+                          )
+                        }
+                      />
+                    )
                   )}
                 </Fragment>
               ) : (
@@ -612,6 +700,11 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                     <Pick options={line.buttons} multiple={line.multiple} disabled={waiting} pick={(text) => void send(text)} />
                   )}
                   <div className="meta num">
+                    {line.id !== undefined && (
+                      <button className="plain act" title="Fork into a new chat" aria-label="Fork into a new chat" onClick={() => void fork(line)}>
+                        <Icons.Branch />
+                      </button>
+                    )}
                     {[nameOf(agent), line.at && when(line.at), line.cost !== undefined && (line.unpriced ? spent(line.cost, line.unpriced) : money(line.cost))].filter(Boolean).join(", ")}
                   </div>
                 </div>

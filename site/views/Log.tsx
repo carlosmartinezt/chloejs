@@ -746,6 +746,8 @@ export function Prompt({
   prompt,
   stamp = clock,
   visitor,
+  whole = false,
+  actions,
 }: {
   source?: string;
   at?: string | null;
@@ -754,6 +756,10 @@ export function Prompt({
   stamp?: (iso: string | null) => string;
   /** A web channel's visitor who said it: what the runtime keeps on them and the model is not shown is added to the note. */
   visitor?: { agent: string; id: string };
+  /** Shown whole, as a conversation shows what somebody wrote. A run folds a long one to its first line. */
+  whole?: boolean;
+  /** Buttons for what can be done with it, beside when it was said. */
+  actions?: ReactNode;
 }) {
   const found = /^\s*<([a-z_]+)>\n?([\s\S]*?)\n?<\/\1>\s*/.exec(prompt);
   const words = found ? prompt.slice(found[0].length) : prompt;
@@ -776,9 +782,16 @@ export function Prompt({
         </div>
       )}
       <div className="bubble">
-        <Folded words={words || prompt} />
+        {whole ? words || prompt : <Folded words={words || prompt} />}
       </div>
-      <Meta words={stamp(at ?? null)} />
+      {actions ? (
+        <div className="meta num">
+          {actions}
+          {stamp(at ?? null)}
+        </div>
+      ) : (
+        <Meta words={stamp(at ?? null)} />
+      )}
     </div>
   );
 }

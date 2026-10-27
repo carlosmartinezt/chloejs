@@ -77,6 +77,31 @@ export function forget(thread: string): void {
   db.prepare("update threads set label = null, archived = null where thread = ?").run(thread);
 }
 
+/**
+ * Starts conversation `to` as a copy of `thread` up to and including message
+ * `through`, each message with the time it was said and the tools it used.
+ * The two then go their own ways. Returns how many messages were copied: none
+ * when `through` is not in `thread`.
+ */
+export function branch(thread: string, through: number, to: string): number {
+  if (!db.prepare("select 1 from messages where thread = ? and id = ?").get(thread, through)) return 0;
+  return Number(
+    db
+      .prepare("insert into messages (thread, role, content, at, used) select ?, role, content, at, used from messages where thread = ? and id <= ? order by id")
+      .run(to, thread, through).changes,
+  );
+}
+
+/**
+ * Takes back message `from` of `thread` and every one after it, so the
+ * conversation goes on from before it, as when somebody changes what they
+ * wrote. The runs keep what was said in them, as the log. Returns how many
+ * messages went.
+ */
+export function cut(thread: string, from: number): number {
+  return Number(db.prepare("delete from messages where thread = ? and id >= ?").run(thread, from).changes);
+}
+
 /** The conversation a channel's chat is in now: the id the channel gives it, until `/clear` moves it on. */
 export function current(thread: string): string {
   const row = db.prepare("select now from cleared where thread = ?").get(thread) as { now: string } | undefined;

@@ -77,6 +77,20 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
   is("the conversation is theirs", (db.prepare("select owner from threads where thread = 'test/web-jenny'").get() as { owner: string }).owner, "jenny@example.com");
   is("a model picked in the chat is not theirs to pick", (await call("POST", "/api/agents/test/chat", jenny, { prompt: "/model x", thread: "test/web-jenny" })).status, 403);
 
+  const read = async (thread: string) => (await call("GET", `/api/threads/${encodeURIComponent(thread)}`, jenny)).body as { id: number; role: string; content: string }[];
+  is("the turn says which messages it kept, and the conversation reads back with the same ids", said.body.kept, (await read("test/web-jenny")).map(({ id, role }) => ({ id, role })));
+  const forked = await call("POST", `/api/threads/${encodeURIComponent("test/web-jenny")}/fork`, jenny, { through: said.body.kept[1].id });
+  is("they fork it into a new conversation, with what was said so far", (await read(forked.body.thread)).map((one) => one.role), ["user", "assistant"]);
+  is("which is theirs too", (db.prepare("select owner from threads where thread = ?").get(forked.body.thread) as { owner: string }).owner, "jenny@example.com");
+  is("a message from another conversation does not fork", (await call("POST", `/api/threads/${encodeURIComponent("test/web-jenny")}/fork`, jenny, { through: -1 })).status, 400);
+  const first = (await read(forked.body.thread))[0].id;
+  is("a reply is not theirs to edit", (await call("POST", "/api/agents/test/chat", jenny, { prompt: "x", thread: forked.body.thread, replaces: first + 1 })).status, 400);
+  answers.push("Hello again.");
+  const edited = await call("POST", "/api/agents/test/chat", jenny, { prompt: "Hello", thread: forked.body.thread, replaces: first });
+  const after = await read(forked.body.thread);
+  is("what they wrote is changed, and what came after it taken back", [edited.status, after.length, after.at(-1)?.content], [200, 2, "Hello again."]);
+  is("and the conversation it came from goes on as it was", (await read("test/web-jenny")).map((one) => one.content).at(-1), "Hello Jenny.");
+
   remember("test/web-owner", "user", "the owner's");
   // Their own on any channel: an email conversation with them is theirs too.
   const listed = (await call("GET", "/api/agents/test/threads", jenny)).body.map((one: { thread: string }) => one.thread) as string[];

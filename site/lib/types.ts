@@ -338,6 +338,8 @@ export interface Thread {
 }
 
 export interface Said {
+  /** What forking or editing it takes. */
+  id?: number;
   role: "user" | "assistant";
   content: string;
   /** When it was said. A runtime from before this was sent leaves it out. */

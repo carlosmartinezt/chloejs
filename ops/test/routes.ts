@@ -147,6 +147,25 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
 }
 
 {
+  about("an account out of credit");
+  const { ask, UsageLimit } = await import("#chloe/model/model");
+  const { receive } = await import("#chloe/channels/shared");
+  const broke = { refused: { status: 402, body: { error: { message: "A positive credit balance is required.", type: "insufficient_funds" } } } };
+  answers.length = 0;
+  answers.push(broke);
+  const failed = await ask({ model: "zai/glm-5v-turbo", messages: [{ role: "user", content: "hi" }] }).then(() => undefined, (error: Error) => error);
+  is("a 402 is a usage limit, said for the person waiting", [failed instanceof UsageLimit, failed?.message], [
+    true,
+    "The AI gateway's account is out of credit, so I cannot answer with zai/glm-5v-turbo. Add credit to it, or pick a model that goes another way.",
+  ]);
+  answers.push(broke);
+  const agent = agentFor(codeJob("nightly", async () => ({})));
+  const said = await receive(agent, { channel: "api", chat: "test/broke", thread: "test/broke", from: { id: "1", name: "me" }, text: "hi", private: true, fromOwner: true });
+  is("and a chat is told it, not that something went wrong", said?.text.startsWith("The AI gateway's account is out of credit"), true);
+  answers.length = 0;
+}
+
+{
   about("a streamed answer cut short");
   const { settings } = await import("#chloe/core/settings");
   const { ask } = await import("#chloe/model/model");

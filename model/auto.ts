@@ -9,9 +9,11 @@ import { ask, quickFor } from "./model.ts";
 
 const ASKED =
   "You decide which model answers the newest message to an AI agent. " +
+  "Judge by the work the answer takes, not by how long the message is: a yes to an offer the agent made " +
+  "is the work it offered. " +
   "Answer quick when a small, fast model will do it as well: a greeting, thanks, a short answer, a simple question or a lookup. " +
-  "Answer strong when it needs care: reasoning over several steps, writing that matters, code, a plan, a judgement, " +
-  "a mistake that would cost something, or anything you are unsure of. " +
+  "Answer strong when it needs care: reasoning over several steps, writing or changing something that matters, code, a plan, " +
+  "advice on money, health or law, a judgement, a mistake that would cost something, or anything you are unsure of. " +
   "Reply with one line: quick or strong, a colon, and the reason in under twelve words.";
 
 /** How long a conversation that went to the agent's own model stays there, in milliseconds. */

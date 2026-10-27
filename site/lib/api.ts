@@ -199,13 +199,29 @@ export const api = {
   archiveThread: (thread: string, archived: boolean) =>
     call<{ thread: string; archived: string | null }>(`/threads/${encodeURIComponent(thread)}/archive`, { archived }),
   forget: (thread: string) => call<unknown>(`/threads/${encodeURIComponent(thread)}/forget`, {}),
-  /** Pictures go with this turn only: the runtime keeps the line saying they were attached, never the picture. The browser's timezone goes too, so the model is told the writer's date. */
-  say: (agent: string, prompt: string, thread: string, images: Picture[] = []) =>
-    call<{ runId: string; text: string; cost: number; unpriced?: number; buttons?: { label: string; sends: string }[]; multiple?: boolean }>(`/agents/${agent}/chat`, {
+  /** A new conversation with what was said up to and including message `through`. */
+  fork: (thread: string, through: number) =>
+    call<{ thread: string; messages: number }>(`/threads/${encodeURIComponent(thread)}/fork`, { through }),
+  /**
+   * Pictures go with this turn only: the runtime keeps the line saying they were attached, never the picture. The browser's timezone goes too, so the model is told the writer's date.
+   * `replaces` is the id of a message of theirs this one is an edit of: it and everything after it are taken back first.
+   */
+  say: (agent: string, prompt: string, thread: string, images: Picture[] = [], replaces?: number) =>
+    call<{
+      runId: string;
+      text: string;
+      cost: number;
+      unpriced?: number;
+      buttons?: { label: string; sends: string }[];
+      multiple?: boolean;
+      /** The messages the turn kept, oldest first. */
+      kept?: { id: number; role: "user" | "assistant" }[];
+    }>(`/agents/${agent}/chat`, {
       prompt,
       thread,
       ...(zone ? { timeZone: zone } : {}),
       ...(images.length ? { images } : {}),
+      ...(replaces !== undefined ? { replaces } : {}),
     }),
 
   /** What .env sets, by name. A value goes in and never comes back out. */

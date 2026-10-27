@@ -24,7 +24,7 @@ import { tryJob, type Clock } from "#chloe/core/clock";
 import { PURPOSE_HERE, alwaysOnTools, ownerPrompt } from "#chloe/core/turn";
 import { AUTO, choices, choose, modelFor, type Scope } from "#chloe/model/choices";
 import { commands } from "#chloe/channels/shared";
-import { current, forget } from "#chloe/model/memory";
+import { branch, current, cut, forget } from "#chloe/model/memory";
 import { models, quickFor } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
@@ -842,7 +842,7 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/threads/:thread",
-    does: "What was said in one conversation.",
+    does: "What was said in one conversation, each message with the id that forking or editing it takes.",
     token: true,
     member: "filtered",
     handle: ({ response, params, who }) => {
@@ -850,8 +850,8 @@ const routes: Route[] = [
       if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
       // Read here, not through recall(): that is what a model is shown, and it carries no time.
       const rows = db
-        .prepare("select role, content, at from messages where thread = ? order by id desc limit 100")
-        .all(thread) as { role: string; content: string; at: string }[];
+        .prepare("select id, role, content, at from messages where thread = ? order by id desc limit 100")
+        .all(thread) as { id: number; role: string; content: string; at: string }[];
       json(response, rows.reverse());
     },
   },
@@ -888,13 +888,13 @@ const routes: Route[] = [
     method: "POST",
     path: "/api/agents/:id/chat",
     does: "One turn with the agent. Send the same thread again and it remembers what was said. Pictures are seen in this turn only and never kept.",
-    takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "timeZone": "optional, like Europe/Madrid, so it says the writer\'s date", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}]}',
+    takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "timeZone": "optional, like Europe/Madrid, so it says the writer\'s date", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}], "replaces": "optional, the id of a message you wrote in this thread: it and everything after it are taken back first, as an edit"}',
     token: true,
     needsApiChannel: true,
     member: "chat",
     handle: async ({ request, response, context, params, who }) => {
       const agent = context.agent(params.id);
-      const { prompt, thread, model, images, timeZone } = await body(
+      const { prompt, thread, model, images, timeZone, replaces } = await body(
         request,
         z.object({
           prompt: z.string().trim(),
@@ -902,6 +902,7 @@ const routes: Route[] = [
           model: z.string().optional(),
           timeZone: z.string().optional(),
           images: z.array(Picture).max(PICTURES).default([]),
+          replaces: z.number().int().optional(),
         }),
         8 << 20,
       );
@@ -921,6 +922,14 @@ const routes: Route[] = [
         }
       }
       const under = chatThread(agent.id, thread, who, true);
+      if (replaces !== undefined) {
+        if (!db.prepare("select 1 from messages where thread = ? and id = ? and role = 'user'").get(under, replaces)) {
+          throw new BadRequest("There is no message of yours with that id in this conversation.");
+        }
+        cut(under, replaces);
+      }
+      // What this turn keeps is what comes after, so the page can fork or edit it without reading it all again.
+      const before = (db.prepare("select coalesce(max(id), 0) as id from messages").get() as { id: number }).id;
       // The same path as every channel's message, so a /command, or a reply
       // that is one, goes to that job here too. Who may call this is already
       // settled by the login or the token, so there is no allowFrom.
@@ -956,7 +965,8 @@ const routes: Route[] = [
           : undefined,
       }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory });
       if (naming) await Promise.race([naming, new Promise((done) => setTimeout(done, 5000))]);
-      json(response, handled);
+      const kept = db.prepare("select id, role from messages where thread = ? and id > ? order by id").all(under, before);
+      json(response, handled ? { ...handled, kept } : handled);
     },
   },
   {
@@ -1155,6 +1165,26 @@ const routes: Route[] = [
       const at = archived ? new Date().toISOString() : null;
       db.prepare("insert into threads (thread, archived) values (?, ?) on conflict (thread) do update set archived = excluded.archived").run(thread, at);
       json(response, { thread, archived: at });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/threads/:thread/fork",
+    does: "Start a new conversation from one, with what was said up to and including one message. The first goes on as it was.",
+    takes: '{"through": "the id of a message in it"}',
+    member: "filtered",
+    handle: async ({ request, response, params, who }) => {
+      const thread = threadFor(who, decodeURIComponent(params.thread));
+      const agent = thread.split("/")[0];
+      if (!may(who, agent, "chat")) throw new NotFound("No such conversation.");
+      const { through } = await body(request, z.object({ through: z.number().int() }));
+      const to = `${agent}/${randomUUID()}`;
+      const copied = branch(thread, through, to);
+      if (!copied) throw new BadRequest("There is no message with that id in this conversation.");
+      // A member's stays theirs, and the name says where it came from.
+      const was = db.prepare("select label, owner from threads where thread = ?").get(thread) as { label: string | null; owner: string | null } | undefined;
+      db.prepare("insert into threads (thread, label, owner) values (?, ?, ?)").run(to, was?.label ? `${was.label} (fork)` : null, was?.owner ?? null);
+      json(response, { thread: to, messages: copied });
     },
   },
   {

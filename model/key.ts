@@ -15,7 +15,7 @@ import { APICallError, generateText, jsonSchema, RetryError, streamText, tool, t
 
 import { PROVIDERS, settings, whereKeyGoes, type Provider } from "#chloe/core/settings";
 
-import { TryAgain, type Answer, type Ask, type Message, type ToolCall } from "./model.ts";
+import { TryAgain, UsageLimit, type Answer, type Ask, type Message, type ToolCall } from "./model.ts";
 
 /** A model made by an AI SDK provider package, like anthropic("claude-opus-5-5"). */
 export type SdkModel = Exclude<LanguageModel, string>;
@@ -219,6 +219,8 @@ function parsed(text: string): unknown {
 export async function viaKey({ model, messages, tools, maxOutputTokens, signal, onText }: Ask, route: "gateway" | "direct"): Promise<Answer> {
   let reach: LanguageModel;
   let where: string;
+  /** Whose money a call spends, as the person waiting is told when it runs out. */
+  let account: string;
   if (route === "gateway") {
     if (!settings.model.key) {
       throw new Error(
@@ -228,6 +230,7 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal, 
     }
     reach = gateway(settings.model.key)(model);
     where = "the gateway";
+    account = "The AI gateway's account";
   } else {
     const found = sdkModel(model);
     const own = found ? { reach: found, provider: found.provider.split(".")[0] } : onOwnKey(model);
@@ -235,6 +238,7 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal, 
     // Named, because whoever chose a subscription would not otherwise see that
     // model.preferredRoute sent the call to a key.
     where = `${own.provider}, by the direct route,`;
+    account = `The ${own.provider} account its key charges`;
   }
 
   try {
@@ -274,8 +278,21 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal, 
   } catch (error) {
     const again = error instanceof TryAgain;
     const cause = again ? error.cause : error;
+    if (outOfCredit(cause)) {
+      throw new UsageLimit(`${account} is out of credit, so I cannot answer with ${model}. Add credit to it, or pick a model that goes another way.`, { cause });
+    }
     throw again ? new TryAgain(explained(cause, where), { cause }) : new Error(explained(cause, where), { cause });
   }
+}
+
+/**
+ * Whether a key's account has no money left: a 402, or the words the
+ * gateway, OpenAI and Anthropic use for it, which they send with a 400 or a 429.
+ */
+function outOfCredit(error: unknown): boolean {
+  const last = RetryError.isInstance(error) ? error.lastError : error;
+  if (!APICallError.isInstance(last)) return false;
+  return last.statusCode === 402 || /insufficient_funds|insufficient_quota|credit balance is too low/i.test(last.responseBody ?? "");
 }
 
 /**
