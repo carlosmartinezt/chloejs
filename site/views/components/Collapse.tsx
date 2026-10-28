@@ -10,7 +10,18 @@ import { announceMenu, watchMenu } from "../../lib/menus.ts";
  * column they always were, because the wrapper is display: contents and shows
  * no box of its own.
  */
-export function Collapse({ closeOn, label = "Menu", children }: { closeOn?: string; label?: string; children: ReactNode }) {
+export function Collapse({
+  closeOn,
+  label = "Menu",
+  icon = <Icons.Menu />,
+  children,
+}: {
+  closeOn?: string;
+  label?: string;
+  /** Beside the label, and all a page shows when it hides the label to keep the toggle to one round button. */
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const id = useId();
   // The menu closes itself once it has done its job: a press on a place goes
@@ -25,9 +36,9 @@ export function Collapse({ closeOn, label = "Menu", children }: { closeOn?: stri
   };
   return (
     <div className={open ? "menu-root open" : "menu-root"}>
-      <button className="menu-toggle" aria-expanded={open} onClick={toggle}>
-        <Icons.Menu />
-        {label}
+      <button className="menu-toggle" aria-label={label} aria-expanded={open} onClick={toggle}>
+        {icon}
+        <span className="label">{label}</span>
         <Icons.Down />
       </button>
       <div className="menu-body">{children}</div>

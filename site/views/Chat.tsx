@@ -273,6 +273,17 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     foot.current?.scrollIntoView({ block: "end" });
   }, [lines, waiting, doing.length]);
 
+  // Whether the end of the conversation is in sight. Watched against the
+  // window, not the list, because on a phone it is the whole column that scrolls.
+  const [atEnd, setAtEnd] = useState(true);
+  useEffect(() => {
+    const end = foot.current;
+    if (!end) return;
+    const watching = new IntersectionObserver(([one]) => setAtEnd(one.isIntersecting));
+    watching.observe(end);
+    return () => watching.disconnect();
+  }, []);
+
   // What it is doing while it is doing it. A turn writes its trace step by
   // step, so the run it is in the middle of says which tools it has reached
   // for. Nothing here makes it happen, it only watches. A turn this page did
@@ -555,6 +566,10 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
           />
         )}
         </Collapse>
+        {/* Only on a phone, where the list is closed: starting again without opening it. */}
+        <button className="plain start" title="New chat" aria-label="New chat" onClick={newChat}>
+          <Icons.NewConversation />
+        </button>
       </nav>
 
       <div className="edge" role="separator" aria-orientation="vertical" title="Drag to resize" onPointerDown={drag} />
@@ -746,6 +761,16 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
         </div>
 
         <div className="composer">
+          {!atEnd && !blank && (
+            <button
+              className="to-end"
+              title="Down to the newest"
+              aria-label="Down to the newest"
+              onClick={() => foot.current?.scrollIntoView({ block: "end", behavior: "smooth" })}
+            >
+              <Icons.ToEnd />
+            </button>
+          )}
           <div className="box">
             {file && (
               <button className="plain held-file" title={`Take ${file} off`} onClick={() => setFile("")}>

@@ -916,7 +916,14 @@ pre.painted .keyword { color: var(--accent); }
   .dots i:nth-child(3) { animation-delay: .3s; }
 }
 @keyframes bounce { 30% { opacity: 1; transform: translateY(-3px); } }
-.composer { padding: 10px 30px 22px; }
+.composer { position: relative; padding: 10px 30px 22px; }
+/* Down to the newest, floating just above the box once the end is out of sight. */
+.composer .to-end { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); z-index: 1;
+  display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  box-shadow: 0 1px 2px var(--shadow-1), 0 6px 18px -8px var(--shadow-2); }
+.composer .to-end:hover:enabled { background: var(--surface); color: var(--accent); }
+.composer .to-end svg { width: 18px; height: 18px; }
 .composer .box { display: flex; flex-direction: column; max-width: 760px; margin: 0 auto;
   background: var(--surface); border: 1px solid var(--line-2); border-radius: 26px;
   padding: 8px 8px 8px 18px;
@@ -952,6 +959,65 @@ pre.painted .keyword { color: var(--accent); }
   .msg.you .bubble, .run-thread .msg.you .bubble { max-width: 85%; padding: 9px 14px; }
   .composer { padding: 6px 10px 10px; }
   .composer .box { padding: 6px 6px 6px 14px; border-radius: 24px; }
+}
+.chat .past .start { display: none; }
+/* On a phone a conversation has the whole screen and scrolls under what
+   floats over it: the past conversations and starting again at the top left,
+   the agent's pages and the agent at the top right, and the box at the
+   bottom. */
+@media (max-width: 620px) {
+  :root:has(.chat) .bar { position: fixed; top: var(--dev-h); left: 0; right: 0; padding: 0 12px;
+    background: none; border: 0; pointer-events: none; }
+  :root:has(.chat) .bar > * { pointer-events: auto; }
+  :root:has(.chat) .bar :is(.mark, .count, .you) { display: none; }
+  :root:has(.chat) .bar :is(.burger, .where), .chat .past {
+    height: 44px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    box-shadow: 0 1px 2px var(--shadow-1), 0 6px 18px -8px var(--shadow-2); }
+  :root:has(.chat) .bar :is(.burger, .where):is(:hover, [aria-expanded="true"]) { background: var(--surface); color: var(--ink); }
+  :root:has(.chat) .bar .burger { position: relative; z-index: 1; order: 0; justify-content: center; align-items: center;
+    width: 44px; margin: 0 0 0 auto; border-radius: 50%; }
+  :root:has(.chat) .bar .burger svg { width: 22px; height: 22px; }
+  :root:has(.chat) .bar .where { order: 1; margin-left: 8px; padding: 0 12px 0 15px; border-radius: 22px; font-size: var(--size-body); }
+  /* The pages drop down as a card under the button, not as a band across. */
+  :root:has(.chat) .bar .menu.open { left: auto; right: 12px; top: calc(100% - 2px); min-width: 230px;
+    padding: 6px 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
+    box-shadow: 0 18px 40px -16px var(--shadow-2); }
+  :root:has(.chat) .bar .menu.open :is(a, .reload) { color: var(--ink); padding: 13px 20px; }
+  :root:has(.chat) .bar .menu.open .reload { border-top-color: var(--line); }
+  /* Chat is the page underneath. */
+  :root:has(.chat) .bar .menu.open a[aria-current="true"] { display: none; }
+  :root:has(.chat) .shade { top: 0; }
+
+  .chat { display: flex; flex-direction: column; height: calc(100dvh - var(--dev-h)); }
+  .chat .past { position: fixed; top: calc(var(--dev-h) + 8px); left: 12px; z-index: 6;
+    display: flex; align-items: center; padding: 0 3px; border-radius: 22px; }
+  .chat .past .start, .chat .past .menu-toggle { display: flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; padding: 0; border-radius: 50%; background: none; color: var(--ink); }
+  .chat .past .menu-toggle :is(.label, svg:last-child) { display: none; }
+  .chat .past :is(.start, .menu-toggle) svg { width: 21px; height: 21px; }
+  .chat .past .menu-root { position: static; }
+  .chat .past .menu-root.open .menu-body { top: calc(100% + 8px); left: -1px; right: auto;
+    width: min(320px, calc(100vw - 24px)); max-height: 70dvh;
+    border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 18px 40px -16px var(--shadow-2); }
+
+  /* The conversation scrolls as one, so the box can stick to the bottom of it
+     and the words go on under it, fading out. */
+  .talking { flex: 1 1 auto; overflow: auto; overscroll-behavior: contain; }
+  .talking .head { justify-content: center; padding: calc(var(--bar-h) + 4px) 16px 0; border: 0; }
+  .talking .head .trail { display: none; }
+  .chat .scroll { flex: 1 0 auto; overflow: visible; }
+  .composer { position: sticky; bottom: 0; z-index: 1; padding: 22px 12px calc(10px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, var(--bg) 60%, transparent); }
+  .composer .to-end { bottom: calc(100% - 14px); }
+  /* One line, adding on the left and sending on the right. A file or a
+     picture being held goes on a line of its own above, which the empty
+     ::before breaks off. */
+  .composer .box { flex-direction: row; flex-wrap: wrap; align-items: flex-end; padding: 4px; border-radius: 26px; }
+  .composer .box::before { content: ""; order: -1; flex-basis: 100%; }
+  .composer .box :is(.held-file, .pictures) { order: -2; margin-left: 10px; }
+  .composer .box > .row { display: contents; }
+  .composer textarea { order: 1; flex: 1 1 0; padding: 8px 4px; }
+  .composer button.go { order: 2; }
 }
 .empty { color: var(--dim);  }
 /* Nothing here yet, said inside a frame so the page does not read as broken. */

@@ -228,6 +228,23 @@ export const Send = () => (
   </Icon>
 );
 
+/** Down to the newest, at the end of a conversation. */
+export const ToEnd = () => (
+  <Icon>
+    <path d="M8 3v9.4M4.2 8.6 8 12.6l3.8-4" />
+  </Icon>
+);
+
+/** An agent's own pages: its settings, its memory and its log. Drawn on a 24 grid, so the stroke is scaled up to match the rest. */
+export const Settings = () => (
+  <Icon>
+    <g transform="scale(.6667)" strokeWidth="2.15">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z" />
+      <circle cx="12" cy="12" r="3" />
+    </g>
+  </Icon>
+);
+
 /** Taking a copy of something, onto the clipboard. */
 export const Copy = () => (
   <Icon>

@@ -208,7 +208,8 @@ export function App() {
         {/* Which agent you are with, in the bar rather than in a column, so no
             page has to give up room to hold it. */}
         {agents[0] && <WhichAgent here={here} all={agents} view={view} given={given} />}
-        <Menu closeOn={window.location.pathname}>
+        {/* On a phone's chat the menu button is right of the conversations' own, so it is a gear rather than a second one of the same. */}
+        <Menu closeOn={window.location.pathname} icon={view.at === "chat" ? <Icons.Settings /> : undefined}>
           {/* Chat, Config and Memory belong to an agent, so these go to the
               one you are with, or were last with. Config is every page of its
               own, with the sidebar that moves between them. */}
@@ -372,7 +373,7 @@ function WhichAgent({ here, all, view, given }: { here?: string; all: AgentSumma
  * a way to reload it, because a page installed on a phone has no browser
  * around it to do that. It closes once a link has gone somewhere.
  */
-function Menu({ closeOn, children }: { closeOn: string; children: ReactNode }) {
+function Menu({ closeOn, icon = <Icons.Menu />, children }: { closeOn: string; icon?: ReactNode; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   useEffect(() => setOpen(false), [closeOn]);
@@ -396,7 +397,7 @@ function Menu({ closeOn, children }: { closeOn: string; children: ReactNode }) {
         aria-expanded={open}
         onClick={toggle}
       >
-        {open ? <Icons.Close /> : <Icons.Menu />}
+        {open ? <Icons.Close /> : icon}
       </button>
       <nav className={open ? "menu open" : "menu"}>
         {children}
