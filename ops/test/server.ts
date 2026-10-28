@@ -401,7 +401,7 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
 
   // What a chat understands as a slash command, for a client building a menu.
   const listed = await fetch(`${at}/api/agents/test/commands`, { headers: { authorization: `Bearer ${secret}` } });
-  is("a token reads what commands the agent understands", [listed.status, ((await listed.json()) as { command: string }[]).map((one) => one.command)], [200, ["reading", "models", "clear"]]);
+  is("a token reads what commands the agent understands", [listed.status, ((await listed.json()) as { command: string }[]).map((one) => one.command)], [200, ["reading", "models", "compact", "clear"]]);
   is("and with no token it is nobody's", (await fetch(`${at}/api/agents/test/commands`)).status, 401);
 
   // Everything a reply to the owner starts with, for the Purpose page's whole prompt.

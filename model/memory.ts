@@ -1,6 +1,7 @@
-// The last few messages of one thread, and nothing else: no summarising and
-// nothing kept between threads. What an agent should remember across runs it
-// writes into its own folder, where it can be read and corrected.
+// The last few messages of one thread, and nothing kept between threads. The
+// one summary is what /compact writes when somebody asks for it: a turn is
+// then shown that and what came after. What an agent should remember across
+// runs it writes into its own folder, where it can be read and corrected.
 import { db } from "#chloe/core/db";
 import type { Message } from "./model.ts";
 import type { Call } from "./tool.ts";
@@ -34,10 +35,20 @@ export function remember(thread: string, role: "user" | "assistant", content: st
   );
 }
 
+/** What a summary is shown to a model as, before its words. */
+export const SUMMARY_HEAD = "A summary of our conversation before this point:";
+
+/** The id of the latest summary in a thread, or 0 when it has none. */
+export function lastSummary(thread: string): number {
+  return (db.prepare("select max(id) as id from messages where thread = ? and summary = 1").get(thread) as { id: number | null }).id ?? 0;
+}
+
 /**
  * The last `limit` messages of a thread, oldest first, leaving out any older
  * than `days` when it is given. Nothing is deleted: a message too old to be
- * recalled is still in the database and still on the page.
+ * recalled is still in the database and still on the page. A thread that was
+ * compacted is recalled from its latest summary, which is always shown first,
+ * however many came after it.
  *
  * With `tools`, a reply that called tools is preceded by those calls, in the
  * same shape a turn's own calls take, with results that were not kept.
@@ -46,10 +57,13 @@ export function remember(thread: string, role: "user" | "assistant", content: st
  */
 export function recall(thread: string, { limit = RECALL, days, tools = false }: { limit?: number; days?: number; tools?: boolean } = {}): Message[] {
   const since = days ? new Date(Date.now() - days * 86_400_000).toISOString() : "";
+  const from = lastSummary(thread);
   const rows = db
-    .prepare("select id, role, content, used from messages where thread = ? and at >= ? order by id desc limit ?")
-    .all(thread, since, limit) as { id: number; role: string; content: string; used: string | null }[];
-  return rows.reverse().flatMap((r): Message[] => {
+    .prepare("select id, role, content, used from messages where thread = ? and id > ? and at >= ? order by id desc limit ?")
+    .all(thread, from, since, limit) as { id: number; role: string; content: string; used: string | null }[];
+  const summary = from ? (db.prepare("select content from messages where id = ?").get(from) as { content: string }) : undefined;
+  const head: Message[] = summary ? [{ role: "assistant", content: `${SUMMARY_HEAD}\n\n${summary.content}` }] : [];
+  return head.concat(rows.reverse().flatMap((r): Message[] => {
     const said: Message = { role: r.role as Message["role"], content: r.content };
     if (!tools || !r.used) return [said];
     const calls = (JSON.parse(r.used) as Used[]).map((one, i) => ({
@@ -62,7 +76,7 @@ export function recall(thread: string, { limit = RECALL, days, tools = false }: 
       ...calls.map((call) => ({ role: "tool" as const, tool_call_id: call.id, content: "(done; the result was not kept)" })),
       said,
     ];
-  });
+  }));
 }
 
 /**

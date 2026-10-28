@@ -279,9 +279,10 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "#chloe
   is("and its own reply is what the chat is sent, whole", said(), [`-100: ${whole}`]);
   const { recall: recalled } = await import("#chloe/model/memory");
   is("and the exchange is kept in that chat's conversation, once", recalled("test/telegram--100").map((m) => m.content).slice(-2), ["/highlights \u201cA line from a book.\u201d \u2014 A Book", whole]);
-  is("the / menu is the agent's jobs, then /models and /clear", calls.find((c) => c.method === "setMyCommands")?.body.commands, [
+  is("the / menu is the agent's jobs, then /models, /compact and /clear", calls.find((c) => c.method === "setMyCommands")?.body.commands, [
     { command: "highlights", description: "highlights" },
     { command: "models", description: "Which model answers here, and the ones to pick from. The agent's own file decides it." },
+    { command: "compact", description: "Sum up this conversation so far, and carry on from the summary" },
     { command: "clear", description: "Start a new conversation" },
   ]);
 
@@ -378,7 +379,7 @@ import { agentFor, answer, answers, asked, codeJob, db, row, work } from "#chloe
   await pause(100);
   is("pressing one picks it", said()[1], "7: This chat now uses anthropic/claude-haiku-4.5.");
   is("and the buttons are replaced by what was pressed", calls.find((c) => c.method === "editMessageText")?.body.text, "the list\n\n→ anthropic/claude-haiku-4.5");
-  is("the menu offers /models and /clear", calls.find((c) => c.method === "setMyCommands")?.body.commands.slice(-2).map((one: { command: string }) => one.command), ["models", "clear"]);
+  is("the menu offers /models, /compact and /clear", calls.find((c) => c.method === "setMyCommands")?.body.commands.slice(-3).map((one: { command: string }) => one.command), ["models", "compact", "clear"]);
 
   // The sendMessage tool uses the running Telegram channel to send to someone.
   {

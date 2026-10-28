@@ -139,6 +139,11 @@ if (added("threads", "owner", "text")) {
   }
 }
 
+// 1 for a message that is a summary of everything said before it in its
+// conversation, written by /compact. A turn is shown the latest one and what
+// came after it; the messages it sums up stay, and stay on the page.
+added("messages", "summary", "integer not null default 0");
+
 // When somebody pinned a conversation, or null, and the group it is filed
 // under on the page, or null. A group is an agent's, and has only a name.
 added("threads", "pinned", "text");

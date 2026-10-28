@@ -761,6 +761,10 @@ pre.painted .keyword { color: var(--accent); }
 /* What the agent said is plain words on the page. Only what it was told sits
    in a bubble, on the right, with the channel above it. */
 .run-thread .msg.them .said { max-width: 72ch; }
+/* A summary /compact wrote, folded, between what it sums up and what came after. */
+.msg.summed { padding: 10px 14px; border: 1px dashed var(--line-2); border-radius: 10px; }
+.msg.summed > summary { cursor: pointer; font-size: var(--size-small); color: var(--dim); }
+.msg.summed[open] > summary { margin-bottom: 8px; }
 /* In chat the column is already as wide as a line should be, so a reply takes all of it. */
 .talking .run-thread .msg.them .said, .talking .run-thread .read :is(p, li) { max-width: none; }
 .run-thread .msg.model .who { color: var(--kind-words); }

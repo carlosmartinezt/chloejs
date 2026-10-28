@@ -132,7 +132,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
 {
   about("a conversation remembers which tools a reply used");
 
-  const { recall, remember } = await import("#chloe/model/memory");
+  const { recall, remember, SUMMARY_HEAD } = await import("#chloe/model/memory");
   remember("test/tools", "user", "What board am I on?");
   remember("test/tools", "assistant", "Board 210.", [
     { toolName: "webReadPage", input: { url: "https://example.com/pairings" } },
@@ -156,6 +156,13 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   is("the last few, oldest first", recall("test/old", { limit: 2 }).map((m) => m.content), ["yesterday-ish", "just now"]);
   is("and none older than the days given", recall("test/old", { days: 30 }).map((m) => m.content), ["yesterday-ish", "just now"]);
   is("which are still there when nothing limits the age", recall("test/old").length, 3);
+
+  // A compacted conversation is recalled from its summary, whatever the limit.
+  remember("test/summed", "user", "before");
+  db.prepare("insert into messages (thread, role, content, at, summary) values ('test/summed', 'assistant', 'all of it', ?, 1)").run(new Date().toISOString());
+  remember("test/summed", "user", "after one");
+  remember("test/summed", "assistant", "after two");
+  is("the summary first, then what came after it", recall("test/summed", { limit: 1 }).map((m) => m.content), [`${SUMMARY_HEAD}\n\nall of it`, "after two"]);
 
   // What a turn is shown is its channel's chatHistory.
   answers.push("Noted.");

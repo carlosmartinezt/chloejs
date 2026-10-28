@@ -294,6 +294,17 @@ describe("markdown, rendered", () => {
 
   test("a heading at column zero is still a heading", () => ok(render("# Title\n\nBody").includes("<h2>Title</h2>")));
 
+  test("a numbered list spaced out with blank lines is one list, numbered on", () => {
+    const html = render("1. **One.** First\n\n2. **Two.** Second\n\n3. Third");
+    strictEqual(html.match(/<ol/g)?.length, 1, "one list");
+    strictEqual(html.match(/<li>/g)?.length, 3, "three items");
+  });
+
+  test("a numbered list that words interrupt starts again where it was", () => {
+    const html = render("1. One\n\nBetween.\n\n2. Two");
+    ok(html.includes('<ol start="2">'), html);
+  });
+
   test("nothing is dropped", () => {
     const html = render("**bold** and `code` and a [link](https://example.com)");
     for (const piece of ["<strong>bold</strong>", "<code>code</code>", 'href="https://example.com"']) {

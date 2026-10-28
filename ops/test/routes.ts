@@ -35,8 +35,9 @@ import { agentFor, answers, codeJob, db } from "./shared.ts";
   choose("test", "chat:test/api-pick", "");
   is("an empty model takes a pick back", [chosen("test", "job:nightly"), choices("test")], [undefined, []]);
 
-  is("the menu ends with /models and /clear", commands(agent).slice(-2), [
+  is("the menu ends with /models, /compact and /clear", commands(agent).slice(-3), [
     { command: "models", description: "Which model answers here, and the ones to pick from. The agent's own file decides it." },
+    { command: "compact", description: "Sum up this conversation so far, and carry on from the summary" },
     { command: "clear", description: "Start a new conversation" },
   ]);
 

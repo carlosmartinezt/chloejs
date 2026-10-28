@@ -94,9 +94,12 @@ then gets its own.
 
 A message starting with `/<job id>` runs that job, and the words after it fill
 the job's `args`: see [A job is a workflow](/docs/jobs#starting-one-with-something).
-Three commands work on every channel: `/clear` starts a new conversation and
-keeps the old one on the page, and `/models` and `/model` pick the model, see [Models](/docs/models). Any other
-slash message is an ordinary message.
+Four commands work on every channel: `/clear` starts a new conversation and
+keeps the old one on the page, `/compact` has the agent's quick model sum up the
+conversation so far, after which the agent is shown that summary and what came
+after it (the messages it sums up stay on the page), and `/models` and `/model`
+pick the model, see [Models](/docs/models). Any other slash message is an
+ordinary message.
 
 ## Writing one
 
@@ -115,7 +118,7 @@ this order:
 2. The answer to a sign-in goes to the connection that asked, and the answer to
    a job waiting on that chat goes to the job.
 3. In a group, a message not meant for the agent is left alone.
-4. `/<job id>` runs that job, and `/clear`, `/models` and `/model` are answered.
+4. `/<job id>` runs that job, and `/clear`, `/compact`, `/models` and `/model` are answered.
 5. Anything else is a turn, or goes to the channel's `job`. A reply that reads
    `/<job id>` starts nothing, because the model may have read a page written
    to ask for it.

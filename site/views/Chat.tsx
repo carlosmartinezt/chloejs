@@ -957,6 +957,14 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                     )
                   )}
                 </Fragment>
+              ) : line.summary ? (
+                // What /compact wrote: the agent carries on from this, and the page keeps it folded.
+                <details className="msg summed" key={at} id={`said-${at}`}>
+                  <summary>Compacted: what came before, summed up{line.at && <span className="num">, {when(line.at)}</span>}</summary>
+                  <div className="said">
+                    <Markdown text={line.content} />
+                  </div>
+                </details>
               ) : (
                 <div className={line.failed ? "msg them bad" : "msg them"} key={at} id={`said-${at}`}>
                   <div className="said">

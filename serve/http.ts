@@ -787,7 +787,7 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents/:id/commands",
-    does: "What a chat with that agent understands as a command: one per job, then /models and /clear. The same list Telegram is given.",
+    does: "What a chat with that agent understands as a command: one per job, then /models, /compact and /clear. The same list Telegram is given.",
     token: true,
     handle: ({ response, context, params }) => json(response, commands(context.agent(params.id))),
   },
@@ -846,7 +846,7 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/threads/:thread",
-    does: "What was said in one conversation, each message with the id that forking or editing it takes.",
+    does: "What was said in one conversation, each message with the id that forking or editing it takes, and summary: true on one /compact wrote.",
     token: true,
     member: "filtered",
     handle: ({ response, params, who }) => {
@@ -854,9 +854,10 @@ const routes: Route[] = [
       if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
       // Read here, not through recall(): that is what a model is shown, and it carries no time.
       const rows = db
-        .prepare("select id, role, content, at from messages where thread = ? order by id desc limit 100")
-        .all(thread) as { id: number; role: string; content: string; at: string }[];
-      json(response, rows.reverse());
+        .prepare("select id, role, content, at, summary from messages where thread = ? order by id desc limit 100")
+        .all(thread) as { id: number; role: string; content: string; at: string; summary: number }[];
+      // `summary` only on the one /compact wrote.
+      json(response, rows.reverse().map(({ summary, ...one }) => (summary ? { ...one, summary: true } : one)));
     },
   },
   {

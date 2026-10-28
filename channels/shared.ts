@@ -42,6 +42,7 @@ import type { JobConfig } from "#chloe/load/job";
 import type { Attachment } from "#chloe/model/model";
 import { AUTO, choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices";
 import { current, remember, startAgain } from "#chloe/model/memory";
+import { compact } from "#chloe/model/compact";
 import { models, quickFor, UsageLimit } from "#chloe/model/model";
 import { clock, type Fired, ran } from "#chloe/core/clock";
 import { settings } from "#chloe/core/settings";
@@ -465,7 +466,8 @@ export interface Button {
  * The first of these that fits decides what happens:
  *
  * 1. A sender not in `allowFrom` gets nothing.
- * 2. `/clear` starts a new conversation. The old one is kept.
+ * 2. `/clear` starts a new conversation. The old one is kept. `/compact`
+ *    sums up this one so far, and the agent carries on from the summary.
  * 3. `/models` lists the models, and `/model <name>` picks one.
  * 4. A sign-in code goes to the connection that asked for it. The model never
  *    sees it.
@@ -501,6 +503,16 @@ export async function receive(agent: Agent, message: Incoming, rules: Rules = {}
     return said("Started a new conversation.");
   }
   if (message.thread) message = { ...message, thread: current(message.thread) };
+
+  // A guest's conversation is not summed up at the owner's cost.
+  if (compactCommand(text) && !rules.guests && !rules.job) {
+    if (!message.thread) return said("There is no conversation here to compact.");
+    const thread = message.thread;
+    return during(working, async () => {
+      const done = await compact(agent, thread, message.channel, `${message.channel}:${message.from.id}`);
+      return { text: done.text, steps: done.cost || done.unpriced ? 1 : 0, cost: done.cost, ...(done.unpriced && { unpriced: done.unpriced }) };
+    });
+  }
 
   const picking = rules.guests || rules.job ? undefined : modelCommand(text);
   if (picking) {
@@ -551,10 +563,15 @@ function clearCommand(text: string): boolean {
   return /^\/clear(?:@\w+)?\s*$/i.test(text);
 }
 
+/** `/compact`, with an optional channel mention. */
+function compactCommand(text: string): boolean {
+  return /^\/compact(?:@\w+)?\s*$/i.test(text);
+}
+
 /**
  * Returns the commands a channel can show in its own menu, like the menu
  * Telegram shows when you type "/". There is one for each job a person may
- * start, then `/models` and `/clear`.
+ * start, then `/models`, `/compact` and `/clear`.
  *
  * A job's id is written with "_" for "-", because some platforms do not
  * allow "-" in a command. A job whose id does not fit a command (up to 32
@@ -568,6 +585,7 @@ export function commands(agent: Agent): { command: string; description: string }
       .map((job) => ({ command: job.id.replace(/-/g, "_").toLowerCase(), description: (job.description || job.id).slice(0, 256) }))
       .filter((one) => /^[a-z0-9_]{1,32}$/.test(one.command)),
     { command: "models", description: "Which model answers here, and the ones to pick from. The agent's own file decides it." },
+    { command: "compact", description: "Sum up this conversation so far, and carry on from the summary" },
     { command: "clear", description: "Start a new conversation" },
   ];
 }

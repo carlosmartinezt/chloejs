@@ -188,16 +188,24 @@ function blocks(text: string): ReactNode[] {
     const bullet = /^\s*([-*+]|\d+[.)])\s+/;
     if (bullet.test(line)) {
       const numbered = /^\s*\d/.test(line);
+      const alike = (one: string) => bullet.test(one) && /^\s*\d/.test(one) === numbered;
       const items: string[] = [];
-      while (at < lines.length && bullet.test(lines[at])) {
+      while (at < lines.length && alike(lines[at])) {
         items.push(lines[at++].replace(bullet, ""));
         // A line under an item, indented, belongs to it.
         while (at < lines.length && /^\s+\S/.test(lines[at]) && !bullet.test(lines[at])) {
           items[items.length - 1] += ` ${lines[at++].trim()}`;
         }
+        // Blank lines between items of the same kind are one list spaced out,
+        // not a list per item, which would number each of them 1.
+        let next = at;
+        while (next < lines.length && !lines[next].trim()) next++;
+        if (next > at && next < lines.length && alike(lines[next])) at = next;
       }
       const made = items.map((item, n) => <li key={n}>{rich(item)}</li>);
-      out.push(numbered ? <ol key={key++}>{made}</ol> : <ul key={key++}>{made}</ul>);
+      // A list numbered from somewhere else, because words came between it and the one before, says so.
+      const start = numbered ? Number(/\d+/.exec(line)![0]) : 1;
+      out.push(numbered ? <ol key={key++} start={start === 1 ? undefined : start}>{made}</ol> : <ul key={key++}>{made}</ul>);
       continue;
     }
 

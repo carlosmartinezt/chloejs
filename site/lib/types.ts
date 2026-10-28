@@ -354,6 +354,8 @@ export interface Said {
   content: string;
   /** When it was said. A runtime from before this was sent leaves it out. */
   at?: string;
+  /** A summary of everything before it, written by /compact. */
+  summary?: boolean;
 }
 
 /** A picture sent with a chat turn, as base64 without the "data:" in front. */
