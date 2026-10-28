@@ -23,15 +23,19 @@ function clipArgs(args: unknown): unknown {
   return args;
 }
 
-/** `used` is the tools a reply called, kept so a later turn can see how the reply was reached. */
-export function remember(thread: string, role: "user" | "assistant", content: string, used: Pick<Call, "toolName" | "input">[] = []): void {
+/**
+ * `used` is the tools a reply called, kept so a later turn can see how the
+ * reply was reached. `run` is the run that wrote it, for the page.
+ */
+export function remember(thread: string, role: "user" | "assistant", content: string, used: Pick<Call, "toolName" | "input">[] = [], run?: string): void {
   if (!content) return;
-  db.prepare("insert into messages (thread, role, content, at, used) values (?, ?, ?, ?, ?)").run(
+  db.prepare("insert into messages (thread, role, content, at, used, run) values (?, ?, ?, ?, ?, ?)").run(
     thread,
     role,
     content,
     new Date().toISOString(),
     used.length ? JSON.stringify(used.map((one): Used => ({ tool: one.toolName, args: clipArgs(one.input) }))) : null,
+    run ?? null,
   );
 }
 

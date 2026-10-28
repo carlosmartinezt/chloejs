@@ -425,6 +425,11 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
         at: new Date().toISOString(),
         ...(answer.buttons?.length && { buttons: answer.buttons, multiple: answer.multiple }),
       });
+      // Which run wrote it, and what that run did, are only kept on the runtime.
+      api.said(to).then((said) => {
+        const kept = new Map(said.filter((one) => one.run).map((one) => [one.id, one]));
+        if (open.current === to) setLines((all) => all.map((line) => (kept.has(line.id) ? { ...line, run: kept.get(line.id)?.run, did: kept.get(line.id)?.did } : line)));
+      }, () => {});
       // The answer moves it to the top of the list beside, and a conversation
       // started here goes into the address now that it exists.
       api.threads(agent).then(setThreads, () => {});
@@ -967,6 +972,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                 </details>
               ) : (
                 <div className={line.failed ? "msg them bad" : "msg them"} key={at} id={`said-${at}`}>
+                  {line.run && line.did && <Steps run={line.run} did={line.did} titled={titled} />}
                   <div className="said">
                     <Markdown text={line.content} />
                   </div>
@@ -1156,6 +1162,51 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** What a reply's steps came to, in a line: "Read 5, changed 2, 1 failed". */
+function didLine(did: NonNullable<Said["did"]>): string {
+  const parts = [
+    did.read && `read ${did.read}`,
+    did.changed && `changed ${did.changed}`,
+    did.ran && `ran ${did.ran}`,
+    did.other && (did.read || did.changed || did.ran ? many(did.other, "other step") : many(did.other, "step")),
+    did.failed && `${did.failed} failed`,
+  ].filter(Boolean) as string[];
+  const said = parts.join(", ");
+  return said.charAt(0).toUpperCase() + said.slice(1);
+}
+
+/** The steps behind a reply, folded into a grey line above it, read from its run when opened. */
+function Steps({ run, did, titled }: { run: string; did: NonNullable<Said["did"]>; titled: (name: string) => string }) {
+  const [open, setOpen] = useState(false);
+  const [steps, setSteps] = useState<Step[] | null>(null);
+  const [trouble, setTrouble] = useState("");
+  function toggle() {
+    setOpen(!open);
+    if (steps || open) return;
+    api.run(run).then(
+      (one) => setSteps(one.trace.filter((step) => step.tool ?? step.name ?? (step.wants?.length && step.say?.trim()))),
+      (error) => setTrouble((error as Error).message),
+    );
+  }
+  return (
+    <div className="steps">
+      <button className="plain num" aria-expanded={open} onClick={toggle}>
+        {didLine(did)}
+      </button>
+      {open && trouble && <p className="thought">{trouble}</p>}
+      {open && steps && (
+        <div className="did">
+          {steps.map((step, at) => (
+            <div key={at} className="line">
+              <div>{step.tool ?? step.name ? <Card name={titled(step.tool ?? step.name ?? "")} step={step} /> : <p className="thought">{step.say}</p>}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

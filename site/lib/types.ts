@@ -356,6 +356,10 @@ export interface Said {
   at?: string;
   /** A summary of everything before it, written by /compact. */
   summary?: boolean;
+  /** The run that wrote a reply, when it called a tool. Sent to the owner only. */
+  run?: string;
+  /** What that run's tool calls came to. */
+  did?: { read: number; changed: number; ran: number; other: number; failed: number };
 }
 
 /** A picture sent with a chat turn, as base64 without the "data:" in front. */

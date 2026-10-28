@@ -96,6 +96,8 @@ db.exec("update runs set source = 'terminal' where source = 'npm run'");
 added("runs", "commits", "text");
 // The tools a reply called, as JSON, so the next turn knows how it was reached.
 added("messages", "used", "text");
+// The run that wrote a reply, so the page can show the steps behind it.
+added("messages", "run", "text");
 // The messages handed to a model before its first answer. This is separate
 // from prompt because a turn can recall earlier messages too.
 added("runs", "context", "text");

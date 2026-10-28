@@ -7,7 +7,7 @@ import type { Agent } from "#chloe/load/load";
 import { ask, quickFor } from "./model.ts";
 
 const ASKED =
-  "Name this conversation in two to five plain words, from the first thing somebody said in it. " +
+  "Name this conversation in one emoji that fits it, then two to five plain words, from the first thing somebody said in it. " +
   "Reply with the name alone: no quotes and no full stop.";
 
 /**

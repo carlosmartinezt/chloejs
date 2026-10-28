@@ -189,6 +189,38 @@ const OWNED_BY = "lower(substr(owner, instr(owner, ':') + 1))";
  * becomes theirs. Anybody else may have any. One that is not theirs is
  * answered as if it did not exist.
  */
+/** What a reply's tool calls came to, counted from the kind each tool says it is. */
+interface Did {
+  read: number;
+  changed: number;
+  ran: number;
+  other: number;
+  failed: number;
+}
+
+const READS = new Set(["read", "list", "search", "fetch"]);
+const CHANGES = new Set(["write", "edit"]);
+
+/** For each of `runs` that called a tool, what its calls came to. */
+function stepsOf(runs: string[]): Map<string, Did> {
+  const found = new Map<string, Did>();
+  if (runs.length === 0) return found;
+  const rows = db.prepare(`select id, trace from runs where id in (${runs.map(() => "?").join(", ")})`).all(...runs) as { id: string; trace: string }[];
+  for (const row of rows) {
+    const did: Did = { read: 0, changed: 0, ran: 0, other: 0, failed: 0 };
+    for (const step of JSON.parse(row.trace) as { tool?: string; kind?: string; failed?: unknown; refused?: boolean }[]) {
+      if (!step.tool) continue;
+      if (step.failed || step.refused) did.failed++;
+      else if (READS.has(step.kind ?? "")) did.read++;
+      else if (CHANGES.has(step.kind ?? "")) did.changed++;
+      else if (step.kind === "run") did.ran++;
+      else did.other++;
+    }
+    if (did.read + did.changed + did.ran + did.other + did.failed > 0) found.set(row.id, did);
+  }
+  return found;
+}
+
 function threadFor(who: Caller, thread: string, claim = false): string {
   if (who?.kind !== "member") return thread;
   if (claim && !db.prepare("select 1 from messages where thread = ? limit 1").get(thread)) {
@@ -846,7 +878,7 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/threads/:thread",
-    does: "What was said in one conversation, each message with the id that forking or editing it takes, and summary: true on one /compact wrote.",
+    does: "What was said in one conversation, each message with the id that forking or editing it takes, and summary: true on one /compact wrote. To the owner, a reply also carries the run that wrote it and did: how many of its tool calls read, changed, ran or did something else, and how many failed.",
     token: true,
     member: "filtered",
     handle: ({ response, params, who }) => {
@@ -854,10 +886,19 @@ const routes: Route[] = [
       if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
       // Read here, not through recall(): that is what a model is shown, and it carries no time.
       const rows = db
-        .prepare("select id, role, content, at, summary from messages where thread = ? order by id desc limit 100")
-        .all(thread) as { id: number; role: string; content: string; at: string; summary: number }[];
+        .prepare("select id, role, content, at, summary, run from messages where thread = ? order by id desc limit 100")
+        .all(thread) as { id: number; role: string; content: string; at: string; summary: number; run: string | null }[];
+      // A member is not shown the steps (see /api/runs/:id), so not what they came to either.
+      const did = memberOf(who) ? new Map<string, Did>() : stepsOf(rows.flatMap((one) => (one.run ? [one.run] : [])));
       // `summary` only on the one /compact wrote.
-      json(response, rows.reverse().map(({ summary, ...one }) => (summary ? { ...one, summary: true } : one)));
+      json(
+        response,
+        rows.reverse().map(({ summary, run, ...one }) => ({
+          ...one,
+          ...(summary && { summary: true }),
+          ...(run && did.has(run) && { run, did: did.get(run) }),
+        })),
+      );
     },
   },
   {

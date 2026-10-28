@@ -42,8 +42,8 @@
    color-scheme, three lines below, so pinning the look to one of them is one
    attribute and not a second copy of every colour. */
 :root:not([data-theme]), .swatch[data-theme="chloe"] {
-  --bg: light-dark(#f7f8fa, #131419);
-  --surface: light-dark(#ffffff, #1a1b21);
+  --bg: light-dark(#f7f8fa, #191b1a);
+  --surface: light-dark(#ffffff, #1f2120);
   --line: light-dark(rgb(15 18 30 / .09), rgb(236 236 245 / .085));
   --line-2: light-dark(rgb(15 18 30 / .17), rgb(236 236 245 / .16));
   --ink: light-dark(#0f1117, #e9e9f0);
@@ -64,7 +64,7 @@
   --kind-code: light-dark(#2f5d8a, #7fa8cf);
   --kind-script: light-dark(#9a5b0c, #dfa966);
   --kind-proof: light-dark(#7c6f9a, #a99bc9);
-  --inline: light-dark(rgb(15 18 30 / .055), #20212a);
+  --inline: light-dark(rgb(15 18 30 / .055), #262827);
   --on-accent: light-dark(#ffffff, #0b0a16);
 }
 /* Which of the two is in force. Said on the page alone, because color-scheme
@@ -785,8 +785,8 @@ pre.painted .keyword { color: var(--accent); }
 @media (pointer: coarse) { .run-thread .meta .act { padding: 6px; margin: -6px 4px -6px -6px; } }
 /* A message of theirs being changed, where it was. */
 .msg.you.editing { flex-direction: column; align-items: stretch; width: min(100%, 640px); margin-left: auto; }
-.msg.you.editing textarea { font: inherit; color: inherit; min-height: 84px; resize: vertical; padding: 10px 14px;
-  background: var(--accent-soft); border: 1px solid var(--line); border-radius: 14px; }
+.msg.you.editing textarea { font: inherit; min-height: 84px; resize: vertical; padding: 10px 14px;
+  background: var(--bar); color: var(--on-bar); border: 1px solid var(--bar-line); border-radius: 14px; }
 .msg.you.editing textarea:focus { outline: none; border-color: var(--accent); }
 .msg.you.editing .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
 /* What the channel said about the sender, opened beside its name. */
@@ -904,7 +904,7 @@ pre.painted .keyword { color: var(--accent); }
 .msg { margin: 0 0 22px; }
 .msg .bubble, .msg .said { white-space: pre-wrap; word-break: break-word; }
 .msg.you { display: flex; justify-content: flex-end; }
-.msg.you .bubble { background: var(--accent-soft); border-radius: 14px;
+.msg.you .bubble { background: var(--bar); color: var(--on-bar); border: 1px solid var(--bar-line); border-radius: 14px;
   padding: 10px 15px; max-width: 78%; }
 .msg .who { font: 400 var(--size-small)/1.6 var(--sans); color: var(--dim); margin-bottom: 4px; }
 .msg .bubble code, .msg .said code { background: var(--inline); border-radius: 4px; padding: 1px 5px; }
@@ -917,6 +917,12 @@ pre.painted .keyword { color: var(--accent); }
 .facts button.own-model { border: 0; background: none; padding: 1px 6px; margin-left: -6px; border-radius: 6px; color: inherit; font: inherit; cursor: pointer; }
 .facts button.own-model:hover, .facts button.own-model[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 .thinking { display: flex; align-items: center; gap: 10px; color: var(--dim); }
+.msg .steps { margin-bottom: 6px; color: var(--dim); }
+.msg .steps > button { color: var(--dim); padding: 0; font: inherit; font-size: .9em; }
+.msg .steps > button::before { content: "\25B8  "; }
+.msg .steps > button[aria-expanded="true"]::before { content: "\25BE  "; }
+.msg .steps > button:hover { text-decoration: underline; }
+.msg .steps .did { opacity: .75; }
 .thinking .doing { color: var(--accent); padding: 0; font: inherit; }
 .thinking .doing:hover:enabled { text-decoration: underline; }
 /* The lines under "Thinking": each folds to nothing once it is old, unless it was opened to read. */

@@ -656,7 +656,7 @@ async function go(options: {
     const text = [...done.earlier, last].join("\n\n");
     finish(runId, text, steps, cost, unpriced, trace);
     await committed({ summary: oneLineSummary(text) });
-    if (thread) remember(thread, "assistant", last, calls);
+    if (thread) remember(thread, "assistant", last, calls, runId);
     const picking = done.ended?.options?.length ? { options: done.ended.options, ...(done.ended.multiple && { multiple: true }) } : {};
     return { runId, text, steps, cost, unpriced, calls, ...picking };
   } catch (error) {
