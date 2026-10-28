@@ -335,6 +335,16 @@ export interface Thread {
   label?: string | null;
   /** When it was archived, or null. */
   archived?: string | null;
+  /** When it was pinned, or null. */
+  pinned?: string | null;
+  /** The group it is filed under, or null. */
+  group?: number | null;
+}
+
+/** A name an agent's conversations can be filed under on the page. */
+export interface Group {
+  id: number;
+  name: string;
 }
 
 export interface Said {

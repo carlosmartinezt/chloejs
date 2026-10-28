@@ -74,7 +74,7 @@ export function forget(thread: string): void {
   db.prepare("update runs set prompt = '', asked = null, reply = null, summary = null, context = null, trace = '[]' where thread = ?").run(thread);
   // One with an owner keeps it, so nobody else can take up its id.
   db.prepare("delete from threads where thread = ? and owner is null").run(thread);
-  db.prepare("update threads set label = null, archived = null where thread = ?").run(thread);
+  db.prepare("update threads set label = null, archived = null, pinned = null, group_id = null where thread = ?").run(thread);
 }
 
 /**

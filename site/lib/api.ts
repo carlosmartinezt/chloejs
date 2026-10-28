@@ -23,6 +23,7 @@ import type {
   Skill,
   Switch,
   Thread,
+  Group,
   Way,
   Token,
   Trial,
@@ -192,12 +193,23 @@ export const api = {
   save: (agent: string, path: string, content: string) =>
     call<{ path: string; bytes: number }>(`/agents/${agent}/file`, { path, content }),
   threads: (agent: string) => call<Thread[]>(`/agents/${agent}/threads`),
+  /** What a chat with that agent understands after a "/": one per job, then /models and /clear. */
+  commands: (agent: string) => call<{ command: string; description: string }[]>(`/agents/${agent}/commands`),
   visitors: (agent: string) => call<Visitor[]>(`/agents/${agent}/web/visitors`),
   said: (thread: string) => call<Said[]>(`/threads/${encodeURIComponent(thread)}`),
   renameThread: (thread: string, label: string) =>
     call<{ thread: string; label: string | null }>(`/threads/${encodeURIComponent(thread)}/rename`, { label }),
   archiveThread: (thread: string, archived: boolean) =>
     call<{ thread: string; archived: string | null }>(`/threads/${encodeURIComponent(thread)}/archive`, { archived }),
+  pinThread: (thread: string, pinned: boolean) =>
+    call<{ thread: string; pinned: string | null }>(`/threads/${encodeURIComponent(thread)}/pin`, { pinned }),
+  /** Files it under a group, or under none with null. */
+  groupThread: (thread: string, group: number | null) =>
+    call<{ thread: string; group: number | null }>(`/threads/${encodeURIComponent(thread)}/group`, { group }),
+  groups: (agent: string) => call<Group[]>(`/agents/${agent}/groups`),
+  makeGroup: (agent: string, name: string) => call<Group>(`/agents/${agent}/groups`, { name }),
+  renameGroup: (agent: string, id: number, name: string) => call<Group>(`/agents/${agent}/groups/${id}/rename`, { name }),
+  deleteGroup: (agent: string, id: number) => call<{ deleted: number }>(`/agents/${agent}/groups/${id}/delete`, {}),
   forget: (thread: string) => call<unknown>(`/threads/${encodeURIComponent(thread)}/forget`, {}),
   /** A new conversation with what was said up to and including message `through`. */
   fork: (thread: string, through: number) =>

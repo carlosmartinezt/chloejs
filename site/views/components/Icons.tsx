@@ -51,13 +51,6 @@ export const Chat = () => (
   </Icon>
 );
 
-/** One conversation, in the list of them. */
-export const Conversation = () => (
-  <Icon>
-    <path d="M8 2.8c3.1 0 5.4 2 5.4 4.6S11.1 12 8 12c-.8 0-1.6-.1-2.3-.4L2.8 13l.8-2.4c-.6-.8-1-1.9-1-3.2 0-2.6 2.3-4.6 5.4-4.6Z" />
-  </Icon>
-);
-
 /** Starting a conversation, above the list of them. */
 export const NewConversation = () => (
   <Icon>
@@ -165,6 +158,28 @@ export const EyeOff = () => (
     <path d="M1.5 8s2.4-4.3 6.5-4.3S14.5 8 14.5 8s-2.4 4.3-6.5 4.3S1.5 8 1.5 8Z" />
     <circle cx="8" cy="8" r="1.9" />
     <path d="M2.6 2.6l10.8 10.8" />
+  </Icon>
+);
+
+/** Opens in a new window, after a link to another site. */
+export const NewWindow = () => (
+  <Icon>
+    <path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3" />
+  </Icon>
+);
+
+/** A site with no mark of its own. */
+export const Globe = () => (
+  <Icon>
+    <circle cx="8" cy="8" r="5.6" />
+    <path d="M2.4 8h11.2M8 2.4c1.6 1.6 2.4 3.4 2.4 5.6S9.6 12 8 13.6C6.4 12 5.6 10.2 5.6 8S6.4 4 8 2.4Z" />
+  </Icon>
+);
+
+/** A menu inside a menu, opening to the side. */
+export const Right = () => (
+  <Icon>
+    <path d="M6.5 4 10.5 8l-4 4" />
   </Icon>
 );
 

@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 
 import { Code, CopyButton } from "./Code.tsx";
+import * as Icons from "./Icons.tsx";
+import { colourOf, markFor } from "../../lib/sites.ts";
 
 /**
  * The marks inside a line: **bold**, `code`, *italic* and [words](address).
@@ -39,12 +41,43 @@ export function unmarked(text: string): string {
 /** Only an address a browser can follow safely. Anything else stays as text. */
 function link(text: string, to: string, key: number): ReactNode {
   const safe = /^(https?:\/\/|\/|#|mailto:)/i.test(to);
+  const away = safe && elsewhere(to);
+  if (away) return <Away key={key} text={text} href={to} url={away} />;
   return safe ? (
     <a key={key} href={to} target={to.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
       {text}
     </a>
   ) : (
     <span key={key}>{text}</span>
+  );
+}
+
+/** The address when it is on another site than this page, or null. */
+function elsewhere(to: string): URL | null {
+  if (!/^https?:\/\//i.test(to)) return null;
+  try {
+    const url = new URL(to);
+    return typeof location !== "undefined" && url.origin === location.origin ? null : url;
+  } catch {
+    return null;
+  }
+}
+
+/** A link to another site, as a button: the site's mark, the words, and a sign that it opens a new window. */
+function Away({ text, href, url }: { text: string; href: string; url: URL }) {
+  const mark = markFor(url);
+  return (
+    <a className="away" href={href} target="_blank" rel="noreferrer" title={href}>
+      {mark ? (
+        <svg viewBox="0 0 24 24" width="14" height="14" fill={colourOf(mark) ?? "currentColor"} role="img" aria-label={mark.title}>
+          <path d={mark.path} />
+        </svg>
+      ) : (
+        <Icons.Globe />
+      )}
+      <span>{text}</span>
+      <Icons.NewWindow />
+    </a>
   );
 }
 

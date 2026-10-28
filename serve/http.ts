@@ -762,18 +762,22 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents/:id/threads",
-    does: "That agent's conversations, newest first, however they were started. Somebody invited gets only their own.",
+    does: "That agent's conversations, newest first, however they were started: the 50 latest, and every pinned or grouped one however old. Somebody invited gets only their own.",
     token: true,
     member: "chat",
     handle: ({ response, context, params, who }) => {
       context.agent(params.id);
       const member = memberOf(who);
       const under = `${params.id}/`;
+      // A pinned or grouped one is kept whatever its age, so it never drops out of its section.
       const rows = db
         .prepare(
-          `select m.thread, count(*) as messages, max(m.at) as last, t.label, t.archived, t.owner
-           from messages m left join threads t on t.thread = m.thread
-           where substr(m.thread, 1, ?) = ? and (? is null or t.owner = ?) group by m.thread order by last desc limit 50`,
+          `select * from (
+             select m.thread, count(*) as messages, max(m.at) as last, t.label, t.archived, t.pinned, t.group_id as "group", t.owner
+             from messages m left join threads t on t.thread = m.thread
+             where substr(m.thread, 1, ?) = ? and (? is null or t.owner = ?) group by m.thread
+             order by (t.pinned is null and t.group_id is null), last desc limit 50
+           ) order by last desc`,
         )
         .all(under.length, under, member, member) as { owner: string | null }[];
       // Every one a member sees is theirs, so whose it is would only be their own email.
@@ -1165,6 +1169,81 @@ const routes: Route[] = [
       const at = archived ? new Date().toISOString() : null;
       db.prepare("insert into threads (thread, archived) values (?, ?) on conflict (thread) do update set archived = excluded.archived").run(thread, at);
       json(response, { thread, archived: at });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/threads/:thread/pin",
+    does: "Pin a conversation to the top of the list, or take the pin off.",
+    takes: '{"pinned": true}',
+    member: "filtered",
+    handle: async ({ request, response, params, who }) => {
+      const thread = threadFor(who, decodeURIComponent(params.thread));
+      if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
+      const { pinned } = await body(request, z.object({ pinned: z.boolean() }));
+      const at = pinned ? new Date().toISOString() : null;
+      db.prepare("insert into threads (thread, pinned) values (?, ?) on conflict (thread) do update set pinned = excluded.pinned").run(thread, at);
+      json(response, { thread, pinned: at });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/threads/:thread/group",
+    does: "File a conversation under one of its agent's groups, or under none with null.",
+    takes: '{"group": 1}',
+    handle: async ({ request, response, params }) => {
+      const thread = decodeURIComponent(params.thread);
+      const { group } = await body(request, z.object({ group: z.number().int().nullable() }));
+      if (group !== null && !db.prepare("select 1 from thread_groups where id = ? and agent = ?").get(group, thread.split("/")[0])) {
+        throw new NotFound("No such group.");
+      }
+      db.prepare("insert into threads (thread, group_id) values (?, ?) on conflict (thread) do update set group_id = excluded.group_id").run(thread, group);
+      json(response, { thread, group });
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:id/groups",
+    does: "The groups that agent's conversations can be filed under, by name.",
+    handle: ({ response, context, params }) => {
+      context.agent(params.id);
+      json(response, db.prepare("select id, name from thread_groups where agent = ? order by name collate nocase").all(params.id));
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/groups",
+    does: "Make a group to file that agent's conversations under.",
+    takes: '{"name": "..."}',
+    handle: async ({ request, response, context, params }) => {
+      context.agent(params.id);
+      const { name } = await body(request, z.object({ name: z.string().trim().min(1).max(100) }));
+      const made = db.prepare("insert into thread_groups (agent, name) values (?, ?)").run(params.id, name);
+      json(response, { id: Number(made.lastInsertRowid), name });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/groups/:group/rename",
+    does: "Give a group another name.",
+    takes: '{"name": "..."}',
+    handle: async ({ request, response, params }) => {
+      const { name } = await body(request, z.object({ name: z.string().trim().min(1).max(100) }));
+      if (db.prepare("update thread_groups set name = ? where id = ? and agent = ?").run(name, Number(params.group), params.id).changes === 0) {
+        throw new NotFound("No such group.");
+      }
+      json(response, { id: Number(params.group), name });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/groups/:group/delete",
+    does: "Delete a group. Its conversations are kept, and go back to the list ungrouped.",
+    handle: ({ response, params }) => {
+      const id = Number(params.group);
+      if (db.prepare("delete from thread_groups where id = ? and agent = ?").run(id, params.id).changes === 0) throw new NotFound("No such group.");
+      db.prepare("update threads set group_id = null where group_id = ?").run(id);
+      json(response, { deleted: id });
     },
   },
   {

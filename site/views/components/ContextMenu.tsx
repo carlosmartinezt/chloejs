@@ -1,22 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import * as Icons from "./Icons.tsx";
+
 /**
  * One thing a menu can do. A line on its own is a divider, and a head is a
- * line of text that says what the menu is about and cannot be pressed.
+ * line of text that says what the menu is about and cannot be pressed. One
+ * with `more` opens a menu of its own beside it, one level deep.
  */
-export type Choice =
-  | {
-      label: string;
-      run: () => void;
-      danger?: boolean;
-      disabled?: boolean;
-      current?: boolean;
-      title?: string;
-    }
-  | { head: string }
-  | "line";
+export type Choice = Pressable | { label: string; more: Plain[] } | Plain;
 
-type Pressable = Extract<Choice, { label: string }>;
+type Pressable = {
+  label: string;
+  run: () => void;
+  danger?: boolean;
+  disabled?: boolean;
+  current?: boolean;
+  title?: string;
+};
+
+type Plain = Pressable | { head: string } | "line";
 
 /**
  * A menu at the pointer, for a right-click. It closes on the next click
@@ -48,6 +50,8 @@ export function ContextMenu({
 }) {
   const ref = useRef<HTMLUListElement>(null);
   const [typed, setTyped] = useState("");
+  // The choice whose own menu is open, by where it is, and the row it opens beside.
+  const [open, setOpen] = useState<{ index: number; beside: DOMRect } | null>(null);
   const shown = search ? matching(choices, typed) : choices;
 
   // Before it is painted, so a menu that has to be moved back inside the
@@ -102,7 +106,7 @@ export function ContextMenu({
                 ref.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
               }
               if (event.key !== "Enter") return;
-              const first = shown.find((one): one is Pressable => typeof one === "object" && "label" in one && !one.disabled);
+              const first = shown.find((one): one is Pressable => typeof one === "object" && "run" in one && !one.disabled);
               if (first) {
                 close();
                 first.run();
@@ -112,30 +116,92 @@ export function ContextMenu({
         </li>
       )}
       {shown.map((choice, index) =>
-        choice === "line" ? (
-          <li key={`line-${index}`} className="line" role="separator" />
-        ) : "head" in choice ? (
-          <li key={`head-${index}`} className="head" role="presentation" title={choice.head}>
-            <span className="who">{choice.head}</span>
-          </li>
-        ) : (
-          <li key={`${index}-${choice.label}`} role="none">
+        typeof choice === "object" && "more" in choice ? (
+          <li
+            key={`${index}-${choice.label}`}
+            role="none"
+            onMouseEnter={(event) => setOpen({ index, beside: event.currentTarget.getBoundingClientRect() })}
+          >
             <button
               role="menuitem"
-              className={choice.danger ? "danger" : undefined}
-              disabled={choice.disabled}
-              aria-current={choice.current ? "true" : undefined}
-              title={choice.title}
-              onClick={() => {
-                close();
-                choice.run();
+              className="opens"
+              aria-haspopup="menu"
+              aria-expanded={open?.index === index}
+              onClick={(event) => setOpen({ index, beside: (event.currentTarget.parentElement as HTMLElement).getBoundingClientRect() })}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowRight") return;
+                event.preventDefault();
+                setOpen({ index, beside: (event.currentTarget.parentElement as HTMLElement).getBoundingClientRect() });
               }}
             >
               {choice.label}
+              <Icons.Right />
             </button>
+            {open?.index === index && <Beside choices={choice.more} beside={open.beside} close={close} back={() => setOpen(null)} />}
           </li>
+        ) : (
+          row(choice, index, close, () => setOpen(null))
         ),
       )}
+    </ul>
+  );
+}
+
+/** One line of a menu that does not open another. */
+function row(choice: Plain, index: number, close: () => void, hover?: () => void) {
+  return choice === "line" ? (
+    <li key={`line-${index}`} className="line" role="separator" />
+  ) : "head" in choice ? (
+    <li key={`head-${index}`} className="head" role="presentation" title={choice.head}>
+      <span className="who">{choice.head}</span>
+    </li>
+  ) : (
+    <li key={`${index}-${choice.label}`} role="none" onMouseEnter={hover}>
+      <button
+        role="menuitem"
+        className={choice.danger ? "danger" : undefined}
+        disabled={choice.disabled}
+        aria-current={choice.current ? "true" : undefined}
+        title={choice.title}
+        onClick={() => {
+          close();
+          choice.run();
+        }}
+      >
+        {choice.label}
+      </button>
+    </li>
+  );
+}
+
+/**
+ * A choice's own menu, beside its row: on the right, or on the left when the
+ * window has no room. It sits inside the first menu, so a press in it is not
+ * a press away from that one. ArrowLeft and Escape go back to the row.
+ */
+function Beside({ choices, beside, close, back }: { choices: Plain[]; beside: DOMRect; close: () => void; back: () => void }) {
+  const ref = useRef<HTMLUListElement>(null);
+  useLayoutEffect(() => {
+    const menu = ref.current;
+    if (!menu) return;
+    const { width, height } = menu.getBoundingClientRect();
+    const right = beside.right + 2;
+    menu.style.left = `${right + width > window.innerWidth - 6 ? Math.max(6, beside.left - width - 2) : right}px`;
+    menu.style.top = `${Math.max(6, Math.min(beside.top - 5, window.innerHeight - height - 6))}px`;
+    menu.querySelector<HTMLElement>("button:not(:disabled)")?.focus({ preventScroll: true });
+  }, [beside]);
+  return (
+    <ul
+      ref={ref}
+      className="context-menu"
+      role="menu"
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft") return;
+        event.stopPropagation();
+        back();
+      }}
+    >
+      {choices.map((choice, index) => row(choice, index, close))}
     </ul>
   );
 }

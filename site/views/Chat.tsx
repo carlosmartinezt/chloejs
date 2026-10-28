@@ -1,12 +1,11 @@
-import { type CSSProperties, Fragment, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, type DragEvent, Fragment, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { AgentSummary, Picture, Said, Step, Thread } from "../lib/types.ts";
+import type { AgentSummary, Group, Picture, Said, Step, Thread } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
 import { ago, nameOf, many, money, spent, threadName, when, words } from "../lib/format.ts";
 import * as Icons from "./components/Icons.tsx";
 import { Markdown } from "./components/Markdown.tsx";
-import { Trail } from "./components/Link.tsx";
-import { ContextMenu } from "./components/ContextMenu.tsx";
+import { type Choice, ContextMenu } from "./components/ContextMenu.tsx";
 import { modelChoices, type Offered } from "../lib/models.ts";
 import { Card, Prompt } from "./Log.tsx";
 import { go, href } from "../lib/route.ts";
@@ -124,6 +123,17 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   const [loading, setLoading] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; one: Thread } | null>(null);
   const [naming, setNaming] = useState("");
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupMenu, setGroupMenu] = useState<{ x: number; y: number; group: Group } | null>(null);
+  // The group being named: its id, or "new" for one being made. A new one made
+  // from a conversation's menu has that conversation filed under it.
+  const [namingGroup, setNamingGroup] = useState<number | "new" | null>(null);
+  const [fileInNew, setFileInNew] = useState("");
+  // The groups folded shut, which leaves only their name showing.
+  const [shut, setShut] = useState<ReadonlySet<number>>(new Set());
+  // A conversation being dragged, and where it would land: a group's id, or null for Recent.
+  const [dragged, setDragged] = useState<Thread | null>(null);
+  const [over, setOver] = useState<number | null | undefined>(undefined);
   const [archived, setArchived] = useState(false);
   const [width, setWidth] = useState(chatWidth);
   const [doing, setDoing] = useState<Step[]>([]);
@@ -140,6 +150,11 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   // The message of theirs being changed, by where it is in `lines`, and what it says now.
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
+  // What a "/" in the box offers, the one picked with the arrow keys, and
+  // whether Escape put the list away until the "/" is gone.
+  const [commands, setCommands] = useState<{ command: string; description: string }[]>([]);
+  const [chosen, setChosen] = useState(0);
+  const [noList, setNoList] = useState(false);
   const foot = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
 
@@ -159,6 +174,8 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   useEffect(() => {
     setListed(false);
     api.threads(agent).then(setThreads, () => setThreads([])).finally(() => setListed(true));
+    setGroups([]);
+    if (owner) api.groups(agent).then(setGroups, () => {});
     // Which model the answer will come from, so it is known before anything is asked.
     api.agent(agent).then(
       (one) => {
@@ -169,6 +186,8 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     );
     setOffered([]);
     if (owner) api.models(agent).then(setOffered, () => {});
+    setCommands([]);
+    if (owner) api.commands(agent).then(setCommands, () => {});
   }, [agent, owner]);
 
   // A pick for this conversation beats what the agent runs on otherwise.
@@ -368,6 +387,11 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
    * `edit`, the line at `edit` and everything after it are taken back first.
    */
   async function send(picked?: string, edit?: number) {
+    // On the page a new conversation is a new chat, which is all /clear asks for.
+    if (/^\/clear\s*$/i.test(picked ?? prompt)) {
+      newChat();
+      return;
+    }
     const link = file ? `${window.location.origin}${href({ at: "memory", agent, path: file })}` : "";
     const words = picked ?? [prompt.trim(), link].filter(Boolean).join("\n\n");
     const sending = picked ? [] : pictures;
@@ -454,7 +478,82 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     if (on && one.thread === thread && !archived) newChat();
   }
 
+  async function pin(one: Thread, on: boolean) {
+    const done = await api.pinThread(one.thread, on);
+    changed(one.thread, { pinned: done.pinned });
+  }
+
+  async function fileUnder(one: string, group: number | null) {
+    const done = await api.groupThread(one, group);
+    changed(one, { group: done.group });
+  }
+
+  /** Gone for good, unlike archiving: what was said is deleted, and the agent no longer remembers it. */
+  async function remove(one: Thread) {
+    if (!window.confirm(`Delete "${one.label || called(one)}"? It is gone for good, and ${nameOf(agent)} will not remember it. Archive keeps it.`)) return;
+    await api.forget(one.thread);
+    setThreads((all) => all.filter((each) => each.thread !== one.thread));
+    if (one.thread === thread) newChat();
+  }
+
+  async function nameGroup(name: string) {
+    const which = namingGroup;
+    setNamingGroup(null);
+    const into = fileInNew;
+    setFileInNew("");
+    if (!name.trim()) return;
+    try {
+      if (which === "new") {
+        const made = await api.makeGroup(agent, name.trim());
+        setGroups((all) => [...all, made].sort((a, b) => a.name.localeCompare(b.name)));
+        if (into) await fileUnder(into, made.id);
+      } else if (which !== null) {
+        const done = await api.renameGroup(agent, which, name.trim());
+        setGroups((all) => all.map((one) => (one.id === which ? done : one)).sort((a, b) => a.name.localeCompare(b.name)));
+      }
+    } catch (error) {
+      setTrouble((error as Error).message);
+    }
+  }
+
+  async function deleteGroup(group: Group) {
+    if (!window.confirm(`Delete the group "${group.name}"? Its conversations are kept, under Recent.`)) return;
+    await api.deleteGroup(agent, group.id);
+    setGroups((all) => all.filter((one) => one.id !== group.id));
+    setThreads((all) => all.map((one) => (one.group === group.id ? { ...one, group: null } : one)));
+  }
+
+  // The browser's tab is named after the open conversation, and goes back to what it was on leaving chat.
+  const openOne = threads.find((one) => one.thread === thread);
+  const tabName = openOne ? openOne.label || called(openOne) : "New chat";
+  useEffect(() => {
+    const was = document.title;
+    return () => {
+      document.title = was;
+    };
+  }, []);
+  useEffect(() => {
+    document.title = tabName;
+  }, [tabName]);
+
+  // The commands that start with what follows the "/", while nothing else is typed.
+  const slash = /^\/(\w*)$/.exec(prompt);
+  const offer = slash && !noList ? commands.filter((one) => one.command.startsWith(slash[1].toLowerCase())) : [];
+  useEffect(() => {
+    setChosen(0);
+    if (!prompt.startsWith("/")) setNoList(false);
+  }, [prompt]);
+
+  /** Runs a command picked from the list, as if it had been typed and sent. */
+  function command(name: string) {
+    setPrompt("");
+    void send(`/${name}`);
+  }
+
   const shown = threads.filter((one) => archived || !one.archived);
+  const pinned = shown.filter((one) => one.pinned);
+  const grouped = (group: Group) => shown.filter((one) => !one.pinned && one.group === group.id);
+  const recent = shown.filter((one) => !one.pinned && !groups.some((group) => group.id === one.group));
   const hidden = threads.filter((one) => one.archived).length;
   const blank = lines.length === 0 && !waiting && !loading;
 
@@ -477,11 +576,114 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     edge.addEventListener("lostpointercapture", done, { once: true });
   };
 
+  /**
+   * Where a conversation can be dropped: on a group, or with `null` on Recent,
+   * which takes it out of its group. Dropped where it already is, nothing changes.
+   */
+  const dropOn = (group: number | null) => ({
+    onDragOver: (event: DragEvent) => {
+      if (!dragged) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOver(group);
+    },
+    onDrop: (event: DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setOver(undefined);
+      if (dragged && (dragged.group ?? null) !== group) void fileUnder(dragged.thread, group);
+    },
+  });
+
+  /**
+   * One conversation in the list beside, which opens it, with its menu, and can
+   * be dragged into a group or out. One in a group takes a drop for that group.
+   */
+  const row = (one: Thread, group?: number) => (
+    <li
+      key={one.thread}
+      className={menu?.one.thread === one.thread ? "held" : undefined}
+      {...(group !== undefined && dropOn(group))}
+      draggable={owner && naming !== one.thread}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", one.label || called(one));
+        setDragged(one);
+      }}
+      onDragEnd={() => {
+        setDragged(null);
+        setOver(undefined);
+      }}
+    >
+      {naming === one.thread ? (
+        <input
+          className="naming"
+          autoFocus
+          defaultValue={one.label ?? called(one)}
+          onFocus={(event) => event.currentTarget.select()}
+          onBlur={(event) => void rename(one, event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Escape") setNaming("");
+          }}
+        />
+      ) : (
+        <Fragment>
+          <button
+            id={`thread-${one.thread}`}
+            className="plain"
+            aria-current={one.thread === thread}
+            title={`${many(one.messages, "message")}, last ${ago(one.last) || "just now"}`}
+            onClick={() => go({ at: "chat", agent, thread: one.thread })}
+            onDoubleClick={() => setNaming(one.thread)}
+          >
+            <span className={one.archived ? "headline dim" : "headline"}>{one.label || called(one)}</span>
+            {fromWeb(one) && (
+              <span className="num dim" title="A visitor, on a web page">
+                web
+              </span>
+            )}
+          </button>
+          <button
+            className="plain more"
+            title="More"
+            aria-label="More"
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              setMenu({ x: box.right, y: box.bottom + 4, one });
+            }}
+          >
+            <Icons.More />
+          </button>
+        </Fragment>
+      )}
+    </li>
+  );
+
+  /** The box a group is named in, in its row's place. */
+  const groupName = (name: string) => (
+    <input
+      className="naming"
+      autoFocus
+      placeholder="Group name"
+      defaultValue={name}
+      onFocus={(event) => event.currentTarget.select()}
+      onBlur={(event) => void nameGroup(event.currentTarget.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          setNamingGroup(null);
+          setFileInNew("");
+        }
+      }}
+    />
+  );
+
   return (
     <div className="chat" style={width ? ({ "--rail-w": `${width}px` } as CSSProperties) : undefined}>
-      {/* Starting again, and every conversation this agent is in, each of
-          which can be renamed or archived from its menu. The agent's other
-          pages are Config in the bar. */}
+      {/* Starting again, and every conversation this agent is in: pinned, then
+          by group, then the rest, each pinned, renamed, grouped, archived or
+          deleted from its menu. The agent's other pages are Config in the bar. */}
       <nav className="past rail">
         <Collapse closeOn={thread} label="Past conversations">
           <button className="new-chat" onClick={newChat}>
@@ -491,63 +693,77 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
 
         {!listed && (
           <>
-            <h2>Conversations</h2>
+            <h2>Recent</h2>
             <Loading />
           </>
         )}
-        {listed && shown.length > 0 && (
+        {listed && pinned.length > 0 && (
           <>
-            <h2>Conversations</h2>
+            <h2>Pinned</h2>
+            <ul className="run-list">{pinned.map((one) => row(one))}</ul>
+          </>
+        )}
+        {listed && owner && (
+          <>
+            <h2 className="adds">
+              Groups
+              <button className="plain add" title="New group" aria-label="New group" onClick={() => setNamingGroup("new")}>
+                <Icons.Plus />
+              </button>
+            </h2>
             <ul className="run-list">
-              {shown.map((one) => (
-                <li key={one.thread} className={menu?.one.thread === one.thread ? "held" : undefined}>
-                  {naming === one.thread ? (
-                    <input
-                      className="naming"
-                      autoFocus
-                      defaultValue={one.label ?? called(one)}
-                      onFocus={(event) => event.currentTarget.select()}
-                      onBlur={(event) => void rename(one, event.currentTarget.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") event.currentTarget.blur();
-                        if (event.key === "Escape") setNaming("");
-                      }}
-                    />
-                  ) : (
-                    <Fragment>
-                      <button
-                        id={`thread-${one.thread}`}
-                        className="plain"
-                        aria-current={one.thread === thread}
-                        title={`${many(one.messages, "message")}, last ${ago(one.last) || "just now"}`}
-                        onClick={() => go({ at: "chat", agent, thread: one.thread })}
-                        onDoubleClick={() => setNaming(one.thread)}
-                      >
-                        <Icons.Conversation />
-                        <span className={one.archived ? "headline dim" : "headline"}>{one.label || called(one)}</span>
-                        {fromWeb(one) && (
-                          <span className="num dim" title="A visitor, on a web page">
-                            web
-                          </span>
-                        )}
-                      </button>
-                      <button
-                        className="plain more"
-                        title="More"
-                        aria-label="More"
-                        onClick={(event) => {
-                          const box = event.currentTarget.getBoundingClientRect();
-                          setMenu({ x: box.right, y: box.bottom + 4, one });
-                        }}
-                      >
-                        <Icons.More />
-                      </button>
-                    </Fragment>
-                  )}
-                </li>
+              {groups.map((group) => (
+                <Fragment key={group.id}>
+                  <li
+                    className={[groupMenu?.group.id === group.id && "held", over === group.id && "over"].filter(Boolean).join(" ") || undefined}
+                    {...dropOn(group.id)}
+                  >
+                    {namingGroup === group.id ? (
+                      groupName(group.name)
+                    ) : (
+                      <Fragment>
+                        <button
+                          id={`group-${group.id}`}
+                          className="plain"
+                          aria-expanded={!shut.has(group.id)}
+                          onClick={() =>
+                            setShut((all) => {
+                              const next = new Set(all);
+                              if (!next.delete(group.id)) next.add(group.id);
+                              return next;
+                            })
+                          }
+                          onDoubleClick={() => setNamingGroup(group.id)}
+                        >
+                          {shut.has(group.id) ? <Icons.Folder /> : <Icons.FolderOpen />}
+                          <span className="headline">{group.name}</span>
+                        </button>
+                        <button
+                          className="plain more"
+                          title="More"
+                          aria-label="More"
+                          onClick={(event) => {
+                            const box = event.currentTarget.getBoundingClientRect();
+                            setGroupMenu({ x: box.right, y: box.bottom + 4, group });
+                          }}
+                        >
+                          <Icons.More />
+                        </button>
+                      </Fragment>
+                    )}
+                  </li>
+                  {!shut.has(group.id) && grouped(group).map((one) => row(one, group.id))}
+                </Fragment>
               ))}
+              {namingGroup === "new" && <li>{groupName("")}</li>}
             </ul>
           </>
+        )}
+        {listed && recent.length > 0 && (
+          <div className={over === null ? "recent over" : "recent"} {...dropOn(null)}>
+            <h2>Recent</h2>
+            <ul className="run-list">{recent.map((one) => row(one))}</ul>
+          </div>
         )}
         {hidden > 0 && (
           <button className="plain show-archived" onClick={() => setArchived(!archived)}>
@@ -560,8 +776,44 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
             from="right"
             close={() => setMenu(null)}
             choices={[
+              { label: menu.one.pinned ? "Unpin" : "Pin", run: () => void pin(menu.one, !menu.one.pinned) },
               { label: "Rename", run: () => setNaming(menu.one.thread) },
+              ...(owner
+                ? ([
+                    {
+                      label: "Move to group",
+                      more: [
+                        ...groups.map((group) => ({
+                          label: group.name,
+                          current: menu.one.group === group.id,
+                          run: () => void fileUnder(menu.one.thread, menu.one.group === group.id ? null : group.id),
+                        })),
+                        ...(groups.length ? ["line" as const] : []),
+                        {
+                          label: "New group…",
+                          run: () => {
+                            setFileInNew(menu.one.thread);
+                            setNamingGroup("new");
+                          },
+                        },
+                      ],
+                    },
+                    "line",
+                  ] as Choice[])
+                : []),
               { label: menu.one.archived ? "Unarchive" : "Archive", run: () => void archive(menu.one, !menu.one.archived) },
+              { label: "Delete", danger: true, run: () => void remove(menu.one) },
+            ]}
+          />
+        )}
+        {groupMenu && (
+          <ContextMenu
+            at={groupMenu}
+            from="right"
+            close={() => setGroupMenu(null)}
+            choices={[
+              { label: "Rename", run: () => setNamingGroup(groupMenu.group.id) },
+              { label: "Delete", danger: true, run: () => void deleteGroup(groupMenu.group) },
             ]}
           />
         )}
@@ -586,7 +838,6 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
         }}
       >
         <div className="head">
-          <Trail agent={agent} steps={[{ name: "chat" }]} />
           {model &&
             (owner ? (
               <button
@@ -597,7 +848,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
                   const box = event.currentTarget.getBoundingClientRect();
-                  setPicking(picking ? null : { x: box.right, y: box.bottom + 4 });
+                  setPicking(picking ? null : { x: box.left, y: box.bottom + 4 });
                 }}
               >
                 {model}
@@ -608,7 +859,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
           {picking && summary && (
             <ContextMenu
               at={picking}
-              from="right"
+              from="left"
               close={() => setPicking(null)}
               search="Search models"
               choices={[
@@ -772,6 +1023,23 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
             </button>
           )}
           <div className="box">
+            {offer.length > 0 && (
+              <ul className="commands" role="listbox" aria-label="Commands">
+                {offer.map((one, at) => (
+                  <li key={one.command} role="option" aria-selected={at === chosen}>
+                    <button
+                      className="plain"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setChosen(at)}
+                      onClick={() => command(one.command)}
+                    >
+                      <span className="name">/{one.command}</span>
+                      <span className="about">{one.description}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             {file && (
               <button className="plain held-file" title={`Take ${file} off`} onClick={() => setFile("")}>
                 <Icons.File />
@@ -804,7 +1072,32 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                 void hold(event.clipboardData.files);
               }}
               // Enter sends, because this is a chat box. A newline is shift-enter.
+              // With the list of commands showing, the arrows move in it, Enter
+              // runs the one picked, Tab writes it in to add words after, and
+              // Escape puts the list away.
               onKeyDown={(event) => {
+                if (offer.length) {
+                  const pick = offer[Math.min(chosen, offer.length - 1)];
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    setChosen((at) => (at + (event.key === "ArrowDown" ? 1 : offer.length - 1)) % offer.length);
+                    return;
+                  }
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    command(pick.command);
+                    return;
+                  }
+                  if (event.key === "Tab") {
+                    event.preventDefault();
+                    setPrompt(`/${pick.command} `);
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    setNoList(true);
+                    return;
+                  }
+                }
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   void send();

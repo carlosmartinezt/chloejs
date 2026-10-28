@@ -42,8 +42,8 @@
    color-scheme, three lines below, so pinning the look to one of them is one
    attribute and not a second copy of every colour. */
 :root:not([data-theme]), .swatch[data-theme="chloe"] {
-  --bg: light-dark(#f7f8fa, #0c0d11);
-  --surface: light-dark(#ffffff, #15161c);
+  --bg: light-dark(#f7f8fa, #131419);
+  --surface: light-dark(#ffffff, #1a1b21);
   --line: light-dark(rgb(15 18 30 / .09), rgb(236 236 245 / .085));
   --line-2: light-dark(rgb(15 18 30 / .17), rgb(236 236 245 / .16));
   --ink: light-dark(#0f1117, #e9e9f0);
@@ -64,7 +64,7 @@
   --kind-code: light-dark(#2f5d8a, #7fa8cf);
   --kind-script: light-dark(#9a5b0c, #dfa966);
   --kind-proof: light-dark(#7c6f9a, #a99bc9);
-  --inline: light-dark(rgb(15 18 30 / .055), #1a1b22);
+  --inline: light-dark(rgb(15 18 30 / .055), #20212a);
   --on-accent: light-dark(#ffffff, #0b0a16);
 }
 /* Which of the two is in force. Said on the page alone, because color-scheme
@@ -706,6 +706,14 @@ textarea.source:focus { outline: 1px solid var(--line-2); }
 .read h4, .read h5, .read h6 { font-size: var(--size-body); }
 .read > :first-child { margin-top: 0; }
 .read p, .read li { max-width: 68ch; }
+/* A link to another site is a small button: its mark, the words, and a sign it opens a new window. */
+.read a.away { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin: 1px 0; padding: 0 8px;
+  border: 1px solid var(--line-2); border-radius: 7px; background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--ink); text-decoration: none; line-height: 1.6; vertical-align: bottom; }
+.read a.away:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); }
+.read a.away > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.read a.away > svg { flex: none; }
+.read a.away > svg:last-child { width: 11px; height: 11px; color: var(--dim); }
 .read ul, .read ol { margin: 0 0 12px; padding-left: 22px; }
 .read li { margin: 4px 0; }
 .read blockquote { margin: 0 0 12px; padding-left: 14px; border-left: 2px solid var(--line-2);
@@ -753,6 +761,8 @@ pre.painted .keyword { color: var(--accent); }
 /* What the agent said is plain words on the page. Only what it was told sits
    in a bubble, on the right, with the channel above it. */
 .run-thread .msg.them .said { max-width: 72ch; }
+/* In chat the column is already as wide as a line should be, so a reply takes all of it. */
+.talking .run-thread .msg.them .said, .talking .run-thread .read :is(p, li) { max-width: none; }
 .run-thread .msg.model .who { color: var(--kind-words); }
 .run-thread .msg.bad .said { color: var(--bad); border-left: 2px solid var(--bad); padding-left: 12px; }
 .run-thread .msg.you { flex-direction: column; align-items: flex-end; }
@@ -843,23 +853,31 @@ pre.painted .keyword { color: var(--accent); }
 /* Without this each column grows to fit its content instead of scrolling
    inside the window, and the box you type into ends up below the fold. */
 .chat > * { min-height: 0; }
-.chat .past { overflow: auto; padding: 12px 10px 24px; }
+.chat .past { overflow: auto; padding: 8px 6px 20px; }
 /* The list is as quiet as a shelf of files: one plain line each, its label
    said in words rather than in small capitals. */
-.chat .past h2 { margin: 22px 0 4px; padding: 0 10px;
+.chat .past h2 { margin: 16px 0 2px; padding: 0 8px;
   font: 400 var(--size-body)/1 var(--sans); color: color-mix(in srgb, var(--dim) 70%, transparent); }
 /* A row is a name, not a statement: the button style's 500 is for what acts,
    and this one only opens. */
-.chat .run-list button[id] { gap: 9px; padding: 7px 10px; font-weight: 400; font-size: var(--size-body);
+.chat .run-list button[id] { gap: 9px; padding: 5px 8px; font-weight: 400; font-size: var(--size-body);
   line-height: 1.6; color: var(--ink); }
 .chat .past button svg { flex: none; width: 19px; height: 19px; stroke-width: 1.25; color: var(--dim); }
 .chat .past .places + .new-chat { margin-top: 12px; }
 .chat .past .empty { font-size: var(--size-small); padding: 0 8px; }
 /* Starting again, a row like the conversations under it. */
 .chat .new-chat { display: flex; align-items: center; width: 100%; justify-content: flex-start; gap: 9px;
-  padding: 7px 10px; border-radius: 8px; font: 400 var(--size-body)/1.6 var(--sans);
+  padding: 5px 8px; border-radius: 8px; font: 400 var(--size-body)/1.6 var(--sans);
   background: none; color: var(--ink); }
 .chat .new-chat:hover:enabled { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
+/* Groups, with a + to make one beside the word. */
+.chat .past h2.adds { display: flex; align-items: center; justify-content: space-between; }
+.chat .past h2 .add { display: flex; padding: 3px; border-radius: 6px; color: var(--dim); }
+.chat .past h2 .add:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.chat .past h2 .add svg { width: 15px; height: 15px; stroke-width: 1.6; }
+/* Where a dragged conversation would land. */
+.chat .past li.over > button[id], .chat .past .recent.over { background: var(--accent-soft); }
+.chat .past .recent { border-radius: 8px; }
 /* A conversation being renamed, in its row's place. */
 .run-list input.naming { padding: 7px 11px; font-size: var(--size-body); border-radius: 8px; border-color: var(--accent); }
 .talking { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -929,6 +947,16 @@ pre.painted .keyword { color: var(--accent); }
   padding: 8px 8px 8px 18px;
   box-shadow: 0 1px 2px var(--shadow-1), 0 8px 20px -14px var(--shadow-2); }
 .composer .box:focus-within { border-color: var(--accent); }
+/* What a "/" in the box offers, over the box. */
+.composer .box { position: relative; }
+.composer .commands { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 3; max-height: 300px; overflow-y: auto;
+  margin: 0; padding: 4px; list-style: none; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface);
+  box-shadow: 0 10px 28px rgb(0 0 0 / .16), 0 2px 6px rgb(0 0 0 / .08); }
+.composer .commands button { display: flex; align-items: baseline; justify-content: flex-start; gap: 12px; width: 100%; padding: 6px 10px; border-radius: 8px;
+  text-align: left; font: 400 var(--size-small)/1.4 var(--sans); color: var(--ink); }
+.composer .commands [aria-selected="true"] button { background: var(--accent-soft); }
+.composer .commands .name { flex: none; font-family: var(--mono); color: var(--accent); }
+.composer .commands .about { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
 /* Never less than one line: the height is measured as it opens, and a phone
    that measures it before it is laid out gets nothing, which left a sliver. */
 .composer textarea { min-width: 0; border: 0; background: none; padding: 6px 0; min-height: calc(1.55em + 12px);
@@ -946,8 +974,8 @@ pre.painted .keyword { color: var(--accent); }
   .chat { grid-template-columns: minmax(0, 1fr); height: auto; }
   .chat > .edge { display: none; }
   .chat .past { position: relative; overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); padding: 0; }
-  /* A model's name is often longer than the line, so it drops under the trail
-     rather than widening the page. */
+  /* A model's name is often longer than the line, so it wraps rather than
+     widening the page. */
   .talking .head { flex-wrap: wrap; row-gap: 4px; }
   .talking .head .model { min-width: 0; overflow-wrap: anywhere; }
   /* On a phone the conversation takes the width: a thumb's margin each side,
@@ -1004,7 +1032,6 @@ pre.painted .keyword { color: var(--accent); }
      and the words go on under it, fading out. */
   .talking { flex: 1 1 auto; overflow: auto; overscroll-behavior: contain; }
   .talking .head { justify-content: center; padding: calc(var(--bar-h) + 4px) 16px 0; border: 0; }
-  .talking .head .trail { display: none; }
   .chat .scroll { flex: 1 0 auto; overflow: visible; }
   .composer { position: sticky; bottom: 0; z-index: 1; padding: 22px 12px calc(10px + env(safe-area-inset-bottom));
     background: linear-gradient(to top, var(--bg) 60%, transparent); }
@@ -1164,6 +1191,8 @@ pre.token { margin: 0; padding: 11px 13px; border-radius: 8px; background: var(-
 .context-menu button:disabled { color: var(--dim); opacity: .5; cursor: default; }
 .context-menu button.danger { color: var(--bad); }
 .context-menu button.danger:hover { background: rgb(164 70 60 / .1); color: var(--bad); }
+.context-menu button.opens { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.context-menu button.opens svg { flex: none; color: var(--dim); }
 .context-menu .line { height: 1px; margin: 4px 6px; background: var(--line); }
 /* What the menu is about, said once at the top: not a thing to press. */
 .context-menu .head { display: flex; flex-direction: column; gap: 2px; max-width: 30ch;

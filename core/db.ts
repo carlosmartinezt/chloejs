@@ -139,6 +139,12 @@ if (added("threads", "owner", "text")) {
   }
 }
 
+// When somebody pinned a conversation, or null, and the group it is filed
+// under on the page, or null. A group is an agent's, and has only a name.
+added("threads", "pinned", "text");
+added("threads", "group_id", "integer");
+db.exec("create table if not exists thread_groups (id integer primary key, agent text not null, name text not null)");
+
 // The conversation a channel's chat moved on to with /clear, keyed by the id
 // the channel gives the chat. A chat with no row is still in that one.
 db.exec("create table if not exists cleared (thread text primary key, now text not null)");
