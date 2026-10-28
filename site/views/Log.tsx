@@ -409,7 +409,7 @@ function RunTip({ run, top, left }: { run: RunRow; top: number; left: number }) 
   );
 }
 
-/** For a job's prompt the service stopped in the middle of, or that ran out of steps: pick it up again, in the same run. */
+/** For a job's prompt or a reply the service stopped in the middle of, or that ran out of steps: pick it up again, in the same run. */
 function CarryOn({ id, why, started }: { id: string; why: "cut off" | "out of steps"; started: () => void }) {
   const [trouble, setTrouble] = useState("");
   const [sending, setSending] = useState(false);

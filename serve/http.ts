@@ -75,7 +75,7 @@ import { makeAgent, places } from "./newAgent.ts";
 import { allInMachines, inMachine, framedInMachine, listsInMachines, passOn, runningInMachines, summariesInMachines, whichMachine } from "./machines.ts";
 import { receive } from "#chloe/channels/shared";
 import { answer, checkArgs, parkedRuns, type ParkedRun } from "#chloe/core/steps";
-import { canCarryOn, stopReply, stopped } from "#chloe/core/turn";
+import { canCarryOn, carryOnReply, replyGoing, stopReply, stopped } from "#chloe/core/turn";
 
 /**
  * The address a program on this machine reaches the port at: `serve.host` and
@@ -1125,7 +1125,7 @@ const routes: Route[] = [
   {
     method: "POST",
     path: "/api/runs/:id/carry-on",
-    does: "Pick up a job's prompt that the service stopped in the middle of, or that ran out of steps, in the same run, from where it stopped. One that ran out of steps is given as many again.",
+    does: "Pick up a job's prompt or a reply in a conversation that the service stopped in the middle of, or that ran out of steps, in the same run, from where it stopped. One that ran out of steps is given as many again. A reply's answer goes in its conversation.",
     handle: ({ response, context, params }) => {
       let run;
       try {
@@ -1134,6 +1134,12 @@ const routes: Route[] = [
         throw new BadRequest((error as Error).message);
       }
       const agent = context.agent(run.agent);
+      if (run.thread) {
+        if (replyGoing(run.thread)) throw new BadRequest("A reply is going in that conversation now. Carry this one on once it has finished.");
+        void carryOnReply(agent, params.id).catch((error) => console.error(`${agent.id}: carrying on ${params.id} failed`, error));
+        json(response, { carrying: params.id, log: `/api/runs/${params.id}` });
+        return;
+      }
       const job = agent.jobs.find((one: Job) => one.id === run.job);
       if (!job || job.run) throw new BadRequest(`${agent.id} no longer has a prompt job called ${run.job}, so there is nothing to carry on with.`);
       if (context.clock.running().includes(`${agent.id}/${job.id}`)) {

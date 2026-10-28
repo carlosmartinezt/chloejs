@@ -25,6 +25,7 @@ import { claimPort, ownAddress, quietFor, remoteAddress, serve as listen } from 
 import { keepMachines, keepOnTime } from "#chloe/serve/machines";
 import { dueWithin } from "#chloe/timer/cron";
 import { startClock } from "#chloe/core/clock";
+import { carryOnCutOff } from "#chloe/core/turn";
 import { hasPassword, makeLink } from "#chloe/serve/login";
 import { alertsSay } from "#chloe/core/alerts";
 
@@ -82,7 +83,7 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
   sayUnclaimed();
   trim();
   const cutOff = closeCutOff();
-  if (cutOff) console.log(`closed ${cutOff} run${cutOff === 1 ? "" : "s"} the last stop cut off`);
+  if (cutOff.length) console.log(`closed ${cutOff.length} run${cutOff.length === 1 ? "" : "s"} the last stop cut off`);
 
   const clock = startClock(() => agents);
 
@@ -113,6 +114,7 @@ export async function startChloe(given?: Config, options: { remote?: boolean } =
     }
   }
   startChannels();
+  carryOnCutOff(cutOff, (id) => agents.get(id));
 
   const server = listen({
     host: settings.serve.host,

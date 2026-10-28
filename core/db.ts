@@ -99,6 +99,9 @@ added("messages", "used", "text");
 // The messages handed to a model before its first answer. This is separate
 // from prompt because a turn can recall earlier messages too.
 added("runs", "context", "text");
+// For a conversation's turn, what it was let use, as JSON: `Allowed` in
+// core/turn.ts. Carrying it on gives it the same tools and no more.
+added("runs", "allowed", "text");
 // When somebody archived the run, or null. An archived run is kept whole and
 // listed as before: it is the page that leaves it out of the log.
 added("runs", "archived", "text");
@@ -226,14 +229,12 @@ export function going(): number {
 /**
  * Close the runs a stop cut off. Every run happens in the service, so at
  * startup nothing is really running, and one with no end that is not waiting
- * on a person never gets one. Called once at startup.
+ * on a person never gets one. Called once at startup. Returns their ids.
  */
-export function closeCutOff(): number {
-  return Number(
-    db
-      .prepare(`update runs set finished = ?, error = ? where ${GOING}`)
-      .run(new Date().toISOString(), CUT_OFF).changes,
-  );
+export function closeCutOff(): string[] {
+  return (
+    db.prepare(`update runs set finished = ?, error = ? where ${GOING} returning id`).all(new Date().toISOString(), CUT_OFF) as { id: string }[]
+  ).map((one) => one.id);
 }
 
 /**

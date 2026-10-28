@@ -4,7 +4,7 @@ import { isStepCount, tool } from "ai";
 import { z } from "zod";
 import { about, is } from "#chloe/ops/check";
 import type { Job } from "./shared.ts";
-import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from "./shared.ts";
+import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, reachBy, row } from "./shared.ts";
 
 {
   about("runs a stop cut off");
@@ -20,7 +20,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   insert.run("waiting", now, null, "{}");
   insert.run("done", now, now, null);
   is("a stop waits for the one going, and not the one waiting on a person", going(), 1);
-  is("one was cut off", closeCutOff(), 1);
+  is("one was cut off", closeCutOff(), ["cut"]);
   is("and then none is going", going(), 0);
   is("it ends, saying why", row("cut").error, "Cut off: the service stopped while this was running.");
   is("a run waiting on a person is left waiting", row("waiting").finished, null);
@@ -71,7 +71,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
   } catch (error) {
     why = (error as Error).message;
   }
-  is("nor does a conversation", why, "Only a job's prompt can carry on, and this run is not one.");
+  is("nor does a run that is neither a job's nor a conversation's", why, "Only a job's prompt or a reply in a conversation can carry on, and this run is neither.");
 
   answers.length = 0;
   answers.push("All done.");
@@ -94,6 +94,55 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, row } from
     why = (error as Error).message;
   }
   is("and once finished it does not carry on twice", why, "Only a run the service stopped in the middle of, or one that ran out of steps, can carry on.");
+}
+
+{
+  about("a reply the service stopped carries on by itself, once, with the tools it had, and its answer goes to the person");
+
+  const { CUT_OFF } = await import("#chloe/core/db");
+  const { carryOnCutOff, replyGoing } = await import("#chloe/core/turn");
+  const { recall } = await import("#chloe/model/memory");
+  const written: string[] = [];
+  const selfWriteFile = Object.assign(
+    tool({ description: "Change a file.", inputSchema: z.object({}), execute: async () => (written.push("x"), "Written.") }),
+    { own: true, forOwner: true, changesAgent: true },
+  );
+  const look = tool({ description: "Look on the web.", inputSchema: z.object({}), execute: async () => "a page" });
+  const job: Job = { agent: "test", id: "unused", timezone: "UTC", prompt: "", files: [] };
+  const agent = { ...agentFor(job), tools: { selfWriteFile, look, hidden: look } };
+  const delivered: { to: string; text: string }[] = [];
+  reachBy("carried", async (to, text) => void delivered.push({ to, text }));
+  const context = [
+    { role: "system", content: "You are a test." },
+    { role: "user", content: "Change yourself." },
+  ];
+  const insert = db.prepare(
+    "insert into runs (id, agent, started, finished, source, model, prompt, kind, error, context, trace, thread, owner, allowed) values (?, 'test', ?, ?, 'carried', 'anthropic/claude-haiku-4.5', '', 'turn', ?, ?, ?, ?, 'carried:42', ?)",
+  );
+  const now = new Date().toISOString();
+  const allowed = JSON.stringify({ fromOwner: true, mayChangeAgent: true, without: ["hidden"], user: "carried:42" });
+  const outside = [
+    { step: 0, at: "", say: "", wants: ["look"], cost: 0.1 },
+    { step: 0, at: "", tool: "look", args: {}, result: "a page" },
+  ];
+  insert.run("reply-cut", now, now, CUT_OFF, JSON.stringify(context), JSON.stringify(outside), "test/carried-1", allowed);
+  insert.run("reply-again", now, now, CUT_OFF, JSON.stringify(context), JSON.stringify([{ step: 0, at: "", carried: "The service stopped here, and the run carried on from where it was." }]), "test/carried-2", allowed);
+  insert.run("job-cut", now, now, CUT_OFF, JSON.stringify(context), "[]", null, null);
+
+  const call = (id: string, name: string) => ({ id, type: "function", function: { name, arguments: "{}" } });
+  answers.length = 0;
+  answers.push({ content: "", tool_calls: [call("w", "selfWriteFile")] }, "Here is what I would change.");
+  carryOnCutOff(["reply-cut", "reply-again", "job-cut", "nothing"], (id) => (id === "test" ? agent : undefined));
+  is("one reply at a time goes on in its conversation", replyGoing("test/carried-1"), true);
+  while (replyGoing("test/carried-1")) await new Promise((resolve) => setTimeout(resolve, 10));
+  is("it gets the owner's tools it had, less the ones its channel left out", [lastTools.includes("selfWriteFile"), lastTools.includes("hidden")], [true, false]);
+  is("and is told to carry on with its reply", lastAsked.at(-3)?.content.endsWith("Then carry on with your reply."), true);
+  is("what it read from outside before the stop still keeps it from changing itself", written, []);
+  is("the same run finishes", [row("reply-cut").error, row("reply-cut").reply], [null, "Here is what I would change."]);
+  is("its answer is kept in the conversation", recall("test/carried-1").at(-1)?.content, "Here is what I would change.");
+  is("and sent to who asked", delivered, [{ to: "42", text: "Here is what I would change." }]);
+  is("a reply cut off again after carrying on is left alone", row("reply-again").error, CUT_OFF);
+  is("and a run in no conversation is left for its page", row("job-cut").error, CUT_OFF);
 }
 
 {

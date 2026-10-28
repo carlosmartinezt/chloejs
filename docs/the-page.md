@@ -14,9 +14,11 @@ and a bigger number. A run that is waiting shows who was asked and until when.
 A [trial run](/docs/jobs#a-trial-run) is marked a trial, and lists every
 message and email it would have sent and did not.
 
-A prompt job that chloe stopped in the middle offers to carry on from there
-(`POST /api/runs/<id>/carry-on`): the model is handed what it had done, and told
-which call never finished.
+A prompt job or a reply that chloe stopped in the middle offers to carry on
+from there (`POST /api/runs/<id>/carry-on`): the model is handed what it had
+done, and told which call never finished. A reply in a conversation does it by
+itself when chloe starts again, once, with the tools it had: its answer goes in
+the conversation, and to whoever asked when their channel can reach them.
 
 ## The dashboard
 

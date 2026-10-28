@@ -19,6 +19,7 @@ import { recall, remember } from "#chloe/model/memory";
 import { ownFolderTools, ownReadTools, ownTrialTools } from "#chloe/model/tools/self";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
+import { canReach, deliver } from "#chloe/services/messageService";
 import { receivedFolder } from "#chloe/services/receivedService";
 import { chatAsk, chatSendFile, type FileToSend } from "#chloe/model/tools/chat";
 import { NeedsSignIn } from "#chloe/connections/connection";
@@ -261,6 +262,11 @@ export function stopReply(thread: string): string | undefined {
   return now?.runId;
 }
 
+/** Whether a reply is going in a conversation now. */
+export function replyGoing(thread: string): boolean {
+  return going.has(thread);
+}
+
 /**
  * Sends one message to an agent and returns its reply. The model may call
  * tools: each time it does, the tools run and their answers go back to the
@@ -326,7 +332,8 @@ async function answer({ agent, prompt, asked, attachments, model, thread, source
   ];
   // Keep the initial request as the model received it. Attachments stay out of
   // the record because their bytes are already kept by the channel, not the run.
-  db.prepare("update runs set context = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), runId);
+  const allowed: Allowed | undefined = thread ? { without, guest, fromOwner, mayChangeAgent, user } : undefined;
+  db.prepare("update runs set context = ?, allowed = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), allowed ? JSON.stringify(allowed) : null, runId);
   if (thread) remember(thread, "user", prompt);
 
   const inbox: Inbox | undefined = mine && {
@@ -347,10 +354,12 @@ async function answer({ agent, prompt, asked, attachments, model, thread, source
 }
 
 /**
- * Picks up a job's run that the service stopped in the middle of, or that ran
- * out of steps, in the same record, rather than starting the job again from
- * the top. One that ran out of steps is given as many again, so it is only
- * ever carried on because somebody asked.
+ * Picks up a run that the service stopped in the middle of, or that ran out of
+ * steps, in the same record, rather than starting again from the top: a job's
+ * prompt, or a reply in a conversation (`carryOnReply` for those, which keeps
+ * one reply at a time there and sends the answer). One that ran out of steps
+ * is given as many again, so it is only ever carried on because somebody
+ * asked.
  *
  * What the model is handed is rebuilt from the record: the request it began
  * with, then each answer it gave and what each tool said back. That is not
@@ -359,7 +368,9 @@ async function answer({ agent, prompt, asked, attachments, model, thread, source
  * both and reads again what it needs. A tool that was running when the service
  * stopped may have done its work anyway, and it is told that too.
  *
- * Only a job's run, because a conversation's reply would come back to nobody.
+ * A reply gets the tools it was let use when it began, and no more: a run
+ * from before that was kept gets none of the owner's. Once a tool from outside
+ * the agent has answered in it, what changes the agent stays refused.
  */
 export async function carryOn({ agent, runId, signal }: { agent: Agent; runId: string; signal?: AbortSignal }): Promise<Result> {
   const row = stopped(runId);
@@ -368,7 +379,9 @@ export async function carryOn({ agent, runId, signal }: { agent: Agent; runId: s
   const trace = JSON.parse(row.trace) as LoopStep[];
   const before = answers(trace);
   const outOfSteps = row.why === "out of steps";
-  const messages = [...(JSON.parse(row.context) as Message[]), ...replay(trace, row.why)];
+  const messages = [...(JSON.parse(row.context) as Message[]), ...replay(trace, row.why, Boolean(row.thread))];
+  const allowed = row.allowed ? (JSON.parse(row.allowed) as Allowed) : {};
+  const readOutside = trace.find((one) => one.tool && !one.own && !one.refused)?.tool;
   trace.push({
     step: before,
     at: new Date().toISOString(),
@@ -386,6 +399,9 @@ export async function carryOn({ agent, runId, signal }: { agent: Agent; runId: s
     trace,
     job: row.job,
     source: row.source,
+    thread: row.thread,
+    ...allowed,
+    readOutside,
     before: outOfSteps ? 0 : before,
     // Whatever changed in the memory since it stopped is mostly its own work,
     // so it goes in this run's commit rather than one of its own.
@@ -394,14 +410,72 @@ export async function carryOn({ agent, runId, signal }: { agent: Agent; runId: s
   });
 }
 
+/**
+ * Carries on a reply in a conversation (see `carryOn`), one at a time with
+ * the conversation's other replies, as `turn()` keeps them. The answer is kept
+ * in the conversation, where the page shows it, and sent to whoever asked
+ * when their channel can reach them, since the message that asked has no way
+ * back any more. Throws when a reply is going in the conversation now.
+ */
+export async function carryOnReply(agent: Agent, runId: string): Promise<Result> {
+  const row = stopped(runId);
+  if (!row.thread) throw new Error("This run is not a reply in a conversation.");
+  const thread = row.thread;
+  if (going.has(thread)) throw new Error("A reply is going in that conversation now. Carry this one on once it has finished.");
+  let ended = () => {};
+  // Closed, so a message sent meanwhile waits for it rather than joining.
+  const mine: Going = { runId, user: "", waiting: [], open: false, done: new Promise<void>((resolve) => (ended = resolve)), stop: new AbortController() };
+  going.set(thread, mine);
+  try {
+    const result = await carryOn({ agent, runId, signal: mine.stop.signal });
+    if (row.owner && canReach(row.owner, agent.id)) {
+      await deliver(row.owner, result.text || "(no reply)", agent.id, result.options, result.multiple).catch((error) =>
+        console.error(`${agent.id}: sending the reply carried on in ${thread} failed`, error),
+      );
+    }
+    return result;
+  } finally {
+    if (going.get(thread) === mine) going.delete(thread);
+    ended();
+  }
+}
+
+/**
+ * Carries on each reply in a conversation that the last stop cut off, since
+ * somebody is waiting for it. `ids` are the runs `closeCutOff()` closed. Only
+ * once: a reply cut off again after carrying on is left for its run's page,
+ * so one that takes the service down does not do it at every start. Call it
+ * once the channels are up, so the answers can be sent.
+ */
+export function carryOnCutOff(ids: string[], agentOf: (id: string) => Agent | undefined): void {
+  for (const id of ids) {
+    const row = db.prepare("select agent, thread, trace from runs where id = ?").get(id) as { agent: string; thread: string | null; trace: string } | undefined;
+    if (!row?.thread || (JSON.parse(row.trace) as LoopStep[]).some((one) => one.carried)) continue;
+    const agent = agentOf(row.agent);
+    if (!agent) continue;
+    console.log(`${agent.id}: carrying on the reply the stop cut off in ${row.thread}`);
+    carryOnReply(agent, id).catch((error) => console.error(`${agent.id}: carrying on ${id} failed`, error));
+  }
+}
+
+/** What a conversation's turn was let use, kept on its run so that carrying it on gives it the same. */
+type Allowed = Pick<Ask, "without" | "guest" | "fromOwner" | "mayChangeAgent" | "user">;
+
 /** A run that can carry on, as the record has it. */
 export interface Stopped {
   agent: string;
-  job: string;
+  /** The job, for a job's prompt. */
+  job?: string;
+  /** The conversation, for a reply in one. */
+  thread?: string;
   source: string;
   model: string;
   context: string;
   trace: string;
+  /** For a reply, what it was let use, as JSON (`Allowed`). */
+  allowed?: string;
+  /** Who it answers, as `channel:id`. */
+  owner?: string;
   why: CarryOnWhy;
 }
 
@@ -415,20 +489,31 @@ function outOfStepsText(steps: number): string {
 const OUT_OF_STEPS = /^Stopped after \d+ steps without finishing\.$/;
 
 /**
- * The run, when it is one that `carryOn` can pick up: a job's prompt that the
- * service stopped in the middle of, or that ran out of steps. Throws, saying
- * why, when it is not.
+ * The run, when it is one that `carryOn` can pick up: a job's prompt or a
+ * reply in a conversation that the service stopped in the middle of, or that
+ * ran out of steps. Throws, saying why, when it is not.
  */
 export function stopped(runId: string): Stopped {
-  const row = db.prepare("select agent, job, source, model, kind, error, context, trace from runs where id = ?").get(runId) as
-    | (Omit<Stopped, "job" | "context"> & { job: string | null; kind: string; error: string | null; context: string | null })
+  const row = db.prepare("select agent, job, thread, source, model, kind, error, context, trace, allowed, owner from runs where id = ?").get(runId) as
+    | (Pick<Stopped, "agent" | "source" | "model" | "trace"> & { [key in "job" | "thread" | "context" | "allowed" | "owner" | "error"]: string | null } & { kind: string })
     | undefined;
   if (!row) throw new Error(`There is no run ${JSON.stringify(runId)}.`);
-  if (row.kind !== "turn" || !row.job) throw new Error("Only a job's prompt can carry on, and this run is not one.");
+  if (row.kind !== "turn" || !(row.job || row.thread)) throw new Error("Only a job's prompt or a reply in a conversation can carry on, and this run is neither.");
   const why: CarryOnWhy | undefined = row.error === CUT_OFF ? "cut off" : OUT_OF_STEPS.test(row.error ?? "") ? "out of steps" : undefined;
   if (!why) throw new Error("Only a run the service stopped in the middle of, or one that ran out of steps, can carry on.");
   if (!row.context) throw new Error("This run kept no record of what it was asked, so there is nothing to carry on from.");
-  return { agent: row.agent, job: row.job, source: row.source, model: row.model, context: row.context, trace: row.trace, why };
+  return {
+    agent: row.agent,
+    ...(row.job && { job: row.job }),
+    ...(row.thread && { thread: row.thread }),
+    source: row.source,
+    model: row.model,
+    context: row.context,
+    trace: row.trace,
+    ...(row.allowed && { allowed: row.allowed }),
+    ...(row.owner && { owner: row.owner }),
+    why,
+  };
 }
 
 /** Why `carryOn` could pick the run up, or false when it could not, for a page deciding whether to offer it. */
@@ -449,7 +534,7 @@ function answers(trace: LoopStep[]): number {
  * The conversation a record says a loop had, after the request it began with,
  * ending with a word to the model about what it is missing.
  */
-function replay(trace: LoopStep[], why: CarryOnWhy): Message[] {
+function replay(trace: LoopStep[], why: CarryOnWhy, reply: boolean): Message[] {
   const messages: Message[] = [];
   const unfinished: string[] = [];
   for (let at = 0; at < trace.length; at++) {
@@ -477,7 +562,7 @@ function replay(trace: LoopStep[], why: CarryOnWhy): Message[] {
       (unfinished.length > 0
         ? `You had asked for ${unfinished.join(", ")}, which did not finish: it may have done some or all of its work, so check before you run it again. `
         : "") +
-      `A tool's answer longer than ${CLIPPED} characters was cut short when it was recorded, so read again anything you need in full. Then carry on with the job.`,
+      `A tool's answer longer than ${CLIPPED} characters was cut short when it was recorded, so read again anything you need in full. Then carry on with ${reply ? "your reply" : "the job"}.`,
   });
   return messages;
 }
@@ -505,6 +590,8 @@ async function go(options: {
   instead?: Ask["instead"];
   /** Steps already taken, which the agent's `stopWhen` counts. */
   before?: number;
+  /** For a run that carried on: the first tool from outside the agent that answered before it stopped. */
+  readOutside?: string;
   carried?: boolean;
   signal?: AbortSignal;
   inbox?: Inbox;
@@ -530,6 +617,7 @@ async function go(options: {
         context: { agent, ...(options.user && { user: options.user }) },
         stopWhen: stopWhenOf(agent),
         before: options.before,
+        readOutside: options.readOutside,
         toolApproval: agent.toolApproval,
         signal: options.signal,
         instead,
@@ -660,6 +748,8 @@ export async function loop(options: {
   stopWhen: StopCondition<any>[];
   /** Steps a run that carried on had already taken, which the conditions count. */
   before?: number;
+  /** For a run that carried on: the first tool not marked `own` that answered before it stopped. */
+  readOutside?: string;
   /**
    * The most this may spend, in dollars. Checked between turns, because what a
    * turn costs is only known once it has been paid for, so the turn that goes
@@ -715,7 +805,7 @@ export async function loop(options: {
   // The first tool to answer in this reply that is not `own`. After it, a tool
   // that changes the agent, or one marked `afterOutside`, is refused: what it
   // read could be asking for it. The owner's next message starts clean.
-  let readOutside = "";
+  let readOutside = options.readOutside ?? "";
   const earlier: string[] = [];
   const hand = (texts: string[], step: number) => {
     for (const text of texts) {
