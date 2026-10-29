@@ -226,6 +226,8 @@ export const api = {
       unpriced?: number;
       buttons?: { label: string; sends: string }[];
       multiple?: boolean;
+      /** Taken into the reply already going in this conversation, which answers it. Nothing else is said. */
+      joined?: boolean;
       /** The messages the turn kept, oldest first. */
       kept?: { id: number; role: "user" | "assistant" }[];
     }>(`/agents/${agent}/chat`, {

@@ -395,7 +395,11 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     const link = file ? `${window.location.origin}${href({ at: "memory", agent, path: file })}` : "";
     const words = picked ?? [prompt.trim(), link].filter(Boolean).join("\n\n");
     const sending = picked ? [] : pictures;
-    if ((!words && !sending.length) || waiting) return;
+    // Words typed while a reply is going join it: the agent reads them before
+    // its next step and answers both. Pictures, a picked answer, an edit or a
+    // /command wait for the reply to end.
+    const steering = waiting && !picked && edit === undefined && !sending.length && !words.startsWith("/");
+    if ((!words && !sending.length) || (waiting && !steering)) return;
     if (!picked) {
       setPrompt("");
       setPictures([]);
@@ -406,13 +410,19 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     const mine: Line = { role: "user", content: words, at: new Date().toISOString(), pictures: sending.length ? sending.map((one) => one.url) : undefined };
     setLines((said) => [...(edit === undefined ? said : said.slice(0, edit)), mine]);
     const to = thread;
-    setWaitingOn((all) => new Map(all).set(to, Date.now()));
+    if (!steering) setWaitingOn((all) => new Map(all).set(to, Date.now()));
     asking.current.add(to);
+    let joined = false;
     // An answer to a conversation no longer open is not shown here: opening it
     // again reads it back with the answer in it.
     const here = (line: Line) => open.current === to && setLines((said) => [...said, line]);
     try {
       const answer = await api.say(agent, words, to, sending.map(({ name, mediaType, data }) => ({ name, mediaType, data })), replaces);
+      // Taken into the reply already going, which answers it.
+      if (answer.joined) {
+        joined = true;
+        return;
+      }
       // The ids it was kept under, so it can be forked or edited without reading it all again.
       const asked = answer.kept?.find((one) => one.role === "user")?.id;
       if (asked !== undefined && open.current === to) setLines((said) => said.map((line) => (line === mine ? { ...line, id: asked } : line)));
@@ -442,8 +452,10 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     } catch (error) {
       here({ role: "assistant", content: (error as Error).message, failed: true });
     } finally {
-      asking.current.delete(to);
-      done(to);
+      if (!joined) {
+        asking.current.delete(to);
+        done(to);
+      }
     }
   }
 
@@ -1137,7 +1149,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                 className="go"
                 aria-label={`Send to ${nameOf(agent)}`}
                 onClick={() => void send()}
-                disabled={waiting || (!prompt.trim() && !pictures.length && !file)}
+                disabled={(waiting && (pictures.length > 0 || prompt.trim().startsWith("/"))) || (!prompt.trim() && !pictures.length && !file)}
               >
                 <Icons.Send />
               </button>
