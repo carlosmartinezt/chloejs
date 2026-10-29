@@ -123,6 +123,15 @@ import { agentFor, codeJob } from "./shared.ts";
   const narrow = { authorization: `Bearer ${forTest}` };
   is("a token made for another agent is refused", (await fetch(`${at}/api/agents/far/threads`, { headers: narrow })).status, 403);
   is("and nobody signed in is asked to", (await fetch(`${at}/api/agents/far/threads`)).status, 401);
+  const made = await fetch(`${at}/api/tokens`, {
+    method: "POST",
+    headers: { ...as, "content-type": "application/json" },
+    body: JSON.stringify({ name: "for far only", agent: "far" }),
+  });
+  is("a token can be made for the one in a machine", made.status, 200);
+  const forFar = { authorization: `Bearer ${((await made.json()) as { secret: string }).secret}` };
+  is("and it reaches that one", (await fetch(`${at}/api/agents/far/threads`, { headers: forFar })).status, 200);
+  is("and nothing else", (await fetch(`${at}/api/agents/test/threads`, { headers: forFar })).status, 403);
 
   // The frame is served from here, with this copy's pass, so the policy that
   // keeps a note's script in its box is this copy's own.

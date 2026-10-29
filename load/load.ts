@@ -780,11 +780,13 @@ export async function loadSettings(): Promise<void> {
 }
 
 /**
- * Returns the id of every agent, in the order `chloe.config.ts` lists them.
- * It loads every agent to find them.
+ * Returns the id of every agent `chloe.config.ts` lists: those that run here
+ * in the order it lists them, then those in a machine of their own. It loads
+ * every agent to find them.
  */
 export async function agentIds(): Promise<string[]> {
-  return [...(await loadAll()).keys()];
+  const here = await loadAll();
+  return [...here.keys(), ...agentsInMachines().map((one) => one.id)];
 }
 
 /** What a reload waits for: a check of an agent's new code, which may put a file back. */

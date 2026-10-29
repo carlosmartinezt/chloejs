@@ -1433,7 +1433,8 @@ const routes: Route[] = [
     takes: '{"name": "what it is for", "agent": "optional, the one agent it reaches"}',
     handle: async ({ request, response, context }) => {
       const { name, agent } = await body(request, z.object({ name: z.string().trim().min(1), agent: z.string().optional() }));
-      if (agent) context.agent(agent);
+      // An agent in a machine of its own is not loaded here, and a token for it is checked here all the same.
+      if (agent && !inMachine(agent)) context.agent(agent);
       const { secret, token } = makeToken(name, agent || undefined);
       json(response, { ...token, secret });
     },
