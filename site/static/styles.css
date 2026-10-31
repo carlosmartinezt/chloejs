@@ -645,7 +645,7 @@ tr.pick[aria-current="true"] td { background: var(--accent-soft); }
   .run-list button[id]:hover { background: none; color: var(--ink); }
   .run-list li:hover .num { visibility: visible; }
 }
-.show-archived { margin: 14px 10px 0; font-size: var(--size-small); color: var(--dim); }
+:is(.show-archived, .show-more) { margin: 14px 10px 0; font-size: var(--size-small); color: var(--dim); }
 .show-archived:hover { color: var(--ink); }
 .edge { position: relative; cursor: col-resize; touch-action: none; }
 .edge::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 1px; background: var(--line); }
@@ -866,6 +866,8 @@ pre.painted .keyword { color: var(--accent); }
    and this one only opens. */
 .chat .run-list button[id] { gap: 9px; padding: 5px 8px; font-weight: 400; font-size: var(--size-body);
   line-height: 1.6; color: var(--ink); }
+/* The touch rule's room for the three dots, again, since the line above outweighs it. */
+@media (hover: none) { .chat .run-list button[id] { padding-right: 40px; } }
 .chat .past button svg { flex: none; width: 19px; height: 19px; stroke-width: 1.25; color: var(--dim); }
 .chat .past .places + .new-chat { margin-top: 12px; }
 .chat .past .empty { font-size: var(--size-small); padding: 0 8px; }
@@ -882,6 +884,10 @@ pre.painted .keyword { color: var(--accent); }
 /* Where a dragged conversation would land. */
 .chat .past li.over > button[id], .chat .past .recent.over { background: var(--accent-soft); }
 .chat .past .recent { border-radius: 8px; }
+/* A group is a shade off the page, so it reads as a folder and not as one more conversation. */
+.chat .run-list li.group { margin-bottom: 2px; }
+.chat .run-list li.group > button[id] { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.chat .run-list li.group:is(:hover, .held) > button[id] { background: color-mix(in srgb, var(--ink) 9%, transparent); }
 /* A conversation being renamed, in its row's place. */
 .run-list input.naming { padding: 7px 11px; font-size: var(--size-body); border-radius: 8px; border-color: var(--accent); }
 .talking { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -974,9 +980,11 @@ pre.painted .keyword { color: var(--accent); }
 .composer textarea:focus { outline: none; }
 /* Round, and the size of a thumb. */
 /* Things to ask, under an empty box: quiet until pointed at. */
-.composer .ideas { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 14px; max-width: 760px; margin: 10px auto 0; }
-.composer .ideas button { padding: 2px 0; font: 400 var(--size-small)/1.5 var(--sans); color: var(--dim); opacity: .7; white-space: normal; }
-.composer .ideas button:hover { opacity: 1; color: var(--accent); }
+.composer .ideas { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 760px; margin: 12px auto 0; }
+.composer .ideas button { padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+  font: 400 var(--size-small)/1.4 var(--sans); color: var(--dim); white-space: normal; transition: background-color .15s, transform .1s; }
+.composer .ideas button:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 6%, var(--surface)); }
+.composer .ideas button:active { background: color-mix(in srgb, var(--ink) 12%, var(--surface)); transform: scale(.97); }
 .composer button.go { flex: none; width: 38px; height: 38px; padding: 0; border-radius: 50%; }
 .composer .under { max-width: 760px; margin: 8px auto 0; text-align: center;
   font: 400 var(--size-small)/1.5 var(--sans); color: var(--dim); }
@@ -1000,50 +1008,59 @@ pre.painted .keyword { color: var(--accent); }
 }
 .chat .past .start { display: none; }
 /* On a phone a conversation has the whole screen and scrolls under what
-   floats over it: the past conversations and starting again at the top left,
-   the agent's pages and the agent at the top right, and the box at the
-   bottom. */
+   floats over it: the past conversations at the top left, starting again and
+   the menu of everything else at the top right, and the box at the bottom. */
+.chat-more { display: none; }
 @media (max-width: 620px) {
   :root:has(.chat) .bar { position: fixed; top: var(--dev-h); left: 0; right: 0; padding: 0 12px;
     background: none; border: 0; pointer-events: none; }
   :root:has(.chat) .bar > * { pointer-events: auto; }
-  :root:has(.chat) .bar :is(.mark, .count, .you) { display: none; }
-  :root:has(.chat) .bar :is(.burger, .where), .chat .past {
-    height: 44px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  /* The three round buttons, and where their tops sit to share the bar's middle. */
+  :root:has(.chat) { --round: 50px; --round-top: calc(var(--dev-h) + (var(--bar-h) - var(--round)) / 2); }
+  :root:has(.chat) .bar :is(.mark, .count, .you, .burger, .where) { display: none; }
+  :root:has(.chat) .bar .chat-more, .chat .past, .chat .past .start {
+    display: flex; align-items: center; justify-content: center; width: var(--round); height: var(--round); padding: 0;
+    border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink);
     box-shadow: 0 1px 2px var(--shadow-1), 0 6px 18px -8px var(--shadow-2); }
-  :root:has(.chat) .bar :is(.burger, .where):is(:hover, [aria-expanded="true"]) { background: var(--surface); color: var(--ink); }
-  :root:has(.chat) .bar .burger { position: relative; z-index: 1; order: 0; justify-content: center; align-items: center;
-    width: 44px; margin: 0 0 0 auto; border-radius: 50%; }
-  :root:has(.chat) .bar .burger svg { width: 22px; height: 22px; }
-  :root:has(.chat) .bar .where { order: 1; margin-left: 8px; padding: 0 12px 0 15px; border-radius: 22px; font-size: var(--size-body); }
-  /* The pages drop down as a card under the button, not as a band across. */
-  :root:has(.chat) .bar .menu.open { left: auto; right: 12px; top: calc(100% - 2px); min-width: 230px;
-    padding: 6px 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
-    box-shadow: 0 18px 40px -16px var(--shadow-2); }
-  :root:has(.chat) .bar .menu.open :is(a, .reload) { color: var(--ink); padding: 13px 20px; }
-  :root:has(.chat) .bar .menu.open .reload { border-top-color: var(--line); }
-  /* Chat is the page underneath. */
-  :root:has(.chat) .bar .menu.open a[aria-current="true"] { display: none; }
-  :root:has(.chat) .shade { top: 0; }
+  :root:has(.chat) .bar .chat-more { align-self: center; margin-left: auto; }
+  :root:has(.chat) .bar .chat-more svg { width: 24px; height: 24px; }
+  :root:has(.chat) .bar .chat-more { transition: background-color .15s, transform .1s; }
+  :root:has(.chat) .bar .chat-more:is(:active, [aria-expanded="true"]) { background: color-mix(in srgb, var(--ink) 14%, var(--surface)); }
+  :root:has(.chat) .bar .chat-more:active { transform: scale(.92); }
+  /* The page dims behind the open menu. A press on it lands on the page
+     underneath, which the menu's own closing already allows for. */
+  .chat-more-shade { position: fixed; inset: 0; z-index: -1; background: rgb(0 0 0 / .4); pointer-events: none; }
+  /* Above the conversations button while open, so the dimming covers that too. */
+  :root:has(.chat-more[aria-expanded="true"]) .bar { z-index: 7; }
+  /* Every menu on a phone reads at the size of the conversations list. :root
+     because the menu's own rules come later in this file. */
+  :root .context-menu button { padding: 10px 14px; font-size: 17px; }
+  :root .context-menu .head .who { font-size: 17px; }
 
   .chat { display: flex; flex-direction: column; height: calc(100dvh - var(--dev-h)); }
-  .chat .past { position: fixed; top: calc(var(--dev-h) + 8px); left: 12px; z-index: 6;
-    display: flex; align-items: center; padding: 0 3px; border-radius: 22px; }
-  .chat .past .start, .chat .past .menu-toggle { display: flex; align-items: center; justify-content: center;
-    width: 40px; height: 40px; padding: 0; border-radius: 50%; background: none; color: var(--ink); }
+  .chat .past { position: fixed; top: var(--round-top); left: 12px; z-index: 6; }
+  /* Left of the three dots in the bar. */
+  .chat .past .start { position: fixed; top: var(--round-top); right: calc(12px + var(--round) + 8px); }
+  .chat .past .menu-toggle { display: flex; align-items: center; justify-content: center;
+    width: calc(var(--round) - 4px); height: calc(var(--round) - 4px); padding: 0; border-radius: 50%; background: none; color: var(--ink); }
   .chat .past .menu-toggle :is(.label, svg:last-child) { display: none; }
-  .chat .past :is(.start, .menu-toggle) svg { width: 21px; height: 21px; }
+  /* Darker while pressed and while its list is open, and a touch smaller under the thumb. */
+  .chat .past .menu-toggle { transition: background-color .15s, transform .1s; }
+  .chat .past .menu-toggle:is(:active, [aria-expanded="true"]) { background: color-mix(in srgb, var(--ink) 14%, transparent); }
+  .chat .past .menu-toggle:active { transform: scale(.92); }
+  .chat .past :is(.start, .menu-toggle) svg { width: 24px; height: 24px; }
   .chat .past .menu-root { position: static; }
   .chat .past .menu-root.open .menu-body { top: calc(100% + 8px); left: -1px; right: auto;
-    width: min(320px, calc(100vw - 24px)); max-height: 70dvh;
-    border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 18px 40px -16px var(--shadow-2); }
+    width: calc(100vw - 24px); max-height: calc(100dvh - var(--dev-h) - 72px);
+    border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 18px 40px -16px var(--shadow-2);
+    --size-body: 17px; }
 
   /* The conversation scrolls as one, so the box can stick to the bottom of it
      and the words go on under it, fading out. */
   .talking { flex: 1 1 auto; overflow: auto; overscroll-behavior: contain; }
   .talking .head { justify-content: center; padding: calc(var(--bar-h) + 4px) 16px 0; border: 0; }
   .chat .scroll { flex: 1 0 auto; overflow: visible; }
-  .composer { position: sticky; bottom: 0; z-index: 1; padding: 22px 12px calc(10px + env(safe-area-inset-bottom));
+  .composer { position: sticky; bottom: 0; z-index: 1; padding: 22px 12px calc(22px + env(safe-area-inset-bottom));
     background: linear-gradient(to top, var(--bg) 60%, transparent); }
   .composer .to-end { bottom: calc(100% - 14px); }
   /* One line, adding on the left and sending on the right. A file or a
@@ -1208,6 +1225,8 @@ pre.token { margin: 0; padding: 11px 13px; border-radius: 8px; background: var(-
 .context-menu button.opens { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .context-menu button.opens svg { flex: none; color: var(--dim); }
 .context-menu .line { height: 1px; margin: 4px 6px; background: var(--line); }
+.context-menu .icon { display: inline-flex; margin-right: 11px; vertical-align: -.15em; color: var(--dim); }
+.context-menu .icon svg { width: 1.15em; height: 1.15em; }
 /* What the menu is about, said once at the top: not a thing to press. */
 .context-menu .head { display: flex; flex-direction: column; gap: 2px; max-width: 30ch;
   padding: 8px 11px 7px; border-bottom: 0; }

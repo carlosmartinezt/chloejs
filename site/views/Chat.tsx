@@ -103,6 +103,22 @@ const called = (one: Thread): string => {
 };
 
 /** A visitor's conversation, from a chat box on a web page. */
+/**
+ * Scroll whatever holds `end` all the way down. Not `scrollIntoView`: that
+ * stops with `end` at the bottom of the window, which on a phone leaves the
+ * box you type into, stuck to the bottom below it, still to scroll past.
+ */
+function scrollToEnd(end: HTMLElement, behavior: ScrollBehavior = "auto"): void {
+  for (let box = end.parentElement; box; box = box.parentElement) {
+    if (!/auto|scroll/.test(getComputedStyle(box).overflowY)) continue;
+    box.scrollTo({ top: box.scrollHeight, behavior });
+    return;
+  }
+}
+
+/** How many recent conversations are listed at first, and how many more each "Show more" adds. */
+const RECENT_PAGE = 12;
+
 const fromWeb = (one: Thread): boolean => threadName(one.thread).startsWith("visitor-");
 
 /** `owner` may pick the model for a conversation; anybody else only sees it. */
@@ -135,6 +151,8 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   const [dragged, setDragged] = useState<Thread | null>(null);
   const [over, setOver] = useState<number | null | undefined>(undefined);
   const [archived, setArchived] = useState(false);
+  // How many of the recent conversations are listed: a page at a time.
+  const [recentShown, setRecentShown] = useState(RECENT_PAGE);
   const [width, setWidth] = useState(chatWidth);
   const [doing, setDoing] = useState<Step[]>([]);
   // When this page first saw each line of `doing`, which is what folds it away.
@@ -313,7 +331,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   useEffect(() => {
     if (!wasAtEnd.current && !toEnd.current) return;
     toEnd.current = false;
-    foot.current?.scrollIntoView({ block: "end" });
+    if (foot.current) scrollToEnd(foot.current);
   }, [lines, waiting, doing.length]);
 
   // What it is doing while it is doing it. A turn writes its trace step by
@@ -746,7 +764,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
               {groups.map((group) => (
                 <Fragment key={group.id}>
                   <li
-                    className={[groupMenu?.group.id === group.id && "held", over === group.id && "over"].filter(Boolean).join(" ") || undefined}
+                    className={["group", groupMenu?.group.id === group.id && "held", over === group.id && "over"].filter(Boolean).join(" ")}
                     {...dropOn(group.id)}
                   >
                     {namingGroup === group.id ? (
@@ -793,7 +811,12 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
         {listed && recent.length > 0 && (
           <div className={over === null ? "recent over" : "recent"} {...dropOn(null)}>
             <h2>Recent</h2>
-            <ul className="run-list">{recent.map((one) => row(one))}</ul>
+            <ul className="run-list">{recent.slice(0, recentShown).map((one) => row(one))}</ul>
+            {recent.length > recentShown && (
+              <button className="plain show-more" onClick={() => setRecentShown(recentShown + RECENT_PAGE)}>
+                Show more
+              </button>
+            )}
           </div>
         )}
         {hidden > 0 && (
@@ -1057,7 +1080,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
               className="to-end"
               title="Down to the newest"
               aria-label="Down to the newest"
-              onClick={() => foot.current?.scrollIntoView({ block: "end", behavior: "smooth" })}
+              onClick={() => foot.current && scrollToEnd(foot.current, "smooth")}
             >
               <Icons.ToEnd />
             </button>

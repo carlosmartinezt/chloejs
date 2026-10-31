@@ -260,6 +260,14 @@ export const Settings = () => (
   </Icon>
 );
 
+/** Handing something to somebody else: out of a box. */
+export const Share = () => (
+  <Icon>
+    <path d="M5.4 6.2H4.2a1.4 1.4 0 0 0-1.4 1.4v4.6a1.4 1.4 0 0 0 1.4 1.4h7.6a1.4 1.4 0 0 0 1.4-1.4V7.6a1.4 1.4 0 0 0-1.4-1.4h-1.2" />
+    <path d="M8 9.4V2.4M5.6 4.6 8 2.2l2.4 2.4" />
+  </Icon>
+);
+
 /** Taking a copy of something, onto the clipboard. */
 export const Copy = () => (
   <Icon>

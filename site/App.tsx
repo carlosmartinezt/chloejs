@@ -9,6 +9,7 @@ import { api, EVERYTHING, NeedsSignIn, servesFrom, type Serves } from "./lib/api
 import { nameOf, many, shareNames, words } from "./lib/format.ts";
 import { allowed, landing, may, NOT_GIVEN } from "./lib/given.ts";
 import { announceMenu, watchMenu } from "./lib/menus.ts";
+import { copy } from "./lib/copy.ts";
 import { go, href, read, type View } from "./lib/route.ts";
 import { lastAgent, lastFile } from "./lib/tabs.ts";
 import { modelChoices, type Offered } from "./lib/models.ts";
@@ -208,8 +209,7 @@ export function App() {
         {/* Which agent you are with, in the bar rather than in a column, so no
             page has to give up room to hold it. */}
         {agents[0] && <WhichAgent here={here} all={agents} view={view} given={given} />}
-        {/* On a phone's chat the menu button is right of the conversations' own, so it is a gear rather than a second one of the same. */}
-        <Menu closeOn={window.location.pathname} icon={view.at === "chat" ? <Icons.Settings /> : undefined}>
+        <Menu closeOn={window.location.pathname}>
           {/* Chat, Config and Memory belong to an agent, so these go to the
               one you are with, or were last with. Config is every page of its
               own, with the sidebar that moves between them. */}
@@ -250,6 +250,36 @@ export function App() {
             </Link>
           )}
         </Menu>
+        {/* On a phone's chat, everything above in one menu by the new chat button. */}
+        {view.at === "chat" && (
+          <ChatMore
+            choices={[
+              ...(chats.length > 1
+                ? [
+                    {
+                      label: "Agent",
+                      icon: <Icons.Card />,
+                      more: chats.map((one) => ({
+                        label: nameOf(one.id),
+                        run: () => go({ at: "chat", agent: one.id }),
+                        current: one.id === here,
+                      })),
+                    } as Choice,
+                  ]
+                : []),
+              { label: "Share", icon: <Icons.Share />, title: "Copies the link to this conversation", disabled: !view.thread, run: () => void copy(window.location.href) },
+              "line",
+              ...(!given ? [{ label: "Config", icon: <Icons.Settings />, run: () => go(lastOf("agent", agents, view)) }] : []),
+              ...(memories[0] ? [{ label: "Memory", icon: <Icons.Memory />, run: () => go(lastOf("memory", memories, view)) }] : []),
+              ...(given && jobs[0] ? [{ label: "Jobs", icon: <Icons.Clock />, run: () => go(lastOf("jobs", jobs, view)) }] : []),
+              ...(reads
+                ? [{ label: "Log", icon: <Icons.Log />, run: () => go(here && (!given || may(given, here, "read")) ? { at: "log", agent: here } : { at: "log" }) }]
+                : []),
+              "line",
+              { label: "Reload", icon: <Icons.Reload />, run: () => window.location.reload() },
+            ]}
+          />
+        )}
         {/* Only what is not already on the page below. How many agents there
             are is the page below. */}
         {busy > 0 && <span className="count num">{many(busy, "run")} now</span>}
@@ -407,6 +437,31 @@ function Menu({ closeOn, icon = <Icons.Menu />, children }: { closeOn: string; i
         </button>
       </nav>
       {open && <div className="shade" onClick={close} />}
+    </>
+  );
+}
+
+/** Three dots in the bar with a menu under them, hung from their right edge. Shown only on a phone's chat. */
+function ChatMore({ choices }: { choices: Choice[] }) {
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const close = useCallback(() => setAt(null), []);
+  return (
+    <>
+      <button
+        className="chat-more"
+        aria-label="More"
+        aria-haspopup="menu"
+        aria-expanded={Boolean(at)}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          setAt(at ? null : { x: box.right, y: box.bottom + 6 });
+        }}
+      >
+        <Icons.More />
+      </button>
+      {at && <div className="chat-more-shade" />}
+      {at && <ContextMenu at={at} from="right" close={close} choices={choices} keepOnScroll />}
     </>
   );
 }

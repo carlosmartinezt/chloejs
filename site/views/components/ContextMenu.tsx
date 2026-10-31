@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import * as Icons from "./Icons.tsx";
 
@@ -7,10 +7,12 @@ import * as Icons from "./Icons.tsx";
  * line of text that says what the menu is about and cannot be pressed. One
  * with `more` opens a menu of its own beside it, one level deep.
  */
-export type Choice = Pressable | { label: string; more: Plain[] } | Plain;
+export type Choice = Pressable | { label: string; icon?: ReactNode; more: Plain[] } | Plain;
 
 type Pressable = {
   label: string;
+  /** Drawn before the label. */
+  icon?: ReactNode;
   run: () => void;
   danger?: boolean;
   disabled?: boolean;
@@ -24,7 +26,7 @@ type Plain = Pressable | { head: string } | "line";
  * A menu at the pointer, for a right-click. It closes on the next click
  * anywhere, on Escape, on a scroll of the page, and when the window loses focus, because a
  * menu left open over a page that moved underneath it points at the wrong
- * thing.
+ * thing. One hung from something that stays put can ask to stay open on a scroll.
  *
  * It is kept inside the window: opened near the right or bottom edge it is
  * shifted back in rather than cut off.
@@ -39,6 +41,7 @@ export function ContextMenu({
   close,
   from = "left",
   search,
+  keepOnScroll,
 }: {
   at: { x: number; y: number };
   choices: Choice[];
@@ -47,6 +50,8 @@ export function ContextMenu({
   from?: "left" | "right";
   /** The words in an empty search box. Without it there is no box. */
   search?: string;
+  /** Stay open while the page scrolls, for a menu under something that does not move with it. */
+  keepOnScroll?: boolean;
 }) {
   const ref = useRef<HTMLUListElement>(null);
   const [typed, setTyped] = useState("");
@@ -81,7 +86,7 @@ export function ContextMenu({
     };
     window.addEventListener("mousedown", away);
     window.addEventListener("keydown", away);
-    window.addEventListener("scroll", away, true);
+    if (!keepOnScroll) window.addEventListener("scroll", away, true);
     window.addEventListener("blur", away);
     return () => {
       window.removeEventListener("mousedown", away);
@@ -89,7 +94,7 @@ export function ContextMenu({
       window.removeEventListener("scroll", away, true);
       window.removeEventListener("blur", away);
     };
-  }, [at, close]);
+  }, [at, close, keepOnScroll]);
 
   return (
     <ul ref={ref} className="context-menu" role="menu" style={{ left: at.x, top: at.y }}>
@@ -134,7 +139,10 @@ export function ContextMenu({
                 setOpen({ index, beside: (event.currentTarget.parentElement as HTMLElement).getBoundingClientRect() });
               }}
             >
-              {choice.label}
+              <span>
+                {choice.icon && <span className="icon">{choice.icon}</span>}
+                {choice.label}
+              </span>
               <Icons.Right />
             </button>
             {open?.index === index && <Beside choices={choice.more} beside={open.beside} close={close} back={() => setOpen(null)} />}
@@ -168,6 +176,7 @@ function row(choice: Plain, index: number, close: () => void, hover?: () => void
           choice.run();
         }}
       >
+        {choice.icon && <span className="icon">{choice.icon}</span>}
         {choice.label}
       </button>
     </li>
