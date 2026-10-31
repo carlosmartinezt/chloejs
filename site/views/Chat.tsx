@@ -288,20 +288,33 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     };
   }, [thread]);
 
-  useEffect(() => {
-    foot.current?.scrollIntoView({ block: "end" });
-  }, [lines, waiting, doing.length]);
-
   // Whether the end of the conversation is in sight. Watched against the
   // window, not the list, because on a phone it is the whole column that scrolls.
   const [atEnd, setAtEnd] = useState(true);
+  const wasAtEnd = useRef(true);
   useEffect(() => {
     const end = foot.current;
     if (!end) return;
-    const watching = new IntersectionObserver(([one]) => setAtEnd(one.isIntersecting));
+    const watching = new IntersectionObserver(([one]) => {
+      wasAtEnd.current = one.isIntersecting;
+      setAtEnd(one.isIntersecting);
+    });
     watching.observe(end);
     return () => watching.disconnect();
   }, []);
+
+  // A new line, a tool or the answer keeps the end in sight only for somebody
+  // already there: whoever scrolled up to read stays where they are. Sending,
+  // or opening a conversation, always goes to the end.
+  const toEnd = useRef(true);
+  useEffect(() => {
+    toEnd.current = true;
+  }, [thread]);
+  useEffect(() => {
+    if (!wasAtEnd.current && !toEnd.current) return;
+    toEnd.current = false;
+    foot.current?.scrollIntoView({ block: "end" });
+  }, [lines, waiting, doing.length]);
 
   // What it is doing while it is doing it. A turn writes its trace step by
   // step, so the run it is in the middle of says which tools it has reached
@@ -400,6 +413,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
     // /command wait for the reply to end.
     const steering = waiting && !picked && edit === undefined && !sending.length && !words.startsWith("/");
     if ((!words && !sending.length) || (waiting && !steering)) return;
+    toEnd.current = true;
     if (!picked) {
       setPrompt("");
       setPictures([]);

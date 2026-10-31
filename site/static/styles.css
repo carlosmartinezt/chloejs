@@ -1174,6 +1174,10 @@ pre.token { margin: 0; padding: 11px 13px; border-radius: 8px; background: var(-
 .read table { width: auto; min-width: 50%; font-size: var(--size-body); }
 .read th, .read td { padding: 6px 16px 6px 0; }
 .read th:last-child, .read td:last-child { padding-right: 0; }
+/* A cell breaks between words, never inside one, even on a phone: a table too
+   wide for the screen scrolls sideways in its wrap instead of squashing a
+   column to one letter a line. */
+.read th, .read td { overflow-wrap: break-word; }
 
 .statusbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; min-width: 0; padding: 4px 12px;
   background: var(--bar); color: var(--on-bar); font: 400 var(--size-small)/1.5 var(--sans); }
