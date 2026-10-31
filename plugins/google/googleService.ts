@@ -402,7 +402,7 @@ function onThisMachine(url: string): boolean {
  * so in advance is the difference between a step and a fault.
  */
 export function whatToDo(account: string, to: { url: string }): string {
-  const open = `Open this link and sign in as ${account}.`;
+  const open = `Open the sign-in page and sign in as ${account}.`;
   if (!onThisMachine(to.url || PASTE_BACK)) return `${open} Then send me the short code the last page shows.`;
   return `${open} The last page will not load, and that is fine. Copy its whole address and send it to me.`;
 }
@@ -577,13 +577,14 @@ async function accessKey(): Promise<string> {
 
 /**
  * One call to Google as the signed-in account: an address, its query, and a
- * body sent as JSON. JSON back, or text when `text` is set. Any failure is
- * thrown in words rather than as "invalid_grant", and one that a sign-in fixes
+ * body sent as JSON. JSON back, text when `text` is set, or the bytes as a
+ * Buffer when `bytes` is. Any failure is thrown in words rather than as
+ * "invalid_grant", and one that a sign-in fixes
  * as `NeedsSignIn`, which stops a turn before a model can retry it.
  */
 export async function googleApi<T>(
   url: string,
-  { method = "GET", query, body, text = false }: { method?: string; query?: Record<string, string | number | boolean | string[] | undefined>; body?: unknown; text?: boolean } = {},
+  { method = "GET", query, body, text = false, bytes = false }: { method?: string; query?: Record<string, string | number | boolean | string[] | undefined>; body?: unknown; text?: boolean; bytes?: boolean } = {},
 ): Promise<T> {
   const address = new URL(url);
   for (const [name, value] of Object.entries(query ?? {})) {
@@ -596,6 +597,7 @@ export async function googleApi<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(60_000),
   });
+  if (bytes && response.ok) return Buffer.from(await response.arrayBuffer()) as T;
   const said = await response.text();
   if (response.status === 401) opened = undefined;
   if (!response.ok) throw failure(said || `${response.status} ${response.statusText}`);

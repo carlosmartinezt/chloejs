@@ -1,13 +1,14 @@
 // The tools over driveService.ts: finding files in the part of Drive an agent
-// is bound to, and reading one as text. The binding lives in the agent's
-// config, and the model chooses only the words to look for.
+// is bound to, reading one as text, and downloading one as it is. The
+// binding lives in the agent's config, and the model chooses only the words to
+// look for.
 //
 //   import * as drive from "@chloejs/core/tools/drive";
 //   tools: { driveSearchFiles: drive.searchFiles({ search }), driveReadFile: drive.readFile({ search }) }
 import { tool } from "ai";
 import { z } from "zod";
 
-import { readDriveFile, searchDriveFiles } from "./driveService.ts";
+import { downloadDriveFile, readDriveFile, searchDriveFiles } from "./driveService.ts";
 import { google } from "./connection.ts";
 
 /** The options for `drive.searchFiles` and `drive.readFile`. */
@@ -69,4 +70,29 @@ export function readFile({ search = "", what = "Drive" }: Options = {}) {
     execute: async ({ fileId }) => await readDriveFile({ search, what, fileId }),
   });
   return Object.assign(read, { title: "Read Drive file", needs: google, onlyReads: true, kind: "read" as const });
+}
+
+/**
+ * Makes a tool that lets the model download one Drive file as it is (a PDF, a
+ * picture) and get the full path it was saved at, to hand to a script. It goes
+ * in the agent's received files, with what people sent it.
+ *
+ * The model passes a Drive link or a file id. With a `search`, only a file
+ * `drive.searchFiles` listed with it; without one, any file the account can open.
+ *
+ * - `agent`: the agent's id, whose received files it goes in. Required.
+ *
+ * Needs the Google connection.
+ */
+export function downloadFile({ search = "", what = "Drive", agent }: Options & { agent: string }) {
+  const download = tool({
+    description:
+      `Download one file in ${what} as it is (a PDF, a picture) and get the full path it was saved at, to hand to a script. ` +
+      "Pass a Drive link as it was sent, or an id driveSearchFiles listed. Read Google Docs, Sheets and Slides with driveReadFile instead.",
+    inputSchema: z.object({
+      file: z.string().min(10).describe("A Drive link, or a file id."),
+    }),
+    execute: async ({ file }) => await downloadDriveFile({ search, what, agent, file }),
+  });
+  return Object.assign(download, { title: "Download Drive file", needs: google, onlyReads: true, kind: "fetch" as const });
 }

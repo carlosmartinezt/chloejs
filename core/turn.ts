@@ -669,7 +669,8 @@ async function go(options: {
 
 /**
  * What to send when a tool needs somebody to sign in: what failed, the
- * connection's own words, and its link exactly as it made it. Only in a
+ * connection's own words, and its link exactly as it made it, behind short
+ * words, since a sign-in address is a screen of codes nobody reads. Only in a
  * conversation, where the answer can come back: a run with nobody to answer
  * it fails instead, saying so, because starting a sign-in nobody sees would
  * only replace the link somebody else is about to open.
@@ -678,7 +679,7 @@ async function signInReply(tools: Tools, needed: { connection: string; why: stri
   const connection = connectionsUsed(tools).find((one) => one.name === needed.connection);
   if (!canAnswer || !connection?.signIn) return undefined;
   const started = await connection.signIn.start();
-  return [needed.why, started.say, started.link].filter(Boolean).join("\n\n");
+  return [needed.why, started.say, started.link && `[Open the sign-in page](${started.link})`].filter(Boolean).join("\n\n");
 }
 
 /** The text and tool calls a model saw before it began, without attachment bytes. */

@@ -5,7 +5,10 @@
 // binding is a boundary rather than a filter.
 //
 // A Google Doc, Sheet or Slides is read as text, through Drive, so a Doc needs
-// nothing of its own.
+// nothing of its own. Any other file (a PDF, a picture) is downloaded as it is,
+// into the agent's received files, for its scripts.
+import { keepReceived } from "#chloe/services/receivedService";
+
 import { googleApi, marked } from "./googleService.ts";
 
 /** Where the files are. */
@@ -173,4 +176,62 @@ export async function readDriveFile({
   }
   const cut = text.length > MOST;
   return { id: fileId, name: marked(file.name ?? ""), kind, text: marked(cut ? text.slice(0, MOST) : text), cut };
+}
+
+/** The biggest file `downloadDriveFile` takes. */
+const MOST_BYTES = 25 * 1024 * 1024;
+
+/** The file id in a Drive link (`.../d/<id>/...` or `...?id=<id>`), or the id itself. */
+export function fileIdOf(file: string): string | undefined {
+  const said = file.trim();
+  return /\/d\/([\w-]{20,})/.exec(said)?.[1] ?? /[?&]id=([\w-]{20,})/.exec(said)?.[1] ?? (/^[\w-]{20,}$/.test(said) ? said : undefined);
+}
+
+/**
+ * Downloads one file from Google Drive as it is, such as a PDF or a picture,
+ * and saves it with the files people sent the agent (`keepReceived`), so a
+ * script can open it and it is deleted with them.
+ *
+ * - `search`: the same Drive search you gave `searchDriveFiles`. Default: `""`, all of Drive.
+ * - `what`: a short name for those files, used in the error message. Required.
+ * - `agent`: the agent's id, whose received files it goes in. Required.
+ * - `file`: a Drive link to the file, or its id. Required.
+ *
+ * With a `search`, the file must be one `searchDriveFiles` listed with it.
+ * Without one, any file the signed-in account can open is in bounds, so a link
+ * the person sent works as it is.
+ *
+ * Returns `{ path, name, kind, bytes }`: the full path it was saved at, and
+ * its name, wrapped in `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` markers.
+ *
+ * Throws for a Google Doc, Sheet or Slides (read those with `readDriveFile`),
+ * for a file over 25 MB, `NeedsSignIn` when someone has to sign in to Google,
+ * and an `Error` for any other problem with Google.
+ */
+export async function downloadDriveFile({
+  search = "",
+  what,
+  agent,
+  file,
+}: {
+  search?: string;
+  what: string;
+  agent: string;
+  file: string;
+}): Promise<{ path: string; name: string; kind: string; bytes: number }> {
+  const fileId = fileIdOf(file);
+  if (!fileId) throw new Error(`${file} is not a Drive link or file id.`);
+  if (search && !listed.get(search)?.has(fileId)) {
+    throw new Error(`That file is not in ${what}, or has not been listed yet. Search first and use an id from that list.`);
+  }
+  const at = `${FILES}/${encodeURIComponent(fileId)}`;
+  const found = await googleApi<GoogleFile & { size?: string }>(at, { query: { fields: "id,name,mimeType,size", supportsAllDrives: true } });
+  const kind = found.mimeType ?? "";
+  const name = found.name ?? "file";
+  if (kind.startsWith("application/vnd.google-apps.")) {
+    throw new Error(`${name} is a Google ${kind.split(".").pop()}, not a file to download. Read it as text instead.`);
+  }
+  if (Number(found.size ?? 0) > MOST_BYTES) throw new Error(`${name} is bigger than ${MOST_BYTES / 1024 / 1024} MB.`);
+  const data = await googleApi<Buffer>(at, { query: { alt: "media", supportsAllDrives: true }, bytes: true });
+  return { path: await keepReceived(agent, name, data), name: marked(name), kind, bytes: data.length };
 }

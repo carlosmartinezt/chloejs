@@ -34,8 +34,9 @@ declare module "#chloe/load/abilities" {
      */
     googleCalendar?: boolean | GoogleCalendarAbility;
     /**
-     * Adds the tools `driveSearchFiles` and `driveReadFile`, which find and read
-     * files in Google Drive as text. Off by default. `true` reaches all of
+     * Adds the tools `driveSearchFiles`, `driveReadFile` and `driveDownloadFile`,
+     * which find files in Google Drive, read them as text, and download one as
+     * it is into the agent's received files for a script. Off by default. `true` reaches all of
      * Drive: give `search` to keep it to some files. Needs the Google sign-in.
      */
     googleDrive?: boolean | GoogleDriveAbility;
@@ -205,17 +206,21 @@ export const google: Plugin = {
       name: "googleDrive",
       label: "Google Drive",
       on: false,
-      does: "Finds and reads files in Google Drive as text.",
-      tools: ["driveSearchFiles", "driveReadFile"],
+      does: "Finds files in Google Drive, reads them as text, and downloads one as it is for a script.",
+      tools: ["driveSearchFiles", "driveReadFile", "driveDownloadFile"],
       needs: connection,
       fields: [
         { name: "search", label: "Files it may see", about: "A Drive search, like one folder. Empty: all of Drive. It cannot change it.", kind: "words", default: "" },
         about("those files"),
       ],
-      make: (_home, v) => {
+      make: (home, v) => {
         const search = v.search as string;
         const what = (v.about as string) || (search ? `Drive files matching ${search}` : "Drive");
-        return { driveSearchFiles: drive.searchFiles({ search, what }), driveReadFile: drive.readFile({ search, what }) };
+        return {
+          driveSearchFiles: drive.searchFiles({ search, what }),
+          driveReadFile: drive.readFile({ search, what }),
+          driveDownloadFile: drive.downloadFile({ search, what, agent: home.id }),
+        };
       },
     },
   ],

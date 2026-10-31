@@ -21,7 +21,8 @@ export interface SignIn {
   /**
    * Starts a sign-in and returns what to send the person: `say` is the words,
    * and `link` is the address they open. chloe sends the link exactly as you
-   * return it.
+   * return it, after `say`, behind the words "Open the sign-in page", so
+   * `say` should not print the address again.
    *
    * Leave out `link` when there is nothing to open yet (for example, the
    * account has no app set up). Then put the steps to follow in `say`.

@@ -369,3 +369,21 @@ import type { Tools } from "#chloe/ops/test/shared";
   is("a field that is not there is refused, saying which there are", (await asked({ googleMail: { sent: true } })).includes("has no field sent. It has search"), true);
   is("one of the wrong kind", (await asked({ googleMail: { days: "three" } })).includes("days takes a number"), true);
 }
+
+{
+  about("downloading a Drive file");
+  const { downloadDriveFile, fileIdOf } = await import("./driveService.ts");
+  const id = "1Ywl5lxcauZu-OALFLGsN9Y1Xn6SOptPY";
+  is("a link to a file gives its id", fileIdOf(`https://drive.google.com/file/d/${id}/view?usp=drivesdk`), id);
+  is("so does an open link", fileIdOf(`https://drive.google.com/open?id=${id}`), id);
+  is("and an id is itself", fileIdOf(` ${id} `), id);
+  is("anything else is no file", fileIdOf("the offer letter"), undefined);
+  const refused = await downloadDriveFile({ search: "'folder' in parents", what: "the folder", agent: "test", file: id }).then(() => "", (error: Error) => error.message);
+  is("bound to a search, a file it never listed is refused before Google is asked", refused.includes("not in the folder"), true);
+  const agent = await import("@chloejs/core").then(({ defineAgent }) => defineAgent);
+  const { resolveAgent } = await import("#chloe/load/load");
+  const { realpath } = await import("node:fs/promises");
+  const folder = await realpath(await mkdtemp(join(tmpdir(), "chloe-google-drive-")));
+  const drive = await resolveAgent(agent({ id: "files", folder, model: "m", identity: "", purpose: "Hi.", abilities: { googleDrive: true } }));
+  is("Google Drive brings the download with it", Object.keys(drive.tools ?? {}).filter((name) => drive.toolsFrom?.[name] === "abilities.googleDrive").sort(), ["driveDownloadFile", "driveReadFile", "driveSearchFiles"]);
+}

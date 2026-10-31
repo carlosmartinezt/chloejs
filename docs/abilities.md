@@ -31,7 +31,7 @@ rename breaks nothing ([A prompt with tools](/docs/prompts#skills-and-scripts)).
 | `web` | off | `webReadPage`, `webSearch` |
 | `googleMail` | off | `emailReadMail`, `emailReplyMail`, `emailSendMail` |
 | `googleCalendar` | off | `calendarListEvents`, `calendarAddEvent` |
-| `googleDrive` | off | `driveSearchFiles`, `driveReadFile` |
+| `googleDrive` | off | `driveSearchFiles`, `driveReadFile`, `driveDownloadFile` |
 | `resend` | off | `resendSendEmail` |
 
 ### memory
@@ -115,7 +115,7 @@ bind yourself, or a mailbox of your own on the email channel.
 |---|---|---|
 | `googleMail` | `search` (a Gmail search, default `in:inbox`), `days` (7), `about`, `sendTo` (none), `sendFrom`, `sendWhen` | `emailReadMail`, `emailReplyMail`; with a `sendTo`, `emailSendMail`, which writes only the subject and the body |
 | `googleCalendar` | `calendars` (`["primary"]`), `days` (7), `about` | `calendarListEvents`, `calendarAddEvent`, which invites nobody |
-| `googleDrive` | `search` (all of Drive), `about` | `driveSearchFiles`, `driveReadFile` |
+| `googleDrive` | `search` (all of Drive), `about` | `driveSearchFiles`, `driveReadFile`, `driveDownloadFile` |
 
 `abilities: { googleMail: { search: "label:orders", days: 3 } }`.
 What an ability cannot hold (a copy folder for sent mail, several calendars to

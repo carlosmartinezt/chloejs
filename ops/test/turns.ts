@@ -676,7 +676,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, reachBy, r
   const before = asked;
   const first = await chat("any late orders?");
   is("a tool that needs a sign-in stops the turn, with no second model call", asked, before + 1);
-  is("and the reply is what failed, the connection's words, and its link as it made it", first?.text, `The shop cannot be reached: nobody has signed in.\n\nOpen this link and send me the code.\n\n${link}`);
+  is("and the reply is what failed, the connection's words, and its link as it made it", first?.text, `The shop cannot be reached: nobody has signed in.\n\nOpen this link and send me the code.\n\n[Open the sign-in page](${link})`);
 
   const wrong = await chat("code-wrong");
   is("an answer the connection refuses is said, and no model is asked", [wrong?.text, asked], ["Google did not take that code.", before + 1]);

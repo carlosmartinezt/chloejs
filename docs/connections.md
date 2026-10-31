@@ -101,12 +101,13 @@ tools: {
 | `calendar.addEvent` | `calendar` | `"primary"` | Add one event. It invites nobody. |
 | `drive.searchFiles` | `search`, a Drive query | every file the account can open | Find files in it, by words or newest first. |
 | `drive.readFile` | the same `search` | | Read a file the search listed, as text: a Doc, Sheet, Slides or text file. |
+| `drive.downloadFile` | the same `search`, and `agent` | | Download a file as it is (a PDF, a picture) into the agent's received files, for a script. With a `search`, only a file it listed; without one, any Drive link. |
 
 The read tools take `what` too: that mail, calendar or folder in plain words,
 for the model. A job does the same work without a model through
 `@chloejs/core/services`: `readEmailMessages`, `sendGmail`,
-`listCalendarEvents`, `addCalendarEvent`, `searchDriveFiles` and
-`readDriveFile`.
+`listCalendarEvents`, `addCalendarEvent`, `searchDriveFiles`,
+`readDriveFile` and `downloadDriveFile`.
 
 ## Resend
 

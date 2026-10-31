@@ -13,7 +13,7 @@ export { markdownToHtml, markdownToText, deliverEmail, type EmailSender } from "
 export { readEmailMessages, readOneEmailMessage, sendGmail, type Message as Mail } from "#chloe/plugins/google/gmailService";
 export { NeedsClient, finish, setupSteps, signInState, start, type SignInState, type Started } from "#chloe/plugins/google/googleService";
 export { addCalendarEvent, listCalendarEvents, type CalendarEvent } from "#chloe/plugins/google/calendarService";
-export { readDriveFile, searchDriveFiles, type DriveFile } from "#chloe/plugins/google/driveService";
+export { downloadDriveFile, readDriveFile, searchDriveFiles, type DriveFile } from "#chloe/plugins/google/driveService";
 export { deleteFiles, editFiles, folderTree, listFiles, moveFiles, readAsText, readFiles, searchFiles, writeFiles } from "./filesService.ts";
 export { listScripts, runScripts } from "./scriptsService.ts";
 export { ownRun, ownRuns } from "./selfService.ts";
