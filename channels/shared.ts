@@ -47,11 +47,13 @@ import { models, quickFor, UsageLimit } from "#chloe/model/model";
 import { clock, type Fired, ran } from "#chloe/core/clock";
 import { settings } from "#chloe/core/settings";
 import { answer, waitingOn, WrongArgs } from "#chloe/core/steps";
+import { asPerson } from "#chloe/core/person";
 import { ReplyStopped, turn } from "#chloe/core/turn";
 import type { Connection } from "#chloe/connections/connection";
 import { neededBy, type ChloeTool, type Tools } from "#chloe/model/tool";
 import type { FileToSend } from "#chloe/model/tools/chat";
 import { keepReceived } from "#chloe/services/receivedService";
+import { person } from "#chloe/serve/people";
 
 /** The files on one message, as a channel fetches them. See `Incoming.files`. */
 export interface Files {
@@ -478,8 +480,25 @@ export interface Button {
  * 9. Anything else gets a reply from the model.
  *
  * Returns `undefined` when the message was not for the agent.
+ *
+ * All of it is done as the sender (`personOf()`), so a sign-in they start, a
+ * job they run and the tools of the reply use their own accounts.
  */
 export async function receive(agent: Agent, message: Incoming, rules: Rules = {}, whileWorking: While = {}): Promise<Handled | undefined> {
+  return asPerson(personOf(message, rules), () => handle(agent, message, rules, whileWorking));
+}
+
+/**
+ * Whose sign-ins a message uses: nobody's for the owner, which is the owner's;
+ * the invited person's whose address sent it; and `channel:id` for anybody
+ * else, who signs in to accounts of their own or reaches none.
+ */
+export function personOf(message: Incoming, rules: Rules = {}): string | undefined {
+  if (ownerOf(message, rules).fromOwner) return undefined;
+  return person(message.from.id)?.email ?? `${message.channel}:${message.from.id}`;
+}
+
+async function handle(agent: Agent, message: Incoming, rules: Rules, whileWorking: While): Promise<Handled | undefined> {
   const working = whileWorking.working ?? (() => () => {});
   const { channel, from, text } = message;
   const said = (words: string): Handled => ({ text: words, steps: 0, cost: 0 });

@@ -10,26 +10,38 @@
 // nothing asks a person for a passphrase. Two copies of one secret is how a
 // sign-in that works comes to look like one that has expired.
 //
+// **Each person has their own.** The owner's is for `connections.google.account`
+// and nobody else; anybody else the work is for (`personAsking()`) signs in to
+// whichever Google account is theirs, kept in their own `signInFolder()`, and
+// never reaches the owner's.
+//
 // Nothing in here opens a browser, because the person is not at this machine.
 // A sign-in is `start()`, which hands back a link, and `finish()`, which takes
 // what the link came back with. Whatever carries those two, a chat, Telegram or
 // the API, is the caller's business.
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { settings } from "#chloe/core/settings";
 import { STATE } from "#chloe/core/paths";
-import { NeedsSignIn } from "#chloe/connections/connection";
+import { NeedsSignIn, signInFolder } from "#chloe/connections/connection";
+import { personAsking } from "#chloe/core/person";
 
 /** Everything Google, in one folder inside the state directory. */
 export const GOOGLE = join(STATE, "google");
 
-/** The sign-in: the account and the key that lasts, which Google calls a refresh token. */
-const TOKEN = join(GOOGLE, "token.json");
+/** The sign-in of whoever is asking: the account and the key that lasts, which Google calls a refresh token. */
+const tokenFile = () => join(signInFolder("google"), "token.json");
 
-/** A sign-in that has been started and not finished. */
-const PENDING = join(GOOGLE, "pending.json");
+/** The sign-in whoever is asking started and has not finished. */
+const pendingFile = () => join(signInFolder("google"), "pending.json");
+
+/**
+ * The account a sign-in is for: `connections.google.account` for the owner,
+ * and empty for anybody else, whose sign-in is whichever account they approve.
+ */
+const expected = (): string => (personAsking() ? "" : settings.connections.google.account);
 
 /** Where a person approves, and where a code or a lasting key is traded for a key that opens Google for an hour. */
 const APPROVE = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -119,6 +131,7 @@ export class NeedsClient extends Error {
 
 /** What a sign-in that was started looks like while it waits for its answer. */
 export interface Pending {
+  /** The account it must be approved by. Empty for somebody other than the owner: any account of theirs. */
   account: string;
   services: string;
   /** Where Google was told to send the answer. A loopback address means somebody pastes it back. */
@@ -157,8 +170,9 @@ interface Saved {
   saved: string;
 }
 
-function folder(): void {
-  if (!existsSync(GOOGLE)) mkdirSync(GOOGLE, { recursive: true, mode: 0o700 });
+function folder(path: string): void {
+  const inside = dirname(path);
+  if (!existsSync(inside)) mkdirSync(inside, { recursive: true, mode: 0o700 });
 }
 
 function readJson<T>(path: string): T | undefined {
@@ -171,16 +185,18 @@ function readJson<T>(path: string): T | undefined {
 }
 
 function writeSecret(path: string, value: unknown): void {
-  folder();
+  folder(path);
   writeFileSync(path, JSON.stringify(value, null, 2), { mode: 0o600 });
   chmodSync(path, 0o600);
 }
 
-/** The kept sign-in, when it is for the account in settings. */
+/** The kept sign-in of whoever is asking: the owner's when it is for the account in settings, anybody else's when there is one. */
 function saved(): Saved | undefined {
-  const held = readJson<Saved>(TOKEN);
+  const held = readJson<Saved>(tokenFile());
+  if (!held?.refresh_token) return undefined;
+  if (personAsking()) return held;
   const account = settings.connections.google.account.trim().toLowerCase();
-  return held?.refresh_token && account && held.account.toLowerCase() === account ? held : undefined;
+  return account && held.account.toLowerCase() === account ? held : undefined;
 }
 
 /**
@@ -298,7 +314,7 @@ export function clientKind(): "web" | "installed" | "" {
  */
 export async function signInState(): Promise<SignInState> {
   const account = settings.connections.google.account;
-  const waiting = Boolean(readJson<Pending>(PENDING));
+  const waiting = Boolean(readJson<Pending>(pendingFile()));
   if (!account) {
     return { ready: false, account, missing: "connections.google.account is not set, so there is no account to sign in", waiting };
   }
@@ -357,8 +373,8 @@ function scopesFor(services: string): string[] {
  * `services` names a service that does not exist.
  */
 export async function start({ services = SERVICES }: { services?: string } = {}): Promise<Started> {
-  const account = settings.connections.google.account;
-  if (!account) {
+  const account = expected();
+  if (!account && !personAsking()) {
     throw new Error("connections.google.account is not set, so there is nobody to sign in. Put the address in chloe.config.ts's settings as `connections: { google: { account: \"you@gmail.com\" } }`.");
   }
   const { id } = clientOf();
@@ -373,13 +389,13 @@ export async function start({ services = SERVICES }: { services?: string } = {})
     response_type: "code",
     access_type: "offline",
     prompt: "consent",
-    login_hint: account,
+    ...(account && { login_hint: account }),
     scope: scopesFor(services).join(" "),
     state,
     code_challenge: createHash("sha256").update(verifier).digest("base64url"),
     code_challenge_method: "S256",
   })}`;
-  writeSecret(PENDING, { account, services, redirect, state, verifier, started: new Date().toISOString() } satisfies Pending);
+  writeSecret(pendingFile(), { account, services, redirect, state, verifier, started: new Date().toISOString() } satisfies Pending);
   return { link, account, say: whatToDo(account, to) };
 }
 
@@ -402,7 +418,7 @@ function onThisMachine(url: string): boolean {
  * so in advance is the difference between a step and a fault.
  */
 export function whatToDo(account: string, to: { url: string }): string {
-  const open = `Open the sign-in page and sign in as ${account}.`;
+  const open = account ? `Open the sign-in page and sign in as ${account}.` : "Open the sign-in page and sign in with your own Google account.";
   if (!onThisMachine(to.url || PASTE_BACK)) return `${open} Then send me the short code the last page shows.`;
   return `${open} The last page will not load, and that is fine. Copy its whole address and send it to me.`;
 }
@@ -435,7 +451,7 @@ export function codeFrom(answer: string, waiting: Pending): string {
  * by the model, and reads only the file the waiting sign-in is in.
  */
 export function isAnswer(text: string): boolean {
-  const waiting = readJson<Pending>(PENDING);
+  const waiting = readJson<Pending>(pendingFile());
   if (!waiting) return false;
   const said = text.trim();
   if (/^https?:\/\/\S+$/i.test(said)) {
@@ -471,10 +487,11 @@ export function isAnswer(text: string): boolean {
  * there is no Google client.
  */
 export async function finish(answer: string): Promise<{ account: string; signedIn: true }> {
-  const waiting = readJson<Pending>(PENDING);
+  const pending = pendingFile();
+  const waiting = readJson<Pending>(pending);
   if (!waiting) throw new Error("No sign-in is waiting for a code. Start one first, then send what the browser came back with.");
   if (!waiting.verifier) {
-    rmSync(PENDING, { force: true });
+    rmSync(pending, { force: true });
     throw new Error("That sign-in was started by an older version of this and cannot be finished. Start a new one.");
   }
   const code = codeFrom(answer, waiting);
@@ -495,17 +512,19 @@ export async function finish(answer: string): Promise<{ account: string; signedI
   // is Google's word, and only the client it was made for is checked.
   const who = tokens.id_token ? idClaims(tokens.id_token) : undefined;
   const approved = who?.aud === id && who.email_verified ? (who.email ?? "").toLowerCase() : "";
-  if (approved !== waiting.account.toLowerCase()) {
-    rmSync(PENDING, { force: true });
+  // The owner's must be the account in settings; anybody else's is whichever
+  // account Google says approved it, as long as Google vouches for it.
+  if (waiting.account ? approved !== waiting.account.toLowerCase() : !approved) {
+    rmSync(pending, { force: true });
     throw new Error(
       approved
         ? `That sign-in was approved by ${approved} and not by ${waiting.account}, so it was thrown away. Sign in again with that account.`
-        : `That sign-in could not be checked against ${waiting.account}, so it was thrown away.`,
+        : `That sign-in could not be checked against ${waiting.account || "a Google account"}, so it was thrown away.`,
     );
   }
   const short = notGranted(waiting.services, tokens.scope);
   if (short.length) {
-    rmSync(PENDING, { force: true });
+    rmSync(pending, { force: true });
     throw new Error(
       `Google approved the sign-in without ${named(short)}, so it was not kept. On Google's page every box has to be ticked. Sign in again.`,
     );
@@ -515,10 +534,10 @@ export async function finish(answer: string): Promise<{ account: string; signedI
       "Google approved but handed back no key that lasts, so nothing was saved. Start the sign-in again: it asks Google for one.",
     );
   }
-  writeSecret(TOKEN, { account: waiting.account, refresh_token: tokens.refresh_token, scope: tokens.scope, saved: new Date().toISOString() } satisfies Saved);
-  opened = undefined;
-  rmSync(PENDING, { force: true });
-  return { account: waiting.account, signedIn: true };
+  writeSecret(tokenFile(), { account: approved, refresh_token: tokens.refresh_token, scope: tokens.scope, saved: new Date().toISOString() } satisfies Saved);
+  opened.delete(tokenFile());
+  rmSync(pending, { force: true });
+  return { account: approved, signedIn: true };
 }
 
 /** What Google's token address hands back. */
@@ -552,27 +571,29 @@ function idClaims(token: string): { aud?: string; email?: string; email_verified
   }
 }
 
-/** The key that opens Google now, kept until a minute before it runs out. */
-let opened: { key: string; until: number; account: string } | undefined;
+/** The key that opens Google now for each sign-in, by its file, kept until a minute before it runs out. One per person signed in. */
+const opened = new Map<string, { key: string; until: number; account: string }>();
 
-/** A key that opens Google for the account in settings, traded for when the last one is about to run out. */
+/** A key that opens Google for whoever is asking, traded for when the last one is about to run out. */
 async function accessKey(): Promise<string> {
   const held = saved();
+  const file = tokenFile();
   if (!held) {
-    throw settings.connections.google.account
+    throw personAsking() || settings.connections.google.account
       ? failure("no sign-in")
       : new Error("Google cannot be reached: connections.google.account is not set, so there is no account to read. A person has to set it. Do not retry.");
   }
   // A key that cannot reach everything is a sign-in to do again, said before
   // Google refuses it rather than after.
   if (notGranted(SERVICES, held.scope).length) throw failure("insufficient scope");
-  if (opened && opened.account === held.account && opened.until > Date.now()) return opened.key;
+  const open = opened.get(file);
+  if (open && open.account === held.account && open.until > Date.now()) return open.key;
   const { id, secret } = clientOf();
   const tokens = await trade({ grant_type: "refresh_token", refresh_token: held.refresh_token, client_id: id, client_secret: secret });
   // Google may hand over a new lasting key, and then the old one stops working.
-  if (tokens.refresh_token) writeSecret(TOKEN, { ...held, refresh_token: tokens.refresh_token, saved: new Date().toISOString() });
-  opened = { key: tokens.access_token, until: Date.now() + (tokens.expires_in - 60) * 1000, account: held.account };
-  return opened.key;
+  if (tokens.refresh_token) writeSecret(file, { ...held, refresh_token: tokens.refresh_token, saved: new Date().toISOString() });
+  opened.set(file, { key: tokens.access_token, until: Date.now() + (tokens.expires_in - 60) * 1000, account: held.account });
+  return tokens.access_token;
 }
 
 /**
@@ -599,7 +620,7 @@ export async function googleApi<T>(
   });
   if (bytes && response.ok) return Buffer.from(await response.arrayBuffer()) as T;
   const said = await response.text();
-  if (response.status === 401) opened = undefined;
+  if (response.status === 401) opened.delete(tokenFile());
   if (!response.ok) throw failure(said || `${response.status} ${response.statusText}`);
   return (text ? said : said ? JSON.parse(said) : {}) as T;
 }
@@ -649,7 +670,9 @@ export function setupSteps(): { steps: string[]; addresses: string[]; why: strin
  */
 export function explain(text: string): string {
   if (/invalid_grant|expired or revoked/i.test(text)) return "Google cannot be reached: the saved sign-in has expired or was taken back.";
-  if (/no sign-in|no refresh token/i.test(text)) return "Google cannot be reached: nobody has signed in on this copy.";
+  if (/no sign-in|no refresh token/i.test(text)) {
+    return personAsking() ? "Google cannot be reached: you have not signed in to your own Google account here yet." : "Google cannot be reached: nobody has signed in on this copy.";
+  }
   if (/insufficient.*(scope|permission)|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(text)) {
     return "Google cannot be reached: the sign-in was not allowed to do this.";
   }

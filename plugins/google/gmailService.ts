@@ -17,6 +17,7 @@
 // one only reads mail.
 import { holdBack } from "#chloe/core/current";
 import { rawMail } from "#chloe/core/mail";
+import { asOwner } from "#chloe/core/person";
 import type { EmailProvider } from "#chloe/services/emailService";
 
 import { explain, googleApi, marked } from "./googleService.ts";
@@ -316,7 +317,9 @@ export async function sendGmail({
 }): Promise<{ id: string }> {
   const raw = rawMail({ from, to, replyTo, subject, text, html });
   if (holdBack({ kind: "email", to: to.join(", "), subject, text })) return { id: "" };
-  const sent = await googleApi<{ id?: string }>(`${MAILBOX}/messages/send`, { method: "POST", body: { raw } });
+  // The agent's own mail, sent from the owner's account whoever it is for:
+  // `email.provider` and a tool that writes only to the addresses it was given.
+  const sent = await asOwner(() => googleApi<{ id?: string }>(`${MAILBOX}/messages/send`, { method: "POST", body: { raw } }));
   return { id: sent.id ?? "" };
 }
 

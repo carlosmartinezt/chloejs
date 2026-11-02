@@ -99,8 +99,9 @@ export const missing = (error: Error, what: string): string =>
 const memoryOf = (agent: string) => `/agents/${agent}/memory`;
 
 /** The calls the login itself makes: a 401 from one of these is a wrong password. */
-const GETTING_IN = ["/account", "/login", "/link"];
-const gettingIn = (path: string): boolean => GETTING_IN.includes(path) || path.startsWith("/invitations/");
+const GETTING_IN = ["/account", "/login", "/link", "/password/forgotten"];
+const gettingIn = (path: string): boolean =>
+  GETTING_IN.includes(path) || path.startsWith("/invitations/") || path.startsWith("/passwords/");
 
 export async function call<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${at}${path}`, {
@@ -128,6 +129,9 @@ export const api = {
   account: () => call<Account>("/account"),
   /** The owner signs in with the password, and their name when they chose one. Somebody invited gives their email with theirs. */
   signIn: (password: string, who: { email?: string; name?: string } = {}) => call<Session>("/login", { password, ...who }),
+  /** Answered without a session: whether a forgotten password can be mailed a link, and asking for one. */
+  canMailPassword: () => call<{ mails: boolean }>("/password/forgotten"),
+  forgotPassword: (email: string) => call<{ ok: true }>("/password/forgotten", { email }),
   /** The code from a link the runtime printed, swapped for a session. Each works once. */
   link: (code: string) => call<Session>("/link", { code }),
   /** The first password, from a browser already signed in. */
@@ -263,10 +267,15 @@ export const api = {
     call<{ code: string; path: string }>("/people", { email, name, agent, given }),
   changePerson: (email: string, agent: string, given: Switch[]) => call<People>("/people/change", { email, agent, given }),
   removePerson: (email: string, agent: string) => call<People>("/people/remove", { email, agent }),
+  /** A link for somebody in to choose a new password. Comes back once, like an invitation's. */
+  passwordLink: (email: string) => call<{ code: string; path: string }>("/people/password", { email }),
   /** Answered without a session: what an invitation is for, and taking it, which signs this browser in. */
   invitation: (code: string) => call<Invitation>(`/invitations/${encodeURIComponent(code)}`),
   accept: (code: string, password: string, name: string) =>
     call<Session>(`/invitations/${encodeURIComponent(code)}/accept`, { password, name }),
+  /** Answered without a session: whose a password link is, and taking it, which sets the new one and signs this browser in. */
+  passwordFor: (code: string) => call<{ email: string; name: string }>(`/passwords/${encodeURIComponent(code)}`),
+  newPassword: (code: string, password: string) => call<Session>(`/passwords/${encodeURIComponent(code)}`, { password }),
 
   /** Where an agent remembers things. Every agent has one. */
   memory: (agent: string) => call<Entry[]>(`${memoryOf(agent)}`),

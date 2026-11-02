@@ -1,7 +1,7 @@
 ---
 title: One person, and the people you invite
 order: 11
-summary: What belongs to the machine, what belongs to a person, and what somebody you invite can see and do.
+summary: What belongs to the machine, what belongs to a person, what somebody you invite can see and do, and how they get a new password.
 ---
 
 chloe is built for one person running their own agents. What that means today:
@@ -10,8 +10,12 @@ chloe is built for one person running their own agents. What that means today:
   there, or one password. Whoever has either can do everything.
 - **Each channel's `allowFrom`** is who may reach an agent there. Nobody else
   is answered.
-- **Every key belongs to the machine**, not to a person. A Gmail tool reads the
-  account in settings, whoever asked.
+- **A key in the config belongs to the machine**, and every turn uses it:
+  Resend, Brave, an MCP server's token.
+- **An account somebody signs in to is theirs.** Google, and any connection of
+  your own with a sign-in: your turns use yours, and anybody else signs in to
+  their own the first time a tool needs it. Nobody is ever lent yours. The mailbox an
+  email channel reads and sends from is the agent's, so it is always yours.
 - **Every run has an owner**: whoever started it, or for a run the clock
   started, `owner` in settings, or else the first person in the agent's
   Telegram, Slack, Discord or WhatsApp `allowFrom`. A job's question goes to the owner
@@ -34,6 +38,13 @@ nothing. It works once, for a week. Opening it, they choose a password, and
 from then on they sign in on the same page with their email and that password.
 Somebody already invited to another agent gives the password they have.
 
+**A forgotten password.** On People, Password link next to them makes a link
+that sets a new one, which you send them the same way. It works once, for a
+day. If this copy can send mail (Resend set up, and `serve.url` set), they can
+ask for one themselves instead: "Forgotten it?" on the sign-in page mails it to
+their address. The answer is the same whether or not the address is
+somebody's, and one is mailed at most every ten minutes.
+
 What they never get, whatever they were given: another agent, your
 conversations or anybody else's, a memory, the agent's files or settings, a
 model pick, tokens, People, or a change to anything. Taking them off their
@@ -42,8 +53,10 @@ agent had with that same address is theirs too, since it was with them.
 
 They reach the page the way you do, so somebody outside your network needs it
 on a public name: see [From another machine](/docs/the-page#from-another-machine).
-A person given chat gets every tool the agent has in their turns, so invite
-people to agents whose tools are fine for them to use.
+A person given chat gets every tool the agent has in their turns. A tool on an
+account somebody signs in to reaches their own account, never yours; a tool on
+a key in the config reaches what that key reaches, for them as for you. So
+invite people to agents whose keyed tools are fine for them to use.
 
 An agent folder is a role, not a person: one looks after the orders, one
 answers customers. Who it works for is settings and `allowFrom`, so nothing in

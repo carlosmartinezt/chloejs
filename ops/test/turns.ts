@@ -694,6 +694,70 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, reachBy, r
 }
 
 {
+  about("a connection somebody signs in to is theirs");
+
+  const { NeedsSignIn } = await import("#chloe/connections/connection");
+  const { personOf, receive } = await import("#chloe/channels/shared");
+  const { personAsking } = await import("#chloe/core/person");
+  // Each sign-in by whoever is asking, "" for the owner.
+  const signedIn = new Map<string, string>([["", "the owner"]]);
+  const waiting = new Set<string>();
+  const key = () => personAsking() ?? "";
+  const mail: import("@chloejs/core").Connection = {
+    name: "mail",
+    does: "Mail.",
+    settings: [],
+    signIn: {
+      start: async () => (waiting.add(key()), { say: "Sign in to your own mail.", link: "https://mail.example/approve" }),
+      answers: (text) => text === "mail-code" && waiting.has(key()),
+      finish: async () => (waiting.delete(key()), signedIn.set(key(), key()), `Signed in as ${key()}.`),
+    },
+    missing: async () => [],
+  };
+  const readMail = Object.assign(
+    tool({
+      description: "Read the mail.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const whose = signedIn.get(key());
+        if (!whose) throw new NeedsSignIn("mail", "Nobody has signed in to the mail.");
+        return `the mail of ${whose}`;
+      },
+    }),
+    { needs: mail },
+  );
+  const agent = { ...agentFor(codeJob("unused", async () => ({}))), tools: { readMail } };
+  db.prepare("insert or replace into people (email, name, password, given, added) values (?, ?, ?, ?, ?)").run("jenny@example.com", "Jenny", "x", '{"test":["chat"]}', new Date().toISOString());
+  const message = (id: string, fromOwner: boolean, text = "") => ({ channel: "test", chat: id, thread: `test/mail-${id}`, from: { id, name: id }, text, private: true, fromOwner });
+  const call = { id: "1", type: "function", function: { name: "readMail", arguments: "{}" } };
+  const sawMail = (whose: string) => lastAsked.some((one) => String(one.content).includes(`the mail of ${whose}`));
+
+  is(
+    "a message is the owner's, the invited person's whose address sent it, or a channel and id's",
+    [personOf(message("me", true)), personOf(message("Jenny@example.com", false)), personOf(message("someone", false))],
+    [undefined, "jenny@example.com", "test:someone"],
+  );
+
+  answers.push({ content: "", tool_calls: [call] }, "Read.");
+  await receive(agent, message("me", true, "my mail?"));
+  is("the owner's turn reads the owner's", sawMail("the owner"), true);
+
+  answers.push({ content: "", tool_calls: [call] });
+  const first = await receive(agent, message("jenny@example.com", false, "my mail?"));
+  is("somebody invited is never lent the owner's: they are asked to sign in to their own", first?.text.includes("https://mail.example/approve"), true);
+  is("and the owner's answer would not finish it", waiting.has(""), false);
+
+  answers.push({ content: "", tool_calls: [call] }, "Read.");
+  const done = await receive(agent, message("jenny@example.com", false, "mail-code"));
+  is("their answer signs them in, as themselves", done?.text.startsWith("Signed in as jenny@example.com."), true);
+  is("then the turn reads their mail", sawMail("jenny@example.com"), true);
+  is("the owner's sign-in is still the owner's", signedIn.get(""), "the owner");
+  const kept = db.prepare("select allowed from runs where thread = ? order by started desc limit 1").get("test/mail-jenny@example.com") as { allowed: string };
+  is("the run keeps whose it is, so carrying it on after a stop is still theirs", JSON.parse(kept.allowed).person, "jenny@example.com");
+  db.prepare("delete from people where email = 'jenny@example.com'").run();
+}
+
+{
   about("a channel's tools and job");
   const { bind, receive } = await import("#chloe/channels/shared");
   const { startClock } = await import("#chloe/core/clock");

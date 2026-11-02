@@ -60,6 +60,14 @@ Then sign in, from either place:
 The model never sees the link or the code. The sign-in is saved as one file in
 the state folder, mode 600.
 
+**Each person signs in to their own.** The sign-in above is yours, for
+`connections.google.account`. Somebody you invited, or anybody else an agent
+answers, who asks for their mail gets a link of their own, approves with
+whichever Google account is theirs, and from then on their turns read that.
+Nobody else is ever lent yours. What the agent sends as itself (the email
+channel's mailbox, `email.provider` on Gmail, a tool that writes only to the
+addresses you gave it) always goes from yours.
+
 | Setting | Default | What it controls |
 |---|---|---|
 | `connections.google.account` | none | The account that signs in. The mail tools read it, and the email channel on Gmail sends from it. |
@@ -203,3 +211,10 @@ page, like Microsoft's), showing that code and a Done button. Its service throws
 would fix what failed. A tool that works through it says so with `needs`:
 `Object.assign(tool({ ... }), { needs: crm })`. `Connection`, `SignIn` and
 `NeedsSignIn` are exported from `@chloejs/core`.
+
+A sign-in is the person asking's. Keep each in `signInFolder("crm")`, which is
+the owner's folder in the state folder for the owner and one of their own for
+anybody else, and read it through that every time, never once as the file
+loads. `personAsking()` says who it is for (`undefined` is the owner), and
+`asOwner(() => ...)` runs what belongs to the agent rather than the person as
+the owner. All three are exported from `@chloejs/core`.

@@ -50,6 +50,7 @@ import { BadRequest, NotFound, Refused } from "./errors.ts";
 import { channelsOf, connectionsOf, abilityNames, abilitiesOf, signInOf, toolsOf } from "./inside.ts";
 import { describe } from "#chloe/timer/every";
 import {
+  askedForPasswordLink,
   type Caller,
   caller,
   changeAccount,
@@ -65,7 +66,23 @@ import {
   signInMember,
   signInWithLink,
 } from "./login.ts";
-import { accept, change, invitation, invite, people, remove, SWITCHES, type Given, type Switch } from "./people.ts";
+import { asPerson } from "#chloe/core/person";
+import {
+  accept,
+  change,
+  invitation,
+  invite,
+  newPassword,
+  passwordLink,
+  passwordLinkFor,
+  passwordLinkJustMade,
+  people,
+  person,
+  remove,
+  SWITCHES,
+  type Given,
+  type Switch,
+} from "./people.ts";
 import { makeToken, revokeToken, tokens } from "./tokens.ts";
 import { signedInFrom } from "#chloe/core/alerts";
 import { PLUGINS } from "#chloe/plugins/index";
@@ -515,6 +532,70 @@ const routes: Route[] = [
       const { email, agent } = await body(request, z.object({ email: z.string(), agent: z.string() }));
       remove(email, agent);
       json(response, people());
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/people/password",
+    does: "A link for somebody already in to choose a new password, for when they have forgotten theirs. Hands back its code once: nothing is sent from here. It works once, for a day.",
+    takes: '{"email": "..."}',
+    handle: async ({ request, response }) => {
+      const { email } = await body(request, z.object({ email: z.string() }));
+      try {
+        const code = passwordLink(email);
+        json(response, { code, path: `/password/${code}` });
+      } catch (error) {
+        json(response, { error: (error as Error).message }, 400);
+      }
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/password/forgotten",
+    does: "Whether somebody invited who has forgotten their password can have a link mailed to them from the sign-in page.",
+    open: true,
+    handle: ({ response }) => json(response, { mails: canMailPasswordLinks() }),
+  },
+  {
+    method: "POST",
+    path: "/api/password/forgotten",
+    does: "Mail a password link to somebody invited who has forgotten theirs. The same answer whether or not the address is somebody's, and at most one link every ten minutes for each. Each ask counts towards the lockout.",
+    takes: '{"email": "..."}',
+    open: true,
+    handle: async ({ request, response }) => {
+      const { email } = await body(request, z.object({ email: z.string() }));
+      try {
+        askedForPasswordLink(from(request));
+      } catch (error) {
+        return json(response, { error: (error as Error).message }, 429);
+      }
+      if (!canMailPasswordLinks()) return json(response, { error: "This copy cannot send mail. Ask whoever invited you for a password link." }, 400);
+      const found = person(email);
+      // Sent without waiting, so how long the answer takes says nothing about whether the address is somebody's.
+      if (found && !passwordLinkJustMade(found.email)) void mailPasswordLink(found.email, found.name);
+      json(response, { ok: true });
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/passwords/:code",
+    does: "Whose a password link is, so its page can say so. A 404 once it is used or out of date.",
+    open: true,
+    handle: ({ response, params }) => {
+      const found = passwordLinkFor(params.code);
+      if (!found) return json(response, { error: "That link is used, out of date, or was never made." }, 404);
+      json(response, found);
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/passwords/:code",
+    does: "Take a password link: set the new password, and sign in with it.",
+    takes: '{"password": "..."}',
+    open: true,
+    handle: async (at) => {
+      const { password } = await body(at.request, z.object({ password: z.string() }));
+      wayIn(at, () => memberSession(newPassword(at.params.code, password)), false);
     },
   },
   {
@@ -1078,7 +1159,7 @@ const routes: Route[] = [
     token: true,
     needsApiChannel: true,
     member: "run",
-    handle: async ({ request, response, context, params, url }) => {
+    handle: async ({ request, response, context, params, url, who }) => {
       const agent = context.agent(params.id);
       const job = agent.jobs.find((one: Job) => one.id === params.job);
       if (!job) throw new NotFound(`${agent.id} has no job called ${JSON.stringify(params.job)}.`);
@@ -1103,7 +1184,8 @@ const routes: Route[] = [
         return json(response, { error: (error as Error).message }, 400);
       }
 
-      void context.clock.fire(agent, job, sent, channelOf(request));
+      // Somebody invited runs it as themselves, so it reaches their own sign-ins and not the owner's.
+      void asPerson(who?.kind === "member" ? who.email : undefined, () => context.clock.fire(agent, job, sent, channelOf(request)));
       json(response, { started: `${agent.id}/${job.id}`, log: `/api/agents/${agent.id}/log` });
     },
   },
@@ -1600,6 +1682,29 @@ const routes: Route[] = [
 ];
 
 /** Signing in with a password or a link: `signing` hands back the session, or throws why not. */
+/** The plugin that sends the runtime's own mail to a person, when there is one and it is set up, and the page has an address to link to. */
+function personMail() {
+  const sender = PLUGINS.find((one) => one.alerts)?.alerts?.toPerson;
+  return sender?.ready() && settings.serve.url.trim() ? sender : undefined;
+}
+
+const canMailPasswordLinks = (): boolean => Boolean(personMail());
+
+/** Mails somebody invited a password link. Says so in the log when it could not, and never throws. */
+async function mailPasswordLink(email: string, name: string): Promise<void> {
+  const link = `${settings.serve.url.trim().replace(/\/+$/, "")}/password/${passwordLink(email)}`;
+  try {
+    await personMail()?.send(
+      email,
+      "Choose a new password",
+      `${name ? `Hello ${name},\n\n` : ""}Somebody asked for a new password for ${email}. Open this link to choose one. ` +
+        `It works once, for a day:\n\n${link}\n\nIf it was not you, do nothing: your password stays as it is.\n`,
+    );
+  } catch (error) {
+    console.error(`could not mail ${email} a password link:`, (error as Error).message);
+  }
+}
+
 function wayIn({ request, response }: At, signing: () => string, owner = true): void {
   try {
     // The same value twice: the cookie for a browser, and the body for

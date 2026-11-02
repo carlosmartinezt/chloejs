@@ -9,8 +9,30 @@
 // sign-in and sends its words and link as written, and the answer the person
 // sends back is caught by `receive()` before any model sees it. A connection in
 // an agent's own folder is the same shape and needs nothing from the runtime.
+//
+// **A connection somebody signs in to is that person's own.** The owner's
+// sign-in is never lent to anybody else: whoever is asking signs in to their
+// own account, and the connection keeps each sign-in in `signInFolder()`,
+// which is the person asking's. A connection set up with a key in the config
+// (Resend, an MCP server's token) has no sign-in and is everyone's.
 
+import { join } from "node:path";
+
+import { STATE } from "#chloe/core/paths";
+import { personAsking } from "#chloe/core/person";
 import type { Tools } from "#chloe/model/tool";
+
+/**
+ * The folder a connection keeps its sign-in in, for whoever is asking: `name`
+ * inside the state folder for the owner, and a folder of their own under its
+ * `people/` for anybody else. Keep everything a person signed in to there,
+ * and nothing of theirs anywhere else. Not made here.
+ */
+export function signInFolder(name: string, person = personAsking()): string {
+  if (!person) return join(STATE, name);
+  const safe = person.toLowerCase().replace(/[^a-z0-9@._-]/g, "_").replace(/^\./, "_");
+  return join(STATE, name, "people", safe);
+}
 
 /**
  * How a person signs in to a connection from a chat. chloe runs these three
@@ -19,7 +41,8 @@ import type { Tools } from "#chloe/model/tool";
  */
 export interface SignIn {
   /**
-   * Starts a sign-in and returns what to send the person: `say` is the words,
+   * Starts a sign-in for whoever is asking (`personAsking()`, and keep it in
+   * `signInFolder()`) and returns what to send the person: `say` is the words,
    * and `link` is the address they open. chloe sends the link exactly as you
    * return it, after `say`, behind the words "Open the sign-in page", so
    * `say` should not print the address again.

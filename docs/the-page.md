@@ -39,7 +39,7 @@ in.
 | `/configuration` | every setting and key as a form: Google, models, mail and alerts, web search, `.env`, and `chloe.config.ts` as text |
 | `/appearance` | how the page looks, kept in this browser |
 | `/tokens` | making and revoking tokens |
-| `/people` | inviting people, and changing or removing what they were given |
+| `/people` | inviting people, changing or removing what they were given, and a link to set a new password for one who forgot theirs |
 
 All of them but an agent's are under Dashboard, at the right of the bar.
 
@@ -50,7 +50,7 @@ All of them but an agent's are under Dashboard, at the right of the bar.
 | You | a link from `npx chloe link`, or the password if you set one | everything |
 | Somebody you invited | their email and their own password, from the link you sent them | only the agents they were let in to, and on each only chat, read or run as given. See [One person, and the people you invite](/docs/one-person). |
 | Another system | a token, made at `/tokens` or with `npx chloe tokens make` | read the API, and chat to and run the jobs of agents with an [HTTP channel](/docs/channels-http). Never write a file, read a memory or touch the tokens. |
-| Anybody | | `GET /api`, whether there is a password, signing in, signing out, and reading or taking an invitation whose link they hold |
+| Anybody | | `GET /api`, whether there is a password, signing in, signing out, reading or taking an invitation or a password link whose link they hold, and asking for a password link by mail |
 
 A fresh copy has no password and opens with a link: `npx chloe` prints one as
 it starts while there is no password, and `npx chloe link` prints one whenever

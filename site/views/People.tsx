@@ -42,6 +42,9 @@ export function People({ agents }: { agents: AgentSummary[] }) {
   const [trouble, setTrouble] = useState("");
   const [inviting, setInviting] = useState(false);
   const [busy, setBusy] = useState(false);
+  // A password link just made, which the runtime hands over once and never again.
+  const [reset, setReset] = useState<{ email: string; url: string } | null>(null);
+  const [copied, setCopied] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -53,6 +56,19 @@ export function People({ agents }: { agents: AgentSummary[] }) {
   }, []);
 
   useEffect(() => void refresh(), [refresh]);
+
+  async function passwordLink(email: string) {
+    setBusy(true);
+    try {
+      const { path } = await api.passwordLink(email);
+      setReset({ email, url: window.location.origin + path });
+      setCopied("");
+      setTrouble("");
+    } catch (error) {
+      setTrouble((error as Error).message);
+    }
+    setBusy(false);
+  }
 
   async function tried(what: () => Promise<Everybody>) {
     setBusy(true);
@@ -104,6 +120,30 @@ export function People({ agents }: { agents: AgentSummary[] }) {
 
       {trouble && <p className="bad">{trouble}</p>}
 
+      {reset && (
+        <section className="ready">
+          <h2>The password link for {reset.email}</h2>
+          <p className="dim">
+            Send this link to them yourself. With it they choose a new password. It works once, for a day. Chloe sends
+            nothing.
+          </p>
+          <pre className="key">{reset.url}</pre>
+          <p className="dim">It is not shown again. If it is lost, make another: that stops this one.</p>
+          <div className="buttons">
+            <button
+              className="go small"
+              onClick={() => void copy(reset.url).then((done) => setCopied(done ? "Copied." : "This browser would not copy it. Select it and copy it by hand."))}
+            >
+              Copy the link
+            </button>
+            <button className="plain small" onClick={() => setReset(null)}>
+              Done
+            </button>
+            {copied && <span className="dim">{copied}</span>}
+          </div>
+        </section>
+      )}
+
       {inviting && <Invite agents={agents} done={() => setInviting(false)} made={refresh} />}
 
       {!people ? (
@@ -154,6 +194,16 @@ export function People({ agents }: { agents: AgentSummary[] }) {
                         );
                       })}
                     </span>
+                    {!one.invited && (
+                      <button
+                        className="plain small"
+                        disabled={busy}
+                        title="A link for them to choose a new password, when they have forgotten theirs."
+                        onClick={() => void passwordLink(one.email)}
+                      >
+                        Password link
+                      </button>
+                    )}
                     <button
                       className="plain small"
                       disabled={busy}

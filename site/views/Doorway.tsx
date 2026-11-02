@@ -10,7 +10,8 @@ import { linkTrouble } from "../lib/link.ts";
  * with their email and their own password, from the same form once they say
  * so: `?invited` in the address opens it that way. A copy with no password
  * opens only with a link, so this says how to get one; the first password is
- * set in Account settings, once in.
+ * set in Account settings, once in. Somebody invited who has forgotten theirs
+ * asks here for a link by mail, when the copy can send one.
  */
 export function Doorway({ making }: { making: boolean }) {
   const [invited, setInvited] = useState(() => new URLSearchParams(window.location.search).has("invited"));
@@ -22,10 +23,60 @@ export function Doorway({ making }: { making: boolean }) {
   const [sending, setSending] = useState(false);
   const [trouble, setTrouble] = useState(linkTrouble);
   const [shown, setShown] = useState(false);
+  // Whether a forgotten password can be mailed a link, which the server says before anybody is in.
+  const [mails, setMails] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  // The address a link was asked for, once it was.
+  const [asked, setAsked] = useState("");
 
   useEffect(() => {
     api.account().then((said) => setNamed(Boolean(said.named)), () => undefined);
+    api.canMailPassword().then((said) => setMails(said.mails), () => undefined);
   }, []);
+
+  async function askForLink(event: React.FormEvent) {
+    event.preventDefault();
+    if (sending || !email.trim()) return;
+    setSending(true);
+    setTrouble("");
+    try {
+      await api.forgotPassword(email.trim());
+      setAsked(email.trim());
+    } catch (error) {
+      setTrouble((error as Error).message);
+    }
+    setSending(false);
+  }
+
+  if (invited && forgot) {
+    return (
+      <main className="doorway">
+        {mark}
+        <h1>Forgotten your password?</h1>
+        {trouble && <p className="bad">{trouble}</p>}
+        {asked ? (
+          <p className="empty">
+            If {asked} was invited here, a link to choose a new password is on its way to it. It works once, for a day.
+          </p>
+        ) : (
+          <form onSubmit={askForLink}>
+            <label>
+              Email
+              <input value={email} type="email" autoComplete="username" autoFocus onChange={(event) => setEmail(event.target.value)} />
+            </label>
+            <button type="submit" disabled={sending || !email.trim()}>
+              Mail me a link
+            </button>
+          </form>
+        )}
+        <p className="swap">
+          <button type="button" className="plain" onClick={() => (setForgot(false), setAsked(""), setTrouble(""))}>
+            Back to signing in
+          </button>
+        </p>
+      </main>
+    );
+  }
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
@@ -116,8 +167,14 @@ export function Doorway({ making }: { making: boolean }) {
       </form>
       {invited ? (
         <p className="empty">
-          With the email you were invited with, and the password you chose then. Forgotten it? Ask whoever
-          invited you.
+          With the email you were invited with, and the password you chose then.{" "}
+          {mails ? (
+            <button type="button" className="plain" onClick={() => (setForgot(true), setTrouble(""))}>
+              Forgotten it?
+            </button>
+          ) : (
+            "Forgotten it? Ask whoever invited you for a password link."
+          )}
         </p>
       ) : (
         <p className="empty">

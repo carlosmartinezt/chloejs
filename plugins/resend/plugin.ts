@@ -153,5 +153,14 @@ export const resend: Plugin = {
       if (!alerts || !api_key || !to.length || !email_from) return;
       await deliverEmail({ from: email_from, to, tag: "chloe" }, subject, body, "resend");
     },
+    // From the alerts' own From line, whether or not alerts are on: it is the
+    // runtime's mail, and the one address it has on a domain Resend sends from.
+    toPerson: {
+      // Off with all the rest of the mail when email.provider is "none".
+      ready: () => settings.email.provider !== "none" && Boolean(settings.connections.resend.api_key && settings.connections.resend.email_from),
+      async send(to, subject, body) {
+        await deliverEmail({ from: settings.connections.resend.email_from, to: [to] }, subject, body, "resend");
+      },
+    },
   },
 };

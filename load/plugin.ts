@@ -83,6 +83,17 @@ export interface Plugin {
     say(): string;
     /** Sends one, or does nothing when it is not set up. */
     send(subject: string, body: string): Promise<void>;
+    /**
+     * Mail from the runtime to somebody other than the owner, which is only
+     * ever a person the owner invited asking for a password link. Leave it out
+     * when it cannot.
+     */
+    toPerson?: {
+      /** Whether it can send one now. */
+      ready(): boolean;
+      /** Sends one. Throws when it could not. */
+      send(to: string, subject: string, body: string): Promise<void>;
+    };
   };
   /**
    * Its section of the Configuration page, under Connections: a title, a line

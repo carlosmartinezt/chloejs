@@ -7,6 +7,7 @@ import { isStepCount, tool, type StopCondition, type ToolApprovalConfiguration }
 import { z } from "zod";
 
 import { duringRun, holdBack, inTrial } from "#chloe/core/current";
+import { asPerson, personAsking } from "#chloe/core/person";
 import { CUT_OFF, db } from "#chloe/core/db";
 import { limited, minutesText, until } from "#chloe/core/limit";
 import { oneLineSummary } from "#chloe/core/markdown";
@@ -146,6 +147,14 @@ export interface Ask {
    * picks whose note the model is shown. Default: none.
    */
   user?: string;
+  /**
+   * Whose sign-ins the tools use, as `asPerson()` takes it: the email of
+   * somebody the owner invited, `channel:id` for anybody else, and nobody for
+   * the owner. Kept on the run, so a reply carried on after a stop is still
+   * theirs. Default: whoever the work this turn started in is for, which is
+   * the owner outside any.
+   */
+  person?: string;
   /**
    * Answers each tool call with this function instead of running the tool.
    * Evals use it. With it, nothing in the agent's memory is committed to git.
@@ -312,7 +321,7 @@ export async function turn(options: Ask): Promise<Result> {
 }
 
 /** One reply, recorded as `runId`. `mine` is its place in `going`, when it is in a conversation with somebody. */
-async function answer({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, timeZone, owner, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal, trial }: Ask, runId: string, mine?: Going): Promise<Result> {
+async function answer({ agent, prompt, asked, attachments, model, thread, source, job, history, said, calling, writing, talkingTo, timeZone, owner, without, guest, fromOwner, mayChangeAgent, sendFile, user, person = personAsking(), instead, signal, trial }: Ask, runId: string, mine?: Going): Promise<Result> {
   // Auto when the chat's pick says so, or the agent does and nothing picked another.
   const auto = model === AUTO || (!model && agent.auto) ? await decide(agent, asked ?? prompt, thread, signal) : undefined;
   const using = auto?.model ?? model ?? modelFor(agent);
@@ -332,7 +341,7 @@ async function answer({ agent, prompt, asked, attachments, model, thread, source
   ];
   // Keep the initial request as the model received it. Attachments stay out of
   // the record because their bytes are already kept by the channel, not the run.
-  const allowed: Allowed | undefined = thread ? { without, guest, fromOwner, mayChangeAgent, user } : undefined;
+  const allowed: Allowed | undefined = thread ? { without, guest, fromOwner, mayChangeAgent, user, person } : person ? { person } : undefined;
   db.prepare("update runs set context = ?, allowed = ? where id = ?").run(JSON.stringify(messages.map(contextMessage)), allowed ? JSON.stringify(allowed) : null, runId);
   if (thread) remember(thread, "user", prompt);
 
@@ -344,7 +353,7 @@ async function answer({ agent, prompt, asked, attachments, model, thread, source
       return taken;
     },
   };
-  const result = await go({ agent, runId, model: using, messages, trace, job, source, thread, said, calling, writing, without, guest, fromOwner, mayChangeAgent, sendFile, user, instead, signal, inbox });
+  const result = await go({ agent, runId, model: using, messages, trace, job, source, thread, said, calling, writing, without, guest, fromOwner, mayChangeAgent, sendFile, user, person, instead, signal, inbox });
   // A reply that stopped early (out of steps, a sign-in) never asked for its
   // last messages, and nothing else will read them.
   if (!mine) return result;
@@ -459,7 +468,7 @@ export function carryOnCutOff(ids: string[], agentOf: (id: string) => Agent | un
 }
 
 /** What a conversation's turn was let use, kept on its run so that carrying it on gives it the same. */
-type Allowed = Pick<Ask, "without" | "guest" | "fromOwner" | "mayChangeAgent" | "user">;
+type Allowed = Pick<Ask, "without" | "guest" | "fromOwner" | "mayChangeAgent" | "user" | "person">;
 
 /** A run that can carry on, as the record has it. */
 export interface Stopped {
@@ -568,7 +577,13 @@ function replay(trace: LoopStep[], why: CarryOnWhy, reply: boolean): Message[] {
 }
 
 /** Runs the loop on a run that is already in the record, and writes how it ended. */
-async function go(options: {
+/** The loop for whoever the turn is for, so every tool it runs, and a sign-in it starts, is theirs. */
+function go(options: GoOptions): Promise<Result> {
+  return asPerson(options.person, () => loopFor(options));
+}
+
+/** What `go()` runs a reply or a job's prompt with. */
+interface GoOptions {
   agent: Agent;
   runId: string;
   model: string;
@@ -587,6 +602,7 @@ async function go(options: {
   mayChangeAgent?: boolean;
   sendFile?: Ask["sendFile"];
   user?: string;
+  person?: string;
   instead?: Ask["instead"];
   /** Steps already taken, which the agent's `stopWhen` counts. */
   before?: number;
@@ -595,7 +611,9 @@ async function go(options: {
   carried?: boolean;
   signal?: AbortSignal;
   inbox?: Inbox;
-}): Promise<Result> {
+}
+
+async function loopFor(options: GoOptions): Promise<Result> {
   const { agent, runId, trace, job, source, thread, said, calling, writing, instead } = options;
   const tools = toolsFor(agent, options.without, { ...options, chat: Boolean(thread) });
   const before = answers(trace);
@@ -704,6 +722,8 @@ export interface LoopStep {
   own?: boolean;
   args?: unknown;
   result?: unknown;
+  /** On a tool's line: how long it ran, in milliseconds. */
+  ms?: number;
   failed?: boolean;
   /** Set on a call the job would not allow. It never ran. */
   refused?: boolean;
@@ -861,6 +881,7 @@ export async function loop(options: {
 
     for (const [n, call] of toolCalls.entries()) {
       const at = new Date().toISOString();
+      const started = Date.now();
       const decided = resume && n === 0 ? resume.decided : undefined;
       const one = options.tools[call.function.name];
       if (one) options.onCall?.(call.function.name);
@@ -876,7 +897,7 @@ export async function loop(options: {
       step.toolCalls.push({ type: "tool-call", toolCallId: call.id, toolName: call.function.name, input: args });
       step.toolResults.push({ type: "tool-result", toolCallId: call.id, toolName: call.function.name, input: args, output });
       calls.push({ toolName: call.function.name, input: args, output, ...(refused && { refused }) });
-      options.onStep?.({ step: steps, at, tool: call.function.name, ...(one?.kind && { kind: one.kind }), args, result: clip(output), ...(one?.own && { own: true }), ...(failed && { failed }), ...(refused && { refused }) });
+      options.onStep?.({ step: steps, at, tool: call.function.name, ...(one?.kind && { kind: one.kind }), args, result: clip(output), ms: Date.now() - started, ...(one?.own && { own: true }), ...(failed && { failed }), ...(refused && { refused }) });
       // Fixed by somebody signing in, which the runtime starts, so the model is
       // not asked again: it would only try to get round it.
       if (signIn) {

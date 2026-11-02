@@ -5,11 +5,15 @@
 // the recipients of what is new and fetches a message whole only when it is
 // addressed to one of the channel's own addresses, so the rest of the mailbox
 // is never read. Every call goes through `googleApi()`, which holds the
-// sign-in.
+// sign-in, and always as the owner: the mailbox is the agent's, whoever wrote
+// to it, and a reply in somebody's conversation still goes out from it.
 import type { Inbox, Since } from "#chloe/core/mail";
+import { asOwner } from "#chloe/core/person";
 import { settings } from "#chloe/core/settings";
 
-import { googleApi } from "./googleService.ts";
+import { googleApi as anyone } from "./googleService.ts";
+
+const googleApi: typeof anyone = (url, how) => asOwner(() => anyone(url, how));
 
 const MAILBOX = "https://gmail.googleapis.com/gmail/v1/users/me";
 

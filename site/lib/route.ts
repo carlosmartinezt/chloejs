@@ -31,6 +31,8 @@ export type View =
   | { at: "people" }
   /** The page an invitation's link opens. Shown without signing in. */
   | { at: "invitation"; code: string }
+  /** The page a password link opens, for choosing a new one. Shown without signing in. */
+  | { at: "password"; code: string }
   /** Where one agent remembers things. No path is the top of it. */
   | { at: "memory"; agent: string; path?: string }
   /** Every route the runtime answers, read from GET /api. Shown without signing in. */
@@ -84,6 +86,8 @@ export function href(view: View): string {
       return "/people";
     case "invitation":
       return `/invitation/${encodeURIComponent(view.code)}`;
+    case "password":
+      return `/password/${encodeURIComponent(view.code)}`;
     case "account":
     case "configuration":
     case "appearance":
@@ -146,6 +150,7 @@ export function read(path = window.location.pathname, search = window.location.s
   if (parts[0] === "tokens") return { at: "tokens" };
   if (parts[0] === "people") return { at: "people" };
   if (parts[0] === "invitation" && parts[1]) return { at: "invitation", code: parts[1] };
+  if (parts[0] === "password" && parts[1]) return { at: "password", code: parts[1] };
   // Old addresses: a chat, and a run.
   if (parts[0] === "say" && parts[1]) return { at: "chat", agent: parts[1] };
   if (parts[0] === "run" && parts[1]) return { at: "log", run: parts[1] };

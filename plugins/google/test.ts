@@ -348,6 +348,32 @@ import type { Tools } from "#chloe/ops/test/shared";
       is("a message deleted since it arrived is said as gone, not as a failure", [await gmailMailbox.recipients("deleted"), await gmailMailbox.raw("deleted")], [undefined, undefined]);
       await gmailMailbox.send("cmF3", "t1");
       is("sending names the thread", sent.at(-1), { raw: "cmF3", threadId: "t1" });
+
+      about("each person signs in to their own Google");
+      const { asPerson } = await import("#chloe/core/person");
+      const { signInFolder } = await import("#chloe/connections/connection");
+      const { sendGmail } = await import("./gmailService.ts");
+      const jenny = <T,>(work: () => T) => asPerson("jenny@example.com", work);
+      is("somebody else's sign-in is kept in a folder of their own", signInFolder("google", "Jenny@Example.com").endsWith(join("google", "people", "jenny@example.com")), true);
+      let theirs = "";
+      try {
+        await jenny(() => readEmailMessages({ search: "in:inbox", days: 7, limit: 5 }));
+      } catch (error) {
+        theirs = error instanceof NeedsSignIn ? error.message : `not a sign-in: ${(error as Error).message}`;
+      }
+      is("they are never lent the owner's: they are asked to sign in to their own", theirs.includes("your own Google account"), true);
+      is("the mailbox an email channel reads is the agent's, whoever it is working for", await jenny(() => gmailMailbox.now()), "55");
+      await jenny(() => sendGmail({ to: ["her@example.com"], subject: "Hi", text: "Hello." }));
+      is("and so is the mail the agent sends", sent.length, 3);
+      const { link: hers } = await jenny(() => start());
+      is("their sign-in names no account to approve with", new URL(hers).searchParams.has("login_hint"), false);
+      approvedBy = "jenny@gmail.com";
+      is("whichever Google account of theirs approves it is theirs", await jenny(() => finish("the-code")), { account: "jenny@gmail.com", signedIn: true });
+      const trades = traded.length;
+      is("they read their mail", (await jenny(() => readEmailMessages({ search: "in:inbox", days: 7, limit: 5 }))).messages.length, 1);
+      is("with a key of their own", [traded.length, traded.at(-1)?.get("grant_type")], [trades + 1, "refresh_token"]);
+      is("and the owner's sign-in is still the owner's", [(await signInState()).ready, (await signInState()).account], [true, "somebody@example.com"]);
+      approvedBy = "somebody@example.com";
     } finally {
       globalThis.fetch = real;
       await (await import("node:fs/promises")).rm(join(process.env.CHLOE_STATE!, "google"), { recursive: true, force: true });

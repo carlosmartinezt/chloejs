@@ -388,6 +388,16 @@ and the lines printed at startup ask it what is missing. So an agent binds
 `gmail.readEmail` and is done, and a connection in an agent's own folder works
 the same with nothing added here. Google, Resend and Brave ship as plugins.
 
+**A sign-in is the person asking's, and nobody is lent the owner's.** Each
+turn, job and sign-in runs inside `asPerson()` (`core/person.ts`): a
+channel's `receive()` for the sender (`personOf()`), a member's job for them,
+and a reply carried on after a stop for whoever it was, kept on its run. A
+connection keeps every sign-in in `signInFolder(name)` and reads it through
+that on every call, so the owner's turns use the owner's and anybody else's
+their own. What is the agent's rather than the person's (the email channel's
+mailbox, `sendGmail`) is wrapped in `asOwner()`. A key in the config has no
+sign-in and is everyone's.
+
 **A sign-in is code, and no model ever holds one.** A connection's service
 throws `NeedsSignIn` when signing in would fix what failed. The turn stops
 there, the runtime calls the connection's `signIn.start()` and sends its words

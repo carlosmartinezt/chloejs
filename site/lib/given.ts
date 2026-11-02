@@ -28,6 +28,7 @@ export function allowed(given: Given, view: View): boolean {
     case "signin":
     case "api":
     case "invitation":
+    case "password":
       return true;
     default:
       return false;

@@ -125,6 +125,51 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
   is("with it, the second agent is theirs as well", (await call("POST", `/api/invitations/${again}/accept`, {}, { password: "jenny's own password" })).status, 200);
   is("both are listed for them", Object.keys((await call("GET", "/api/me", jenny)).body.given).sort(), ["other", "test"]);
 
+  const reset = await call("POST", "/api/people/password", owner, { email: "Jenny@example.com" });
+  is("the owner makes a password link for somebody in", [reset.status, reset.body.path.startsWith("/password/")], [200, true]);
+  is("but not for an address nobody has", (await call("POST", "/api/people/password", owner, { email: "nobody@example.com" })).status, 400);
+  is("somebody invited cannot make one", (await call("POST", "/api/people/password", jenny, { email: "jenny@example.com" })).status, 403);
+  is("whoever holds it sees whose it is, with no session", (await call("GET", `/api/passwords/${reset.body.code}`)).body, { email: "jenny@example.com", name: "Jenny" });
+  is("a made-up one is not there", (await call("GET", "/api/passwords/made-up")).status, 404);
+  is("a short new password is refused", (await call("POST", `/api/passwords/${reset.body.code}`, {}, { password: "short" })).status, 401);
+  const renewed = await call("POST", `/api/passwords/${reset.body.code}`, {}, { password: "jenny's new password" });
+  is("taking it sets the new password and signs them in", [renewed.status, renewed.cookie.includes(cookieName())], [200, true]);
+  is("and it works once", (await call("POST", `/api/passwords/${reset.body.code}`, {}, { password: "another one again" })).status, 401);
+  is("the old password no longer signs in", (await call("POST", "/api/login", {}, { email: "jenny@example.com", password: "jenny's own password" })).status, 401);
+  is("the new one does", (await call("POST", "/api/login", {}, { email: "jenny@example.com", password: "jenny's new password" })).status, 200);
+  const earlier = (await call("POST", "/api/people/password", owner, { email: "jenny@example.com" })).body.code as string;
+  await call("POST", "/api/people/password", owner, { email: "jenny@example.com" });
+  is("a second link stops the first", (await call("GET", `/api/passwords/${earlier}`)).status, 404);
+
+  db.prepare("delete from password_links").run();
+  is("with nothing to mail from, the sign-in page is told it cannot mail a link", (await call("GET", "/api/password/forgotten")).body, { mails: false });
+  is("and asking says so", (await call("POST", "/api/password/forgotten", {}, { email: "jenny@example.com" })).status, 400);
+  // A stand-in for the plugin that sends the runtime's own mail, first in the list so it is the one asked.
+  const { settings } = await import("#chloe/core/settings");
+  const { PLUGINS } = await import("#chloe/plugins/index");
+  const urlBefore = settings.serve.url;
+  settings.serve.url = "https://chloe.example.com/";
+  const mailed: { to: string; body: string }[] = [];
+  PLUGINS.unshift({
+    name: "stand-in-mail",
+    alerts: { say: () => "on", send: async () => {}, toPerson: { ready: () => true, send: async (to, _subject, body) => void mailed.push({ to, body }) } },
+  });
+  try {
+    is("with a way to mail, it can", (await call("GET", "/api/password/forgotten")).body, { mails: true });
+    const forgot = await call("POST", "/api/password/forgotten", {}, { email: "Jenny@example.com" });
+    for (let tries = 0; tries < 50 && !mailed.length; tries++) await new Promise((done) => setTimeout(done, 10));
+    const mailedLink = /https:\/\/chloe\.example\.com\/password\/([\w-]+)/.exec(mailed[0]?.body ?? "");
+    is("asking mails them a link to the page that sets a new one", [forgot.status, mailed[0]?.to, Boolean(mailedLink)], [200, "jenny@example.com", true]);
+    const nobody = await call("POST", "/api/password/forgotten", {}, { email: "nobody@example.com" });
+    await call("POST", "/api/password/forgotten", {}, { email: "jenny@example.com" });
+    await new Promise((done) => setTimeout(done, 50));
+    is("an address nobody has gets the same answer and no mail, and nor does asking again within ten minutes", [nobody.status, nobody.body, mailed.length], [200, { ok: true }, 1]);
+    is("the mailed link sets the new password", (await call("POST", `/api/passwords/${mailedLink?.[1]}`, {}, { password: "jenny's mailed password" })).status, 200);
+  } finally {
+    PLUGINS.shift();
+    settings.serve.url = urlBefore;
+  }
+
   await call("POST", "/api/people/remove", owner, { email: "jenny@example.com", agent: "other" });
   is("taken off one agent, they keep the other", Object.keys((await call("GET", "/api/me", jenny)).body.given), ["test"]);
   const gone = await call("POST", "/api/people/remove", owner, { email: "jenny@example.com", agent: "test" });

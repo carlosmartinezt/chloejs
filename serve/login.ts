@@ -213,6 +213,17 @@ export function signInMember(email: string, password: string, from: string): str
   return memberSession(found.email);
 }
 
+/**
+ * Counts somebody asking for a password link by mail as one more try towards
+ * the lockout, the way a wrong password counts, so a stranger cannot fill a
+ * person's inbox. Throws while that address is locked out.
+ */
+export function askedForPasswordLink(from: string): void {
+  const wait = lockedFor(from);
+  if (wait) throw new Error(`Too many tries. Try again in ${Math.ceil(wait / 60)} minutes.`);
+  countFailure(from);
+}
+
 /** A session for somebody invited, a week long, signed with the account's secret under a purpose of its own. */
 export function memberSession(email: string): string {
   return seal("member", { e: email, u: Math.floor(Date.now() / 1000) + LASTS });

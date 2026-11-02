@@ -4,7 +4,10 @@
 // The owner invites somebody by email from the page and gets a link back, once,
 // to send them however they like: the runtime sends nothing. Opening the link,
 // the person chooses a password, and from then on signs in with their email and
-// that password. A link works once, for a week.
+// that password. A link works once, for a week. Somebody who has forgotten
+// theirs gets a password link, which works once, for a day, and sets a new
+// one: from the owner the same way, or by mail when they ask for one on the
+// sign-in page and this copy can send mail.
 //
 // Somebody invited sees the agents they were let in to and nothing else of the
 // owner's, and on each of those only what they were given: chat (their own
@@ -28,6 +31,9 @@ export type Given = Record<string, Switch[]>;
 /** How long an invitation can be used for. */
 const LASTS = 7 * 24 * 60 * 60 * 1000;
 
+/** How long a password link can be used for. */
+const PASSWORD_LASTS = 24 * 60 * 60 * 1000;
+
 db.exec(`
   create table if not exists people (
     email     text primary key,
@@ -42,6 +48,13 @@ db.exec(`
     name      text not null,
     agent     text not null,
     given     text not null,
+    created   text not null,
+    expires   text not null,
+    used      text
+  );
+  create table if not exists password_links (
+    hash      text primary key,
+    email     text not null,
     created   text not null,
     expires   text not null,
     used      text
@@ -164,6 +177,50 @@ export function accept(code: string, password: string, name = ""): string {
     );
   }
   db.prepare("update invitations set used = ? where hash = ?").run(now(), hashOf(code));
+  return found.email;
+}
+
+/**
+ * A link for somebody already let in to choose a new password, and the code
+ * that takes it, handed back here once and kept only as a hash. Making another
+ * for the same address stops the one still open.
+ */
+export function passwordLink(email: string): string {
+  const address = cleanEmail(email);
+  if (!person(address)) throw new Error(`${address} has not been let in, so has no password here.`);
+  const code = crypto.randomBytes(24).toString("base64url");
+  db.prepare("delete from password_links where email = ? and used is null").run(address);
+  db.prepare("insert into password_links (hash, email, created, expires) values (?, ?, ?, ?)").run(
+    hashOf(code),
+    address,
+    now(),
+    new Date(Date.now() + PASSWORD_LASTS).toISOString(),
+  );
+  return code;
+}
+
+/** Whether a password link was made for that address in the last ten minutes and not used, so another is not mailed on top of it. */
+export function passwordLinkJustMade(email: string): boolean {
+  const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  return Boolean(db.prepare("select 1 from password_links where email = ? and used is null and created > ?").get(email.trim().toLowerCase(), since));
+}
+
+/** Whose a password link is, while it can still be used and they are still in. */
+export function passwordLinkFor(code: string): { email: string; name: string } | null {
+  const row = db.prepare("select email from password_links where hash = ? and used is null and expires > ?").get(hashOf(code), now()) as
+    | { email: string }
+    | undefined;
+  const found = row && person(row.email);
+  return found ? { email: found.email, name: found.name } : null;
+}
+
+/** Takes a password link: the password is the new one from now on. Returns their email. */
+export function newPassword(code: string, password: string): string {
+  const found = passwordLinkFor(code);
+  if (!found) throw new Error("That link is used, out of date, or was never made.");
+  if (password.length < 8) throw new Error("The password must be at least 8 characters.");
+  db.prepare("update people set password = ? where email = ?").run(hashPassword(password), found.email);
+  db.prepare("update password_links set used = ? where hash = ?").run(now(), hashOf(code));
   return found.email;
 }
 

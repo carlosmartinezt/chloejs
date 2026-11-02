@@ -24,6 +24,7 @@ import { Home } from "./views/Home.tsx";
 import { Purpose } from "./views/Purpose.tsx";
 import { SystemPrompt } from "./views/SystemPrompt.tsx";
 import { Invitation } from "./views/Invitation.tsx";
+import { NewPassword } from "./views/NewPassword.tsx";
 import { Jobs } from "./views/Jobs.tsx";
 import { Skills } from "./views/Skills.tsx";
 import { Abilities } from "./views/Abilities.tsx";
@@ -60,8 +61,8 @@ export function App() {
 
   const here = "agent" in view ? view.agent : undefined;
 
-  // None needs a session: the way in, the list of routes, and an invitation.
-  const out = view.at === "signin" || view.at === "api" || view.at === "invitation";
+  // None needs a session: the way in, the list of routes, an invitation and a password link.
+  const out = view.at === "signin" || view.at === "api" || view.at === "invitation" || view.at === "password";
 
   useEffect(() => {
     const follow = () => setView(read());
@@ -186,6 +187,7 @@ export function App() {
   if (view.at === "api") return <Api />;
   if (view.at === "signin") return <Doorway making={view.making} />;
   if (view.at === "invitation") return <Invitation code={view.code} />;
+  if (view.at === "password") return <NewPassword code={view.code} />;
   if (!serves || !me) return null;
 
   const jobsOf = (agent: string) => (
