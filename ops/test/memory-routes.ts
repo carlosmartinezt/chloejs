@@ -25,6 +25,7 @@ import { agentFor, answer, codeJob, work } from "./shared.ts";
     '<!doctype html><link rel="stylesheet" href="/static/style.css"><a href="//elsewhere.example/x">x</a><h1>A project</h1>',
   );
   await put(`${folder}/static/style.css`, "h1 { color: red }");
+  await put(`${folder}/form.pdf`, "<script>not a page</script>");
   await put(`${folder}/.git/config`, "[core]");
   // An agent's own state folder can hold its credentials, and one here does.
   await makeDir(`${folder}/secrets`, { recursive: true });
@@ -65,7 +66,7 @@ import { agentFor, answer, codeJob, work } from "./shared.ts";
   // secrets/ is there and is left out, and the tree still comes back. It used
   // to stop the whole listing, which made a memory with credentials in it show
   // as a 500 and nothing else.
-  is("the tree is what is in the folder, less what can never be opened", ((await (await fetch(`${at}/api/agents/test/memory`, { headers: as })).json()) as { name: string }[]).map((one) => one.name), ["01_projects", "static"]);
+  is("the tree is what is in the folder, less what can never be opened", ((await (await fetch(`${at}/api/agents/test/memory`, { headers: as })).json()) as { name: string }[]).map((one) => one.name), ["01_projects", "static", "form.pdf"]);
   is("a file reads back for editing", ((await (await file("01_projects/move.html")).json()) as { content: string }).content.includes("A project"), true);
   is("an agent says what it calls its memory", ((await (await fetch(`${at}/api/agents/test`, { headers: as })).json()) as { memory: string }).memory, "Private");
   is("and one that says nothing calls it Memory", ((await (await fetch(`${at}/api/agents/other`, { headers: as })).json()) as { memory: string }).memory, "Memory");
@@ -98,6 +99,12 @@ import { agentFor, answer, codeJob, work } from "./shared.ts";
   is("but a link to another host is left alone", html.includes('href="//elsewhere.example/x"'), true);
   is("which is where the stylesheet it links really is", (await (await fetch(`${at}${under}/static/style.css`)).text()), "h1 { color: red }");
 
+  // A browser will not start its PDF viewer in a sandbox, so the type has to stay
+  // what stops the file being read as a page, whatever is inside it.
+  const paper = await fetch(`${at}${under}/form.pdf`);
+  is("a PDF has no sandbox, so the browser's viewer starts", paper.headers.get("content-security-policy"), "frame-ancestors 'self'");
+  is("and is only ever a PDF", [paper.headers.get("content-type"), paper.headers.get("x-content-type-options")], ["application/pdf", "nosniff"]);
+
   is("a made-up pass is refused", (await fetch(`${at}/memory/not-a-pass/01_projects/move.html`)).status, 403);
   // A note's script can carry its pass out by navigating, so a pass works only
   // from the address that asked for it, as the proxy in front says it.
@@ -129,7 +136,7 @@ import { agentFor, answer, codeJob, work } from "./shared.ts";
   // What was served is written down, before it is served. That includes what a
   // frame loaded, not only what somebody clicked.
   const log = (await (await fetch(`${at}/api/agents/test/memory/log`, { headers: as })).json()) as { what: string; path: string }[];
-  is("every file read or served is in the log", log.filter((one) => one.what === "serve").map((one) => one.path), ["01_projects/move.html", "static/style.css", "01_projects/move.html"]);
+  is("every file read or served is in the log", log.filter((one) => one.what === "serve").map((one) => one.path), ["01_projects/move.html", "form.pdf", "static/style.css", "01_projects/move.html"]);
   is("and a refused path put nothing in it", log.some((one) => one.path.includes("passwd")), false);
   is("the log is kept outside the memory it records", (await get(`${process.env.CHLOE_STATE}/memory-audit/test.jsonl`, "utf8")).length > 0, true);
 

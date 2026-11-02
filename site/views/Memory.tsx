@@ -511,6 +511,7 @@ function Shown({
   // its own dark styling arrives, and it cannot colour the file anyway.
   const painted = /\.(txt|css|js|mjs|json|jsonl|ya?ml|toml|csv|ts|sh|log)$/i.test(path);
   const textual = markdown || painted || /\.html?$/i.test(path);
+  const pdf = /\.pdf$/i.test(path);
   const frame = useRef<HTMLIFrameElement>(null);
   const pane = useRef<HTMLDivElement>(null);
 
@@ -603,6 +604,11 @@ function Shown({
               Chat
             </button>
           )}
+          {pdf && src && (
+            <button title="A phone's browser may not show a PDF inside a page" onClick={() => window.open(src, "_blank", "noreferrer")}>
+              Open
+            </button>
+          )}
           {owner && source && (
             <>
               <button className="small" disabled={draft === text} onClick={() => void save()}>
@@ -647,6 +653,10 @@ function Shown({
           </div>
           {minimap && text !== null && <Minimap pane={pane} revision={text} />}
         </div>
+      ) : src && pdf ? (
+        // No sandbox here, or the browser will not start its PDF viewer. The
+        // answer's own headers still sandbox anything that is not a PDF.
+        <iframe className="memory-frame" src={src} title={path} referrerPolicy="no-referrer" />
       ) : src ? (
         <iframe
           ref={frame}

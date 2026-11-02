@@ -1892,6 +1892,12 @@ export function claimPort(host: string, port: number): Promise<PortHolder> {
  *   img-src, style-src...   what the notes actually use, and only from here,
  *                           so an image cannot be a way out either.
  *   frame-ancestors 'self'  only this site may frame it.
+ *
+ * A PDF gets the last line alone. A browser will not start its PDF viewer in a
+ * sandboxed document, and the rest is about a page's own script, which a PDF
+ * does not have here: nosniff keeps application/pdf from being read as HTML,
+ * and the viewer runs apart from this site. The type is read off the same
+ * answer the header goes on, so an HTML file can never lose its sandbox.
  */
 async function framed(request: IncomingMessage, response: ServerResponse, url: URL, context: Context): Promise<void> {
   const [, , raw = "", ...rest] = url.pathname.split("/");
@@ -1920,7 +1926,7 @@ async function framed(request: IncomingMessage, response: ServerResponse, url: U
     "x-content-type-options": "nosniff",
     "x-robots-tag": "noindex, nofollow, noarchive",
     "referrer-policy": "no-referrer",
-    "content-security-policy": [
+    "content-security-policy": found.type === "application/pdf" ? "frame-ancestors 'self'" : [
       "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox",
       `default-src ${own}`,
       `script-src ${own} 'unsafe-inline' https://cdnjs.cloudflare.com`,

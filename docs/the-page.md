@@ -135,7 +135,9 @@ last looked marked.
 **A memory file other than plain text is shown in a sandboxed frame.** It may
 be HTML an agent wrote from an email or a web page, so it runs in a sandbox: its
 own script runs, but it cannot reach the dashboard around it, call the API as
-you, or send anything out.
+you, or send anything out. A PDF is the exception: browsers will not start their
+PDF viewer in a sandbox, so it opens in that viewer, which runs apart from the
+dashboard. On a phone that shows no PDF inside a page, Open shows it in a tab.
 
 **Every file served is logged first**, in `data/memory-audit/<agent>.jsonl`, and
 a read that could not be logged is refused. Listing a folder is logged too.
