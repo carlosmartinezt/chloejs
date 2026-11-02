@@ -16,7 +16,7 @@ import { build } from "esbuild";
 
 import { api, frameUnder, NeedsSignIn, serverAt, servesFrom } from "./lib/api.ts";
 import { href, read } from "./lib/route.ts";
-import { ideasFor } from "./lib/ideas.ts";
+import { ideasFor, ideasFrom } from "./lib/ideas.ts";
 import { allowed, landing } from "./lib/given.ts";
 import type { Way } from "./lib/types.ts";
 import { parts, sourceAt } from "./lib/blocks.ts";
@@ -366,5 +366,21 @@ describe("things to ask under an empty chat box", () => {
     ok(said[0].startsWith("Write a job"));
     ok(every.some((one) => one.includes("Telegram")));
     ok(!every.some((one) => one.includes("Slack")));
+  });
+  test("after some talk, the newest named conversations and a group, emoji left off", () => {
+    const one = (thread: string, last: string, label: string | null, archived: string | null = null) => ({ thread, messages: 2, last, label, archived });
+    const threads = [
+      one("a/1", "2026-10-01", "📚 Old reading"),
+      one("a/2", "2026-10-03", "🏠 Council tax"),
+      one("a/3", "2026-10-04", null),
+      one("a/4", "2026-10-05", "Hidden", "2026-10-06"),
+      one("a/5", "2026-10-02", "Greencard"),
+    ];
+    deepStrictEqual(ideasFrom(threads, [{ id: 1, name: "🌀 Projects" }]), [
+      "What is left to do on Council tax?",
+      "What is left to do on Greencard?",
+      "What should I do next in Projects?",
+    ]);
+    deepStrictEqual(ideasFrom([one("a/3", "2026-10-04", null)], []), []);
   });
 });

@@ -1,6 +1,7 @@
-// A few things to ask an agent, under an empty chat box. Read off what the
-// agent has turned on, from fixed lists: no model is asked. No React.
-import type { AgentSummary } from "./types.ts";
+// A few things to ask an agent, under an empty chat box. Read off what has
+// been talked about, or else off what the agent has turned on: no model is
+// asked. No React.
+import type { AgentSummary, Group, Thread } from "./types.ts";
 
 /** Whether the agent has a tool from this ability, like "abilities.memory". */
 const turnedOn = (agent: AgentSummary, ability: string) => Object.values(agent.toolsFrom ?? {}).includes(ability);
@@ -72,4 +73,26 @@ export function ideasFor(agent: AgentSummary, few = 3, random: () => number = Ma
   }
   const writes = turnedOn(agent, "abilities.selfImprovement");
   return [...(writes ? [A_JOB] : []), ...all].slice(0, few);
+}
+
+/** A name without the emoji or marks in front of it, so it reads inside a sentence. */
+const bare = (name: string) => name.replace(/^[^\p{L}\p{N}]+/u, "").trim();
+
+/**
+ * Up to `few` that follow on from what has been talked about: the newest
+ * conversations somebody named, then the groups. A conversation never named is
+ * left out, since the name it started with is an address, not a subject. Empty
+ * for an agent with nothing named yet.
+ */
+export function ideasFrom(threads: Thread[], groups: Group[], few = 3): string[] {
+  const named = threads
+    .filter((one) => one.label && !one.archived)
+    .sort((a, b) => b.last.localeCompare(a.last))
+    .map((one) => bare(one.label as string))
+    .filter(Boolean);
+  const said = [
+    ...named.slice(0, few - Math.min(1, groups.length)).map((name) => `What is left to do on ${name}?`),
+    ...groups.map((group) => bare(group.name)).filter(Boolean).map((name) => `What should I do next in ${name}?`),
+  ];
+  return [...new Set(said)].slice(0, few);
 }

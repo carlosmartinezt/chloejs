@@ -920,26 +920,39 @@ function Context({ value }: { value: unknown }) {
   );
 }
 
-/** A tool call or a job step, folded to one line. A failed one opens itself. */
-export function Card({ name, step, body }: { name: string; step: Step; body?: ReactNode }) {
-  const facts = [clock(step.at), step.ms ? took(step.ms) : "", step.cost || step.unpriced ? spent(step.cost, step.unpriced) : "", step.note ?? ""].filter(Boolean);
+/**
+ * A tool call or a job step, folded to one line: its name, how long it took,
+ * and under them what it was asked. Opened, where the tool comes from, the
+ * input and the output. A failed one opens itself.
+ */
+export function Card({ name, step, body, from }: { name: string; step: Step; body?: ReactNode; from?: string }) {
+  const facts = [step.ms ? took(step.ms) : clock(step.at), step.cost || step.unpriced ? spent(step.cost, step.unpriced) : "", step.note ?? ""].filter(Boolean);
+  const asked = step.args !== undefined;
   const gist =
-    typeof step.failed === "string" ? step.failed : body && Array.isArray(step.result) ? many(step.result.length, "message") : brief(step.result);
+    typeof step.failed === "string" ? step.failed : body && Array.isArray(step.result) ? many(step.result.length, "message") : asked ? "" : brief(step.result);
+  const input = asked ? brief(step.args) : "";
   const script = scriptRun(step.result);
   const bad = Boolean(step.failed) || (script !== null && script.exitCode !== 0);
   return (
     <details className={bad ? "call bad" : "call"} open={Boolean(step.failed)}>
       <summary>
         <b>{name}</b>
-        <span className="gist">{gist}</span>
+        {gist && <span className="gist">{gist}</span>}
         {facts.length > 0 && <span className="kind">{facts.join(", ")}</span>}
+        {input && <span className="input">input: {input}</span>}
       </summary>
       <div className="open">
-        {step.args !== undefined && (
+        {from && (
           <>
-            <div className="field">asked with</div>
+            <div className="field">comes from</div>
+            <p>{from}</p>
+          </>
+        )}
+        {asked && (
+          <>
+            <div className="field">input</div>
             <Value value={step.args} />
-            <div className="field">got back</div>
+            <div className="field">output</div>
           </>
         )}
         {body ?? (typeof step.failed === "string" ? <div className="bubble">{step.failed}</div> : <Value value={step.result} />)}
@@ -950,7 +963,7 @@ export function Card({ name, step, body }: { name: string; step: Step; body?: Re
 
 /** How long something took, in the unit a person would say it in. */
 function took(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
   const seconds = Math.round(ms / 1000);
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }

@@ -808,9 +808,10 @@ pre.painted .keyword { color: var(--accent); }
 .run-thread .work > summary:hover svg:last-child, .run-thread .work[open] > summary svg:last-child { opacity: 1; }
 .run-thread .work[open] > summary svg:last-child { transform: rotate(180deg); }
 .run-thread .work.bad > summary { color: var(--bad); }
-.run-thread .did { margin: 4px 0 0 6px; padding-left: 10px; border-left: 1px solid var(--line); }
+.run-thread .did { margin: 4px 0 0 2px; padding-left: 6px; border-left: 1px solid var(--line); --size-body: 14px; font-size: var(--size-body); }
 .run-thread .did .call { margin: 0; background: none; border: 0; border-radius: 6px; }
-.run-thread .did .call summary { list-style: none; padding: 5px 10px; }
+.run-thread .did .call summary { list-style: none; padding: 5px 8px; }
+.run-thread .did .call .open { padding: 2px 8px 10px; }
 .run-thread .did .call summary::-webkit-details-marker { display: none; }
 .run-thread .did .call summary:hover, .run-thread .did .call[open] { background: var(--surface); }
 .run-thread .did .call .gist { color: var(--dim); }
@@ -827,9 +828,14 @@ pre.painted .keyword { color: var(--accent); }
 .call + .call { margin-top: -16px; }
 .call summary { display: flex; align-items: baseline; gap: 12px; padding: 8px 12px; cursor: pointer;
   font-size: var(--size-body); line-height: 1.5; min-width: 0; }
+.call summary { flex-wrap: wrap; row-gap: 2px; }
 .call summary b { font-weight: 500; color: var(--ink); flex: none; }
 .call .gist { flex: 1 1 auto; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.call .kind { flex: none; font: 400 var(--size-small)/1.5 var(--sans); color: var(--dim); }
+.call .kind { flex: none; margin-left: auto; font: 400 var(--size-small)/1.5 var(--sans); color: var(--dim); }
+/* What it was asked, on a line of its own under the name. */
+.call .input { flex-basis: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 400 var(--size-small)/1.4 var(--sans); color: var(--dim); }
+.call[open] .input { white-space: normal; }
 .call[open] .gist { white-space: normal; }
 .call .open { padding: 2px 12px 12px; font-size: var(--size-body); }
 .call .open p { margin: 0 0 8px; }
@@ -981,6 +987,7 @@ pre.painted .keyword { color: var(--accent); }
 /* Round, and the size of a thumb. */
 /* Things to ask, under an empty box: quiet until pointed at. */
 .composer .ideas { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 760px; margin: 12px auto 0; }
+.composer .ideas p { flex-basis: 100%; margin: 0 0 2px; text-align: center; font-size: var(--size-small); color: var(--dim); }
 .composer .ideas button { padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
   font: 400 var(--size-small)/1.4 var(--sans); color: var(--dim); white-space: normal; transition: background-color .15s, transform .1s; }
 .composer .ideas button:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 6%, var(--surface)); }

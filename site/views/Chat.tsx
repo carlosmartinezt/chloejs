@@ -10,7 +10,7 @@ import { modelChoices, type Offered } from "../lib/models.ts";
 import { Card, Prompt } from "./Log.tsx";
 import { go, href } from "../lib/route.ts";
 import { chatWidth, lastChat, setChatWidth, setLastChat } from "../lib/prefs.ts";
-import { ideasFor } from "../lib/ideas.ts";
+import { ideasFor, ideasFrom } from "../lib/ideas.ts";
 import { Collapse } from "./components/Collapse.tsx";
 import { Pick, type Option } from "./components/Pick.tsx";
 
@@ -228,6 +228,13 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   const picked = summary?.chosen.find((one) => one.scope === `chat:${thread}`)?.model;
   const model = picked === "auto" || (!picked && summary?.auto) ? "Auto" : (picked ?? summary?.model ?? "");
   const titled = (name: string) => summary?.titles?.[name] ?? words(name);
+  /** Where a tool comes from, in words: the agent's own, built into the runtime, or a connection or channel it was given. */
+  const sourceOf = (name: string): string | undefined => {
+    const from = summary?.toolsFrom?.[name];
+    if (from?.startsWith("abilities.")) return `built in: ${words(from.slice("abilities.".length))}`;
+    if (from) return from.replace(/^(\S+) (.+)$/, "the $2 $1");
+    return summary?.tools.includes(name) ? `${nameOf(agent)}'s own tool, in its folder` : undefined;
+  };
 
   async function pick(to: string) {
     try {
@@ -605,6 +612,9 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   const recent = shown.filter((one) => !one.pinned && !groups.some((group) => group.id === one.group));
   const hidden = threads.filter((one) => one.archived).length;
   const blank = lines.length === 0 && !waiting && !loading;
+  // What has been talked about, and only for an agent with nothing named yet, what it can do.
+  const fromHistory = ideasFrom(threads, groups);
+  const suggested = fromHistory.length ? fromHistory : ideas;
 
   // The list of conversations widens when its edge is dragged, so a long name
   // can be read, up to a limit that leaves the conversation room.
@@ -1021,7 +1031,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                 </details>
               ) : (
                 <div className={line.failed ? "msg them bad" : "msg them"} key={at} id={`said-${at}`}>
-                  {line.run && line.did && <Steps run={line.run} did={line.did} titled={titled} />}
+                  {line.run && line.did && <Steps run={line.run} did={line.did} titled={titled} sourceOf={sourceOf} />}
                   <div className="said">
                     <Markdown text={line.content} />
                   </div>
@@ -1061,7 +1071,7 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
                   <div key={at} className={!showing && foldedAt(at) ? "line folded" : "line"}>
                     <div>
                       {step.tool ?? step.name ? (
-                        <Card name={titled(step.tool ?? step.name ?? "")} step={step} />
+                        <Card name={titled(step.tool ?? step.name ?? "")} step={step} from={step.tool ? sourceOf(step.tool) : undefined} />
                       ) : (
                         <p className="thought">{step.say}</p>
                       )}
@@ -1193,9 +1203,10 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
             </div>
           </div>
           {trouble && <p className="under">{trouble}</p>}
-          {blank && !prompt && ideas.length > 0 && (
+          {blank && !prompt && suggested.length > 0 && (
             <div className="ideas">
-              {ideas.map((idea) => (
+              <p>Try the following:</p>
+              {suggested.map((idea) => (
                 <button
                   key={idea}
                   className="plain"
@@ -1215,21 +1226,24 @@ export function Chat({ agent, thread: asked, about, owner }: { agent: string; th
   );
 }
 
-/** What a reply's steps came to, in a line: "Read 5, changed 2, 1 failed". */
+/** What a reply's steps came to, in a line: "6 tool calls, 1 failed". */
 function didLine(did: NonNullable<Said["did"]>): string {
-  const parts = [
-    did.read && `read ${did.read}`,
-    did.changed && `changed ${did.changed}`,
-    did.ran && `ran ${did.ran}`,
-    did.other && (did.read || did.changed || did.ran ? many(did.other, "other step") : many(did.other, "step")),
-    did.failed && `${did.failed} failed`,
-  ].filter(Boolean) as string[];
-  const said = parts.join(", ");
-  return said.charAt(0).toUpperCase() + said.slice(1);
+  const calls = did.read + did.changed + did.ran + did.other + did.failed;
+  return [many(calls, "tool call"), did.failed && `${did.failed} failed`].filter(Boolean).join(", ");
 }
 
 /** The steps behind a reply, folded into a grey line above it, read from its run when opened. */
-function Steps({ run, did, titled }: { run: string; did: NonNullable<Said["did"]>; titled: (name: string) => string }) {
+function Steps({
+  run,
+  did,
+  titled,
+  sourceOf,
+}: {
+  run: string;
+  did: NonNullable<Said["did"]>;
+  titled: (name: string) => string;
+  sourceOf: (name: string) => string | undefined;
+}) {
   const [open, setOpen] = useState(false);
   const [steps, setSteps] = useState<Step[] | null>(null);
   const [trouble, setTrouble] = useState("");
@@ -1251,7 +1265,11 @@ function Steps({ run, did, titled }: { run: string; did: NonNullable<Said["did"]
         <div className="did">
           {steps.map((step, at) => (
             <div key={at} className="line">
-              <div>{step.tool ?? step.name ? <Card name={titled(step.tool ?? step.name ?? "")} step={step} /> : <p className="thought">{step.say}</p>}</div>
+              <div>{step.tool ?? step.name ? (
+                  <Card name={titled(step.tool ?? step.name ?? "")} step={step} from={step.tool ? sourceOf(step.tool) : undefined} />
+                ) : (
+                  <p className="thought">{step.say}</p>
+                )}</div>
             </div>
           ))}
         </div>
