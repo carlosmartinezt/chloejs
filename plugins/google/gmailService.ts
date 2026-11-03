@@ -4,7 +4,8 @@
 // sign-in this reads with can see the whole mailbox, so a query written at the
 // call site is a filter, not a boundary: one prompt injection or one sloppy
 // turn and the filter widens. The search comes from the binding in the agent's
-// own config, the caller may only choose how far back and how many, and
+// own config, the caller may only choose how far back, how many and words that
+// narrow it, each quoted so it cannot be read as part of the search, and
 // fetching a single message re-runs the same search first and refuses an id
 // that is not in it.
 //
@@ -128,9 +129,11 @@ function header(headers: Part["headers"], name: string): string {
  * - `search`: the search, written as in Gmail's search box, such as `"in:inbox"` or `"from:alerts@example.com"`. Required.
  * - `days`: how many days back to look. Default: 7.
  * - `limit`: the most emails to return. Default: 10.
+ * - `text`: words an email must hold, in its sender, subject or body. Each is
+ *   quoted, so it can narrow `search` and never widen it. Safe to take from a model.
  *
- * Returns `{ query, count, messages }`: the search that ran (your `search`
- * plus `newer_than:<days>d`), how many emails it found, and the emails. Each
+ * Returns `{ query, count, messages }`: the search that ran (your `search`,
+ * `text`, and `newer_than:<days>d`), how many emails it found, and the emails. Each
  * email's `subject`, `from` and `snippet` come wrapped in
  * `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` markers, because someone else wrote them.
  *
@@ -143,14 +146,17 @@ function header(headers: Part["headers"], name: string): string {
  */
 export async function readEmailMessages({
   search,
+  text = "",
   days = 7,
   limit = 10,
 }: {
   search: string;
+  text?: string;
   days?: number;
   limit?: number;
 }): Promise<{ query: string; count: number; messages: Message[] }> {
-  const query = `${search} newer_than:${days}d`;
+  const words = text.replace(/"/g, " ").split(/\s+/).filter(Boolean).map((word) => `"${word}"`);
+  const query = [search, ...words, `newer_than:${days}d`].join(" ");
   const messages = await search_(query, limit);
   remember(search, messages);
   return {

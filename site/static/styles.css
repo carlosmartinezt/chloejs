@@ -804,16 +804,15 @@ pre.painted .keyword { color: var(--accent); }
   list-style: none; cursor: pointer; font-size: var(--size-body); color: var(--dim); }
 .run-thread .work > summary::-webkit-details-marker { display: none; }
 .run-thread .work > summary:hover { color: var(--ink); }
-.run-thread .work > summary svg:last-child { opacity: 0; transition: transform .15s; }
+.run-thread .work > summary svg:last-child { opacity: .6; transition: transform .15s; }
 .run-thread .work > summary:hover svg:last-child, .run-thread .work[open] > summary svg:last-child { opacity: 1; }
 .run-thread .work[open] > summary svg:last-child { transform: rotate(180deg); }
 .run-thread .work.bad > summary { color: var(--bad); }
 .run-thread .did { margin: 4px 0 0 2px; padding-left: 6px; border-left: 1px solid var(--line); --size-body: 14px; font-size: var(--size-body); }
 .run-thread .did .call { margin: 0; background: none; border: 0; border-radius: 6px; }
-.run-thread .did .call summary { list-style: none; padding: 5px 8px; }
-.run-thread .did .call .open { padding: 2px 8px 10px; }
-.run-thread .did .call summary::-webkit-details-marker { display: none; }
-.run-thread .did .call summary:hover, .run-thread .did .call[open] { background: var(--surface); }
+.run-thread .did .call summary { padding: 5px 8px; }
+.run-thread .did .call .open { padding: 8px 8px 10px; }
+.run-thread .did .call[open] { background: var(--surface); }
 .run-thread .did .call .gist { color: var(--dim); }
 .run-thread .context > div { white-space: pre-wrap; word-break: break-word; }
 .run-thread .context > div + div { margin-top: 12px; }
@@ -828,30 +827,47 @@ pre.painted .keyword { color: var(--accent); }
 .call + .call { margin-top: -16px; }
 .call summary { display: flex; align-items: baseline; gap: 12px; padding: 8px 12px; cursor: pointer;
   font-size: var(--size-body); line-height: 1.5; min-width: 0; }
-.call summary { flex-wrap: wrap; row-gap: 2px; }
+.call summary { flex-wrap: wrap; row-gap: 2px; list-style: none; border-radius: inherit; }
+.call summary::-webkit-details-marker { display: none; }
+/* The line that opens a card: an arrow, a tint under the pointer, and a rule between it and what it opens. */
+.call summary::before { content: "\25B8"; flex: none; width: 10px; margin-right: -4px; color: var(--dim); }
+.call[open] > summary::before { content: "\25BE"; }
+.call summary:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.call summary:hover::before { color: var(--ink); }
+.call summary:focus-visible { outline-offset: -2px; }
+.call[open] > summary { border-bottom: 1px solid var(--line); border-radius: 6px 6px 0 0; }
 .call summary b { font-weight: 500; color: var(--ink); flex: none; }
 .call .gist { flex: 1 1 auto; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .call .kind { flex: none; margin-left: auto; font: 400 var(--size-small)/1.5 var(--sans); color: var(--dim); }
 /* What it was asked, on a line of its own under the name. */
-.call .input { flex-basis: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.call .input { flex-basis: 100%; padding-left: 18px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font: 400 var(--size-small)/1.4 var(--sans); color: var(--dim); }
-.call[open] .input { white-space: normal; }
+.call[open] .input { display: none; }
 .call[open] .gist { white-space: normal; }
-.call .open { padding: 2px 12px 12px; font-size: var(--size-body); }
+.call .open { padding: 10px 12px 12px; font-size: var(--size-body); }
 .call .open p { margin: 0 0 8px; }
 .call .open pre { max-height: 420px; overflow: auto; margin-bottom: 8px; }
 .call .open .field { margin-top: 6px; }
+.call .open .part { margin: 12px 0 8px; padding-top: 10px; border-top: 1px solid var(--line);
+  font: 600 var(--size-small)/1.4 var(--sans); color: var(--ink); }
 .call .exit { color: var(--dim); }
 .call.bad { border-color: var(--bad); }
 .call.bad summary b { color: var(--bad); }
-.fields { margin: 0; display: grid; gap: 4px; }
-.fields > div { display: grid; grid-template-columns: minmax(90px, max-content) 1fr; gap: 12px; }
-.fields dt { color: var(--dim); }
-.fields dd { margin: 0; min-width: 0; }
-.fields dd p { margin: 0; }
+/* Names down the left, what each holds on the right. Every row shares the two columns, so a card lines up. */
+.named { margin: 0; display: grid; grid-template-columns: fit-content(40%) minmax(0, 1fr); gap: 6px 16px; }
+.named > div { display: contents; }
+.named dt { min-width: 84px; color: var(--dim); overflow-wrap: anywhere; }
+.named dd { margin: 0; min-width: 0; }
+.named dd p, .call .open .named dd p { margin: 0; overflow-wrap: anywhere; }
+.named dd .rows { margin: 2px 0 4px; }
 .rows { overflow-x: auto; margin: 0 0 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .rows table { font-size: var(--size-small); }
-.rows th, .rows td { padding: 4px 10px 4px 0; white-space: nowrap; }
+.rows th, .rows td { padding: 8px 12px; overflow-wrap: break-word; }
+.rows th { white-space: nowrap; }
+.rows td { vertical-align: top; white-space: pre-line; }
+.rows tr:last-child td { border-bottom: 0; }
+/* Long words keep a width worth reading: on a phone the table scrolls sideways instead of squeezing them. */
+.rows td.long { min-width: 28ch; }
 /* Chat is the one page that fills the window: the transcript scrolls and the
    box it is typed into stays where the hands are. */
 .chat { display: grid; grid-template-columns: var(--rail-w) 0 minmax(0, 1fr); height: calc(100vh - var(--bar-h) - var(--dev-h)); }
@@ -936,6 +952,8 @@ pre.painted .keyword { color: var(--accent); }
 .msg .steps > button:hover { text-decoration: underline; }
 .msg .steps .did { opacity: .75; }
 .thinking .doing { color: var(--accent); padding: 0; font: inherit; }
+.thinking .doing::before { content: "\25B8  "; }
+.thinking .doing[aria-expanded="true"]::before { content: "\25BE  "; }
 .thinking .doing:hover:enabled { text-decoration: underline; }
 /* The lines under "Thinking": each folds to nothing once it is old, unless it was opened to read. */
 .did .line { display: grid; grid-template-rows: 1fr; }

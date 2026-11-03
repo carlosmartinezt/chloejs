@@ -2,7 +2,8 @@
 // to, answering one of those messages, and sending one as the signed-in person.
 //
 // The binding lives in the agent's config, not in anything the model can
-// write. For reading, all the model chooses is how far back and how many. For
+// write. For reading, all the model chooses is how far back, how many, and words
+// that narrow the list. For
 // replying, it chooses which of the messages it has already listed and what to
 // say, and never the address.
 //
@@ -45,8 +46,9 @@ interface Options {
  * recent messages, then can read one of them in full.
  *
  * `search` sets which mail the model can see, and the model cannot change it.
- * The model chooses only how many days back (up to 365) and how many messages
- * (up to 50, default 10). It can open only a message that this search lists.
+ * The model chooses only how many days back (up to 365), how many messages
+ * (up to 50, default 10), and words the mail must hold, which can only narrow
+ * the list. It can open only a message that this search lists.
  *
  * Needs the Google connection. If no one has signed in to Google, chloe sends
  * the sign-in link in the chat.
@@ -63,22 +65,23 @@ export function readEmail({
   const read = tool({
     description:
       `Read ${what}. Lists what is there; pass a messageId from that list to read one in full. ` +
-      `You cannot change which mail this searches.`,
+      `Give text to find mail by who sent it, its subject or its words. You cannot widen which mail this searches.`,
     inputSchema: z.object({
       // A year and fifty, because "what did they say in March" and "the last
       // twenty" are both ordinary asks and the old caps refused them. What
       // stops a search being too wide is the agent's binding, not these.
       days: z.number().int().min(1).max(365).optional().describe("How far back to look. Default 7."),
       limit: z.number().int().min(1).max(50).optional().describe("How many at most. Default 10."),
+      text: z.string().max(200).optional().describe("Only mail holding all these words, in its sender, subject or body. Leave it out for the newest."),
       messageId: z
         .string()
         .optional()
         .describe("Read this one in full. Must be an id this tool already listed."),
     }),
-    execute: async ({ days: back, limit, messageId }) =>
+    execute: async ({ days: back, limit, text, messageId }) =>
       messageId
         ? await readOneEmailMessage({ search, what, days: back ?? days, limit: limit ?? 10, messageId })
-        : await readEmailMessages({ search, days: back ?? days, limit: limit ?? 10 }),
+        : await readEmailMessages({ search, text, days: back ?? days, limit: limit ?? 10 }),
   });
   return Object.assign(read, { title: "Read email", needs: google, onlyReads: true, kind: "read" as const });
 }

@@ -943,16 +943,20 @@ export function Card({ name, step, body, from }: { name: string; step: Step; bod
       </summary>
       <div className="open">
         {from && (
-          <>
-            <div className="field">comes from</div>
-            <p>{from}</p>
-          </>
+          <dl className="named">
+            <div>
+              <dt>comes from</dt>
+              <dd>
+                <p>{from}</p>
+              </dd>
+            </div>
+          </dl>
         )}
         {asked && (
           <>
-            <div className="field">input</div>
+            <div className="part">input</div>
             <Value value={step.args} />
-            <div className="field">output</div>
+            <div className="part">output</div>
           </>
         )}
         {body ?? (typeof step.failed === "string" ? <div className="bubble">{step.failed}</div> : <Value value={step.result} />)}
@@ -977,10 +981,14 @@ const isRow = (value: unknown): value is Plain => isObject(value) && Object.valu
 /** A field name as words: diskPercent reads as "disk percent". */
 const words = (field: string) => field.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase();
 
+/** Somebody else's words without the markers a tool puts round them for the model. */
+const unmarked = (words: string) =>
+  words.replace(/<<<EXTERNAL_UNTRUSTED_CONTENT id="[^"]*">>>\n?|\n?<<<END_EXTERNAL_UNTRUSTED_CONTENT id="[^"]*">>>/g, "");
+
 const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d/;
 function scalar(value: unknown): string {
   if (value === null || value === undefined) return "nothing";
-  if (typeof value === "string") return ISO.test(value) ? when(value) : value;
+  if (typeof value === "string") return ISO.test(value) ? when(value) : unmarked(value);
   if (typeof value === "boolean") return value ? "yes" : "no";
   if (typeof value === "number" && !Number.isInteger(value)) return String(Number(value.toFixed(2)));
   return String(value);
@@ -1044,7 +1052,10 @@ function Value({ value, depth = 0 }: { value: unknown; depth?: number }) {
       </>
     );
   }
-  if (typeof value === "string") return value.includes("\n") || value.length > 120 ? <pre>{value}</pre> : <p>{scalar(value)}</p>;
+  if (typeof value === "string") {
+    const words = scalar(value);
+    return words.includes("\n") || words.length > 120 ? <pre>{words}</pre> : <p>{words}</p>;
+  }
   if (isScalar(value)) return <p>{scalar(value)}</p>;
   if (depth > 2) return <pre>{text(value)}</pre>;
 
@@ -1069,7 +1080,7 @@ function Value({ value, depth = 0 }: { value: unknown; depth?: number }) {
     return <Rows rows={entries.map(([name, one]) => ({ "": name, ...(one as Plain) }))} />;
   }
   return (
-    <dl className="fields">
+    <dl className="named">
       {entries.map(([field, one]) => (
         <div key={field}>
           <dt>{words(field)}</dt>
@@ -1097,11 +1108,14 @@ function Rows({ rows }: { rows: Plain[] }) {
         <tbody>
           {rows.map((row, at) => (
             <tr key={at}>
-              {columns.map((column) => (
-                <td key={column} className="num">
-                  {column in row ? scalar(row[column]) : ""}
-                </td>
-              ))}
+              {columns.map((column) => {
+                const cell = column in row ? scalar(row[column]) : "";
+                return (
+                  <td key={column} className={cell.length > 40 ? "num long" : "num"}>
+                    {cell}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>

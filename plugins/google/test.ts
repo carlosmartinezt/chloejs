@@ -330,6 +330,8 @@ import type { Tools } from "#chloe/ops/test/shared";
       const listed = await readEmailMessages({ search: "in:inbox", days: 7, limit: 5 });
       is("mail is listed with a key traded for the lasting one", listed.messages.map((one) => one.id), ["m1"]);
       is("and what somebody else wrote is marked as theirs", listed.messages[0].subject?.includes("EXTERNAL_UNTRUSTED_CONTENT"), true);
+      const found = await readEmailMessages({ search: "in:inbox", text: 'Ana ") OR (in:spam', days: 7, limit: 5 });
+      is("words narrow the search and cannot break out of it", found.query, 'in:inbox "Ana" ")" "OR" "(in:spam" newer_than:7d');
       const one = (await readOneEmailMessage({ search: "in:inbox", what: "the inbox", messageId: "m1" })).message as { body: string };
       is("a message is read in full", one.body.includes("Shall we?"), true);
 

@@ -102,7 +102,7 @@ tools: {
 
 | Tool | Bound to | Default | The model may |
 |---|---|---|---|
-| `gmail.readEmail` | `search`, a Gmail query | `in:inbox`, the whole inbox | List that mail, 7 days back unless it asks for more, and read one message it listed. |
+| `gmail.readEmail` | `search`, a Gmail query | `in:inbox`, the whole inbox | List that mail, 7 days back unless it asks for more, narrow it by words, and read one message it listed. |
 | `gmail.replyEmail` | the same `search` | | Answer a message it listed, to whoever sent it, in the same thread. It never picks the address. |
 | `gmail.sendEmail` | `from`, `to`, `when` | | Write the subject and body. See [sending an email](/docs/tools#sending-an-email). |
 | `calendar.listEvents` | `calendars`, by id | `["primary"]` | List the events from a day it picks, up to 90 days ahead. |
