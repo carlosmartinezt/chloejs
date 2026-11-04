@@ -12,6 +12,7 @@ import { CUT_OFF, db } from "#chloe/core/db";
 import { limited, minutesText, until } from "#chloe/core/limit";
 import { oneLineSummary } from "#chloe/core/markdown";
 import { settings } from "#chloe/core/settings";
+import { peopleOn } from "#chloe/serve/people";
 import { abilityOn, type Agent, type ChatHistory } from "#chloe/load/load";
 import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
 import { decide } from "#chloe/model/auto";
@@ -335,7 +336,7 @@ async function answer({ agent, prompt, asked, attachments, model, thread, source
   const tools = toolsFor(agent, without, { fromOwner, mayChangeAgent, sendFile, guest, chat: Boolean(thread) });
   const overviews = await overviewsOf(tools);
   const messages: Message[] = [
-    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, await pluginWords(agent, { tools, guest: Boolean(guest), user }), todayIn(zoneFor(timeZone, agent, job))) },
+    { role: "system", content: systemPrompt(agent, talkingTo && { name: talkingTo, source, asYouGo: Boolean(said) }, overviews, await pluginWords(agent, { tools, guest: Boolean(guest), user }), todayIn(zoneFor(timeZone, agent, job)), Boolean(guest)) },
     ...(thread ? recall(thread, { ...shown(history), tools: true }) : []),
     { role: "user", content: prompt, attachments },
   ];
@@ -1061,6 +1062,29 @@ function talkingWith({ name, source, asYouGo }: { name: string; source: string; 
 }
 
 /**
+ * Who an agent works with, when the owner has invited anybody to it: each
+ * by name with the address to reach them at, so it can tell them apart and
+ * write to whichever one it should. Nothing for an agent only its owner uses.
+ */
+function peopleSection(agent: Agent): Section | undefined {
+  const invited = peopleOn(agent.id);
+  if (!invited.length) return undefined;
+  const { ownerName, ownerEmail } = settings;
+  const owner = `- ${ownerName || "Your owner"}, who owns you${ownerEmail ? `: ${ownerEmail}` : ""}`;
+  return {
+    about: "The people you work with",
+    from: "the runtime",
+    text: [
+      "You work with these people, and each message says which of them it is from:",
+      owner,
+      ...invited.map((one) => `- ${one.name || one.email}, invited by your owner: ${one.email}`),
+      "An account somebody signs in to, like their mail or calendar, is reached only for the person you are talking with, " +
+        "and never for another of them. Your owner can view what the others say to you, so never promise anything is kept from them.",
+    ].join("\n"),
+  };
+}
+
+/**
  * What a reply read on a page of the dashboard is shown as, so writing the
  * person will copy and use somewhere else comes out as a card with a copy
  * button. Its own section, so what a future page shows is added here as a new
@@ -1202,7 +1226,7 @@ export const PURPOSE_HERE = "<Purpose goes here>";
  * timezone. `plugins` are the plugin sections; the overviews of its tools stand
  * between them and its skills, self-headed as each one is.
  */
-function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, plugins: Section[], today: string): string {
+function systemPrompt(agent: Agent, person: { name: string; source: string; asYouGo: boolean } | "" | undefined, overviews: string, plugins: Section[], today: string, guest = false): string {
   // Without its own name, the only name a model is shown is Chloe's, and it answers to that.
   const parts = [`Your name is ${agent.name ?? agent.id}.`, agent.purpose];
   if (person) {
@@ -1210,6 +1234,9 @@ function systemPrompt(agent: Agent, person: { name: string; source: string; asYo
     const shown = howShown(person.source);
     if (shown) parts.push(said(shown));
   }
+  // A visitor to a web chat is told nothing about who else the agent works with.
+  const people = guest ? undefined : peopleSection(agent);
+  if (people) parts.push(said(people));
   parts.push(...plugins.map(said));
   if (overviews) parts.push(overviews);
   const skills = skillsOf(agent);

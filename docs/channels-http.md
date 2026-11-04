@@ -43,3 +43,12 @@ nothing else. A job that stops to ask somebody waits in `GET /api/parked`,
 because HTTP cannot push a question out. A reply that asks them to pick carries
 `buttons` and `multiple` ([Asking a person](/docs/asking-a-person#from-a-chat)).
 
+A reply can take minutes, and that call stays open until it is done, which a
+proxy in front of the server may cut off: Cloudflare gives up after 100 seconds
+of silence. `POST /api/agents/shop/chat/start` takes the same body and answers
+at once with `{"answer":"..."}`, and the reply goes on whatever happens to the
+caller. `GET /api/agents/shop/chat/answers/<answer>` then says `{"going":true}`
+until it is done, and after that what the chat call would have answered, or
+`{"failed":"why"}`. A 404 means the answer is no longer held, because it came
+over an hour ago or the service restarted: what was said is in the conversation.
+

@@ -3,9 +3,10 @@
 /*
    The page's look.
 
-   The palette and the two faces are Chloe's, out of the mark: a cool white and
-   ink, indigo for anything there is to press, and a deep band of one colour
-   across the top. That band is a hue and nothing else: --bar-hue is the only
+   The palette is plain white and near black, or the two dark greys, with ink
+   for anything there is to press, so a chat looks like the chat apps people
+   already know. A deep band of one colour goes across the top of every page but
+   a chat. That band is a hue and nothing else: --bar-hue is the only
    number to change, and a third saturation at a sixth lightness is what keeps
    any hue dark and quiet enough for the page to sit under it. Account settings
    sets that number.
@@ -42,14 +43,18 @@
    color-scheme, three lines below, so pinning the look to one of them is one
    attribute and not a second copy of every colour. */
 :root:not([data-theme]), .swatch[data-theme="chloe"] {
-  --bg: light-dark(#f7f8fa, #191b1a);
-  --surface: light-dark(#ffffff, #1f2120);
-  --line: light-dark(rgb(15 18 30 / .09), rgb(236 236 245 / .085));
-  --line-2: light-dark(rgb(15 18 30 / .17), rgb(236 236 245 / .16));
-  --ink: light-dark(#0f1117, #e9e9f0);
-  --dim: light-dark(#555b6b, #9c9cab);
-  --accent: light-dark(#4338ca, #a5a0f7);
-  --accent-soft: light-dark(#e7e4fa, #1d1b33);
+  --bg: light-dark(#ffffff, #212121);
+  --surface: light-dark(#ffffff, #303030);
+  /* The list down the left of a chat, and what you said in it. */
+  --rail-bg: light-dark(#f9f9f9, #181818);
+  --bubble: light-dark(#f4f4f4, #303030);
+  --on-bubble: light-dark(#0d0d0d, #ececec);
+  --line: light-dark(rgb(0 0 0 / .1), rgb(255 255 255 / .1));
+  --line-2: light-dark(rgb(0 0 0 / .15), rgb(255 255 255 / .15));
+  --ink: light-dark(#0d0d0d, #ececec);
+  --dim: light-dark(#5d5d5d, #afafaf);
+  --accent: light-dark(#0d0d0d, #ececec);
+  --accent-soft: light-dark(#ececec, #2f2f2f);
   --bar: hsl(var(--bar-hue) 32% 17%); --on-bar: hsl(var(--bar-hue) 25% 94%);
   --bar-line: hsl(var(--bar-hue) 30% 25%);
   --ok: light-dark(#295c4b, #8fc9ab);
@@ -64,8 +69,8 @@
   --kind-code: light-dark(#2f5d8a, #7fa8cf);
   --kind-script: light-dark(#9a5b0c, #dfa966);
   --kind-proof: light-dark(#7c6f9a, #a99bc9);
-  --inline: light-dark(rgb(15 18 30 / .055), #262827);
-  --on-accent: light-dark(#ffffff, #0b0a16);
+  --inline: light-dark(rgb(0 0 0 / .055), rgb(255 255 255 / .08));
+  --on-accent: light-dark(#ffffff, #0d0d0d);
 }
 /* Which of the two is in force. Said on the page alone, because color-scheme
    is inherited and the swatch that draws this look reads the same one. The
@@ -120,6 +125,10 @@ html { overscroll-behavior: none; }
   background: var(--bad); color: var(--wait-soft); 
   font: 500 var(--size-small)/1 var(--sans); }
 .dev b { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.dev.viewing b { text-transform: none; letter-spacing: 0; white-space: nowrap; }
+@media (max-width: 620px) { .dev.viewing span { display: none; } }
+.dev.viewing button { margin-left: auto; padding: 0; color: inherit; text-decoration: underline; font: inherit; }
+.dev.viewing button:hover:enabled { background: none; color: inherit; }
 .dev .num { font: 400 var(--size-small)/1 var(--sans); opacity: .85; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
 
@@ -212,9 +221,11 @@ html { overscroll-behavior: none; }
 }
 
 /* The login, which is the only page with no bar above it. */
-.doorway { max-width: 340px; margin: 14vh auto; padding: 0 22px; }
-.doorway h1 { font: 600 var(--size-title)/1.3 var(--sans); letter-spacing: -.02em; margin: 0 0 10px; }
+.doorway { max-width: 380px; margin: 12vh auto; padding: 0 22px; }
+.doorway h1 { font: 500 30px/1.3 var(--sans); letter-spacing: -.01em; margin: 0 0 18px; text-align: center; }
+.doorway form .swap { margin-top: 14px; }
 .doorway .empty, .doorway .bad { font-size: var(--size-small); margin: 0 0 18px; }
+.doorway .bad { text-align: center; }
 .doorway form + .empty { margin-top: 18px; }
 /* Switching the form between the owner's password and somebody invited's email. */
 .doorway .swap { margin: 0; font-size: var(--size-small); }
@@ -225,25 +236,25 @@ html { overscroll-behavior: none; }
 
 .doorway .mark { display: flex; align-items: center; gap: .34em; margin: 0 0 30px;
   font: 600 var(--size-title)/1 var(--sans); letter-spacing: -.035em; color: var(--ink); }
-.doorway .mark { margin-bottom: 26px; }
+.doorway .mark { margin-bottom: 26px; justify-content: center; }
 .doorway .mark .glyph { width: 34px; height: 34px; }
 .doorway label { display: block; font: 500 var(--size-small)/1 var(--sans); color: var(--dim); margin-top: 16px; }
 .doorway input { display: block; width: 100%; margin-top: 7px; padding: 10px 12px;
   font: 400 var(--size-body)/1.4 var(--sans); color: var(--ink); background: var(--bg);
   border: 1px solid var(--line-2); border-radius: 9px; }
-.doorway input { padding: 9px 11px; background: var(--surface); border-radius: 8px; }
+.doorway input { padding: 14px 18px; background: var(--bg); border-radius: 26px; }
 /* A password, and the button that shows it as it was typed. */
 .doorway .peek { position: relative; display: block; margin-top: 7px; }
-.doorway .peek input { margin-top: 0; padding-right: 42px; }
+.doorway .peek input { margin-top: 0; padding-right: 46px; }
 .peek .show { position: absolute; right: 2px; top: 0; bottom: 0; width: 38px; margin: 0; padding: 0;
   display: flex; align-items: center; justify-content: center;
   background: none; border: 0; border-radius: 8px; color: var(--dim); }
 .peek .show:hover { color: var(--ink); background: var(--inline); }
 
-.doorway form > button { width: 100%; margin-top: 22px; padding: 11px 12px;
-  border: 0; border-radius: 9px; font: 500 var(--size-body)/1 var(--sans);
+.doorway form > button { width: 100%; margin-top: 18px; padding: 16px 12px;
+  border: 0; border-radius: 26px; font: 500 var(--size-body)/1 var(--sans);
   background: var(--accent); color: var(--on-accent); }
-:root { --rail-w: 252px; }
+:root { --rail-w: 260px; }
 .shell { display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); align-items: start; }
 .rail { border-right: 1px solid var(--line); background: var(--surface); }
 /* What a phone turns a sidebar into: a menu that opens over the page under it.
@@ -870,7 +881,7 @@ pre.painted .keyword { color: var(--accent); }
 .rows td.long { min-width: 28ch; }
 /* Chat is the one page that fills the window: the transcript scrolls and the
    box it is typed into stays where the hands are. */
-.chat { display: grid; grid-template-columns: var(--rail-w) 0 minmax(0, 1fr); height: calc(100vh - var(--bar-h) - var(--dev-h)); }
+.chat { display: grid; grid-template-columns: var(--rail-w) 0 minmax(0, 1fr); height: calc(100dvh - var(--dev-h)); }
 /* The edge takes no room of its own: it lies over the list's border, wide
    enough to catch, and shows only when the pointer is on it. */
 .chat > .edge { z-index: 2; margin: 0 -3px; }
@@ -879,25 +890,59 @@ pre.painted .keyword { color: var(--accent); }
 /* Without this each column grows to fit its content instead of scrolling
    inside the window, and the box you type into ends up below the fold. */
 .chat > * { min-height: 0; }
-.chat .past { overflow: auto; padding: 8px 6px 20px; }
+.chat .past { overflow: auto; padding: 8px 8px 0; background: var(--rail-bg, var(--surface)); border-right: 0; display: flex; flex-direction: column; }
+/* The name at the top, and the person at the foot, stay while the list scrolls between them. */
+.chat .rail-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 10px; }
+.chat .rail-top .mark { display: flex; align-items: center; gap: .34em; color: var(--ink); text-decoration: none;
+  font: 600 17px/1 var(--sans); letter-spacing: -.01em; }
+.chat .rail-top .mark .glyph { width: 26px; height: 26px; }
+.chat .rail-top .where { display: flex; align-items: center; gap: 5px; padding: 4px 8px; border: 0; border-radius: 8px; background: none;
+  color: var(--ink); font: 600 17px/1.2 var(--sans); }
+.chat .rail-top .find { display: grid; place-items: center; flex: none; width: 34px; height: 34px; margin-left: auto; padding: 0; border-radius: 8px; color: var(--dim); }
+.chat .rail-top .find svg { width: 20px; height: 20px; stroke-width: 1.3; }
+.chat .rail-top .find:hover:enabled, .chat .rail-top .find[aria-pressed="true"] { background: color-mix(in srgb, var(--ink) 10%, transparent); color: var(--ink); }
+.chat .rail-top .where:hover:enabled { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
+.chat .rail-foot { position: sticky; bottom: 0; margin: auto -8px 0; padding: 8px; background: var(--rail-bg, var(--surface)); }
+.chat .you.in-list { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 10px; background: none;
+  color: var(--ink); font: 400 var(--size-body)/1.2 var(--sans); text-align: left; }
+.chat .you.in-list:hover:enabled, .chat .you.in-list[aria-expanded="true"] { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
+.chat .you .initial { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent); color: var(--on-accent); font: 500 13px/1 var(--sans); }
+.chat .you .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Looks like the rows around it until it is typed in. */
+.chat .search-chats { display: flex; align-items: center; gap: 9px; margin-top: 2px; padding: 7px 8px; border-radius: 10px; color: var(--dim); }
+.chat .search-chats:hover, .chat .search-chats:focus-within { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.chat .search-chats svg { flex: none; width: 19px; height: 19px; stroke-width: 1.25; }
+.chat .search-chats input { flex: 1; min-width: 0; padding: 0; border: 0; background: none; outline: 0; color: var(--ink);
+  font: 400 var(--size-body)/1.5 var(--sans); }
+.chat .search-chats input::placeholder { color: var(--ink); opacity: 1; }
+.chat .search-chats input:focus::placeholder { color: var(--dim); }
 /* The list is as quiet as a shelf of files: one plain line each, its label
    said in words rather than in small capitals. */
-.chat .past h2 { margin: 16px 0 2px; padding: 0 8px;
+.chat .past h2 { margin: 22px 0 6px; padding: 0 8px;
   font: 400 var(--size-body)/1 var(--sans); color: color-mix(in srgb, var(--dim) 70%, transparent); }
 /* A row is a name, not a statement: the button style's 500 is for what acts,
    and this one only opens. */
-.chat .run-list button[id] { gap: 9px; padding: 5px 8px; font-weight: 400; font-size: var(--size-body);
-  line-height: 1.6; color: var(--ink); }
+.chat .run-list button[id] { gap: 9px; padding: 7px 8px; font-weight: 400; font-size: var(--size-body);
+  line-height: 1.5; color: var(--ink); border-radius: 10px; }
+.chat .run-list li.in-group button[id] { padding-left: 36px; }
+.chat .run-list li.dragging { opacity: .4; }
+/* Where a dragged conversation would land. It lies between two rows and moves neither. */
+.chat .run-list li.line-before::before, .chat .run-list li.line-after::after { content: ""; position: absolute; z-index: 1; left: 8px; right: 8px; height: 2px;
+  border-radius: 2px; background: var(--accent); pointer-events: none; }
+.chat .run-list li.line-before::before { top: -1px; }
+.chat .run-list li.line-after::after { bottom: -1px; }
 /* The touch rule's room for the three dots, again, since the line above outweighs it. */
 @media (hover: none) { .chat .run-list button[id] { padding-right: 40px; } }
 .chat .past button svg { flex: none; width: 19px; height: 19px; stroke-width: 1.25; color: var(--dim); }
 .chat .past .places + .new-chat { margin-top: 12px; }
 .chat .past .empty { font-size: var(--size-small); padding: 0 8px; }
 /* Starting again, a row like the conversations under it. */
-.chat .new-chat { display: flex; align-items: center; width: 100%; justify-content: flex-start; gap: 9px;
-  padding: 5px 8px; border-radius: 8px; font: 400 var(--size-body)/1.6 var(--sans);
+.chat .new-chat { display: flex; align-items: center; width: 100%; justify-content: flex-start; gap: 9px; flex: none;
+  padding: 7px 8px; border-radius: 10px; font: 400 var(--size-body)/1.5 var(--sans);
   background: none; color: var(--ink); }
 .chat .new-chat:hover:enabled { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
+.chat .new-chat[aria-current="true"], .chat .new-chat[aria-current="true"]:hover:enabled { background: color-mix(in srgb, var(--ink) 11%, transparent); }
 /* Groups, with a + to make one beside the word. */
 .chat .past h2.adds { display: flex; align-items: center; justify-content: space-between; }
 .chat .past h2 .add { display: flex; padding: 3px; border-radius: 6px; color: var(--dim); }
@@ -906,14 +951,11 @@ pre.painted .keyword { color: var(--accent); }
 /* Where a dragged conversation would land. */
 .chat .past li.over > button[id], .chat .past .recent.over { background: var(--accent-soft); }
 .chat .past .recent { border-radius: 8px; }
-/* A group is a shade off the page, so it reads as a folder and not as one more conversation. */
-.chat .run-list li.group { margin-bottom: 2px; }
-.chat .run-list li.group > button[id] { background: color-mix(in srgb, var(--ink) 5%, transparent); }
-.chat .run-list li.group:is(:hover, .held) > button[id] { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+.chat .past .recent .empty, .chat .past > .empty, .chat .past .menu-body > .empty { margin: 0; padding: 7px 8px; color: var(--dim); }
 /* A conversation being renamed, in its row's place. */
 .run-list input.naming { padding: 7px 11px; font-size: var(--size-body); border-radius: 8px; border-color: var(--accent); }
 .talking { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.talking .head { margin: 0; padding: 14px 30px 12px; align-items: center; }
+.talking .head { margin: 0; padding: 8px 10px; align-items: center; justify-content: flex-start; border: 0; }
 .chat .scroll { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 24px 30px 8px; }
 .chat .thread { max-width: 760px; margin: 0 auto; font-size: var(--size-body); line-height: 1.65; }
 /* An empty conversation: nothing to scroll, so the question and the box sit
@@ -927,21 +969,22 @@ pre.painted .keyword { color: var(--accent); }
 .talking .run-thread, .talking .composer textarea { --size-body: 16px; color: color-mix(in srgb, var(--ink) 65%, light-dark(#000, #fff)); }
 .chat .hello { max-width: 760px; margin: 0 auto 4px; text-align: center; }
 .chat .hello h2 { margin: 0 0 8px; color: var(--ink);
-  font: 600 var(--size-figure)/1.25 var(--sans); letter-spacing: -.025em; }
+  font: 400 28px/1.25 var(--sans); letter-spacing: -.01em; }
 .chat .hello p { margin: 0 auto; max-width: 46ch; color: var(--dim); font-size: var(--size-body); }
 .msg { margin: 0 0 22px; }
 .msg .bubble, .msg .said { white-space: pre-wrap; word-break: break-word; }
 .msg.you { display: flex; justify-content: flex-end; }
-.msg.you .bubble { background: var(--bar); color: var(--on-bar); border: 1px solid var(--bar-line); border-radius: 14px;
-  padding: 10px 15px; max-width: 78%; }
+.msg.you .bubble { background: var(--bubble, var(--bar)); color: var(--on-bubble, var(--on-bar)); border-radius: 18px;
+  padding: 10px 16px; max-width: 70%; }
 .msg .who { font: 400 var(--size-small)/1.6 var(--sans); color: var(--dim); margin-bottom: 4px; }
 .msg .bubble code, .msg .said code { background: var(--inline); border-radius: 4px; padding: 1px 5px; }
 /* An answer is markdown, so the bubble holds blocks: the last one ends the bubble. */
 .msg .bubble .read > :last-child, .msg .said .read > :last-child { margin-bottom: 0; }
-.talking .head .model { font: 400 var(--size-small)/1.6 var(--sans); color: var(--dim); }
-.talking .head button.model { border: 0; background: none; padding: 2px 6px; border-radius: 6px; cursor: pointer; }
-.talking .head button.model:hover, .talking .head button.model[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
-.talking .head .model.picked { color: var(--accent); }
+/* Which model, at the top left of the conversation, as big as a heading: it is what somebody looks at to trust the answer. */
+.talking .head .model { font: 500 18px/1.3 var(--sans); color: var(--ink); }
+.talking .head button.model { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 6px 10px; border-radius: 10px; cursor: pointer; }
+.talking .head button.model svg { width: 16px; height: 16px; color: var(--dim); }
+.talking .head button.model:hover:enabled, .talking .head button.model[aria-expanded="true"] { background: var(--accent-soft); color: var(--ink); }
 .facts button.own-model { border: 0; background: none; padding: 1px 6px; margin-left: -6px; border-radius: 6px; color: inherit; font: inherit; cursor: pointer; }
 .facts button.own-model:hover, .facts button.own-model[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 .thinking { display: flex; align-items: center; gap: 10px; color: var(--dim); }
@@ -984,9 +1027,19 @@ pre.painted .keyword { color: var(--accent); }
 .composer .to-end svg { width: 18px; height: 18px; }
 .composer .box { display: flex; flex-direction: column; max-width: 760px; margin: 0 auto;
   background: var(--surface); border: 1px solid var(--line-2); border-radius: 26px;
-  padding: 8px 8px 8px 18px;
   box-shadow: 0 1px 2px var(--shadow-1), 0 8px 20px -14px var(--shadow-2); }
-.composer .box:focus-within { border-color: var(--accent); }
+.composer .box:focus-within { border-color: var(--line-2); }
+/* One line, adding on the left and sending on the right, growing as it is
+   typed in. A file or a picture being held goes on a line of its own above,
+   which the empty ::before breaks off. */
+.composer .box { flex-direction: row; flex-wrap: wrap; align-items: flex-end; padding: 8px; border-radius: 28px; }
+.composer .box::before { content: ""; order: -1; flex-basis: 100%; }
+.composer .box :is(.held-file, .pictures) { order: -2; margin-left: 10px; }
+.composer .box > .row { display: contents; }
+.composer .attach { order: 0; }
+/* 1px and not 0: at nothing wide it would fit on the line of the ::before when there is no adding button. */
+.composer textarea { order: 1; flex: 1 1 1px; padding: 6px 8px; }
+.composer button.go { order: 2; width: 36px; height: 36px; }
 /* What a "/" in the box offers, over the box. */
 .composer .box { position: relative; }
 .composer .commands { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 3; max-height: 300px; overflow-y: auto;
@@ -1014,89 +1067,50 @@ pre.painted .keyword { color: var(--accent); }
 .composer .under { max-width: 760px; margin: 8px auto 0; text-align: center;
   font: 400 var(--size-small)/1.5 var(--sans); color: var(--dim); }
 @media (max-width: 860px) {
-  .chat { grid-template-columns: minmax(0, 1fr); height: auto; }
   .chat > .edge { display: none; }
-  .chat .past { position: relative; overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); padding: 0; }
-  /* A model's name is often longer than the line, so it wraps rather than
-     widening the page. */
-  .talking .head { flex-wrap: wrap; row-gap: 4px; }
+  /* On a phone the conversation takes the width: a thumb's margin each side. */
   .talking .head .model { min-width: 0; overflow-wrap: anywhere; }
-  /* On a phone the conversation takes the width: a thumb's margin each side,
-     and the box hugs the bottom, the way a chat app does. */
-  .talking .head { padding: 8px 16px; }
   .chat .scroll { padding: 14px 16px 4px; }
   .talking .run-thread { line-height: 1.55; }
   .msg { margin-bottom: 18px; }
   .msg.you .bubble, .run-thread .msg.you .bubble { max-width: 85%; padding: 9px 14px; }
-  .composer { padding: 6px 10px 10px; }
-  .composer .box { padding: 6px 6px 6px 14px; border-radius: 24px; }
 }
 .chat .past .start { display: none; }
-/* On a phone a conversation has the whole screen and scrolls under what
-   floats over it: the past conversations at the top left, starting again and
-   the menu of everything else at the top right, and the box at the bottom. */
-.chat-more { display: none; }
-@media (max-width: 620px) {
-  :root:has(.chat) .bar { position: fixed; top: var(--dev-h); left: 0; right: 0; padding: 0 12px;
-    background: none; border: 0; pointer-events: none; }
-  :root:has(.chat) .bar > * { pointer-events: auto; }
-  /* The three round buttons, and where their tops sit to share the bar's middle. */
-  :root:has(.chat) { --round: 50px; --round-top: calc(var(--dev-h) + (var(--bar-h) - var(--round)) / 2); }
-  :root:has(.chat) .bar :is(.mark, .count, .you, .burger, .where) { display: none; }
-  :root:has(.chat) .bar .chat-more, .chat .past, .chat .past .start {
-    display: flex; align-items: center; justify-content: center; width: var(--round); height: var(--round); padding: 0;
-    border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink);
-    box-shadow: 0 1px 2px var(--shadow-1), 0 6px 18px -8px var(--shadow-2); }
-  :root:has(.chat) .bar .chat-more { align-self: center; margin-left: auto; }
-  :root:has(.chat) .bar .chat-more svg { width: 24px; height: 24px; }
-  :root:has(.chat) .bar .chat-more { transition: background-color .15s, transform .1s; }
-  :root:has(.chat) .bar .chat-more:is(:active, [aria-expanded="true"]) { background: color-mix(in srgb, var(--ink) 14%, var(--surface)); }
-  :root:has(.chat) .bar .chat-more:active { transform: scale(.92); }
-  /* The page dims behind the open menu. A press on it lands on the page
-     underneath, which the menu's own closing already allows for. */
-  .chat-more-shade { position: fixed; inset: 0; z-index: -1; background: rgb(0 0 0 / .4); pointer-events: none; }
-  /* Above the conversations button while open, so the dimming covers that too. */
-  :root:has(.chat-more[aria-expanded="true"]) .bar { z-index: 7; }
+.menu-shade { display: none; }
+/* Up to a tablet a conversation has the whole screen: the list and a new chat
+   are buttons at the two ends of the top row, with the model between them, and
+   the list slides in over the left. */
+@media (max-width: 860px) {
   /* Every menu on a phone reads at the size of the conversations list. :root
      because the menu's own rules come later in this file. */
   :root .context-menu button { padding: 10px 14px; font-size: 17px; }
   :root .context-menu .head .who { font-size: 17px; }
 
   .chat { display: flex; flex-direction: column; height: calc(100dvh - var(--dev-h)); }
-  .chat .past { position: fixed; top: var(--round-top); left: 12px; z-index: 6; }
-  /* Left of the three dots in the bar. */
-  .chat .past .start { position: fixed; top: var(--round-top); right: calc(12px + var(--round) + 8px); }
-  .chat .past .menu-toggle { display: flex; align-items: center; justify-content: center;
-    width: calc(var(--round) - 4px); height: calc(var(--round) - 4px); padding: 0; border-radius: 50%; background: none; color: var(--ink); }
+  .chat .past { position: fixed; top: calc(var(--dev-h) + 6px); left: 6px; z-index: 6; display: block; width: 44px; height: 44px;
+    padding: 0; overflow: visible; background: none; border: 0; }
+  .chat .past :is(.start, .menu-toggle) { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px;
+    padding: 0; border: 0; border-radius: 50%; background: none; color: var(--ink); }
+  .chat .past .start { position: fixed; top: calc(var(--dev-h) + 6px); right: 6px; }
+  .chat .past :is(.start, .menu-toggle):active { background: color-mix(in srgb, var(--ink) 14%, transparent); }
   .chat .past .menu-toggle :is(.label, svg:last-child) { display: none; }
-  /* Darker while pressed and while its list is open, and a touch smaller under the thumb. */
-  .chat .past .menu-toggle { transition: background-color .15s, transform .1s; }
-  .chat .past .menu-toggle:is(:active, [aria-expanded="true"]) { background: color-mix(in srgb, var(--ink) 14%, transparent); }
-  .chat .past .menu-toggle:active { transform: scale(.92); }
   .chat .past :is(.start, .menu-toggle) svg { width: 24px; height: 24px; }
   .chat .past .menu-root { position: static; }
-  .chat .past .menu-root.open .menu-body { top: calc(100% + 8px); left: -1px; right: auto;
-    width: calc(100vw - 24px); max-height: calc(100dvh - var(--dev-h) - 72px);
-    border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 18px 40px -16px var(--shadow-2);
-    --size-body: 17px; }
+  /* A press beside the open list closes it. */
+  .chat .past .menu-root.open .menu-shade { display: block; position: fixed; inset: 0; z-index: 7; background: rgb(0 0 0 / .4); }
+  .chat .past .menu-root.open .menu-body { position: fixed; top: var(--dev-h); bottom: 0; left: 0; right: auto; z-index: 8; display: flex; flex-direction: column;
+    width: min(84vw, 340px); max-height: none; overflow: auto; padding: 8px 8px 0; border: 0;
+    background: var(--rail-bg, var(--surface)); box-shadow: 0 0 40px -10px var(--shadow-2); --size-body: 16px; }
 
   /* The conversation scrolls as one, so the box can stick to the bottom of it
      and the words go on under it, fading out. */
   .talking { flex: 1 1 auto; overflow: auto; overscroll-behavior: contain; }
-  .talking .head { justify-content: center; padding: calc(var(--bar-h) + 4px) 16px 0; border: 0; }
+  .talking .head { position: sticky; top: 0; z-index: 2; justify-content: center; min-height: 56px; padding: 6px 56px; background: var(--bg); }
   .chat .scroll { flex: 1 0 auto; overflow: visible; }
-  .composer { position: sticky; bottom: 0; z-index: 1; padding: 22px 12px calc(22px + env(safe-area-inset-bottom));
+  .composer { position: sticky; bottom: 0; z-index: 1; padding: 22px 12px calc(14px + env(safe-area-inset-bottom));
     background: linear-gradient(to top, var(--bg) 60%, transparent); }
   .composer .to-end { bottom: calc(100% - 14px); }
-  /* One line, adding on the left and sending on the right. A file or a
-     picture being held goes on a line of its own above, which the empty
-     ::before breaks off. */
-  .composer .box { flex-direction: row; flex-wrap: wrap; align-items: flex-end; padding: 4px; border-radius: 26px; }
-  .composer .box::before { content: ""; order: -1; flex-basis: 100%; }
-  .composer .box :is(.held-file, .pictures) { order: -2; margin-left: 10px; }
-  .composer .box > .row { display: contents; }
-  .composer textarea { order: 1; flex: 1 1 0; padding: 8px 4px; }
-  .composer button.go { order: 2; }
+  .composer .box { padding: 6px; border-radius: 26px; }
 }
 .empty { color: var(--dim);  }
 /* Nothing here yet, said inside a frame so the page does not read as broken. */
@@ -1238,12 +1252,16 @@ pre.token { margin: 0; padding: 11px 13px; border-radius: 8px; background: var(-
 .context-menu { position: fixed; z-index: 50; min-width: 190px; max-height: 70vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none;
   border: 1px solid var(--line-2); border-radius: 9px; background: var(--surface);
   box-shadow: 0 10px 28px rgb(0 0 0 / .16), 0 2px 6px rgb(0 0 0 / .08); }
-.context-menu button { display: block; width: 100%; padding: 6px 11px; border: 0; border-radius: 6px; background: none;
-  color: var(--ink); font: 400 var(--size-small)/1.3 var(--sans); text-align: left; cursor: pointer; }
-.context-menu button:hover:not(:disabled), .context-menu button:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+.context-menu button { display: block; width: 100%; padding: 8px 11px; border: 0; border-radius: 7px; background: none;
+  color: var(--ink); font: 400 var(--size-small)/1.3 var(--sans); text-align: left; cursor: pointer; transition: background-color .1s; }
+/* Off the ink rather than a set colour, so it shows on whatever a menu sits on. */
+.context-menu button:hover:not(:disabled), .context-menu button:focus-visible { background: color-mix(in srgb, var(--ink) 11%, transparent); color: var(--ink); outline: none; }
+.context-menu button:active:not(:disabled) { background: color-mix(in srgb, var(--ink) 18%, transparent); }
 /* Where you already are, said in the accent rather than by greying it out: a
    greyed line reads as a choice you are not allowed, not as the one you made. */
 .context-menu button[aria-current="true"] { color: var(--accent); font-weight: 500; }
+/* And a tick at the end of the line. */
+.context-menu button[aria-current="true"]::after { content: "\2713"; float: right; margin-left: 20px; }
 .context-menu button:disabled { color: var(--dim); opacity: .5; cursor: default; }
 .context-menu button.danger { color: var(--bad); }
 .context-menu button.danger:hover { background: rgb(164 70 60 / .1); color: var(--bad); }
@@ -1402,6 +1420,7 @@ pre.diff .meta { color: var(--dim); }
 .composer .row { display: flex; justify-content: space-between; align-items: center; margin-left: -10px; }
 .composer .attach { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; color: var(--ink); cursor: pointer; }
 .composer .attach:hover { background: var(--inline); }
+.composer .attach[hidden] { display: none; }
 .composer .attach svg { width: 20px; height: 20px; }
 .run-thread .msg.pictures { flex-direction: row; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .msg.pictures img { max-width: 240px; max-height: 240px; border-radius: 14px; }

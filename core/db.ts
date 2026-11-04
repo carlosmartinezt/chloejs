@@ -154,6 +154,13 @@ added("messages", "summary", "integer not null default 0");
 added("threads", "pinned", "text");
 added("threads", "group_id", "integer");
 db.exec("create table if not exists thread_groups (id integer primary key, agent text not null, name text not null)");
+// Each thing the owner read while viewing the page as somebody invited.
+db.exec("create table if not exists views (person text not null, at text not null, what text not null)");
+// Whose group it is: the email of somebody invited, or null for the owner's.
+added("thread_groups", "owner", "text");
+// Where somebody dragged a conversation to, among those pinned or in its group.
+// Null until then, which is above the ones that have a place, newest first.
+added("threads", "place", "integer");
 
 // The conversation a channel's chat moved on to with /clear, keyed by the id
 // the channel gives the chat. A chat with no row is still in that one.

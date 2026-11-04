@@ -65,7 +65,7 @@ export function Invitation({ code }: { code: string }) {
         <h1>This invitation cannot be used</h1>
         <p className="empty">
           It has been used already, or the week it was good for is over. Ask whoever sent it for a new one. If you took it
-          already, <a href="/login?invited">sign in with your email</a>.
+          already, <a href="/login">sign in with your email</a>.
         </p>
       </main>
     );
@@ -129,7 +129,8 @@ export function Invitation({ code }: { code: string }) {
       <p className="empty">
         {found.known
           ? "You were invited here before, so this adds the agent to what you have."
-          : "From now on you sign in with this email and this password."}
+          : "From now on you sign in with this email and this password."}{" "}
+        Whoever invited you can view your conversations, read only. Each time is recorded, and you can see the day.
       </p>
     </main>
   );

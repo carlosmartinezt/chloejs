@@ -67,6 +67,30 @@ import { agentFor, answers, codeJob, row } from "./shared.ts";
   is("with the run it was, and what it cost", [typeof said.runId, said.cost > 0], ["string", true]);
   is("and the run says where it came from", row(said.runId).source, "api");
 
+  // Started, the turn is not tied to the request: the id comes back before the
+  // model has been asked, and the answer is collected by it.
+  answers.push("Five are late.");
+  const started = await asToken("/api/agents/test/chat/start", '{"prompt":"and by now?"}');
+  const { answer } = (await started.json()) as { answer: string };
+  is("a message started is answered at once, with an id", [started.status, typeof answer], [202, "string"]);
+  const collect = async () => {
+    for (;;) {
+      const one = (await (await asToken(`/api/agents/test/chat/answers/${answer}`)).json()) as { going?: boolean; text?: string; runId?: string };
+      if (!one.going) return one;
+      await new Promise((done) => setTimeout(done, 5));
+    }
+  };
+  const collected = await collect();
+  is("and its answer is collected by the id", collected.text, "Five are late.");
+  is("as often as it is asked for, in case one was lost on the way", (await collect()).runId, collected.runId);
+  is("an id it never gave is a 404", (await asToken("/api/agents/test/chat/answers/nothing")).status, 404);
+  is("so is one under another agent", (await asToken(`/api/agents/closed/chat/answers/${answer}`)).status, 403);
+  const other = makeToken("another test");
+  const asOther = await fetch(`${at}/api/agents/test/chat/answers/${answer}`, { headers: { authorization: `Bearer ${other.secret}` } });
+  is("and it is only for whoever sent the message", asOther.status, 404);
+  revokeToken(other.token.id);
+  is("a message that may not be sent is refused then and there", (await asToken("/api/agents/closed/chat/start", '{"prompt":"hello"}')).status, 403);
+
   // A thread the caller names is its own conversation, kept under this agent
   // so two callers naming the same one cannot land in each other's.
   answers.push("Four now.");

@@ -823,6 +823,14 @@ agent: without it a token gets a 403 and only the account can. It never carries
 a question out, because HTTP cannot push, and a job that stops to ask still
 waits in `GET /api/parked`.
 
+**The page's chat holds no request open while a reply runs.** It sends with
+`POST /api/agents/<id>/chat/start`, which answers at once, and collects by the
+id it gets back, because a proxy cuts off a silent request (Cloudflare at 100
+seconds) and a phone drops one. A dropped call is only tried again. The answer
+is held in the process and nowhere else: what was said and the run are in the
+database, so after a restart the page reads those. `POST .../chat` stays, for a
+caller that would rather wait, and both go through `messageFor()`.
+
 **A job that is started by hand declares what it takes**, as `args`, a zod
 schema, read back as `work.args`. It is checked before the run exists, so the
 caller is told rather than handed a run id that fails later. The message keys
@@ -889,7 +897,28 @@ they may reach is `member` on each route in `serve/http.ts`: a route without it
 is never theirs, which is every write, memory, file, setting, token and
 anything that is no agent's. A new route that a member should reach says which
 switch it needs, or "filtered" and filters in its handler. They never count as
-the owner (`fromOwner`, `mayChangeAgent`) and never pick a model.
+the owner (`fromOwner`, `mayChangeAgent`). They may pick a model for a
+conversation of their own from `model.models`, and from nothing else: typed
+`/model` stays the owner's, because it can change a job's. Each person's next
+chats on the page start on what they last picked (`person:` in `choices`). Each
+person has their own groups (`thread_groups.owner`).
+
+What somebody invited says and does is theirs: `threadFor` answers 404 to anybody
+else, and the run routes leave it out (`NOT_INVITED`, `someonesRun`). A new route
+that hands over a run or a conversation goes through one of those. The owner
+reads it only with **View as** (`POST /api/people/view`): a cookie of its own
+beside their session, an hour long, that makes `caller()` the member with
+`viewing: true`, so every member rule applies by itself. `api()` then refuses
+anything but a GET, and their answers still to collect, and writes each read to
+`views` before serving it, refusing what it cannot record. Do not weaken either.
+Do not give it a way to send: a turn as them would use their mail.
+
+`threads.place` is where a conversation was dragged to among those pinned or in
+its group, and pinning or filing it starts that over. Once
+anybody is invited to an agent, its prompt lists who it works with, from
+`people` and `ownerName`, `ownerEmail`, and an email channel treats those with
+chat as if `allowFrom` named them, after the ones it names, because the first
+is the channel's owner. A web visitor is told none of it.
 
 **The runtime serves its own dashboard**, a React app in `site/`. `npm run
 build:site` bundles it into `site/page/`, and the package ships that folder as

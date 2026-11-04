@@ -109,7 +109,7 @@ export function person(email: string): Person | undefined {
 
 /** Everybody let in, and the invitations nobody has used yet that are still in date. The owner's. */
 export function people(): {
-  people: { email: string; name: string; given: Given; added: string }[];
+  people: { email: string; name: string; given: Given; added: string; viewed: string | null }[];
   invitations: { email: string; name: string; agent: string; given: Switch[]; created: string; expires: string }[];
 } {
   const rows = db.prepare("select email, name, given, added from people order by added").all() as { email: string; name: string; given: string; added: string }[];
@@ -117,9 +117,25 @@ export function people(): {
     .prepare("select email, name, agent, given, created, expires from invitations where used is null and expires > ? order by created")
     .all(now()) as { email: string; name: string; agent: string; given: string; created: string; expires: string }[];
   return {
-    people: rows.map((one) => ({ ...one, given: readGiven(one.given) })),
+    people: rows.map((one) => ({ ...one, given: readGiven(one.given), viewed: lastViewed(one.email) })),
     invitations: open.map((one) => ({ ...one, given: cleanGiven(JSON.parse(one.given) as string[]) })),
   };
+}
+
+/** Writes down one thing the owner read while viewing as this person. Throws when it could not, and then it is not served. */
+export function recordView(email: string, what: string): void {
+  db.prepare("insert into views (person, at, what) values (?, ?, ?)").run(email, now(), what);
+}
+
+/** When the owner last viewed as this person, or null. */
+export function lastViewed(email: string): string | null {
+  return (db.prepare("select max(at) as at from views where person = ?").get(email) as { at: string | null }).at;
+}
+
+/** Everybody who may chat with that agent, oldest first. */
+export function peopleOn(agent: string): { email: string; name: string }[] {
+  const rows = db.prepare("select email, name, given from people order by added").all() as { email: string; name: string; given: string }[];
+  return rows.filter((one) => readGiven(one.given)[agent]?.includes("chat")).map(({ email, name }) => ({ email, name }));
 }
 
 /**

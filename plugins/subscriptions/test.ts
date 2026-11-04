@@ -757,7 +757,7 @@ import { agentFor, answers, codeJob, db } from "#chloe/ops/test/shared";
     pin("/nowhere/claude", "/nowhere/codex", "/nowhere/opencode");
     is("nothing is offered when no route is set up", models(), []);
     pin("/nowhere/claude", anyCli, "/nowhere/opencode");
-    is("a model is offered once its program is there, and once only", models(), [{ model: "openai/gpt-6-luna", route: "codex" }]);
+    is("a model is offered once its program is there, and once only", models(), [{ model: "openai/gpt-6-luna", route: "codex", short: true }]);
     const agent = agentFor(codeJob("nightly", async () => ({})));
     agent.model = "openai/gpt-5.5";
     is("an agent's own model is offered after the list", models(agent).map((one) => one.model), ["openai/gpt-6-luna", "openai/gpt-5.5"]);

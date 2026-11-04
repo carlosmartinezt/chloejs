@@ -69,7 +69,7 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
       return (error as Error).message;
     }
   })();
-  is("the wrong password does not", wrong, "Wrong password.");
+  is("the wrong password does not", wrong, "Wrong email or password.");
 
   for (let tries = 0; tries < 5; tries++) {
     try {
@@ -100,7 +100,7 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
     } catch (error) {
       return (error as Error).message;
     }
-  })(), "Wrong password.");
+  })(), "Wrong email or password.");
   is("and every session signed on it is over", signedIn(carrying(`${cookie}=${session}`)), false);
   is("and every link made before it", refusal(() => signInWithLink(before, "1.2.3.4")), notOurs);
 
@@ -115,8 +115,8 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
     const kept = changeAccount("a different long one", { name: " Carlos " });
     is("a name is kept in small letters", [hasName(), ownName()], [true, "carlos"]);
     is("and this browser stays signed in", signedIn(carrying(`${cookie}=${kept}`)), true);
-    is("then the password alone is refused", refusal(() => signIn("a different long one", "5.6.7.8")), "Wrong name or password.");
-    is("and so is the wrong name", refusal(() => signIn("a different long one", "5.6.7.8", "someone")), "Wrong name or password.");
+    is("then the password alone is refused", refusal(() => signIn("a different long one", "5.6.7.8")), "Wrong email or password.");
+    is("and so is the wrong name", refusal(() => signIn("a different long one", "5.6.7.8", "someone")), "Wrong email or password.");
     is("the name and the password sign in, in any case", Boolean(signIn("a different long one", "5.6.7.8", "CARLOS")), true);
     const moved = changeAccount("a different long one", { password: "a third long one" });
     is("a new password signs other browsers out", signedIn(carrying(`${cookie}=${kept}`)), false);
@@ -146,7 +146,7 @@ import { agentFor, asked, codeJob, row, sent, work } from "./shared.ts";
   const at = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 
   const asked = await fetch(`${at}/api/account`);
-  is("whether there is a password is answered with no session", [asked.status, await asked.json()], [200, { exists: true, named: false }]);
+  is("whether there is a password is answered with no session", [asked.status, await asked.json()], [200, { exists: true }]);
 
   const shut = await fetch(`${at}/api/agents`);
   is("and everything else is still shut", [shut.status, await shut.json()], [401, { error: "Sign in first." }]);

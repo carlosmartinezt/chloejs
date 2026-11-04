@@ -54,8 +54,8 @@ export const Chat = () => (
 /** Starting a conversation, above the list of them. */
 export const NewConversation = () => (
   <Icon>
-    <path d="M8 2.8c3.1 0 5.4 2 5.4 4.6S11.1 12 8 12c-.8 0-1.6-.1-2.3-.4L2.8 13l.8-2.4c-.6-.8-1-1.9-1-3.2 0-2.6 2.3-4.6 5.4-4.6Z" />
-    <path d="M8 5.3v4.2M5.9 7.4h4.2" />
+    <path d="M7.5 3H4.2C3.5 3 3 3.500 3 4.200v7.600c0 .7.5 1.200 1.200 1.200h7.600c.7 0 1.200-.5 1.200-1.200V8.500" />
+    <path d="m11.700 2.300 2 2L8.300 9.700l-2.600.6.6-2.600 5.400-5.400Z" />
   </Icon>
 );
 
@@ -187,6 +187,14 @@ export const Right = () => (
 export const Down = () => (
   <Icon>
     <path d="M4 6.5 8 10.5l4-4" />
+  </Icon>
+);
+
+/** Looking through a list by words. */
+export const Search = () => (
+  <Icon>
+    <circle cx="7" cy="7" r="4.2" />
+    <path d="m10.2 10.2 3.3 3.3" />
   </Icon>
 );
 

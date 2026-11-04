@@ -41,6 +41,7 @@ export function Collapse({
         <span className="label">{label}</span>
         <Icons.Down />
       </button>
+      {open && <div className="menu-shade" onClick={toggle} />}
       <div className="menu-body">{children}</div>
     </div>
   );

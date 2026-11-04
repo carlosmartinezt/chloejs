@@ -22,7 +22,7 @@ import { ROUTES, settings } from "#chloe/core/settings";
 import { hasChannel, type Agent, type ChannelRoute, type Job } from "#chloe/load/load";
 import { tryJob, type Clock } from "#chloe/core/clock";
 import { PURPOSE_HERE, alwaysOnTools, ownerPrompt } from "#chloe/core/turn";
-import { AUTO, choices, choose, modelFor, type Scope } from "#chloe/model/choices";
+import { AUTO, choices, choose, chosen, modelFor, type Scope } from "#chloe/model/choices";
 import { commands } from "#chloe/channels/shared";
 import { branch, current, cut, forget } from "#chloe/model/memory";
 import { models, quickFor } from "#chloe/model/model";
@@ -57,11 +57,11 @@ import {
   firstPassword,
   from,
   memberSession,
-  hasName,
   hasPassword,
   overHttps,
   ownName,
   setCookie,
+  viewCookie,
   signIn,
   signInMember,
   signInWithLink,
@@ -76,8 +76,10 @@ import {
   passwordLink,
   passwordLinkFor,
   passwordLinkJustMade,
+  lastViewed,
   people,
   person,
+  recordView,
   remove,
   SWITCHES,
   type Given,
@@ -201,6 +203,15 @@ function memberOf(who: Caller): string | null {
 const OWNED_BY = "lower(substr(owner, instr(owner, ':') + 1))";
 
 /**
+ * What somebody invited says and does is theirs: the owner and a token read it
+ * only by viewing as them (`viewing` on the caller), which is recorded.
+ */
+const NOT_INVITED = `(owner is null or ${OWNED_BY} not in (select email from people))`;
+
+/** Whether a run is somebody invited's. */
+const someonesRun = (id: string): boolean => !db.prepare(`select 1 from runs where id = ? and ${NOT_INVITED}`).get(id);
+
+/**
  * The conversation, when this caller may have it. A member's are the ones whose
  * owner is their email, and with `claim` one nobody has said anything in
  * becomes theirs. Anybody else may have any. One that is not theirs is
@@ -239,7 +250,10 @@ function stepsOf(runs: string[]): Map<string, Did> {
 }
 
 function threadFor(who: Caller, thread: string, claim = false): string {
-  if (who?.kind !== "member") return thread;
+  if (who?.kind !== "member") {
+    if (db.prepare("select 1 from threads where thread = ? and owner in (select email from people)").get(thread)) throw new NotFound("No such conversation.");
+    return thread;
+  }
   if (claim && !db.prepare("select 1 from messages where thread = ? limit 1").get(thread)) {
     db.prepare("insert into threads (thread, owner) values (?, ?) on conflict (thread) do nothing").run(thread, who.email);
   }
@@ -256,7 +270,29 @@ function threadFor(who: Caller, thread: string, claim = false): string {
 function chatThread(agent: string, thread: string | undefined, who: Caller, claim = false): string {
   if (who?.kind === "token") return thread ? `${agent}/api-${thread}` : "";
   if (who?.kind === "member") return threadFor(who, `${agent}/${thread ? thread.slice(thread.indexOf("/") + 1) : randomUUID()}`, claim);
-  return thread ?? "";
+  return thread ? threadFor(who, thread) : "";
+}
+
+/** Where a person's last pick on the page is kept. Nothing for a token, which has no page. */
+function personScope(who: Caller): Scope | undefined {
+  if (who?.kind === "token") return undefined;
+  return `person:${who?.kind === "member" ? who.email : "owner"}`;
+}
+
+/**
+ * An agent's configuration as one caller reads it: `mine` is the model their new
+ * chats start on when they picked one, and somebody invited sees the picks of
+ * their own conversations and nobody else's.
+ */
+function summaryFor(agent: Agent, who: Caller) {
+  const all = summary(agent);
+  const scope = personScope(who);
+  const owns = (thread: string) => (db.prepare("select owner from threads where thread = ?").get(thread) as { owner: string | null } | undefined)?.owner === (who as { email: string }).email;
+  return {
+    ...all,
+    mine: scope && chosen(agent.id, scope),
+    chosen: who?.kind === "member" ? all.chosen.filter((one) => one.scope.startsWith("chat:") && owns(one.scope.slice(5))) : all.chosen,
+  };
 }
 
 /** Names a conversation, or with an empty label gives it back the name it started with. */
@@ -371,6 +407,116 @@ function channelOf(request: IncomingMessage): string {
   return typeof said === "string" && CHANNELS.includes(said) ? said : "api";
 }
 
+/**
+ * Reads a message for an agent and checks it may be sent. Returns what sends it,
+ * for the caller to start at once, or nothing when it has already answered with
+ * a refusal.
+ */
+async function messageFor({ request, response, context, params, who }: At): Promise<(() => Promise<object | undefined>) | void> {
+  const agent = context.agent(params.id);
+  const { prompt, thread, model, images, timeZone, replaces } = await body(
+    request,
+    z.object({
+      prompt: z.string().trim(),
+      thread: z.string().optional(),
+      model: z.string().optional(),
+      timeZone: z.string().optional(),
+      images: z.array(Picture).max(PICTURES).default([]),
+      replaces: z.number().int().optional(),
+    }),
+    8 << 20,
+  );
+  if (!prompt && !images.length) throw new BadRequest("Say something, or send a picture.");
+  // A token's threads are kept apart from the ones a person started, and
+  // each member's from everybody else's, so two callers cannot land in each
+  // other's conversation.
+  const token = who?.kind === "token";
+  const member = who?.kind === "member" ? who : undefined;
+  if (member) {
+    // Typed, a pick can change a job's model for everybody, and a /command runs a job.
+    if (/^\/models?(?:@\w+)?(?:\s|$)/i.test(prompt)) {
+      return json(response, { error: "Pick the model from the menu at the top of the chat." }, 403);
+    }
+    if (prompt.startsWith("/") && !/^\/clear(?:@\w+)?\s*$/i.test(prompt) && !may(member, agent.id, "run")) {
+      return json(response, { error: `You have not been given run on ${agent.id}. Its owner can allow it.` }, 403);
+    }
+  }
+  const under = chatThread(agent.id, thread, who, true);
+  if (replaces !== undefined) {
+    if (!db.prepare("select 1 from messages where thread = ? and id = ? and role = 'user'").get(under, replaces)) {
+      throw new BadRequest("There is no message of yours with that id in this conversation.");
+    }
+    cut(under, replaces);
+  }
+  // What this turn keeps is what comes after, so the page can fork or edit it without reading it all again.
+  const before = (db.prepare("select coalesce(max(id), 0) as id from messages").get() as { id: number }).id;
+  // The same path as every channel's message, so a /command, or a reply
+  // that is one, goes to that job here too. Who may call this is already
+  // settled by the login or the token, so there is no allowFrom.
+  // Somebody signed in with a thread is the page's own chat, which the api
+  // channel's settings are not for.
+  const channel = !token && thread ? "chat" : channelOf(request);
+  return async () => {
+    // A new conversation on the page is named while the agent answers, and
+    // the answer waits a little for it, so the list has the name with it.
+    const fresh = channel === "chat" && prompt && !prompt.startsWith("/") && !db.prepare("select 1 from messages where thread = ? limit 1").get(under);
+    const naming = fresh ? nameThread(agent, under, prompt) : undefined;
+    const handled = await receive(agent, {
+      channel,
+      chat: under,
+      thread: under,
+      from: token ? { id: who.token.id, name: who.token.name } : member ? { id: member.email, name: member.name } : { id: "account", name: settings.ownerName || "the account" },
+      // The page's chat says who wrote, the way a channel's message does, so
+      // the agent and whoever reads the run can see it.
+      context: channel === "chat" ? (member ? { address: member.email, role: "member" } : { role: "owner" }) : undefined,
+      timeZone,
+      text: prompt,
+      private: true,
+      // A conversation with no pick of its own goes on what this person last picked, which is what the menu shows.
+      model: (member ? undefined : model) ?? (channel === "chat" && !chosen(agent.id, `chat:${under}`) ? chosen(agent.id, personScope(who)!) : undefined),
+      // The account is the owner. A member or a token never is.
+      fromOwner: !token && !member,
+      mayChangeAgent: !token && !member,
+      // Handed to the model for this turn and dropped: what is kept is the
+      // line saying they were attached.
+      files: images.length
+        ? async () => ({
+            attachments: images.map(({ name, mediaType, data }) => ({ mediaType, data, filename: name })),
+            notes: images.map((one) => `(Attached: ${one.name})`),
+          })
+        : undefined,
+    }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory });
+    if (naming) await Promise.race([naming, new Promise((done) => setTimeout(done, 5000))]);
+    const kept = db.prepare("select id, role from messages where thread = ? and id > ? order by id").all(under, before);
+    return handled && { ...handled, kept };
+  };
+}
+
+/** An answer on its way, or waiting for whoever sent the message to collect it. */
+interface Answer {
+  agent: string;
+  /** Who sent the message, the only one who may collect it. */
+  asker: string;
+  /** What came back, once it has. */
+  done?: object;
+  /** When it came back, in milliseconds. */
+  at?: number;
+}
+
+/**
+ * Answers to messages sent with the start route. Only held in this process: what
+ * was said and the run are in the database, so after a restart whoever is waiting
+ * reads those instead, and all that is lost is the buttons under a reply.
+ */
+const answers = new Map<string, Answer>();
+
+/** How long an answer waits to be collected, in milliseconds. */
+const ANSWER_KEPT = 60 * 60_000;
+
+function askerOf(who: Caller): string {
+  return who?.kind === "token" ? `token:${who.token.id}` : who?.kind === "member" ? `member:${who.email}` : "owner";
+}
+
 const routes: Route[] = [
   {
     method: "GET",
@@ -393,21 +539,18 @@ const routes: Route[] = [
     path: "/api/account",
     does: "Whether this copy has a password yet, and whether signing in asks for a name too, so a page knows what to ask for.",
     open: true,
-    handle: ({ response }) => json(response, { exists: hasPassword(), named: hasName() }),
+    handle: ({ response }) => json(response, { exists: hasPassword() }),
   },
   {
     method: "POST",
     path: "/api/login",
-    does: "Sign in. Sets the cookie, and hands back the same value for anything that is not a browser. With an email, as somebody the owner invited.",
-    takes: '{"password": "...", "name": "when the owner chose one", "email": "only for somebody invited"}',
+    does: "Sign in. Sets the cookie, and hands back the same value for anything that is not a browser. The email says who: somebody the owner invited, or the owner's name when they chose one.",
+    takes: '{"email": "...", "password": "..."}',
     open: true,
     handle: async (at) => {
-      const { password, name, email } = await body(
-        at.request,
-        z.object({ password: z.string(), name: z.string().optional(), email: z.string().trim().optional() }),
-      );
-      if (email) return wayIn(at, () => signInMember(email, password, from(at.request)), false);
-      wayIn(at, () => signIn(password, from(at.request), name));
+      const { password, email } = await body(at.request, z.object({ password: z.string(), email: z.string().trim().optional() }));
+      if (email && person(email)) return wayIn(at, () => signInMember(email, password, from(at.request)), false);
+      wayIn(at, () => signIn(password, from(at.request), email));
     },
   },
   {
@@ -464,7 +607,31 @@ const routes: Route[] = [
     does: "End the session.",
     open: true,
     handle: ({ request, response }) => {
-      response.setHeader("set-cookie", setCookie("", overHttps(request)));
+      response.setHeader("set-cookie", [...setCookie("", overHttps(request)), viewCookie("", overHttps(request))]);
+      json(response, { ok: true });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/people/view",
+    does: "See the page as somebody invited sees it, for an hour: their rules, nothing that changes anything, and everything read recorded under their name.",
+    takes: '{"email": "..."}',
+    handle: async ({ request, response }) => {
+      const { email } = await body(request, z.object({ email: z.string().trim() }));
+      const found = person(email);
+      if (!found) throw new NotFound("Nobody with that email was invited.");
+      recordView(found.email, "started viewing");
+      response.setHeader("set-cookie", viewCookie(found.email, overHttps(request)));
+      json(response, { viewing: found.email });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/people/view/stop",
+    does: "Stop viewing as somebody, and be the owner again. Open, because it only takes a cookie away, and viewing as somebody reaches nothing of the owner's.",
+    open: true,
+    handle: ({ request, response }) => {
+      response.setHeader("set-cookie", viewCookie("", overHttps(request)));
       json(response, { ok: true });
     },
   },
@@ -482,7 +649,12 @@ const routes: Route[] = [
     does: "Who is signed in: the owner, or somebody invited, with their email, their name and what they were given on each agent.",
     member: "filtered",
     handle: ({ response, who }) =>
-      json(response, who?.kind === "member" ? { owner: false, email: who.email, name: who.name, given: who.given } : { owner: true }),
+      json(
+        response,
+        who?.kind === "member"
+          ? { owner: false, email: who.email, name: who.name, given: who.given, viewed: lastViewed(who.email), ...(who.viewing && { viewing: true }) }
+          : { owner: true, name: settings.ownerName },
+      ),
   },
 
   // The people the owner invites (people.ts). Inviting, changing and removing
@@ -629,7 +801,7 @@ const routes: Route[] = [
     member: "filtered",
     handle: async ({ request, response, context, who }) =>
       json(response, [
-        ...[...context.agents().values()].filter((one) => sees(who, one.id)).map(summary),
+        ...[...context.agents().values()].filter((one) => sees(who, one.id)).map((one) => summaryFor(one, who)),
         ...(await summariesInMachines(request, who)),
       ]),
   },
@@ -663,7 +835,7 @@ const routes: Route[] = [
     member: "filtered",
     handle: ({ response, context, params, who }) => {
       if (!sees(who, params.id)) throw new NotFound(`There is no agent called ${JSON.stringify(params.id)}.`);
-      json(response, summary(context.agent(params.id)));
+      json(response, summaryFor(context.agent(params.id), who));
     },
   },
   {
@@ -821,13 +993,14 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/models",
-    does: "The models somebody may pick, each with the route it goes by on this box. ?agent= adds what that agent and its jobs name.",
+    does: "The models somebody may pick, each with the route it goes by on this box, and short on those model.models names. ?agent= adds what that agent and its jobs name. Somebody invited gets only the short ones.",
     token: true,
     member: "filtered",
     handle: ({ response, context, url, who }) => {
       const name = url.searchParams.get("agent");
       if (name && !sees(who, name)) throw new NotFound(`There is no agent called ${JSON.stringify(name)}.`);
-      json(response, models(name ? context.agent(name) : undefined));
+      const offered = models(name ? context.agent(name) : undefined);
+      json(response, who?.kind === "member" ? offered.filter((one) => one.short) : offered);
     },
   },
   {
@@ -843,8 +1016,8 @@ const routes: Route[] = [
       json(
         response,
         db
-          .prepare(`select ${RUN_COLUMNS} from runs where agent = ? and (? is null or ${OWNED_BY} = ?) order by started desc limit ?`)
-          .all(params.id, member, member, limit),
+          .prepare(`select ${RUN_COLUMNS} from runs where agent = ? and ${member ? `${OWNED_BY} = ?` : `${NOT_INVITED} and ? is null`} order by started desc limit ?`)
+          .all(params.id, member, limit),
       );
     },
   },
@@ -875,7 +1048,7 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents/:id/threads",
-    does: "That agent's conversations, newest first, however they were started: the 50 latest, and every pinned or grouped one however old. Somebody invited gets only their own.",
+    does: "That agent's conversations, newest first, however they were started: the 50 latest, and every pinned or grouped one however old. Those of somebody invited are theirs alone. Somebody invited gets only their own.",
     token: true,
     member: "chat",
     handle: ({ response, context, params, who }) => {
@@ -886,9 +1059,9 @@ const routes: Route[] = [
       const rows = db
         .prepare(
           `select * from (
-             select m.thread, count(*) as messages, max(m.at) as last, t.label, t.archived, t.pinned, t.group_id as "group", t.owner
+             select m.thread, count(*) as messages, max(m.at) as last, t.label, t.archived, t.pinned, t.group_id as "group", t.place, t.owner
              from messages m left join threads t on t.thread = m.thread
-             where substr(m.thread, 1, ?) = ? and (? is null or t.owner = ?) group by m.thread
+             where substr(m.thread, 1, ?) = ? and (case when ? is null then t.owner is null or t.owner not in (select email from people) else t.owner = ? end) group by m.thread
              order by (t.pinned is null and t.group_id is null), last desc limit 50
            ) order by last desc`,
         )
@@ -926,8 +1099,8 @@ const routes: Route[] = [
       }
       const here = (
         agent
-          ? db.prepare(`select ${RUN_COLUMNS} from runs where agent = ? order by started desc limit ?`).all(agent, limit)
-          : db.prepare(`select ${RUN_COLUMNS} from runs order by started desc limit ?`).all(limit)
+          ? db.prepare(`select ${RUN_COLUMNS} from runs where agent = ? and ${NOT_INVITED} order by started desc limit ?`).all(agent, limit)
+          : db.prepare(`select ${RUN_COLUMNS} from runs where ${NOT_INVITED} order by started desc limit ?`).all(limit)
       ) as { id: string; agent: string; started: string }[];
       if (agent && !inMachine(agent)) return json(response, here);
       json(response, newestFirst([...here, ...(await listsInMachines<{ id: string; agent: string; started: string }>(`/api/runs?limit=${limit}`, request, who, agent ?? undefined))]).slice(0, limit));
@@ -953,6 +1126,7 @@ const routes: Route[] = [
         const { prompt, context, trace, state, args, input, parked, owner, ...rest } = row as Record<string, unknown>;
         return json(response, { ...rest, trace: [], commits: [], carryOn: false });
       }
+      if (someonesRun(params.id)) throw new NotFound("No run with that id.");
       json(response, { ...row, trace: JSON.parse(row.trace), commits: row.commits ? JSON.parse(row.commits) : [], carryOn: canCarryOn(params.id) });
     },
   },
@@ -989,7 +1163,7 @@ const routes: Route[] = [
     token: true,
     member: "filtered",
     handle: async ({ request, response, who }) => {
-      const here = parkedRuns().filter((one) => may(who, one.agent, "read"));
+      const here = parkedRuns().filter((one) => may(who, one.agent, "read") && (memberOf(who) !== null || !someonesRun(one.id)));
       const seen = new Set(here.map((one) => one.id));
       json(response, [...here, ...(await listsInMachines<ParkedRun>("/api/parked", request, who)).filter((one) => !seen.has(one.id))]);
     },
@@ -1019,81 +1193,48 @@ const routes: Route[] = [
     token: true,
     needsApiChannel: true,
     member: "chat",
-    handle: async ({ request, response, context, params, who }) => {
-      const agent = context.agent(params.id);
-      const { prompt, thread, model, images, timeZone, replaces } = await body(
-        request,
-        z.object({
-          prompt: z.string().trim(),
-          thread: z.string().optional(),
-          model: z.string().optional(),
-          timeZone: z.string().optional(),
-          images: z.array(Picture).max(PICTURES).default([]),
-          replaces: z.number().int().optional(),
-        }),
-        8 << 20,
+    handle: async (at) => {
+      const send = await messageFor(at);
+      if (send) json(at.response, await send());
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/chat/start",
+    does: "The same turn, without keeping the request open while it runs, so no proxy can cut it off: answers at once with the id to collect the answer by. It carries on if the caller goes away.",
+    takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "timeZone": "optional, like Europe/Madrid, so it says the writer\'s date", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}], "replaces": "optional, the id of a message you wrote in this thread: it and everything after it are taken back first, as an edit"}',
+    token: true,
+    needsApiChannel: true,
+    member: "chat",
+    handle: async (at) => {
+      const send = await messageFor(at);
+      if (!send) return;
+      for (const [id, one] of answers) if (one.at && one.at < Date.now() - ANSWER_KEPT) answers.delete(id);
+      const answer = randomUUID();
+      const held: Answer = { agent: at.params.id, asker: askerOf(at.who) };
+      answers.set(answer, held);
+      const landed = (done: object) => Object.assign(held, { done, at: Date.now() });
+      send().then(
+        (handled) => landed(handled ?? { text: "", steps: 0, cost: 0 }),
+        (error) => {
+          console.error(`${at.params.id}: a message sent with chat/start failed`, error);
+          landed({ failed: error instanceof Error ? error.message : String(error) });
+        },
       );
-      if (!prompt && !images.length) throw new BadRequest("Say something, or send a picture.");
-      // A token's threads are kept apart from the ones a person started, and
-      // each member's from everybody else's, so two callers cannot land in each
-      // other's conversation.
-      const token = who?.kind === "token";
-      const member = who?.kind === "member" ? who : undefined;
-      if (member) {
-        // Picking a model changes it for everybody, and a /command runs a job.
-        if (/^\/models?(?:@\w+)?(?:\s|$)/i.test(prompt)) {
-          return json(response, { error: "Only the owner picks the model." }, 403);
-        }
-        if (prompt.startsWith("/") && !/^\/clear(?:@\w+)?\s*$/i.test(prompt) && !may(member, agent.id, "run")) {
-          return json(response, { error: `You have not been given run on ${agent.id}. Its owner can allow it.` }, 403);
-        }
-      }
-      const under = chatThread(agent.id, thread, who, true);
-      if (replaces !== undefined) {
-        if (!db.prepare("select 1 from messages where thread = ? and id = ? and role = 'user'").get(under, replaces)) {
-          throw new BadRequest("There is no message of yours with that id in this conversation.");
-        }
-        cut(under, replaces);
-      }
-      // What this turn keeps is what comes after, so the page can fork or edit it without reading it all again.
-      const before = (db.prepare("select coalesce(max(id), 0) as id from messages").get() as { id: number }).id;
-      // The same path as every channel's message, so a /command, or a reply
-      // that is one, goes to that job here too. Who may call this is already
-      // settled by the login or the token, so there is no allowFrom.
-      // Somebody signed in with a thread is the page's own chat, which the api
-      // channel's settings are not for.
-      const channel = !token && thread ? "chat" : channelOf(request);
-      // A new conversation on the page is named while the agent answers, and
-      // the answer waits a little for it, so the list has the name with it.
-      const fresh = channel === "chat" && prompt && !prompt.startsWith("/") && !db.prepare("select 1 from messages where thread = ? limit 1").get(under);
-      const naming = fresh ? nameThread(agent, under, prompt) : undefined;
-      const handled = await receive(agent, {
-        channel,
-        chat: under,
-        thread: under,
-        from: token ? { id: who.token.id, name: who.token.name } : member ? { id: member.email, name: member.name } : { id: "account", name: "the account" },
-        // The page's chat says who wrote, the way a channel's message does, so
-        // the agent and whoever reads the run can see it.
-        context: channel === "chat" ? (member ? { address: member.email, role: "member" } : { role: "owner" }) : undefined,
-        timeZone,
-        text: prompt,
-        private: true,
-        model: member ? undefined : model,
-        // The account is the owner. A member or a token never is.
-        fromOwner: !token && !member,
-        mayChangeAgent: !token && !member,
-        // Handed to the model for this turn and dropped: what is kept is the
-        // line saying they were attached.
-        files: images.length
-          ? async () => ({
-              attachments: images.map(({ name, mediaType, data }) => ({ mediaType, data, filename: name })),
-              notes: images.map((one) => `(Attached: ${one.name})`),
-            })
-          : undefined,
-      }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory });
-      if (naming) await Promise.race([naming, new Promise((done) => setTimeout(done, 5000))]);
-      const kept = db.prepare("select id, role from messages where thread = ? and id > ? order by id").all(under, before);
-      json(response, handled ? { ...handled, kept } : handled);
+      json(at.response, { answer }, 202);
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:id/chat/answers/:answer",
+    does: 'What a message sent with chat/start came to: {"going": true} until it is done, then what the chat route answers, or {"failed": "why"}. A 404 means it is no longer held: it was collected over an hour ago or the service restarted, so read the conversation instead.',
+    token: true,
+    needsApiChannel: true,
+    member: "chat",
+    handle: ({ response, params, who }) => {
+      const held = answers.get(params.answer);
+      if (!held || held.agent !== params.id || held.asker !== askerOf(who)) throw new NotFound("No answer with that id.");
+      json(response, held.done ?? { going: true });
     },
   },
   {
@@ -1131,9 +1272,10 @@ const routes: Route[] = [
   {
     method: "POST",
     path: "/api/agents/:id/model",
-    does: "Pick a model on the fly: for one job, or one chat. An empty model takes the pick back, and \"auto\" puts a chat on Auto.",
+    does: "Pick a model on the fly: for one job, or one chat, which is also what the same person's new chats then start on. An empty model takes the pick back, and \"auto\" puts a chat on Auto. Somebody invited picks for a conversation of their own, from what model.models names.",
     takes: '{"scope": "job:<id>" | "chat:<thread>", "model": "...", "auto" or ""}',
-    handle: async ({ request, response, context, params }) => {
+    member: "chat",
+    handle: async ({ request, response, context, params, who }) => {
       const agent = context.agent(params.id);
       const { scope, model } = await body(
         request,
@@ -1147,8 +1289,15 @@ const routes: Route[] = [
       if (model && model !== AUTO && !models(agent).some((one) => one.model === model)) {
         throw new BadRequest(`${model} is not on offer here. GET /api/models lists what is.`);
       }
+      if (who?.kind !== "member" && scope.startsWith("chat:")) threadFor(who, scope.slice(5));
+      if (who?.kind === "member") {
+        if (!scope.startsWith("chat:")) throw new BadRequest("Somebody invited picks a model for a conversation of their own.");
+        threadFor(who, scope.slice(5), true);
+        if (model && !models(agent).some((one) => one.short && one.model === model)) throw new BadRequest(`${model} is not one the owner offers.`);
+      }
       choose(agent.id, scope as Scope, model);
-      json(response, summary(agent));
+      if (scope.startsWith("chat:")) choose(agent.id, personScope(who)!, model);
+      json(response, summaryFor(agent, who));
     },
   },
   {
@@ -1231,6 +1380,7 @@ const routes: Route[] = [
     handle: async ({ request, response, params }) => {
       const { archived } = await body(request, z.object({ archived: z.boolean() }));
       const at = archived ? new Date().toISOString() : null;
+      if (someonesRun(params.id)) throw new NotFound("No run with that id.");
       if (db.prepare("update runs set archived = ? where id = ?").run(at, params.id).changes === 0) throw new NotFound("No run with that id.");
       json(response, { id: params.id, archived: at });
     },
@@ -1242,6 +1392,7 @@ const routes: Route[] = [
     takes: '{"text": "..."}',
     handle: async ({ request, response, context, params }) => {
       const { text } = await body(request, z.object({ text: z.string().trim().min(1) }));
+      if (someonesRun(params.id)) throw new NotFound("No run with that id.");
       json(response, await answer(params.id, text, context.agents()));
     },
   },
@@ -1250,6 +1401,7 @@ const routes: Route[] = [
     path: "/api/runs/:id/carry-on",
     does: "Pick up a job's prompt or a reply in a conversation that the service stopped in the middle of, or that ran out of steps, in the same run, from where it stopped. One that ran out of steps is given as many again. A reply's answer goes in its conversation.",
     handle: ({ response, context, params }) => {
+      if (someonesRun(params.id)) throw new NotFound("No run with that id.");
       let run;
       try {
         run = stopped(params.id);
@@ -1312,7 +1464,8 @@ const routes: Route[] = [
       if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
       const { pinned } = await body(request, z.object({ pinned: z.boolean() }));
       const at = pinned ? new Date().toISOString() : null;
-      db.prepare("insert into threads (thread, pinned) values (?, ?) on conflict (thread) do update set pinned = excluded.pinned").run(thread, at);
+      // Its place was among the others of where it was.
+      db.prepare("insert into threads (thread, pinned) values (?, ?) on conflict (thread) do update set pinned = excluded.pinned, place = null").run(thread, at);
       json(response, { thread, pinned: at });
     },
   },
@@ -1321,23 +1474,44 @@ const routes: Route[] = [
     path: "/api/threads/:thread/group",
     does: "File a conversation under one of its agent's groups, or under none with null.",
     takes: '{"group": 1}',
-    handle: async ({ request, response, params }) => {
-      const thread = decodeURIComponent(params.thread);
+    member: "filtered",
+    handle: async ({ request, response, params, who }) => {
+      const thread = threadFor(who, decodeURIComponent(params.thread));
+      if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
       const { group } = await body(request, z.object({ group: z.number().int().nullable() }));
-      if (group !== null && !db.prepare("select 1 from thread_groups where id = ? and agent = ?").get(group, thread.split("/")[0])) {
+      if (group !== null && !db.prepare("select 1 from thread_groups where id = ? and agent = ? and owner is ?").get(group, thread.split("/")[0], memberOf(who))) {
         throw new NotFound("No such group.");
       }
-      db.prepare("insert into threads (thread, group_id) values (?, ?) on conflict (thread) do update set group_id = excluded.group_id").run(thread, group);
+      db.prepare("insert into threads (thread, group_id) values (?, ?) on conflict (thread) do update set group_id = excluded.group_id, place = null").run(thread, group);
       json(response, { thread, group });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/agents/:id/order",
+    does: "Put conversations in the order given, among those pinned or in one group. Somebody invited orders only their own.",
+    takes: '{"threads": ["..."]}',
+    member: "chat",
+    handle: async ({ request, response, context, params, who }) => {
+      context.agent(params.id);
+      const { threads } = await body(request, z.object({ threads: z.array(z.string().min(1)).max(500) }));
+      for (const thread of threads) {
+        if (!thread.startsWith(`${params.id}/`)) throw new NotFound("No such conversation.");
+        threadFor(who, thread);
+      }
+      const place = db.prepare("insert into threads (thread, place) values (?, ?) on conflict (thread) do update set place = excluded.place");
+      threads.forEach((thread, at) => place.run(thread, at));
+      json(response, { threads });
     },
   },
   {
     method: "GET",
     path: "/api/agents/:id/groups",
-    does: "The groups that agent's conversations can be filed under, by name.",
-    handle: ({ response, context, params }) => {
+    does: "The groups that agent's conversations can be filed under, by name. Each person has their own.",
+    member: "chat",
+    handle: ({ response, context, params, who }) => {
       context.agent(params.id);
-      json(response, db.prepare("select id, name from thread_groups where agent = ? order by name collate nocase").all(params.id));
+      json(response, db.prepare("select id, name from thread_groups where agent = ? and owner is ? order by name collate nocase").all(params.id, memberOf(who)));
     },
   },
   {
@@ -1345,10 +1519,11 @@ const routes: Route[] = [
     path: "/api/agents/:id/groups",
     does: "Make a group to file that agent's conversations under.",
     takes: '{"name": "..."}',
-    handle: async ({ request, response, context, params }) => {
+    member: "chat",
+    handle: async ({ request, response, context, params, who }) => {
       context.agent(params.id);
       const { name } = await body(request, z.object({ name: z.string().trim().min(1).max(100) }));
-      const made = db.prepare("insert into thread_groups (agent, name) values (?, ?)").run(params.id, name);
+      const made = db.prepare("insert into thread_groups (agent, name, owner) values (?, ?, ?)").run(params.id, name, memberOf(who));
       json(response, { id: Number(made.lastInsertRowid), name });
     },
   },
@@ -1357,9 +1532,10 @@ const routes: Route[] = [
     path: "/api/agents/:id/groups/:group/rename",
     does: "Give a group another name.",
     takes: '{"name": "..."}',
-    handle: async ({ request, response, params }) => {
+    member: "chat",
+    handle: async ({ request, response, params, who }) => {
       const { name } = await body(request, z.object({ name: z.string().trim().min(1).max(100) }));
-      if (db.prepare("update thread_groups set name = ? where id = ? and agent = ?").run(name, Number(params.group), params.id).changes === 0) {
+      if (db.prepare("update thread_groups set name = ? where id = ? and agent = ? and owner is ?").run(name, Number(params.group), params.id, memberOf(who)).changes === 0) {
         throw new NotFound("No such group.");
       }
       json(response, { id: Number(params.group), name });
@@ -1369,9 +1545,10 @@ const routes: Route[] = [
     method: "POST",
     path: "/api/agents/:id/groups/:group/delete",
     does: "Delete a group. Its conversations are kept, and go back to the list ungrouped.",
-    handle: ({ response, params }) => {
+    member: "chat",
+    handle: ({ response, params, who }) => {
       const id = Number(params.group);
-      if (db.prepare("delete from thread_groups where id = ? and agent = ?").run(id, params.id).changes === 0) throw new NotFound("No such group.");
+      if (db.prepare("delete from thread_groups where id = ? and agent = ? and owner is ?").run(id, params.id, memberOf(who)).changes === 0) throw new NotFound("No such group.");
       db.prepare("update threads set group_id = null where group_id = ?").run(id);
       json(response, { deleted: id });
     },
@@ -1713,7 +1890,7 @@ function wayIn({ request, response }: At, signing: () => string, owner = true): 
     // A new address is mailed for the owner's account. Somebody invited
     // signing in is not the account being used from somewhere new.
     if (owner) signedInFrom(from(request));
-    response.setHeader("set-cookie", setCookie(token, overHttps(request)));
+    response.setHeader("set-cookie", [...setCookie(token, overHttps(request)), viewCookie("", overHttps(request))]);
     json(response, { ok: true, token });
   } catch (error) {
     json(response, { error: (error as Error).message }, 401);
@@ -2007,6 +2184,19 @@ async function api(
     if (who.kind === "member") {
       const refused = refusedMember(route, params, who.given);
       if (refused) return json(response, { error: refused }, 403);
+    }
+    // The owner viewing as somebody reads what they may read, and nothing else:
+    // no write, so no turn and no tool, and none of their answers still to
+    // collect. What is read is written down first, and not served if it cannot be.
+    if (who.kind === "member" && who.viewing) {
+      if (request.method !== "GET" || route.path.endsWith("/chat/answers/:answer")) {
+        return json(response, { error: `You are viewing as ${who.name || who.email}, which changes nothing.` }, 403);
+      }
+      try {
+        recordView(who.email, path);
+      } catch {
+        return json(response, { error: "That could not be recorded, so it is not shown." }, 503);
+      }
     }
   }
 

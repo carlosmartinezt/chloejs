@@ -279,6 +279,8 @@ async function askGateway(): Promise<void> {
 export interface Offered {
   model: string;
   route: Route;
+  /** Set when `model.models` in settings names it: what a chat's menu shows, and all somebody invited may pick. */
+  short?: true;
 }
 
 /**
@@ -293,7 +295,7 @@ export function models(agent?: Agent): Offered[] {
   for (const model of named) {
     if (out.some((one) => one.model === model)) continue;
     if (!canRun(model)) continue;
-    out.push({ model, route: routeFor(model) });
+    out.push({ model, route: routeFor(model), ...(settings.model.models.includes(model) && { short: true as const }) });
     for (const other of otherRoutes(model)) if (!out.some((one) => one.model === other.model)) out.push(other);
   }
   return out;

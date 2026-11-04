@@ -289,6 +289,14 @@ export interface Settings {
    */
   owner: string;
   /**
+   * The owner's first name, and the address to write to them at. An agent
+   * with people invited to it is told these, beside those people, so it knows
+   * who it works with and how to reach each one.
+   * Default: "" (not said).
+   */
+  ownerName: string;
+  ownerEmail: string;
+  /**
    * The folder that holds the `node` program the background service runs,
    * like "/usr/local/bin". Only `npx chloe install` reads it.
    * Default: "" (the folder of the `node` found on the PATH when you run
@@ -326,6 +334,8 @@ export const DEFAULTS: Settings = {
   serve: { host: "127.0.0.1", port: 3067, url: "", ownerKey: "", stopAfter: 0 },
   machine: {} as MachineSettings,
   owner: "",
+  ownerName: "",
+  ownerEmail: "",
   node: "",
 };
 

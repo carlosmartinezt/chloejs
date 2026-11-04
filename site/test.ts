@@ -14,10 +14,12 @@ import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { build } from "esbuild";
 
-import { api, frameUnder, NeedsSignIn, serverAt, servesFrom } from "./lib/api.ts";
+import { AnswerGone, api, collectAnswer, frameUnder, NeedsSignIn, serverAt, servesFrom } from "./lib/api.ts";
 import { href, read } from "./lib/route.ts";
 import { ideasFor, ideasFrom } from "./lib/ideas.ts";
 import { allowed, landing } from "./lib/given.ts";
+import { modelName, shortChoices } from "./lib/models.ts";
+import { byPlace, moved } from "./lib/order.ts";
 import type { Way } from "./lib/types.ts";
 import { parts, sourceAt } from "./lib/blocks.ts";
 import { languageOf, tokens } from "./lib/code.ts";
@@ -173,7 +175,7 @@ describe("talking to a runtime", () => {
     await ready;
     answer = { status: 401, body: { error: "Wrong password." } };
     await rejects(
-      () => api.signIn("not the password"),
+      () => api.signIn("me@example.com", "not the password"),
       (error: Error) => !(error instanceof NeedsSignIn) && error.message === "Wrong password.",
     );
   });
@@ -188,19 +190,18 @@ describe("talking to a runtime", () => {
     strictEqual(asked.at(-1), "/api/invitations/abc/accept");
   });
 
-  test("somebody invited sends their email, and the owner does not", async () => {
+  test("signing in sends the email and the password", async () => {
     await ready;
     answer = { status: 200, body: { ok: true, token: "t" } };
     const sent: unknown[] = [];
     const was = globalThis.fetch;
     globalThis.fetch = ((url: string, init?: RequestInit) => (sent.push(JSON.parse(String(init?.body))), was(url, init))) as typeof fetch;
     try {
-      await api.signIn("pw");
-      await api.signIn("pw", { email: "someone@example.com" });
+      await api.signIn("someone@example.com", "pw");
     } finally {
       globalThis.fetch = was;
     }
-    deepStrictEqual(sent, [{ password: "pw" }, { password: "pw", email: "someone@example.com" }]);
+    deepStrictEqual(sent, [{ email: "someone@example.com", password: "pw" }]);
   });
 
   test("and any other trouble is said as the runtime said it", async () => {
@@ -208,6 +209,46 @@ describe("talking to a runtime", () => {
     answer = { status: 500, body: { error: "The database is locked." } };
     await rejects(() => api.runs(), (error: Error) => error.message === "The database is locked.");
     ok(asked.some((one) => one.startsWith("/api/runs")), "the runs call names its own path");
+  });
+});
+
+describe("the order somebody dragged conversations into", () => {
+  test("one never dragged comes first, and those dragged keep their places", () => {
+    const list = [{ id: "c", place: 1 }, { id: "new" }, { id: "a", place: 0 }, { id: "newer", place: null }];
+    deepStrictEqual(byPlace(list).map((one) => one.id), ["new", "newer", "a", "c"]);
+  });
+
+  test("a drop goes in front of the row it names, or at the end", () => {
+    deepStrictEqual(moved(["a", "b", "c"], "c", "a"), ["c", "a", "b"]);
+    deepStrictEqual(moved(["a", "b", "c"], "a", null), ["b", "c", "a"]);
+    deepStrictEqual(moved(["a", "b", "c"], "a", "c"), ["b", "a", "c"]);
+  });
+
+  test("and one from another section joins the list", () => {
+    deepStrictEqual(moved(["a", "b"], "x", "b"), ["a", "x", "b"]);
+  });
+});
+
+describe("a model's name on the page", () => {
+  test("in the words its maker's own app uses", () => {
+    deepStrictEqual(
+      ["anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5.5", "openai/gpt-6-luna", "openai/gpt-5.6-terra", "google/gemini-3.8-flash-high"].map(modelName),
+      ["Claude Opus 5.5", "Claude Sonnet 5.5", "ChatGPT 6 Luna", "ChatGPT 5.6 Terra", "Gemini 3.8 Flash"],
+    );
+  });
+
+  test("anybody else's stays as written, and a route named after it stays", () => {
+    strictEqual(modelName("opencode-go/deepseek-v4.1-flash"), "opencode-go/deepseek-v4.1-flash");
+    strictEqual(modelName("anthropic/claude-opus-5-5 via opencode"), "Claude Opus 5.5 via opencode");
+  });
+
+  test("a chat's short menu is only what the owner named", () => {
+    const menu = shortChoices(
+      [{ model: "openai/gpt-6-luna", route: "codex", short: true }, { model: "anthropic/claude-opus-5-5 via opencode", route: "opencode" }],
+      () => {},
+      "openai/gpt-6-luna",
+    ) as { label: string; current?: boolean }[];
+    deepStrictEqual(menu.map((one) => [one.label, one.current]), [["ChatGPT 6 Luna", true]]);
   });
 });
 
@@ -382,5 +423,51 @@ describe("things to ask under an empty chat box", () => {
       "What should I do next in Projects?",
     ]);
     deepStrictEqual(ideasFrom([one("a/3", "2026-10-04", null)], []), []);
+  });
+});
+
+describe("collecting the answer to a chat message", () => {
+  const wait = async () => {};
+  const answering = (...replies: (Response | Error)[]) => {
+    const asked: string[] = [];
+    globalThis.fetch = (async (url: string) => {
+      asked.push(url);
+      const reply = replies.shift()!;
+      if (reply instanceof Error) throw reply;
+      return reply;
+    }) as typeof fetch;
+    return asked;
+  };
+  const said = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+  const was = globalThis.fetch;
+  after(() => {
+    globalThis.fetch = was;
+  });
+
+  test("it asks until the reply is done", async () => {
+    const asked = answering(said({ going: true }), said({ going: true }), said({ text: "Done.", cost: 1 }));
+    strictEqual((await collectAnswer("chloe", "a1", wait)).text, "Done.");
+    strictEqual(asked.length, 3);
+    ok(asked[0].endsWith("/agents/chloe/chat/answers/a1"));
+  });
+
+  test("a dropped connection or a proxy's error is only tried again, as the reply goes on without it", async () => {
+    answering(new TypeError("Failed to fetch"), new Response("", { status: 524 }), new Response("", { status: 502 }), said({ text: "Done." }));
+    strictEqual((await collectAnswer("chloe", "a1", wait)).text, "Done.");
+  });
+
+  test("a reply that failed says why", async () => {
+    answering(said({ failed: "It broke." }));
+    await rejects(collectAnswer("chloe", "a1", wait), /It broke/);
+  });
+
+  test("one no longer held is told apart, so the conversation can be read instead", async () => {
+    answering(said({ error: "No answer with that id." }, 404));
+    await rejects(collectAnswer("chloe", "a1", wait), AnswerGone);
+  });
+
+  test("a session that ended asks for the sign-in, however long it waited", async () => {
+    answering(said({ going: true }), said({ error: "Sign in first." }, 401));
+    await rejects(collectAnswer("chloe", "a1", wait), NeedsSignIn);
   });
 });

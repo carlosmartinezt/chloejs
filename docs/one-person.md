@@ -41,13 +41,20 @@ Somebody already invited to another agent gives the password they have.
 **A forgotten password.** On People, Password link next to them makes a link
 that sets a new one, which you send them the same way. It works once, for a
 day. If this copy can send mail (Resend set up, and `serve.url` set), they can
-ask for one themselves instead: "Forgotten it?" on the sign-in page mails it to
+ask for one themselves instead: "Forgot password?" on the sign-in page mails it to
 their address. The answer is the same whether or not the address is
 somebody's, and one is mailed at most every ten minutes.
 
+**Viewing as them.** Their conversations and runs are theirs, so they are not in
+your list or your log. View as, next to them on People, shows you the page as
+they see it for an hour: their rules, nothing that sends or changes anything,
+and every read recorded. They can see the day you last did, and the invitation
+says you can. Everything is still on your machine, so this keeps things apart
+rather than secret.
+
 What they never get, whatever they were given: another agent, your
 conversations or anybody else's, a memory, the agent's files or settings, a
-model pick, tokens, People, or a change to anything. Taking them off their
+model you did not list in `model.models`, tokens, People, or a change to anything. Taking them off their
 last agent removes them and signs them out at once. An email conversation the
 agent had with that same address is theirs too, since it was with them.
 

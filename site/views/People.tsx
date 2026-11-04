@@ -30,6 +30,8 @@ interface Row {
   given: Switch[];
   invited: boolean;
   state: string;
+  /** When the owner last viewed as them. */
+  viewed?: string | null;
 }
 
 /**
@@ -56,6 +58,16 @@ export function People({ agents }: { agents: AgentSummary[] }) {
   }, []);
 
   useEffect(() => void refresh(), [refresh]);
+
+  /** A whole load, because everything the page holds is the owner's. */
+  async function viewAs(email: string) {
+    try {
+      await api.viewAs(email);
+      window.location.assign("/");
+    } catch (error) {
+      setTrouble((error as Error).message);
+    }
+  }
 
   async function passwordLink(email: string) {
     setBusy(true);
@@ -90,6 +102,7 @@ export function People({ agents }: { agents: AgentSummary[] }) {
         given,
         invited: false,
         state: `In since ${day(one.added)}`,
+        viewed: one.viewed,
       })),
     ),
     ...(people?.invitations ?? []).map((one) => ({
@@ -194,6 +207,16 @@ export function People({ agents }: { agents: AgentSummary[] }) {
                         );
                       })}
                     </span>
+                    {!one.invited && (
+                      <button
+                        className="plain small"
+                        disabled={busy}
+                        title={`See the page as they see it, read only. It is recorded, and they can see the day.${one.viewed ? ` Last on ${day(one.viewed)}.` : ""}`}
+                        onClick={() => void viewAs(one.email)}
+                      >
+                        View as
+                      </button>
+                    )}
                     {!one.invited && (
                       <button
                         className="plain small"

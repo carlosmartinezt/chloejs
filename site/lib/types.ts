@@ -20,6 +20,8 @@ export interface AgentSummary {
   quick?: string;
   /** Every pick made on the fly: "job:<id>" or "chat:<thread>". */
   chosen: { scope: string; model: string; at: string }[];
+  /** The model this person's new chats start on, when they picked one. */
+  mine?: string;
   /** The ways in it binds: telegram, api, whatever else. */
   channels: string[];
   /** Whether a token may chat to it or run its jobs. It binds an api channel. */
@@ -339,6 +341,8 @@ export interface Thread {
   pinned?: string | null;
   /** The group it is filed under, or null. */
   group?: number | null;
+  /** Where it was dragged to among those pinned or in its group, or null. */
+  place?: number | null;
 }
 
 /** A name an agent's conversations can be filed under on the page. */
@@ -405,8 +409,6 @@ export type Git =
 /** What /api/account says before anybody is signed in: whether there is an account yet. */
 export interface Account {
   exists: boolean;
-  /** Signing in asks for the owner's name as well as the password. */
-  named?: boolean;
   /** A copy somebody is working on, which says so across the top of the page. */
   dev?: boolean;
   /** The folder that copy is running out of. Only a dev copy says. */
@@ -432,11 +434,20 @@ export type Switch = "chat" | "read" | "run" | "memory";
 export type Given = Record<string, Switch[]>;
 
 /** Who is signed in, from /api/me: the owner, or somebody they invited. */
-export type Me = { owner: true } | { owner: false; email: string; name: string; given: Given };
+export type Me = { owner: true; name?: string } | {
+      owner: false;
+      email: string;
+      name: string;
+      given: Given;
+      /** When the owner last viewed the page as them, or null. */
+      viewed?: string | null;
+      /** This is the owner viewing as them, not them. */
+      viewing?: boolean;
+    };
 
 /** Everybody the owner has invited, and the invitations nobody has used yet. */
 export interface People {
-  people: { email: string; name: string; given: Given; added: string }[];
+  people: { email: string; name: string; given: Given; added: string; viewed?: string | null }[];
   invitations: { email: string; name: string; agent: string; given: Switch[]; created: string; expires: string }[];
 }
 

@@ -103,6 +103,18 @@ const GETTING_IN = ["/account", "/login", "/link", "/password/forgotten"];
 const gettingIn = (path: string): boolean =>
   GETTING_IN.includes(path) || path.startsWith("/invitations/") || path.startsWith("/passwords/");
 
+/** The runtime, or a proxy in front of it, answered with an error. */
+export class CallFailed extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/** The runtime no longer holds an answer: it restarted, or it was collected long ago. What was said is in the conversation. */
+export class AnswerGone extends Error {}
+
 export async function call<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${at}${path}`, {
     // Named rather than left to the default, because a page and a runtime on
@@ -117,9 +129,42 @@ export async function call<T>(path: string, body?: unknown): Promise<T> {
   if (!response.ok) {
     const answer = (await response.json().catch(() => ({}))) as { error?: string };
     if (response.status === 401 && !gettingIn(path)) throw new NeedsSignIn();
-    throw new Error(answer.error ?? `${response.status}`);
+    throw new CallFailed(answer.error ?? `${response.status}`, response.status);
   }
   return response.json() as Promise<T>;
+}
+
+/** What a chat message comes to. */
+export interface Answer {
+  runId: string;
+  text: string;
+  cost: number;
+  unpriced?: number;
+  buttons?: { label: string; sends: string }[];
+  multiple?: boolean;
+  /** Taken into the reply already going in this conversation, which answers it. Nothing else is said. */
+  joined?: boolean;
+  /** The messages the turn kept, oldest first. */
+  kept?: { id: number; role: "user" | "assistant" }[];
+}
+
+/**
+ * Waits for the answer to a message sent with the start route. A connection
+ * that drops or a proxy's error says nothing about the reply, which goes on
+ * without this page, so those are tried again for as long as the page is open.
+ * Throws `AnswerGone` when the runtime no longer holds it.
+ */
+export async function collectAnswer(agent: string, id: string, wait = (ms: number) => new Promise((done) => setTimeout(done, ms))): Promise<Answer> {
+  for (let tries = 0; ; tries++) {
+    await wait(Math.min(1000, 100 * 2 ** tries));
+    const said = await call<Answer & { going?: boolean; failed?: string }>(`/agents/${agent}/chat/answers/${id}`).catch((error: Error) => {
+      if (error instanceof CallFailed && error.status === 404) throw new AnswerGone("That answer is no longer held.");
+      if (error instanceof NeedsSignIn || (error instanceof CallFailed && error.status < 500)) throw error;
+      return { going: true, failed: undefined } as Answer & { going?: boolean; failed?: string };
+    });
+    if (said.failed) throw new Error(said.failed);
+    if (!said.going) return said;
+  }
 }
 
 export const api = {
@@ -128,7 +173,7 @@ export const api = {
   /** Whether this copy has a password yet, so the page knows which form to show. Answered without a session. */
   account: () => call<Account>("/account"),
   /** The owner signs in with the password, and their name when they chose one. Somebody invited gives their email with theirs. */
-  signIn: (password: string, who: { email?: string; name?: string } = {}) => call<Session>("/login", { password, ...who }),
+  signIn: (email: string, password: string) => call<Session>("/login", { email, password }),
   /** Answered without a session: whether a forgotten password can be mailed a link, and asking for one. */
   canMailPassword: () => call<{ mails: boolean }>("/password/forgotten"),
   forgotPassword: (email: string) => call<{ ok: true }>("/password/forgotten", { email }),
@@ -210,6 +255,11 @@ export const api = {
   /** Files it under a group, or under none with null. */
   groupThread: (thread: string, group: number | null) =>
     call<{ thread: string; group: number | null }>(`/threads/${encodeURIComponent(thread)}/group`, { group }),
+  /** Sees the page as somebody invited sees it, and back. A whole load follows each, as with signing in. */
+  viewAs: (email: string) => call<{ viewing: string }>("/people/view", { email }),
+  stopViewing: () => call<{ ok: true }>("/people/view/stop", {}),
+  /** Puts conversations in this order, among those pinned or in one group. */
+  orderThreads: (agent: string, threads: string[]) => call<{ threads: string[] }>(`/agents/${agent}/order`, { threads }),
   groups: (agent: string) => call<Group[]>(`/agents/${agent}/groups`),
   makeGroup: (agent: string, name: string) => call<Group>(`/agents/${agent}/groups`, { name }),
   renameGroup: (agent: string, id: number, name: string) => call<Group>(`/agents/${agent}/groups/${id}/rename`, { name }),
@@ -222,25 +272,16 @@ export const api = {
    * Pictures go with this turn only: the runtime keeps the line saying they were attached, never the picture. The browser's timezone goes too, so the model is told the writer's date.
    * `replaces` is the id of a message of theirs this one is an edit of: it and everything after it are taken back first.
    */
-  say: (agent: string, prompt: string, thread: string, images: Picture[] = [], replaces?: number) =>
-    call<{
-      runId: string;
-      text: string;
-      cost: number;
-      unpriced?: number;
-      buttons?: { label: string; sends: string }[];
-      multiple?: boolean;
-      /** Taken into the reply already going in this conversation, which answers it. Nothing else is said. */
-      joined?: boolean;
-      /** The messages the turn kept, oldest first. */
-      kept?: { id: number; role: "user" | "assistant" }[];
-    }>(`/agents/${agent}/chat`, {
+  say: async (agent: string, prompt: string, thread: string, images: Picture[] = [], replaces?: number) => {
+    const { answer } = await call<{ answer: string }>(`/agents/${agent}/chat/start`, {
       prompt,
       thread,
       ...(zone ? { timeZone: zone } : {}),
       ...(images.length ? { images } : {}),
       ...(replaces !== undefined ? { replaces } : {}),
-    }),
+    });
+    return collectAnswer(agent, answer);
+  },
 
   /** What .env sets, by name. A value goes in and never comes back out. */
   keys: () => call<Key[]>("/keys"),

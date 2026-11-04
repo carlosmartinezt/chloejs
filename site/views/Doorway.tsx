@@ -5,20 +5,15 @@ import { api } from "../lib/api.ts";
 import { linkTrouble } from "../lib/link.ts";
 
 /**
- * The way in: a link the runtime printed, or the owner's password, with their
- * name when they chose one. Somebody the owner invited signs in
- * with their email and their own password, from the same form once they say
- * so: `?invited` in the address opens it that way. A copy with no password
- * opens only with a link, so this says how to get one; the first password is
- * set in Account settings, once in. Somebody invited who has forgotten theirs
- * asks here for a link by mail, when the copy can send one.
+ * The way in: an email and a password, for the owner and for somebody they
+ * invited alike, and the server works out which. A copy with no password opens
+ * for its owner only with a link, so this says how to get one, and the first
+ * password is set in Account settings, once in. Somebody invited who has
+ * forgotten theirs asks here for a link by mail, when the copy can send one.
  */
 export function Doorway({ making }: { making: boolean }) {
-  const [invited, setInvited] = useState(() => new URLSearchParams(window.location.search).has("invited"));
+  const [invited, setInvited] = useState(false);
   const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  // Whether the owner chose a name, which the server says before anybody is in.
-  const [named, setNamed] = useState(false);
   const [password, setPassword] = useState("");
   const [sending, setSending] = useState(false);
   const [trouble, setTrouble] = useState(linkTrouble);
@@ -30,7 +25,6 @@ export function Doorway({ making }: { making: boolean }) {
   const [asked, setAsked] = useState("");
 
   useEffect(() => {
-    api.account().then((said) => setNamed(Boolean(said.named)), () => undefined);
     api.canMailPassword().then((said) => setMails(said.mails), () => undefined);
   }, []);
 
@@ -48,27 +42,32 @@ export function Doorway({ making }: { making: boolean }) {
     setSending(false);
   }
 
-  if (invited && forgot) {
+  if (forgot) {
     return (
       <main className="doorway">
         {mark}
-        <h1>Forgotten your password?</h1>
+        <h1>Reset your password</h1>
         {trouble && <p className="bad">{trouble}</p>}
         {asked ? (
           <p className="empty">
             If {asked} was invited here, a link to choose a new password is on its way to it. It works once, for a day.
           </p>
-        ) : (
+        ) : mails ? (
           <form onSubmit={askForLink}>
             <label>
               Email
               <input value={email} type="email" autoComplete="username" autoFocus onChange={(event) => setEmail(event.target.value)} />
             </label>
             <button type="submit" disabled={sending || !email.trim()}>
-              Mail me a link
+              Email me a link
             </button>
           </form>
+        ) : (
+          <p className="empty">Ask whoever invited you for a password link.</p>
         )}
+        <p className="empty">
+          If this is your own copy, run <code>npx chloe account</code> in its folder. It sets a new password and loses nothing.
+        </p>
         <p className="swap">
           <button type="button" className="plain" onClick={() => (setForgot(false), setAsked(""), setTrouble(""))}>
             Back to signing in
@@ -84,7 +83,7 @@ export function Doorway({ making }: { making: boolean }) {
     setSending(true);
     setTrouble("");
     try {
-      await api.signIn(password, invited ? { email: email.trim() } : named ? { name: name.trim() } : {});
+      await api.signIn(email.trim(), password);
       // A whole load rather than a view change: the page is fetching everything
       // it shows anyway, and it has none of it yet.
       window.location.assign("/");
@@ -118,27 +117,23 @@ export function Doorway({ making }: { making: boolean }) {
   return (
     <main className="doorway">
       {mark}
-      <h1>Sign in</h1>
+      <h1>Welcome back</h1>
       {trouble && <p className="bad">{trouble}</p>}
       <form onSubmit={send}>
-        {invited && (
-          <label>
-            Email
-            <input
-              value={email}
-              type="email"
-              autoComplete="username"
-              autoFocus
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>
-        )}
-        {!invited && named && (
-          <label>
-            Name
-            <input value={name} autoComplete="username" autoFocus onChange={(event) => setName(event.target.value)} />
-          </label>
-        )}
+        <label>
+          Email
+          {/* Not type="email": an owner may have chosen a name that is no address. */}
+          <input
+            value={email}
+            type="text"
+            inputMode="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            autoComplete="username"
+            autoFocus
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </label>
         <label>
           Password
           <span className="peek">
@@ -146,7 +141,6 @@ export function Doorway({ making }: { making: boolean }) {
               value={password}
               type={shown ? "text" : "password"}
               autoComplete="current-password"
-              autoFocus={!invited && !named}
               onChange={(event) => setPassword(event.target.value)}
             />
             <button
@@ -161,32 +155,15 @@ export function Doorway({ making }: { making: boolean }) {
             </button>
           </span>
         </label>
-        <button type="submit" disabled={sending || !password || (invited && !email.trim()) || (!invited && named && !name.trim())}>
-          Sign in
+        <p className="swap">
+          <button type="button" className="plain" onClick={() => (setForgot(true), setTrouble(""))}>
+            Forgot password?
+          </button>
+        </p>
+        <button type="submit" disabled={sending || !password}>
+          Continue
         </button>
       </form>
-      {invited ? (
-        <p className="empty">
-          With the email you were invited with, and the password you chose then.{" "}
-          {mails ? (
-            <button type="button" className="plain" onClick={() => (setForgot(true), setTrouble(""))}>
-              Forgotten it?
-            </button>
-          ) : (
-            "Forgotten it? Ask whoever invited you for a password link."
-          )}
-        </p>
-      ) : (
-        <p className="empty">
-          Or open it with a link: run <code>npx chloe link</code> in its folder and open what it prints. Forgotten the
-          password? Run <code>npx chloe account</code> there. It sets a new one, says your name, and loses nothing.
-        </p>
-      )}
-      <p className="swap">
-        <button type="button" className="plain" onClick={() => (setInvited(!invited), setTrouble(""))}>
-          {invited ? "This is my own Chloe" : "Invited by somebody? Sign in with your email"}
-        </button>
-      </p>
     </main>
   );
 }

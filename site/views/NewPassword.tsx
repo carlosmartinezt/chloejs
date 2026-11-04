@@ -42,7 +42,7 @@ export function NewPassword({ code }: { code: string }) {
         <h1>This link cannot be used</h1>
         <p className="empty">
           It has been used already, or the day it was good for is over. Ask whoever sent it for a new one, or{" "}
-          <a href="/login?invited">sign in with your email</a>.
+          <a href="/login">sign in with your email</a>.
         </p>
       </main>
     );

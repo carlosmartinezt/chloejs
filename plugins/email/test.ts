@@ -142,6 +142,20 @@ import { agentFor, answers, codeJob, db, lastAsked, lastTools, sent } from "#chl
   }
   is("nobody outside allowFrom is ever emailed", refused.includes("is not somebody test may email"), true);
 
+  const { accept, invite, peopleOn, remove } = await import("#chloe/serve/people");
+  accept(invite("sam@example.com", "Sam", "test", ["read"]), "sam's own password", "Sam");
+  let readOnly = "";
+  await openEmail("test", "sam@example.com", "Hello", "Hi").catch((error: Error) => (readOnly = error.message));
+  is("somebody invited who may not chat is not emailed either", readOnly.includes("is not somebody test may email"), true);
+  is("and is not among those who chat with it", peopleOn("test").some((one) => one.email === "sam@example.com"), false);
+  remove("sam@example.com", "test");
+  accept(invite("sam@example.com", "Sam", "test", ["chat"]), "sam's own password", "Sam");
+  is("somebody invited to chat may be", (await openEmail("test", "sam@example.com", "Hello", "Hi")).address, ADDRESS);
+  remove("sam@example.com", "test");
+  (await import("#chloe/core/db")).db.prepare("delete from email_addresses where person = 'sam@example.com'").run();
+  askedFor.length = 0;
+  outbox.length = 0;
+
   const started = await openEmail("test", "jenny@example.com", "Tennis", "What matters most to you in a **club**?");
   is("starting one asks the mailbox for an address for her", [started.address, askedFor], [ADDRESS, ["jenny@example.com"]]);
   is(

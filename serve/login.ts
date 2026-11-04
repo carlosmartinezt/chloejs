@@ -9,10 +9,11 @@
 // with `npx chloe account`. A signed-in browser changes it with the current
 // one, and a forgotten one is `npx chloe account`.
 //
-// The owner may add a name, and then signs in with the name and the
-// password: one more thing a stranger has to guess. The people the owner
-// invites (people.ts) sign in with their email and a password of their own,
-// and their session names them.
+// Everybody signs in on one form, with an email and a password. The people the
+// owner invites (people.ts) use their email and a password of their own, and
+// their session names them. The owner may add a name, which may be an email,
+// and then needs it with the password: one more thing a stranger has to guess.
+// An owner with no name needs only the password, whatever is in the other box.
 //
 // Hand rolled on node:crypto, scrypt for the password and HMAC-SHA256 for the
 // cookie, because the alternative is a dependency for forty lines.
@@ -38,6 +39,21 @@ const FILE = `${STATE}/login.json`;
  */
 export function cookieName(): string {
   return `chloe_session_${settings.serve.port}`;
+}
+
+/**
+ * The owner viewing the page as somebody they invited, in a cookie of its own
+ * beside their session. It counts only with that session, so signing out ends
+ * it, and it runs out by itself.
+ */
+const viewName = () => `chloe_view_${settings.serve.port}`;
+const VIEW_LASTS = 60 * 60;
+
+/** The cookie that starts viewing as this person, or with no email the one that ends it. */
+export function viewCookie(email: string, secure: boolean): string {
+  const rest = `Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
+  if (!email) return `${viewName()}=; Max-Age=0; ${rest}`;
+  return `${viewName()}=${seal("view", { e: email, u: Math.floor(Date.now() / 1000) + VIEW_LASTS })}; Max-Age=${VIEW_LASTS}; ${rest}`;
 }
 
 /** A week. Long enough not to be a chore, short enough that a stolen cookie dies. */
@@ -183,14 +199,18 @@ export function suggestPassword(): string {
  */
 export function signIn(password: string, from: string, name = ""): string {
   const found = read();
-  if (!found?.password) throw new Error("This copy has no password, so it opens with a link. Run npx chloe link in its folder.");
   const wait = lockedFor(from);
   if (wait) throw new Error(`Too many tries. Try again in ${Math.ceil(wait / 60)} minutes.`);
+  if (!found?.password) {
+    if (!name.trim()) throw new Error("This copy has no password, so it opens with a link. Run npx chloe link in its folder.");
+    countFailure(from);
+    throw new Error("Wrong email or password.");
+  }
   // The password is checked whatever the name, so a wrong name takes as long to refuse as a wrong password.
   const right = check(password, found.password);
   if (!right || (found.name && !same(name.trim().toLowerCase(), found.name))) {
     countFailure(from);
-    throw new Error(found.name ? "Wrong name or password." : "Wrong password.");
+    throw new Error("Wrong email or password.");
   }
   failures.delete(from);
   return sign(found);
@@ -295,14 +315,15 @@ export function signInWithLink(code: string, from: string): string {
  */
 export type Caller =
   | { kind: "account" }
-  | { kind: "member"; email: string; name: string; given: Given }
+  /** `viewing` is the owner looking through their eyes: their rules, and nothing that changes anything. */
+  | { kind: "member"; email: string; name: string; given: Given; viewing?: true }
   | { kind: "token"; token: Token }
   | null;
 
 export function caller(request: IncomingMessage): Caller {
   const found = read();
   const values = carried(request);
-  if (found && values.some((value) => holds(value, found))) return { kind: "account" };
+  if (found && values.some((value) => holds(value, found))) return viewingIn(request) ?? { kind: "account" };
   // The owner's other copy of chloe, showing this one's agents on its page. It
   // says when it is passing on a token's call rather than the owner's, and the
   // call is then a token's here too, so it gets no more than it would there.
@@ -324,6 +345,15 @@ export function caller(request: IncomingMessage): Caller {
     if (token) return { kind: "token", token };
   }
   return null;
+}
+
+/** Who the owner is viewing as on this request, read from the table each time, or null. */
+function viewingIn(request: IncomingMessage): Caller {
+  const value = cookies(request.headers.cookie)[viewName()];
+  const said = value ? unseal<{ e?: unknown; u?: unknown }>("view", value) : null;
+  if (typeof said?.e !== "string" || typeof said.u !== "number" || said.u <= Math.floor(Date.now() / 1000)) return null;
+  const found = person(said.e);
+  return found ? { kind: "member", email: found.email, name: found.name, given: found.given, viewing: true } : null;
 }
 
 /** Whether this request carries anything at all this copy will accept. */

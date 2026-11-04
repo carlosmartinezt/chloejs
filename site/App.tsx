@@ -6,7 +6,7 @@ import { ContextMenu, type Choice } from "./views/components/ContextMenu.tsx";
 import { Link } from "./views/components/Link.tsx";
 import { Dot, Rail } from "./views/components/Tree.tsx";
 import { api, EVERYTHING, NeedsSignIn, servesFrom, type Serves } from "./lib/api.ts";
-import { nameOf, many, shareNames, words } from "./lib/format.ts";
+import { nameOf, many, shareNames, words, ZONE } from "./lib/format.ts";
 import { allowed, landing, may, NOT_GIVEN } from "./lib/given.ts";
 import { announceMenu, watchMenu } from "./lib/menus.ts";
 import { copy } from "./lib/copy.ts";
@@ -37,6 +37,9 @@ import { Log, LogTable } from "./views/Log.tsx";
 import { Memory } from "./views/Memory.tsx";
 import { People } from "./views/People.tsx";
 import { Tokens } from "./views/Tokens.tsx";
+
+/** "2 Oct": the day, where the box is. */
+const day = (iso: string): string => new Date(iso).toLocaleDateString("en-GB", { timeZone: ZONE, day: "numeric", month: "short" });
 
 /** Often enough that the overview is current, rarely enough to be quiet. */
 const EVERY = 20_000;
@@ -172,7 +175,9 @@ export function App() {
   const chats = reach((agent) => !given || may(given, agent, "chat"));
   const jobs = reach((agent) => !given || allowed(given, { at: "jobs", agent }));
   const reads = !given || allowed(given, { at: "log" });
-  const memories = reach((agent) => !given || may(given, agent, "memory"));
+  // Viewing as somebody is their chat: a memory's file opens with a pass, which is a write.
+  const viewing = me && !me.owner && me.viewing ? me : null;
+  const memories = viewing ? [] : reach((agent) => !given || may(given, agent, "memory"));
 
   const busy = running.length;
   // Everywhere that is inside one agent. Its sidebar and its name in the bar
@@ -201,8 +206,53 @@ export function App() {
     />
   );
 
+  // A chat has the whole window and no bar: what the bar holds is at the top of
+  // its list of conversations and in the menu at the bottom of it.
+  if (view.at === "chat" && mayHere) {
+    const logOf: View = here && (!given || may(given, here, "read")) ? { at: "log", agent: here } : { at: "log" };
+    return (
+      <>
+      {viewing && <Viewing who={viewing.name || viewing.email} />}
+      <Chat
+        agent={view.agent}
+        thread={view.thread}
+        about={view.about}
+        owner={owner}
+        readOnly={Boolean(viewing)}
+        railTop={
+          <>
+            <Link to={{ at: "home" }} className="mark" aria-label="Chloe">
+              <span className="glyph" />
+              {chats.length > 1 ? "" : "Chloe"}
+            </Link>
+            {chats.length > 1 && <WhichAgent here={here} all={chats} view={view} given={given} />}
+          </>
+        }
+        railFoot={
+          <You
+            me={me}
+            tokens={Boolean(serves.tokens)}
+            people={Boolean(serves.people)}
+            inList
+            more={[
+              ...(!given ? [{ label: "Config", icon: <Icons.Settings />, run: () => go(lastOf("agent", agents, view)) }] : []),
+              ...(memories[0] ? [{ label: "Memory", icon: <Icons.Memory />, run: () => go(lastOf("memory", memories, view)) }] : []),
+              ...(given && jobs[0] ? [{ label: "Jobs", icon: <Icons.Clock />, run: () => go(lastOf("jobs", jobs, view)) }] : []),
+              ...(reads ? [{ label: "Log", icon: <Icons.Log />, run: () => go(logOf) }] : []),
+              { label: "Copy link to this chat", icon: <Icons.Share />, disabled: !view.thread, run: () => void copy(window.location.href) },
+              { label: "Reload", icon: <Icons.Reload />, run: () => window.location.reload() },
+              "line" as Choice,
+            ]}
+          />
+        }
+      />
+      </>
+    );
+  }
+
   return (
     <>
+      {viewing && <Viewing who={viewing.name || viewing.email} />}
       <header className="bar">
         <Link to={{ at: "home" }} className="mark">
           <span className="glyph" />
@@ -252,36 +302,6 @@ export function App() {
             </Link>
           )}
         </Menu>
-        {/* On a phone's chat, everything above in one menu by the new chat button. */}
-        {view.at === "chat" && (
-          <ChatMore
-            choices={[
-              ...(chats.length > 1
-                ? [
-                    {
-                      label: "Agent",
-                      icon: <Icons.Card />,
-                      more: chats.map((one) => ({
-                        label: nameOf(one.id),
-                        run: () => go({ at: "chat", agent: one.id }),
-                        current: one.id === here,
-                      })),
-                    } as Choice,
-                  ]
-                : []),
-              { label: "Share", icon: <Icons.Share />, title: "Copies the link to this conversation", disabled: !view.thread, run: () => void copy(window.location.href) },
-              "line",
-              ...(!given ? [{ label: "Config", icon: <Icons.Settings />, run: () => go(lastOf("agent", agents, view)) }] : []),
-              ...(memories[0] ? [{ label: "Memory", icon: <Icons.Memory />, run: () => go(lastOf("memory", memories, view)) }] : []),
-              ...(given && jobs[0] ? [{ label: "Jobs", icon: <Icons.Clock />, run: () => go(lastOf("jobs", jobs, view)) }] : []),
-              ...(reads
-                ? [{ label: "Log", icon: <Icons.Log />, run: () => go(here && (!given || may(given, here, "read")) ? { at: "log", agent: here } : { at: "log" }) }]
-                : []),
-              "line",
-              { label: "Reload", icon: <Icons.Reload />, run: () => window.location.reload() },
-            ]}
-          />
-        )}
         {/* Only what is not already on the page below. How many agents there
             are is the page below. */}
         {busy > 0 && <span className="count num">{many(busy, "run")} now</span>}
@@ -296,8 +316,6 @@ export function App() {
         <main className="pane front">
           {!landAt && <p className="empty frame">Nothing here has been given to you yet. Ask whoever invited you.</p>}
         </main>
-      ) : view.at === "chat" ? (
-        <Chat agent={view.agent} thread={view.thread} about={view.about} owner={owner} />
       ) : view.at === "log" ? (
         <Log agent={view.agent} agents={given ? reach((agent) => may(given, agent, "read")) : agents} open={view.run} />
       ) : view.at === "memory" ? (
@@ -348,9 +366,22 @@ export function App() {
   );
 }
 
-/** Somebody invited signing out, and back to the way in with the form for an email. The owner signs out on My account. */
+/** The strip across the top while the owner is viewing as somebody, with the way back. */
+function Viewing({ who }: { who: string }) {
+  return (
+    <div className="dev viewing">
+      <b>Viewing as {who}</b>
+      <span>Read only, and recorded.</span>
+      <button className="plain" onClick={() => void api.stopViewing().then(() => window.location.assign("/people"))}>
+        Stop viewing
+      </button>
+    </div>
+  );
+}
+
+/** Somebody invited signing out, and back to the way in. The owner signs out on My account. */
 function signOut(): void {
-  void api.signOut().then(() => window.location.assign("/login?invited"));
+  void api.signOut().then(() => window.location.assign("/login"));
 }
 
 /**
@@ -439,31 +470,6 @@ function Menu({ closeOn, icon = <Icons.Menu />, children }: { closeOn: string; i
         </button>
       </nav>
       {open && <div className="shade" onClick={close} />}
-    </>
-  );
-}
-
-/** Three dots in the bar with a menu under them, hung from their right edge. Shown only on a phone's chat. */
-function ChatMore({ choices }: { choices: Choice[] }) {
-  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
-  const close = useCallback(() => setAt(null), []);
-  return (
-    <>
-      <button
-        className="chat-more"
-        aria-label="More"
-        aria-haspopup="menu"
-        aria-expanded={Boolean(at)}
-        onMouseDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          const box = event.currentTarget.getBoundingClientRect();
-          setAt(at ? null : { x: box.right, y: box.bottom + 6 });
-        }}
-      >
-        <Icons.More />
-      </button>
-      {at && <div className="chat-more-shade" />}
-      {at && <ContextMenu at={at} from="right" close={close} choices={choices} keepOnScroll />}
     </>
   );
 }
@@ -726,13 +732,17 @@ function flatten(entries: Entry[]): string[] {
  * The right of the bar. For the owner it is Dashboard: everything about the
  * whole copy rather than one agent, signing out included, which is on My
  * account. Somebody invited sees their name, and has nothing here but
- * signing out.
+ * signing out. `inList` is the same at the foot of a chat's list of
+ * conversations, with `more` above the rest of its menu and the first letter of
+ * the name beside it.
  */
-function You({ me, tokens, people }: { me: Me; tokens: boolean; people: boolean }) {
+function You({ me, tokens, people, inList, more = [] }: { me: Me; tokens: boolean; people: boolean; inList?: boolean; more?: Choice[] }) {
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const close = useCallback(() => setAt(null), []);
+  const name = (me.owner ? me.name : me.name || me.email) || "Dashboard";
   const choices: Choice[] = me.owner
     ? [
+        ...more,
         { label: "My account", run: () => go({ at: "account" }) },
         { label: "Configuration", run: () => go({ at: "configuration" }) },
         { label: "Appearance", run: () => go({ at: "appearance" }) },
@@ -741,25 +751,33 @@ function You({ me, tokens, people }: { me: Me; tokens: boolean; people: boolean 
         // The people who make Chloe. Somebody invited asks whoever invited them.
         { label: "Help", run: () => go({ at: "help" }) },
       ]
-    : [{ head: me.email }, { label: "Sign out", run: signOut }];
+    : me.viewing
+      ? [{ head: me.email }, ...more, { label: "Stop viewing", run: () => void api.stopViewing().then(() => window.location.assign("/people")) }]
+      : [
+          { head: me.email },
+          ...(me.viewed ? [{ head: `${day(me.viewed)}: last viewed by whoever invited you` }] : []),
+          ...more,
+          { label: "Sign out", run: signOut },
+        ];
   return (
     <>
       <button
-        className="you"
+        className={inList ? "you in-list" : "you"}
         aria-haspopup="menu"
         aria-expanded={Boolean(at)}
-        aria-label={me.owner ? "Dashboard" : "Account"}
+        aria-label="Account"
         // Kept from the menu's own close-on-mousedown, so a second click shuts it.
         onMouseDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           const box = event.currentTarget.getBoundingClientRect();
-          setAt(at ? null : { x: box.right, y: box.bottom + 8 });
+          setAt(at ? null : inList ? { x: box.left, y: box.top } : { x: box.right, y: box.bottom + 8 });
         }}
       >
-        <span className="who">{me.owner ? "Dashboard" : me.name || me.email}</span>
-        <Icons.Down />
+        {inList && <span className="initial">{name.charAt(0).toUpperCase()}</span>}
+        <span className="who">{name}</span>
+        {!inList && <Icons.Down />}
       </button>
-      {at && <ContextMenu at={at} from="right" close={close} choices={choices} />}
+      {at && <ContextMenu at={at} from={inList ? "left" : "right"} close={close} choices={choices} />}
     </>
   );
 }

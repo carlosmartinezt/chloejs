@@ -1,7 +1,8 @@
 // A model somebody picked on the fly, kept in the database rather than in a
-// file: for one chat or for one job. The file stays the default and a choice
-// here beats it, so the run record shows which model made each run and the
-// choice can be undone from a chat or the API.
+// file: for one chat, for one job, or as what one person's new chats on the
+// page start on. The file stays the default and a choice here beats it, so the
+// run record shows which model made each run and the choice can be undone from
+// a chat or the API.
 import { db } from "#chloe/core/db";
 import type { Agent, Job } from "#chloe/load/load";
 
@@ -22,8 +23,8 @@ db.prepare("delete from choices where scope = 'agent'").run();
 /** The pick for one chat that hands each message to the quick model first, as `auto` on an agent does. */
 export const AUTO = "auto";
 
-/** "job:<id>" for one job, "chat:<thread>" for one conversation. */
-export type Scope = `job:${string}` | `chat:${string}`;
+/** "job:<id>" for one job, "chat:<thread>" for one conversation, "person:<email or owner>" for what a person last picked on the page. */
+export type Scope = `job:${string}` | `chat:${string}` | `person:${string}`;
 
 export interface Choice {
   scope: Scope;
@@ -51,9 +52,9 @@ export function chosen(agent: string, scope: Scope): string | undefined {
   return row?.model;
 }
 
-/** Every choice kept for an agent: its jobs first, then its chats. */
+/** Every choice kept for an agent: its jobs first, then its chats. A person's own is asked for by `chosen`. */
 export function choices(agent: string): Choice[] {
-  const rows = db.prepare("select scope, model, at from choices where agent = ? order by scope").all(agent) as unknown as Choice[];
+  const rows = db.prepare("select scope, model, at from choices where agent = ? and scope not like 'person:%' order by scope").all(agent) as unknown as Choice[];
   const rank = (one: Choice) => (one.scope.startsWith("job:") ? 0 : 1);
   return rows.sort((a, b) => rank(a) - rank(b) || a.scope.localeCompare(b.scope));
 }

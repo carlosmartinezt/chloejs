@@ -35,7 +35,7 @@ in.
 | `/agents/<id>/files/<path>` | its own files |
 | `/agents/<id>/memory` | its memory |
 | `/log` | every agent's runs, searched together |
-| `/account` | your password, a name to sign in with, and signing out |
+| `/account` | your password, a name to sign in with in place of an email, and signing out |
 | `/configuration` | every setting and key as a form: Google, models, mail and alerts, web search, `.env`, and `chloe.config.ts` as text |
 | `/appearance` | how the page looks, kept in this browser |
 | `/tokens` | making and revoking tokens |

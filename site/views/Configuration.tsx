@@ -155,7 +155,7 @@ const model = (sections: Sections | null): Ask[] => [
     label: "Models to pick from",
     kind: "list",
     placeholder: "anthropic/claude-sonnet-5.5, openai/gpt-5.5",
-    about: "What /models in a chat offers. Empty lists every model this machine can reach.",
+    about: "What a chat's menu and /models offer, and all that somebody invited may pick. Empty lists every model this machine can reach, for the owner alone.",
   },
   {
     path: "model.keys.anthropic",

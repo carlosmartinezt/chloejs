@@ -36,7 +36,7 @@
 //   1. it is to an address made here, for this agent and channel, still open,
 //      and used in the last 30 days;
 //   2. it has one From line, and that is the person the address was made for;
-//   3. that person is in allowFrom;
+//   3. that person is in allowFrom, or invited to chat with this agent;
 //   4. a DKIM signature on it checks out, made by the domain in the From line
 //      (core/mail.ts). The From line alone can be written by anyone.
 //
@@ -66,6 +66,7 @@ import { remember } from "#chloe/model/memory";
 import { startConversation } from "./tools.ts";
 import { holdBack } from "#chloe/core/current";
 import { db } from "#chloe/core/db";
+import { peopleOn } from "#chloe/serve/people";
 import { addresses, rawMail, readEmail, signedBy, whenSent, type Email, type Inbox, type LookUp, type Mailboxes } from "#chloe/core/mail";
 import { settings, whereKeyGoes } from "#chloe/core/settings";
 import { markdownToHtml, markdownToText } from "#chloe/services/emailService";
@@ -157,8 +158,9 @@ export interface EmailOptions extends Shared {
   name?: string;
   /**
    * The email addresses of the people the agent may write to and hear from.
-   * Nobody else is ever sent anything, and mail from anybody else is
-   * dropped. Required.
+   * Somebody the owner invited to chat with this agent counts too, by the
+   * address they were invited at. Nobody else is ever sent anything, and mail
+   * from anybody else is dropped. Required.
    */
   allowFrom: string[];
   /**
@@ -354,8 +356,10 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
   const { agentId, channel } = options;
   const own = typeof options.mailbox === "object" ? options.mailbox : undefined;
   const inbox = own ? undefined : options.inbox;
-  const allowed = options.allowFrom.map(lower);
-  const rules = rulesOf(options, allowed);
+  // Read each time, so somebody invited or removed counts at once. Those the
+  // config names come first, because the first of them is the channel's owner.
+  const allowedNow = () => [...new Set([...options.allowFrom.map(lower), ...peopleOn(agentId).map((one) => lower(one.email))])];
+  const rulesNow = () => rulesOf(options, allowedNow());
   const stopping = new AbortController();
 
   /**
@@ -396,6 +400,7 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
 
   const start: Starter = async (to, subject, text) => {
     const person = lower(to);
+    const allowed = allowedNow();
     if (!allowed.includes(person)) throw new Error(`${to} is not somebody ${agentId} may email. It may email: ${allowed.join(", ")}.`);
     if (holdBack({ kind: "email", to: person, subject, text })) return { address: "", thread: "" };
     const address = inbox ? tagged(inbox.account()) : await own!.address(person);
@@ -433,7 +438,7 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
     if (mail.from.length !== 1) return drop(`it has ${mail.from.length} From addresses`);
     const [from] = mail.from;
     if (from !== row.person) return drop(`it is from ${from}, and the address was made for ${row.person}`);
-    if (!allowed.includes(from)) return drop(`${from} is not in allowFrom`);
+    if (!allowedNow().includes(from)) return drop(`${from} is not in allowFrom, and not invited to ${agentId}`);
     if (!mail.to.includes(row.address)) return drop("the address is not in its To or Cc");
     const signed = await signedBy(raw, from.slice(from.lastIndexOf("@") + 1), options.lookUp);
     if (!signed.ok) return drop(`it could not be shown to come from ${from}: ${signed.why}`);
@@ -473,7 +478,7 @@ export function listen(options: EmailOptions & { agentId: string; channel: strin
         context: { address: from, subject: mail.subject || row.subject },
         files: files.length ? async () => ({ notes: files }) : undefined,
       },
-      rules,
+      rulesNow(),
     );
     if (!handled?.text) return;
     const subject = /^re:/i.test(mail.subject) ? mail.subject : `Re: ${mail.subject || row.subject}`;

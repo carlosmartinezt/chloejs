@@ -53,8 +53,8 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
   is("and it works once", (await call("POST", `/api/invitations/${code}/accept`, {}, { password: "jenny's own password" })).status, 401);
   const jenny = session(taken.body.token);
 
-  is("they are somebody invited, not the owner", (await call("GET", "/api/me", jenny)).body, { owner: false, email: "jenny@example.com", name: "Jenny", given: { test: ["chat"] } });
-  is("the owner is the owner", (await call("GET", "/api/me", owner)).body, { owner: true });
+  is("they are somebody invited, not the owner", (await call("GET", "/api/me", jenny)).body, { owner: false, email: "jenny@example.com", name: "Jenny", given: { test: ["chat"] }, viewed: null });
+  is("the owner is the owner", (await call("GET", "/api/me", owner)).body, { owner: true, name: (await import("#chloe/core/settings")).settings.ownerName });
   is("they see the agent they were let in to and no other", (await call("GET", "/api/agents", jenny)).body.map((one: { id: string }) => one.id), ["test"]);
   is("another agent is not there", (await call("GET", "/api/agents/other", jenny)).status, 404);
   is("chat alone does not read its log", (await call("GET", "/api/agents/test/log", jenny)).status, 403);
@@ -62,7 +62,7 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
   is("only what is theirs is running", (await call("GET", "/api/health", jenny)).body.running, []);
   is("they never write to a memory", (await call("POST", "/api/agents/test/memory/file", jenny, { path: "x.md", content: "" })).status, 403);
   is("nor read one", (await call("GET", "/api/agents/test/memory", jenny)).status, 403);
-  is("nor pick the model", (await call("POST", "/api/agents/test/model", jenny, { scope: "chat:test/web-jenny", model: "" })).status, 403);
+  is("nor pick a model the owner did not name", (await call("POST", "/api/agents/test/model", jenny, { scope: "chat:test/web-jenny", model: "someone/else" })).status, 400);
   is("nor read what its commands are", (await call("GET", "/api/agents/test/commands", jenny)).status, 403);
   is("nor reach the tokens", (await call("GET", "/api/tokens", jenny)).status, 403);
   is("nor the people", (await call("GET", "/api/people", jenny)).status, 403);
@@ -74,6 +74,8 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
   const said = await call("POST", "/api/agents/test/chat", jenny, { prompt: "Hi", thread: "test/web-jenny" });
   is("they chat with it", [said.status, said.body.text], [200, "Hello Jenny."]);
   is("and the agent is told who wrote, as somebody invited", lastAsked.at(-1)?.content.includes("role: member") && lastAsked.at(-1)?.content.includes("jenny@example.com"), true);
+  const told = lastAsked.find((one) => one.role === "system")?.content ?? "";
+  is("and who it works with, each with their address", told.includes("The people you work with") && told.includes("Jenny, invited by your owner: jenny@example.com"), true);
   is("the conversation is theirs", (db.prepare("select owner from threads where thread = 'test/web-jenny'").get() as { owner: string }).owner, "jenny@example.com");
   is("a model picked in the chat is not theirs to pick", (await call("POST", "/api/agents/test/chat", jenny, { prompt: "/model x", thread: "test/web-jenny" })).status, 403);
 
@@ -98,7 +100,6 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
   is("the owner's is not there to read", (await call("GET", `/api/threads/${encodeURIComponent("test/web-owner")}`, jenny)).status, 404);
   is("nor to forget", (await call("POST", `/api/threads/${encodeURIComponent("test/web-owner")}/forget`, jenny, {})).status, 404);
   is("nor to land in by naming it", (await call("POST", "/api/agents/test/chat", jenny, { prompt: "Hi", thread: "test/web-owner" })).status, 404);
-  is("the owner lists every one, saying whose", (await call("GET", "/api/agents/test/threads", owner)).body.find((one: { thread: string }) => one.thread === "test/web-jenny")?.owner, "jenny@example.com");
 
   const changed = await call("POST", "/api/people/change", owner, { email: "jenny@example.com", agent: "test", given: ["chat", "read", "run"] });
   is("the owner changes what they may do", changed.body.people[0].given, { test: ["chat", "read", "run"] });
@@ -114,6 +115,109 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
   is("their own comes without the prompt, the context or the steps", [own.reply, own.prompt, own.context, own.trace], ["to jenny", undefined, undefined, []]);
   // A plugin's route too, where it is there, and not there at all where it is not.
   is("nor the web visitors, whatever they were given", [403, 404].includes((await call("GET", "/api/agents/test/web/visitors", jenny)).status), true);
+
+  // What somebody invited says is theirs, and the owner sees it only by viewing as them.
+  {
+    const hersThread = encodeURIComponent("test/web-jenny");
+    const owns = (await call("GET", "/api/agents/test/threads", owner)).body.map((one: { thread: string }) => one.thread);
+    is("the owner's list leaves out somebody invited's conversations", [owns.includes("test/web-jenny"), owns.includes("test/web-owner")], [false, true]);
+    is("and the owner cannot open one", (await call("GET", `/api/threads/${hersThread}`, owner)).status, 404);
+    is("or write in one", (await call("POST", "/api/agents/test/chat", owner, { thread: "test/web-jenny", prompt: "hello" })).status, 404);
+    const herRun = said.body.runId as string;
+    is("or read their run", (await call("GET", `/api/runs/${herRun}`, owner)).status, 404);
+    is("which the log leaves out too", ((await call("GET", "/api/runs", owner)).body as { id: string }[]).some((one) => one.id === herRun), false);
+    is("and the agent's log", ((await call("GET", "/api/agents/test/log", owner)).body as { id: string }[]).some((one) => one.id === herRun), false);
+
+    is("somebody invited cannot view as anybody", (await call("POST", "/api/people/view", jenny, { email: "jenny@example.com" })).status, 403);
+    is("nobody can be viewed who was not invited", (await call("POST", "/api/people/view", owner, { email: "nobody@example.com" })).status, 404);
+    const started = await call("POST", "/api/people/view", owner, { email: "jenny@example.com" });
+    const viewCookie = started.cookie.split(";")[0];
+    const viewing = { cookie: `${owner.cookie}; ${viewCookie}` };
+    const me = (await call("GET", "/api/me", viewing)).body;
+    is("viewing as them, the page is told so", [me.owner, me.email, me.viewing], [false, "jenny@example.com", true]);
+    const before = (db.prepare("select count(*) as n from views where person = 'jenny@example.com'").get() as { n: number }).n;
+    is("it opens their conversation", (await call("GET", `/api/threads/${hersThread}`, viewing)).status, 200);
+    const listedThere = (await call("GET", "/api/agents/test/threads", viewing)).body.map((one: { thread: string }) => one.thread);
+    is("and lists what they see and no more", [listedThere.includes("test/web-jenny"), listedThere.includes("test/web-owner")], [true, false]);
+    is("each thing read is recorded", (db.prepare("select count(*) as n from views where person = 'jenny@example.com'").get() as { n: number }).n > before, true);
+    is("it cannot send", (await call("POST", "/api/agents/test/chat", viewing, { thread: "test/web-jenny", prompt: "hello" })).status, 403);
+    is("nor start a reply", (await call("POST", "/api/agents/test/chat/start", viewing, { prompt: "hello" })).status, 403);
+    is("nor collect one of theirs", (await call("GET", "/api/agents/test/chat/answers/anything", viewing)).status, 403);
+    is("nor change anything", (await call("POST", `/api/threads/${hersThread}/pin`, viewing, { pinned: true })).status, 403);
+    is("nor pick a model", (await call("POST", "/api/agents/test/model", viewing, { scope: "chat:test/web-jenny", model: "" })).status, 403);
+    is("nor reach what is the owner's", (await call("GET", "/api/people", viewing)).status, 403);
+    is("the cookie alone is nothing, without the owner's session", (await call("GET", "/api/me", { cookie: viewCookie })).status, 401);
+    is("nor with theirs does it make them anything more", (await call("GET", "/api/me", { cookie: `${jenny.cookie}; ${viewCookie}` })).body.viewing, undefined);
+    is("they can see when they were last viewed", typeof (await call("GET", "/api/me", jenny)).body.viewed, "string");
+    is("and so can the owner", typeof ((await call("GET", "/api/people", owner)).body.people as { viewed: string | null }[])[0].viewed, "string");
+    const stopped = await call("POST", "/api/people/view/stop", viewing, {});
+    is("stopping takes the cookie away", [stopped.status, stopped.cookie.includes("Max-Age=0")], [200, true]);
+  }
+
+  // Groups and the order of a list are each person's own.
+  {
+    const ownersGroup = (await call("POST", "/api/agents/test/groups", owner, { name: "Owner's" })).body.id;
+    const hers = (await call("POST", "/api/agents/test/groups", jenny, { name: "Hers" })).body.id;
+    is("each person sees only their own groups", (await call("GET", "/api/agents/test/groups", jenny)).body, [{ id: hers, name: "Hers" }]);
+    is("and the owner's", (await call("GET", "/api/agents/test/groups", owner)).body, [{ id: ownersGroup, name: "Owner's" }]);
+    is("somebody cannot rename another's", (await call("POST", `/api/agents/test/groups/${ownersGroup}/rename`, jenny, { name: "x" })).status, 404);
+    is("or delete it", (await call("POST", `/api/agents/test/groups/${ownersGroup}/delete`, jenny, {})).status, 404);
+    const a = "test/55555555-1111-4111-8111-111111111111";
+    const b = "test/66666666-1111-4111-8111-111111111111";
+    const other = "test/77777777-1111-4111-8111-111111111111";
+    for (const thread of [a, b]) {
+      db.prepare("insert into threads (thread, owner) values (?, ?) on conflict (thread) do update set owner = excluded.owner").run(thread, "jenny@example.com");
+      remember(thread, "user", "hello");
+    }
+    remember(other, "user", "the owner's own");
+    const grouped = (thread: string, group: number) => call("POST", `/api/threads/${encodeURIComponent(thread)}/group`, jenny, { group });
+    is("they file their own conversation under their own group", (await grouped(a, hers)).status, 200);
+    is("not under another's", (await grouped(b, ownersGroup)).status, 404);
+    is("and not somebody else's conversation", (await grouped(other, hers)).status, 404);
+    const order = (who: Record<string, string>, threads: string[]) => call("POST", "/api/agents/test/order", who, { threads });
+    is("they put their own in order", (await order(jenny, [b, a])).status, 200);
+    const places = (await call("GET", "/api/agents/test/threads", jenny)).body as { thread: string; place: number | null }[];
+    is("which is kept", [places.find((one) => one.thread === b)?.place, places.find((one) => one.thread === a)?.place], [0, 1]);
+    is("somebody else's they cannot", (await order(jenny, [other])).status, 404);
+    is("nor another agent's", (await order(jenny, ["other/one"])).status, 404);
+    await grouped(a, hers);
+    is("filing it again starts its place over", ((await call("GET", "/api/agents/test/threads", jenny)).body as { thread: string; place: number | null }[]).find((one) => one.thread === a)?.place, null);
+    await call("POST", `/api/agents/test/groups/${hers}/delete`, jenny, {});
+    await call("POST", `/api/agents/test/groups/${ownersGroup}/delete`, owner, {});
+  }
+
+  // One form for everybody: the email says who.
+  is("the owner signs in on the same form, and with no name of their own any address does", (await call("POST", "/api/login", {}, { email: "me@example.com", password: "a long enough one" })).status, 200);
+  const refusedWords = (await call("POST", "/api/login", {}, { email: "nobody@example.com", password: "a long enough one wrong" })).body.error;
+  is("a refusal does not say whose it was", refusedWords, "Wrong email or password.");
+
+  // A model for a conversation of their own, from what the owner named.
+  {
+    const { settings } = await import("#chloe/core/settings");
+    const { chosen } = await import("#chloe/model/choices");
+    const was = settings.model.models;
+    const reachable = (await call("GET", "/api/models?agent=test", owner)).body as { model: string; short?: boolean }[];
+    const named = reachable[0]?.model ?? "";
+    (settings.model as { models: string[] }).models = [named];
+    const pickFor = (who: Record<string, string>, scope: string, model: string) => call("POST", "/api/agents/test/model", who, { scope, model });
+    is("somebody invited is offered only what the owner named", (await call("GET", "/api/models?agent=test", jenny)).body.map((one: { model: string }) => one.model), [named]);
+    const mine = "test/33333333-1111-4111-8111-111111111111";
+    is("and may pick it for a conversation of their own", (await pickFor(jenny, `chat:${mine}`, named)).status, 200);
+    is("which their new chats then start on", (await call("GET", "/api/agents/test", jenny)).body.mine, named);
+    is("and nobody else's", (await call("GET", "/api/agents/test", owner)).body.mine, undefined);
+    is("nothing else", (await pickFor(jenny, `chat:${mine}`, "someone/else")).status, 400);
+    is("and never a job's", (await pickFor(jenny, "job:wake", named)).status, 400);
+    is("so a job keeps its model", chosen("test", "job:wake"), undefined);
+    const theirs = "test/44444444-1111-4111-8111-111111111111";
+    remember(theirs, "user", "the owner's own");
+    await pickFor(owner, `chat:${theirs}`, named);
+    is("and never in somebody else's conversation", (await pickFor(jenny, `chat:${theirs}`, named)).status, 404);
+    is("they do not see the picks of anybody else's", (await call("GET", "/api/agents/test", jenny)).body.chosen.map((one: { scope: string }) => one.scope), [`chat:${mine}`]);
+    await pickFor(owner, `chat:${theirs}`, "");
+    await pickFor(jenny, `chat:${mine}`, "");
+    is("an empty pick takes it back", (await call("GET", "/api/agents/test", jenny)).body.mine, undefined);
+    (settings.model as { models: string[] }).models = was;
+  }
 
   is("they sign in again with their email", (await call("POST", "/api/login", {}, { email: "JENNY@example.com", password: "jenny's own password" })).status, 200);
   is("a wrong password says nothing about whether the address is somebody's", (await call("POST", "/api/login", {}, { email: "jenny@example.com", password: "wrong one" })).body.error, "Wrong email or password.");
