@@ -441,7 +441,23 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, reachBy, r
   );
   await receive({ ...base, tools: { scriptRun: fake("Run a script.") } }, { ...message, files: undefined }, { allowFrom: ["1"] }, { sendFile });
   is("a channel that can send files gives the turn a way to, and a file in the memory goes", sent, ["form-filled.pdf: %PDF filled"]);
-  is("and nothing outside the memory and the files sent to it does", told().includes("is not in your memory or among the files sent to you"), true);
+  is("and nothing outside the memory and the files sent to it does", told().includes("is not in your memory, the files you made or the files sent to you"), true);
+
+  const { madeFolder } = await import("#chloe/services/receivedService");
+  await writeFile(`${await madeFolder("test")}/made.pdf`, "%PDF made");
+  const placedOn = async (reply: string) => {
+    answers.push({ tool_calls: [{ id: "1", type: "function", function: { name: "chatSendFile", arguments: `{"path":"${await madeFolder("test")}/made.pdf"}` } }] }, reply);
+    const lines = { text: "", sendFile: async () => ({ shows: "[made.pdf](file:test/abc)" }) };
+    return (await receive({ ...base, tools: { scriptRun: fake("Run a script.") } }, { ...message, files: undefined }, { allowFrom: ["1"] }, lines))?.text;
+  };
+  answers.push({ tool_calls: [{ id: "1", type: "function", function: { name: "scriptRun", arguments: "{}" } }] }, "It is done.");
+  const handing = { ...fake("Run a script."), execute: async () => ({ exitCode: 0, stdout: `made it\nSEND ${await madeFolder("test")}/made.pdf\nSEND /etc/passwd\n` }) };
+  const handed = await receive({ ...base, tools: { scriptRun: handing } }, { ...message, files: undefined }, { allowFrom: ["1"] }, { sendFile: async () => ({ shows: "[made.pdf](file:test/abc)" }) });
+  is("a script hands over a file by saying so, with no model asked, and the reply shows it", handed?.text, "It is done.\n\n[made.pdf](file:test/abc)");
+  is("under the same rule on where it may come from", told().includes("/etc/passwd is not in your memory"), true);
+
+  is("a file it made goes, and one it did not place ends the reply", await placedOn("Here you are."), "Here you are.\n\n[made.pdf](file:test/abc)");
+  is("and one it placed stays where it put it", await placedOn("See [made.pdf](file:test/abc) for it."), "See [made.pdf](file:test/abc) for it.");
 
   const { skillsIn } = await import("#chloe/load/load");
   const { mkdtemp } = await import("node:fs/promises");

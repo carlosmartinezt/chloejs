@@ -28,7 +28,7 @@ rename breaks nothing ([A prompt with tools](/docs/prompts#skills-and-scripts)).
 | `memoryPerUser` | off | `memoryWriteUserNotes` |
 | `folders` | off | `folderListFiles`, `folderReadFile`, `folderSearchFiles` |
 | `shell` | off | `shellRun` |
-| `web` | off | `webReadPage`, `webSearch` |
+| `web` | off | `webReadPage`, `webSavePictures`, `webSearch` |
 | `googleMail` | off | `emailReadMail`, `emailReplyMail`, `emailSendMail` |
 | `googleCalendar` | off | `calendarListEvents`, `calendarAddEvent` |
 | `googleDrive` | off | `driveSearchFiles`, `driveReadFile`, `driveDownloadFile` |
@@ -87,8 +87,10 @@ and what holds where.
 ### web
 
 `webReadPage` reads one public web page as plain text, with links written as
-`[text](url)`. It refuses this machine and private addresses, and does not run a
-page's JavaScript. `webSearch` searches the web and gives back results, each a
+`[text](url)` and the pictures on it listed. It refuses this machine and private
+addresses, and does not run a page's JavaScript. `webSavePictures` saves pictures
+from public addresses under the same rule, for `chatSendFile` to show.
+`webSearch` searches the web and gives back results, each a
 title, a url and a line, which the model reads with `webReadPage`: it goes to
 Brave Search when `connections.brave.api_key` is set, and to DuckDuckGo when it
 is not. `web` is `true` for both; switch `webSearch` off on its own to read
@@ -183,7 +185,7 @@ brings all of them back (its tools are taken out of `without`).
 | Tool | Who gets it | What it does |
 |---|---|---|
 | `chatAsk` | every conversation | Ends the reply with a question and a few answers to pick from, one or several, shown as buttons where the channel has them. Their pick is their next message. [Asking a person](/docs/asking-a-person#from-a-chat). |
-| `chatSendFile` | a conversation on a channel that can send files, never a guest's | Sends a file from its memory, or one it was sent, into that conversation. Telegram can. |
+| `chatSendFile` | a conversation on a channel that can send files, never a guest's | Sends a file from its memory, one it made, or one it was sent, into that conversation. Telegram and the page's chat can. |
 | `ownListFiles` | every turn | Lists the files in its own folder, and which it may change. Never its memory. |
 | `ownReadFile` | every turn | Reads any of them, several in one call: its own source code and its skills included. The agent is shown every skill's description and the file to read, and reads the one it needs. |
 | `ownListRuns` | turns its owner wrote | Lists its own runs, newest first: the job or chat, where it came from, when, the cost, and whether it failed. |

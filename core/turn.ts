@@ -22,8 +22,8 @@ import { ownFolderTools, ownReadTools, ownTrialTools } from "#chloe/model/tools/
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { canReach, deliver } from "#chloe/services/messageService";
-import { receivedFolder } from "#chloe/services/receivedService";
-import { chatAsk, chatSendFile, type FileToSend } from "#chloe/model/tools/chat";
+import { madeFolderOf, receivedFolder } from "#chloe/services/receivedService";
+import { chatAsk, chatSendFile, sendingScripts, type FileSent, type FileToSend } from "#chloe/model/tools/chat";
 import { NeedsSignIn } from "#chloe/connections/connection";
 import type { Reply } from "#chloe/load/plugin";
 import { PLUGINS } from "#chloe/plugins/index";
@@ -141,7 +141,7 @@ export interface Ask {
    * file in the agent's memory or one somebody sent it. Never for a guest.
    * Default: none.
    */
-  sendFile?: (file: FileToSend) => Promise<void>;
+  sendFile?: (file: FileToSend) => Promise<void | FileSent>;
   /**
    * Who this message is from, as `channel:id`, like "telegram:12345". Every
    * tool gets it as `context.user`. For an agent with `memoryPerUser`, it also
@@ -616,7 +616,14 @@ interface GoOptions {
 
 async function loopFor(options: GoOptions): Promise<Result> {
   const { agent, runId, trace, job, source, thread, said, calling, writing, instead } = options;
-  const tools = toolsFor(agent, options.without, { ...options, chat: Boolean(thread) });
+  // The lines that show what it sent, so a file it did not place still reaches the reply.
+  const lines: string[] = [];
+  const sendFile: Ask["sendFile"] = options.sendFile && (async (file) => {
+    const placed = await options.sendFile!(file);
+    if (placed) lines.push(placed.shows);
+    return placed;
+  });
+  const tools = toolsFor(agent, options.without, { ...options, sendFile, chat: Boolean(thread) });
   const before = answers(trace);
   const calls: Result["calls"] = [];
   // An eval answers every tool itself, so nothing it does is written anywhere.
@@ -669,7 +676,9 @@ async function loopFor(options: GoOptions): Promise<Result> {
       await committed({ error: done.text });
       return { runId, text: done.text, steps, cost, unpriced, calls };
     }
-    const last = signIn ?? done.ended?.text ?? done.text;
+    const words = signIn ?? done.ended?.text ?? done.text;
+    const left = lines.filter((line) => ![...done.earlier, words].some((one) => one.includes(addressIn(line))));
+    const last = [words, ...left].filter(Boolean).join("\n\n");
     // Each answer it gave before a message arrived is part of the reply, since
     // only a channel that sends as it goes has sent it.
     const text = [...done.earlier, last].join("\n\n");
@@ -684,6 +693,11 @@ async function loopFor(options: GoOptions): Promise<Result> {
     await committed({ error: why });
     throw error;
   }
+}
+
+/** The address in a line a channel gave to show a file, or the whole line when it has none. */
+function addressIn(line: string): string {
+  return /\]\(([^)\s]+)\)/.exec(line)?.[1] ?? line;
 }
 
 /**
@@ -1099,7 +1113,10 @@ function howShown(source: string): Section | undefined {
     from: "the runtime",
     text:
       "Your reply is shown as markdown. Writing they will copy and use somewhere else, like a song, a poem, an email or a message to send, " +
-      "goes inside a fenced block marked `writing`, which shows as a card with a copy button. Anything you say about it goes outside the block.",
+      "goes inside a fenced block marked `writing`, which shows as a card with a copy button. Anything you say about it goes outside the block. " +
+      "A picture from another site written as a markdown image is not loaded: it shows as a link. To show one, save it and send it as a file. " +
+      "You can attach files here: chatSendFile sends one, and it shows inside your reply. A file reaches them only that way, " +
+      "so never say you cannot attach it, and never write a link to a path on your machine.",
   };
 }
 
@@ -1172,9 +1189,10 @@ function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boole
     ...ownFolderTools()(agent),
     ...(owner ? { ...ownReadTools()(agent), ...ownTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
-    ...(who.sendFile && !who.guest ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id)]) } : {}),
+    ...(who.sendFile && !who.guest ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id), madeFolderOf(agent.id)]) } : {}),
     ...(who.chat ? { chatAsk: chatAsk() } : {}),
   };
+  if (tools.chatSendFile && tools.scriptRun) tools.scriptRun = sendingScripts(tools.scriptRun, tools.chatSendFile);
   for (const name of without) delete tools[name];
   for (const [name, one] of Object.entries(tools)) {
     if ((one.forOwner && !owner) || (one.changesAgent && !who.mayChangeAgent)) delete tools[name];

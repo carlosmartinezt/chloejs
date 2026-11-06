@@ -11,7 +11,7 @@ import { byPlace, moved } from "../lib/order.ts";
 import { modelChoices, modelName, shortChoices, type Offered } from "../lib/models.ts";
 import { Card, Prompt } from "./Log.tsx";
 import { go, href } from "../lib/route.ts";
-import { chatWidth, lastChat, setChatWidth, setLastChat } from "../lib/prefs.ts";
+import { chatWidth, lastChat, setChatWidth, setLastChat, setTyped, typed } from "../lib/prefs.ts";
 import { ideasFor, ideasFrom } from "../lib/ideas.ts";
 import { Collapse } from "./components/Collapse.tsx";
 import { Pick, type Option } from "./components/Pick.tsx";
@@ -36,6 +36,9 @@ interface Held extends Picture {
 const FOLD = 3000;
 /** What somebody wrote, without a channel's note on who wrote it, which is not theirs to change or copy. */
 const written = (content: string) => content.replace(/^\s*<([a-z_]+)>\n?[\s\S]*?\n?<\/\1>\s*/, "");
+
+/** A reply's words without the files it handed over, which mean nothing anywhere else. */
+const withoutFiles = (content: string) => content.replace(/!?\[[^\]\n]*\]\(file:[^)\s]+\)\s*/g, "").trim();
 
 /** The most pictures one turn takes, which is the runtime's own limit. */
 const MOST = 4;
@@ -141,7 +144,7 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
   const [listed, setListed] = useState(false);
   const [thread, setThread] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
-  const [prompt, setPrompt] = useState("");
+  const [prompt, showPrompt] = useState("");
   const [pictures, setPictures] = useState<Held[]>([]);
   // A file in its memory, held to go with the next message as its full link.
   const [file, setFile] = useState("");
@@ -282,15 +285,27 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
     setFile(about ?? "");
   }, [agent, asked, about]);
 
-  /** Start again, leaving what was said where it is. */
+  /** Start again, leaving what was said, and anything written and not sent, where it is. */
   function newChat() {
-    setPrompt("");
     setPictures([]);
     setFile("");
     setThread(freshThread(agent));
     if (!readOnly) setLastChat(agent, "");
     go({ at: "chat", agent });
   }
+
+  // The box is kept in this browser as it is written, so a reload or a closed
+  // window loses nothing. Each conversation has its own. One nobody has said
+  // anything in is kept under no name at all, because its id is made afresh on
+  // every load. Viewing as somebody, the box is empty and nothing is kept.
+  const typedIn = asked || lines.length ? thread : "";
+  function setPrompt(words: string) {
+    showPrompt(words);
+    if (!readOnly) setTyped(agent, typedIn, words);
+  }
+  useEffect(() => {
+    if (thread) showPrompt(readOnly ? "" : typed(agent, typedIn));
+  }, [agent, thread, typedIn, readOnly]);
 
   // Something said on another channel, or in another window, turns up here on
   // its own. The list of conversations is the one thing read every few
@@ -454,6 +469,7 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
   async function send(picked?: string, edit?: number) {
     // On the page a new conversation is a new chat, which is all /clear asks for.
     if (/^\/clear\s*$/i.test(picked ?? prompt)) {
+      if (!picked) setPrompt("");
       newChat();
       return;
     }
@@ -584,6 +600,7 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
   async function remove(one: Thread) {
     if (!window.confirm(`Delete "${one.label || called(one)}"? It is gone for good, and ${nameOf(agent)} will not remember it. Archive keeps it.`)) return;
     await api.forget(one.thread);
+    setTyped(agent, one.thread, "");
     setThreads((all) => all.filter((each) => each.thread !== one.thread));
     if (one.thread === thread) newChat();
   }
@@ -1188,7 +1205,7 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
                       <Pick options={line.buttons} multiple={line.multiple} disabled={waiting || readOnly} pick={(text) => void send(text)} />
                     )}
                     <div className="meta num">
-                      <CopyButton text={line.content} label="Copy response" />
+                      <CopyButton text={withoutFiles(line.content)} label="Copy response" />
                       {line.id !== undefined && !readOnly && (
                         <button className="plain act" data-tip="Fork into a new chat" aria-label="Fork into a new chat" onClick={() => void fork(line)}>
                           <Icons.Branch />

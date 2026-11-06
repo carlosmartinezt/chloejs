@@ -21,19 +21,27 @@ export interface FileToSend {
   name: string;
 }
 
+/** What a channel that shows a file inside the reply says back: the line that shows it. */
+export interface FileSent {
+  shows: string;
+}
+
 /**
  * The tool for one turn.
  *
  * - `send`: the channel's way to send a file into this conversation.
  * - `folders`: where a file may come from, full paths. Anything outside them is refused.
  */
-export function chatSendFile(send: (file: FileToSend) => Promise<void>, folders: string[]): ChloeTool {
+export function chatSendFile(send: (file: FileToSend) => Promise<void | FileSent>, folders: string[]): ChloeTool {
   return Object.assign(tool({
     description:
       "Send a file to the person you are talking with, as an attachment in this chat. The file must be in " +
-      "your memory, or be one they sent you (its path was in their message).",
+      "your memory, among the files you made, or be one they sent you (its path was in their message). When the " +
+      "answer has `shows`, write that line in your reply exactly as it came, where the file belongs. Next to the " +
+      "words about it is best, and a picture at the start of a list item sits beside that item. Several lines in a row " +
+      "show as a row. A file you do not place goes at the end of your reply.",
     inputSchema: z.object({
-      path: z.string().describe("The file: a path inside your memory, or the full path of a file they sent."),
+      path: z.string().describe("The file: a path inside your memory, or the full path of a file you made or they sent."),
       name: z.string().optional().describe("The name they see, like form-filled.pdf. Default: the file's own name."),
     }),
     execute: async ({ path, name }) => {
@@ -41,10 +49,31 @@ export function chatSendFile(send: (file: FileToSend) => Promise<void>, folders:
       const info = await stat(resolved).catch(() => undefined);
       if (!info?.isFile()) throw new Error(`There is no file at ${path}.`);
       const file = { path: resolved, name: name || basename(resolved) };
-      await send(file);
-      return { sent: file.name, bytes: info.size };
+      const placed = await send(file);
+      return { sent: file.name, bytes: info.size, ...(placed && { shows: placed.shows }) };
     },
   }), { title: "Send file" });
+}
+
+/**
+ * `script`, where a line `SEND <full path>` in what a script prints hands that
+ * file to the person, with no model asked, under the rules of `send`. What came
+ * of each is added to the script's answer as `sent`.
+ */
+export function sendingScripts(script: ChloeTool, send: ChloeTool): ChloeTool {
+  return {
+    ...script,
+    execute: async (input: never, options: never) => {
+      const result = (await (script.execute as (input: never, options: never) => Promise<{ stdout?: string }>)(input, options));
+      const paths = [...String(result?.stdout ?? "").matchAll(/^SEND (.+)$/gm)].map((line) => line[1].trim());
+      if (!paths.length) return result;
+      const sent: unknown[] = [];
+      for (const path of paths) {
+        sent.push(await (send.execute as (input: { path: string }, options: never) => Promise<unknown>)({ path }, options).catch((error) => ({ path, problem: String(error?.message ?? error) })));
+      }
+      return { ...result, sent };
+    },
+  } as ChloeTool;
 }
 
 /**
@@ -80,5 +109,5 @@ function inside(folders: string[], path: string): string {
       // Try the next one.
     }
   }
-  throw new Error(`${path} is not in your memory or among the files sent to you, so it cannot be sent.`);
+  throw new Error(`${path} is not in your memory, the files you made or the files sent to you, so it cannot be sent.`);
 }

@@ -1,5 +1,6 @@
 // Every call the page makes. One fetch helper, and one line per route: the
 // page never builds a URL anywhere else.
+import { forgetTyped } from "./prefs.ts";
 import type {
   Account,
   AgentSummary,
@@ -59,6 +60,23 @@ export function frameAt(handed: string): string {
 /** The same, said as one calculation, so it can be checked without moving where the page is pointed. */
 export function frameUnder(base: string, handed: string): string {
   return base.replace(/\/api$/, "") + handed;
+}
+
+/** A file a reply handed over: whose agent, and its id. */
+export interface ChatFileAt {
+  agent: string;
+  id: string;
+}
+
+/** The file an address in a reply's words names, `file:<agent>/<id>`, or undefined when it names something else. */
+export function fileIn(address: string): ChatFileAt | undefined {
+  const found = /^file:([\w-]+)\/([\w-]+)$/.exec(address);
+  return found ? { agent: found[1], id: found[2] } : undefined;
+}
+
+/** Where the runtime serves that file. */
+export function chatFileAddress({ agent, id }: ChatFileAt): string {
+  return `${at}/agents/${agent}/chat/files/${id}`;
 }
 
 /**
@@ -181,7 +199,11 @@ export const api = {
   link: (code: string) => call<Session>("/link", { code }),
   /** The first password, from a browser already signed in. */
   setup: (password: string) => call<{ ok: true }>("/setup", { password }),
-  signOut: () => call<{ ok: true }>("/logout", {}),
+  signOut: () =>
+    call<{ ok: true }>("/logout", {}).then((out) => {
+      forgetTyped();
+      return out;
+    }),
   /** The owner's name, which signing in asks for, or "". */
   ownName: () => call<{ name: string }>("/account/name"),
   /** A new password, a new name ("" takes it away), or both, given the current password. A new password signs every other browser out. */

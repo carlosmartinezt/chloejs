@@ -3,6 +3,25 @@
 import { about, is } from "#chloe/ops/check";
 
 {
+  about("the pictures on a web page");
+
+  const { picturesIn, savePictures } = await import("./webService.ts");
+  const html =
+    '<head><meta property="og:image" content="/card.jpg"><meta name="x" content="/not.jpg"></head><body>' +
+    '<img src="/card.jpg"><img src="still.png" alt="A fox &amp; a boy"><img data-src="https://cdn.example/late.webp">' +
+    '<img src="/dot.gif" width="1" height="1"><img src="/logo.svg"><img src="data:image/png;base64,AAAA">' +
+    '<script>const a = \'<img src="/script.png">\';</script></body>';
+  is(
+    "the one that stands for the page comes first, then each on the page, full and once, without icons, drawings or inline ones",
+    picturesIn(html, "https://example.com/film/"),
+    [{ url: "https://example.com/card.jpg" }, { url: "https://example.com/film/still.png", alt: "A fox & a boy" }, { url: "https://cdn.example/late.webp" }],
+  );
+  is("no more than eight", picturesIn('<img src="/a.png">'.repeat(1) + Array.from({ length: 12 }, (_, n) => `<img src="/${n}.png">`).join(""), "https://example.com/").length, 8);
+  const [saved] = await savePictures("test", ["http://127.0.0.1:9/secret.png"]);
+  is("a private address is not fetched", "problem" in saved && saved.problem.includes("private address"), true);
+}
+
+{
   about("reading a web page");
 
   const { feedToText, htmlToText, isPrivate, readPage } = await import("@chloejs/core/services");

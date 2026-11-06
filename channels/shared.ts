@@ -51,7 +51,7 @@ import { asPerson } from "#chloe/core/person";
 import { ReplyStopped, turn } from "#chloe/core/turn";
 import type { Connection } from "#chloe/connections/connection";
 import { neededBy, type ChloeTool, type Tools } from "#chloe/model/tool";
-import type { FileToSend } from "#chloe/model/tools/chat";
+import type { FileSent, FileToSend } from "#chloe/model/tools/chat";
 import { keepReceived } from "#chloe/services/receivedService";
 import { person } from "#chloe/serve/people";
 
@@ -399,10 +399,11 @@ export interface While {
   send?: (text: string) => Promise<void>;
   /**
    * Sends one file to the chat, as an attachment. With it, the model can send
-   * a file from the agent's memory, or one somebody sent it, back into this
-   * chat (`chatSendFile`). Leave it out on a channel that cannot.
+   * a file from the agent's memory, one it made, or one somebody sent it, back
+   * into this chat (`chatSendFile`). A channel that shows a file inside the
+   * reply says back the line that shows it. Leave it out on a channel that cannot.
    */
-  sendFile?: (file: FileToSend) => Promise<void>;
+  sendFile?: (file: FileToSend) => Promise<void | FileSent>;
   /** Called as each tool starts, with the tool's name, and its title if it has one. */
   calling?: (tool: { name: string; title?: string }) => void;
   /**

@@ -10,6 +10,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 
 import { agentDir, memoryDir } from "#chloe/core/paths";
+import { madeFolder } from "./receivedService.ts";
 import { run, type Result } from "./runService.ts";
 
 /** How deep inside a skill's folder a script is looked for. */
@@ -70,7 +71,7 @@ export async function listScripts(agent: string): Promise<string[]> {
  *
  * The script file must be executable, with a first line such as `#!/bin/sh`.
  * It gets chloe's environment variables, plus `MEMORY_FOLDER` (the agent's
- * memory folder).
+ * memory folder) and `MADE_FOLDER` (where a file it makes waits to be sent).
  *
  * Returns a `Result`, plus `script` and `args`. It does not throw when the
  * script fails: check `exitCode`.
@@ -93,9 +94,9 @@ export async function runScripts(
   const file = skill ? `${agentDir(agent)}/skills/${name}` : `${dir}/${name}`;
   // A script is someone else's program, so what it needs reaches it the way a
   // program expects, as an environment variable: its agent's memory folder as
-  // MEMORY_FOLDER.
+  // MEMORY_FOLDER, and where a file it makes waits to be sent as MADE_FOLDER.
   const memory = memoryDir(agent);
-  const env: Record<string, string> = { ...(memory && { MEMORY_FOLDER: memory }) };
+  const env: Record<string, string> = { ...(memory && { MEMORY_FOLDER: memory }), MADE_FOLDER: await madeFolder(agent) };
   const result = await run(file, args, { timeoutMs, cwd: cwd ?? dir, env, signal });
   return { script: name, args, ...result };
 }

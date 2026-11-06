@@ -166,6 +166,11 @@ added("threads", "place", "integer");
 // the channel gives the chat. A chat with no row is still in that one.
 db.exec("create table if not exists cleared (thread text primary key, now text not null)");
 
+// A file a reply handed over on the page, and whose it is: `asker` is who asked
+// for that reply. The file itself is `chat-files/<id>` in the state folder.
+db.exec("create table if not exists chat_files (id text primary key, agent text not null, thread text not null, asker text not null, name text not null, type text not null, at text not null)");
+db.exec("create index if not exists chat_files_thread on chat_files (thread)");
+
 // When somebody last looked at an agent's changes. One row per agent.
 db.exec("create table if not exists seen (agent text primary key, at text not null)");
 

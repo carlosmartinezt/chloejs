@@ -79,8 +79,15 @@ scripts have by being in it.
 files, an agent with `scripts` on also gets each file saved in the state
 folder, `received/<agent id>/`, and its full path added to the message, so a
 script can be handed it. A file is kept for 30 days, and never for a guest.
-On a channel that can send files (Telegram), the agent gets `chatSendFile` in
-that conversation, to send back a file from its memory or one it was sent.
+On a channel that can send files (Telegram and the page's chat), the agent gets
+`chatSendFile` in that conversation, to send back a file from its memory, one it
+made, or one it was sent. A script writes what it makes in `MADE_FOLDER`,
+`made/<agent id>/` in the state folder, kept for 30 days, and a line
+`SEND <full path>` in what it prints hands that file over with no model asked. On the
+page a file sits inside the reply: the tool answers with the line that shows it,
+the agent writes that line where the file belongs, and one it leaves out goes at
+the end. Only whoever asked for that reply can open the file, and it goes when
+their conversation does.
 
 Instructions and skills say what to do, not which of the runtime's tools does
 it: "note it in your memory", "run `deploy.sh`", never `memoryEditFile` or

@@ -1,4 +1,4 @@
-// Reading one web page, as text.
+// Reading one web page, as text, and saving the pictures on one.
 //
 // Only public addresses: this box serves its own sites and the runtime on
 // loopback ports, and a page that redirects to one of them must not be read
@@ -6,10 +6,16 @@
 // address.
 //
 // The tool a model reaches is tools.ts, which calls this.
+import { randomUUID } from "node:crypto";
 import { lookup } from "node:dns";
+import { writeFile } from "node:fs/promises";
 import { request as http } from "node:http";
 import { request as https } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
+import { basename } from "node:path";
+
+import { typeOfFile } from "#chloe/services/chatFilesService";
+import { madeFolder } from "#chloe/services/receivedService";
 
 /** A web page that `readPage` read as text. A long page comes in parts, one part per call. */
 export interface Page {
@@ -23,7 +29,18 @@ export interface Page {
   text: string;
   /** Where the next part starts, if there is more. Pass it as `from` to `readPage` to read on. Not set on the last part. */
   next?: number;
+  /** The pictures on an HTML page, the one it says stands for it first, on the first part only. */
+  pictures?: PictureOnPage[];
 }
+
+/** A picture on a page: its full address, and what the page says it shows. */
+export interface PictureOnPage {
+  url: string;
+  alt?: string;
+}
+
+/** How many pictures of a page are listed, and how many one call saves. */
+const PICTURES = 8;
 
 /** Enough for a results table, short enough not to fill a turn. */
 const SLICE = 20_000;
@@ -101,6 +118,8 @@ interface Reply {
   retryAfter?: string;
   type: string;
   body: string;
+  /** The same answer, not read as text. */
+  bytes: Buffer;
 }
 
 function get(url: URL): Promise<Reply> {
@@ -140,12 +159,14 @@ function get(url: URL): Promise<Reply> {
           } catch {
             decoder = new TextDecoder();
           }
+          const bytes = Buffer.concat(chunks);
           resolve({
             status: response.statusCode ?? 0,
             location: response.headers.location,
             retryAfter: response.headers["retry-after"],
             type,
-            body: decoder.decode(Buffer.concat(chunks)),
+            body: decoder.decode(bytes),
+            bytes,
           });
         });
         response.on("error", reject);
@@ -209,6 +230,74 @@ export function htmlToText(html: string, base: string): { title?: string; text: 
       .filter(Boolean)
       .join("\n"),
   };
+}
+
+/**
+ * The pictures on an HTML page, at most `PICTURES`: the one its head says
+ * stands for the page (`og:image`), then each `<img>`, with its `alt`. Leaves
+ * out one drawn from an address that is not http or https, an SVG, and one that
+ * says it is under 64 pixels wide or high, which is an icon or a tracker.
+ *
+ * - `html`: the HTML.
+ * - `base`: the page's own address, used to turn relative addresses into full ones.
+ */
+export function picturesIn(html: string, base: string): PictureOnPage[] {
+  const attribute = (tag: string, name: string) => new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i").exec(tag)?.slice(1).find((one) => one !== undefined);
+  const found = new Map<string, PictureOnPage>();
+  const add = (address: string | undefined, alt?: string) => {
+    if (!address || found.size >= PICTURES) return;
+    try {
+      const url = new URL(decode(address), base);
+      if (!/^https?:$/.test(url.protocol) || /\.svg$/i.test(url.pathname) || found.has(url.href)) return;
+      found.set(url.href, { url: url.href, ...(alt?.trim() && { alt: decode(alt).trim() }) });
+    } catch {}
+  };
+  for (const [tag] of html.matchAll(/<meta\b[^>]*>/gi)) {
+    if (/^og:image(:url|:secure_url)?$/i.test(attribute(tag, "property") ?? "")) add(attribute(tag, "content"));
+  }
+  for (const [tag] of html.replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, "").matchAll(/<img\b[^>]*>/gi)) {
+    const small = ["width", "height"].some((side) => Number(attribute(tag, side)) > 0 && Number(attribute(tag, side)) < 64);
+    if (!small) add(attribute(tag, "src") ?? attribute(tag, "data-src"), attribute(tag, "alt"));
+  }
+  return [...found.values()];
+}
+
+/**
+ * Saves pictures from public addresses in the agent's made folder
+ * (`madeFolder`), so they can be sent. The same rule as `readPage`: nothing on
+ * this machine or a private network, even through a redirect.
+ *
+ * - `agent`: the agent's id.
+ * - `addresses`: at most 8 addresses.
+ *
+ * Returns one line per address, with its full `path`, or the `problem` when it
+ * could not be saved, which is also what comes back for an address that does not
+ * answer with a PNG, JPEG, GIF or WebP.
+ */
+export async function savePictures(agent: string, addresses: string[]): Promise<({ url: string; path: string } | { url: string; problem: string })[]> {
+  const folder = await madeFolder(agent);
+  return Promise.all(
+    addresses.slice(0, PICTURES).map(async (address) => {
+      try {
+        let url = new URL(address);
+        let reply = await get(url);
+        for (let hop = 0; reply.status >= 300 && reply.status < 400 && reply.location; hop++) {
+          if (hop >= HOPS) throw new Error(`More than ${HOPS} redirects.`);
+          url = new URL(reply.location, url);
+          reply = await get(url);
+        }
+        if (reply.status >= 400) throw new Error(`It answered ${reply.status}.`);
+        const type = typeOfFile(reply.bytes);
+        if (!type.startsWith("image/")) throw new Error(`It is ${reply.type || "not a picture"}, not a picture.`);
+        const name = basename(url.pathname).replace(/\.[^.]*$/, "").replace(/[^\w-]+/g, "-").slice(-60) || "picture";
+        const path = `${folder}/${randomUUID().slice(0, 8)}-${name}.${type.split("/")[1]}`;
+        await writeFile(path, reply.bytes, { mode: 0o600 });
+        return { url: address, path };
+      } catch (error) {
+        return { url: address, problem: error instanceof Error ? error.message : String(error) };
+      }
+    }),
+  );
 }
 
 /** The inside of the first `<name>` element in `xml`, CDATA unwrapped and entities left alone. */
@@ -313,6 +402,7 @@ export async function readPage(address: string, from = 0): Promise<Page> {
     // for every word of it on each step after.
     const slice = reply.status >= 400 ? ERROR_PAGE : SLICE;
     const end = from + slice;
-    return { url: url.href, status: reply.status, title, text: text.slice(from, end), next: end < text.length && reply.status < 400 ? end : undefined };
+    const pictures = /html/.test(reply.type) && from === 0 && reply.status < 400 ? picturesIn(reply.body, url.href) : [];
+    return { url: url.href, status: reply.status, title, text: text.slice(from, end), next: end < text.length && reply.status < 400 ? end : undefined, ...(pictures.length && { pictures }) };
   }
 }

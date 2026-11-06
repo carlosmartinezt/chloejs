@@ -12,23 +12,32 @@ const word = (one: string) => one.charAt(0).toUpperCase() + one.slice(1);
 
 /**
  * What a model is called on the page, in the words its maker's own app uses:
- * "Claude Opus 5.5", "ChatGPT 6 Luna", "Gemini 3.8 Flash". An effort on the end
- * of a name is left off. A model of anybody else's stays as it is written, and
- * so does a route named after it.
+ * "Claude Opus 5.5", "ChatGPT 6 Luna", "Gemini 3.8 Flash", "Kimi K3.1 Pro". An
+ * effort on the end of a name is left off. A "-contributor" model trains on what
+ * it is sent, and its name says so. A model of anybody else's stays as it is
+ * written, and so does a route named after it.
  */
 export function modelName(model: string): string {
   const [id, via] = model.split(" via ");
-  const name = id.slice(id.indexOf("/") + 1).replace(/-(low|medium|high)$/, "");
+  const whole = id.slice(id.indexOf("/") + 1).replace(/-(low|medium|high)$/, "");
+  const name = whole.replace(/-contributor$/, "");
   const claude = id.startsWith("anthropic/") && /^claude-([a-z]+)-(\d+)(?:[-.](\d+))?/.exec(name);
   const gpt = id.startsWith("openai/") && /^gpt-(\d+(?:\.\d+)?)(?:-(.+))?$/.exec(name);
   const gemini = id.startsWith("google/") && /^gemini-(\d+(?:\.\d+)?)-(.+)$/.exec(name);
+  // By name alone, since these come through a route rather than their maker's own.
+  const open = /^(deepseek|kimi)-([a-z]\d+(?:\.\d+)?)(?:-(.+))?$/.exec(name);
+  const muse = /^muse-spark-(\d+(?:\.\d+)?)$/.exec(name);
   const said = claude
     ? `Claude ${word(claude[1])} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`
     : gpt
       ? `ChatGPT ${gpt[1]}${gpt[2] ? ` ${gpt[2].split("-").map(word).join(" ")}` : ""}`
       : gemini
         ? `Gemini ${gemini[1]} ${gemini[2].split("-").map(word).join(" ")}`
-        : id;
+        : open
+          ? `${open[1] === "kimi" ? "Kimi" : "DeepSeek"} ${open[2].toUpperCase()}${open[3] ? ` ${open[3].split("-").map(word).join(" ")}` : ""}`
+          : muse
+            ? `Muse Spark ${muse[1]}${name === whole ? "" : " (training model)"}`
+            : id;
   return via ? `${said} via ${via}` : said;
 }
 

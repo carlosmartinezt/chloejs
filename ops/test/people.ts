@@ -128,6 +128,62 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
     is("which the log leaves out too", ((await call("GET", "/api/runs", owner)).body as { id: string }[]).some((one) => one.id === herRun), false);
     is("and the agent's log", ((await call("GET", "/api/agents/test/log", owner)).body as { id: string }[]).some((one) => one.id === herRun), false);
 
+    {
+      const { mkdir, writeFile, readFile: read, stat } = await import("node:fs/promises");
+      const { STATE } = await import("#chloe/core/paths");
+      const { forget, cut, branch } = await import("#chloe/model/memory");
+      const { keepChatFile, typeOfFile } = await import("#chloe/services/chatFilesService");
+      const fileAt = (shows: string) => /\(file:test\/([\w-]+)\)/.exec(shows)?.[1] ?? "";
+      const png = Buffer.from("89504e470d0a1a0a00", "hex");
+
+      is("a file's type is its first bytes", [typeOfFile(png), typeOfFile(Buffer.from("%PDF-1.7")), typeOfFile(Buffer.from("<svg onload=x>")), typeOfFile(Buffer.from("<html>"))], ["image/png", "application/pdf", "application/octet-stream", "application/octet-stream"]);
+
+      // A reply on the page, as they asked for it, handing over a file from the agent's memory.
+      await mkdir(test.memory.folder, { recursive: true });
+      await writeFile(`${test.memory.folder}/fox.png`, png);
+      answers.push({ tool_calls: [{ id: "1", type: "function", function: { name: "chatSendFile", arguments: '{"path":"fox.png"}' } }] }, "Here it is.");
+      const reply = await call("POST", "/api/agents/test/chat", jenny, { thread: "test/web-jenny", prompt: "a picture please" });
+      is("a reply on the page shows the file inside itself", /^Here it is\.\n\n!\[fox\]\(file:test\/[\w-]+\)$/.test(reply.body.text), true);
+      const id = fileAt(reply.body.text);
+      const address = `/api/agents/test/chat/files/${id}`;
+      const got = await fetch(`${at}${address}`, { headers: jenny });
+      is("whoever asked gets it, as what its bytes say it is", [got.status, got.headers.get("content-type"), got.headers.get("x-content-type-options")], [200, "image/png", "nosniff"]);
+      is("nobody else does, the owner included", (await call("GET", address, owner)).status, 404);
+      is("and with no session, nobody", (await call("GET", address)).status, 401);
+      is("nor through another agent's address", (await call("GET", `/api/agents/other/chat/files/${id}`, owner)).status, 404);
+      const audit = await read(`${STATE}/memory-audit/test.jsonl`, "utf8");
+      is("one from a memory is in the audit log", audit.split("\n").some((line) => line.includes('"serve"') && line.includes("fox.png") && line.includes('"chat"')), true);
+
+      const page = await keepChatFile("test", "test/web-jenny", "member:jenny@example.com", { path: `${test.memory.folder}/fox.png`, name: "](evil)\n.html" });
+      is("a name cannot change the line that shows it", page.includes("\n") || page.includes("(evil"), false);
+      await writeFile(`${test.memory.folder}/page.html`, "<script>alert(1)</script>");
+      const script = await keepChatFile("test", "test/web-jenny", "member:jenny@example.com", { path: `${test.memory.folder}/page.html`, name: "page.png" });
+      const opened = await fetch(`${at}/api/agents/test/chat/files/${fileAt(script)}`, { headers: jenny });
+      is(
+        "a page named as a picture only downloads, and in a sandbox",
+        [script.startsWith("!"), opened.headers.get("content-type"), opened.headers.get("content-disposition")?.startsWith("attachment"), opened.headers.get("content-security-policy")?.startsWith("sandbox")],
+        [false, "application/octet-stream", true, true],
+      );
+
+      const there = (one: string) => stat(`${STATE}/chat-files/${one}`).then(() => true, () => false);
+      remember("test/web-files", "user", "two files");
+      const first = await keepChatFile("test", "test/web-files", "owner", { path: `${test.memory.folder}/fox.png`, name: "one.png" });
+      remember("test/web-files", "assistant", first);
+      const cutFrom = (db.prepare("select max(id) as id from messages where thread = 'test/web-files'").get() as { id: number }).id;
+      remember("test/web-files", "user", "and more");
+      const second = await keepChatFile("test", "test/web-files", "owner", { path: `${test.memory.folder}/fox.png`, name: "two.png" });
+      remember("test/web-files", "assistant", second);
+      cut("test/web-files", cutFrom + 1);
+      is("taking a message back takes its file, and leaves the one before", [await there(fileAt(first)), await there(fileAt(second))], [true, false]);
+      branch("test/web-files", cutFrom, "test/web-fork");
+      forget("test/web-files");
+      is("a fork keeps a file its first conversation has lost", await there(fileAt(first)), true);
+      forget("test/web-fork");
+      db.prepare("update chat_files set at = '2020-01-01T00:00:00Z' where id = ?").run(fileAt(first));
+      await keepChatFile("test", "test/web-other", "owner", { path: `${test.memory.folder}/fox.png`, name: "three.png" });
+      is("and once nothing names it, it goes", await there(fileAt(first)), false);
+    }
+
     is("somebody invited cannot view as anybody", (await call("POST", "/api/people/view", jenny, { email: "jenny@example.com" })).status, 403);
     is("nobody can be viewed who was not invited", (await call("POST", "/api/people/view", owner, { email: "nobody@example.com" })).status, 404);
     const started = await call("POST", "/api/people/view", owner, { email: "jenny@example.com" });
@@ -139,6 +195,8 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
     is("it opens their conversation", (await call("GET", `/api/threads/${hersThread}`, viewing)).status, 200);
     const listedThere = (await call("GET", "/api/agents/test/threads", viewing)).body.map((one: { thread: string }) => one.thread);
     is("and lists what they see and no more", [listedThere.includes("test/web-jenny"), listedThere.includes("test/web-owner")], [true, false]);
+    const hers = db.prepare("select id from chat_files where asker = 'member:jenny@example.com' and type = 'image/png' limit 1").get() as { id: string };
+    is("a file of theirs opens", (await call("GET", `/api/agents/test/chat/files/${hers.id}`, viewing)).status, 200);
     is("each thing read is recorded", (db.prepare("select count(*) as n from views where person = 'jenny@example.com'").get() as { n: number }).n > before, true);
     is("it cannot send", (await call("POST", "/api/agents/test/chat", viewing, { thread: "test/web-jenny", prompt: "hello" })).status, 403);
     is("nor start a reply", (await call("POST", "/api/agents/test/chat/start", viewing, { prompt: "hello" })).status, 403);

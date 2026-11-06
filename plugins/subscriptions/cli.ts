@@ -382,7 +382,14 @@ export function invoke(
   cli: string,
   args: string[],
   input: string,
-  options: { signal?: AbortSignal; cwd?: string; missing: string; env?: Record<string, string | undefined> },
+  options: {
+    signal?: AbortSignal;
+    cwd?: string;
+    missing: string;
+    env?: Record<string, string | undefined>;
+    /** Sees what it prints as it comes, and can stop it there: what it printed so far is then the answer. */
+    watch?: (text: string, stop: () => void) => void;
+  },
 ): Promise<{ code: number; out: string; err: string }> {
   return new Promise((done, fail) => {
     if (options.signal?.aborted) return fail(options.signal.reason);
@@ -419,7 +426,10 @@ export function invoke(
     // marks, and the words are the one thing a model's answer must keep.
     const out: Buffer[] = [];
     const err: Buffer[] = [];
-    child.stdout.on("data", (d: Buffer) => out.push(d));
+    child.stdout.on("data", (d: Buffer) => {
+      out.push(d);
+      options.watch?.(d.toString("utf8"), () => kill("SIGTERM"));
+    });
     child.stderr.on("data", (d: Buffer) => err.push(d));
     child.on("error", (error: NodeJS.ErrnoException) => {
       fail(error.code === "ENOENT" ? new Error(options.missing) : error);

@@ -9,10 +9,12 @@
 // documented, and a documented route that does not exist is worse than either.
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createSecureServer } from "node:https";
 import { createServer as createPortHolder, type Server as PortHolder, type Socket } from "node:net";
 import { networkInterfaces } from "node:os";
+import { isAbsolute, relative } from "node:path";
 
 import { z } from "zod";
 
@@ -27,6 +29,7 @@ import { commands } from "#chloe/channels/shared";
 import { branch, current, cut, forget } from "#chloe/model/memory";
 import { models, quickFor } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
+import { chatFileFor, chatFileHeaders, keepChatFile } from "#chloe/services/chatFilesService";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
 import { changeChannel, changeAbility, changeModel, changeSettings, changeTool, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
 import { editable, open, save, tree } from "./files.ts";
@@ -43,6 +46,7 @@ import {
   memoryRename,
   memorySave,
   memoryTree,
+  record,
 } from "./memory.ts";
 import type { Certificate } from "./certificate.ts";
 import { checkPass, makePass } from "./pass.ts";
@@ -485,7 +489,16 @@ async function messageFor({ request, response, context, params, who }: At): Prom
             notes: images.map((one) => `(Attached: ${one.name})`),
           })
         : undefined,
-    }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory });
+    }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory }, {
+      // A reply here shows a file inside itself, and the file is kept for whoever asked.
+      sendFile: under
+        ? async (file) => {
+            const inMemory = relative(agent.memory.folder, file.path);
+            if (!inMemory.startsWith("..") && !isAbsolute(inMemory)) await record(agent, "serve", inMemory, from(request), { to: "chat" });
+            return { shows: await keepChatFile(agent.id, under, askerOf(who), file) };
+          }
+        : undefined,
+    });
     if (naming) await Promise.race([naming, new Promise((done) => setTimeout(done, 5000))]);
     const kept = db.prepare("select id, role from messages where thread = ? and id > ? order by id").all(under, before);
     return handled && { ...handled, kept };
@@ -1222,6 +1235,26 @@ const routes: Route[] = [
         },
       );
       json(at.response, { answer }, 202);
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/agents/:id/chat/files/:file",
+    does: "A file a reply handed over, only to whoever asked for that reply. A picture or a PDF opens in the browser, and anything else downloads. A 404 means it is not theirs, or its conversation was deleted.",
+    token: true,
+    needsApiChannel: true,
+    member: "chat",
+    handle: async ({ response, params, who }) => {
+      const file = chatFileFor(params.id, params.file, askerOf(who));
+      if (!file) throw new NotFound("No such file.");
+      response.writeHead(200, {
+        ...chatFileHeaders(file),
+        "cache-control": "private, max-age=3600",
+        "x-content-type-options": "nosniff",
+        "x-robots-tag": "noindex, nofollow, noarchive",
+        "referrer-policy": "no-referrer",
+      });
+      response.end(await readFile(file.path));
     },
   },
   {

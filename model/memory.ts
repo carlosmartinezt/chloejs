@@ -3,6 +3,7 @@
 // then shown that and what came after. What an agent should remember across
 // runs it writes into its own folder, where it can be read and corrected.
 import { db } from "#chloe/core/db";
+import { dropUnusedFiles } from "#chloe/services/chatFilesService";
 import type { Message } from "./model.ts";
 import type { Call } from "./tool.ts";
 
@@ -93,6 +94,7 @@ export function forget(thread: string): void {
   // One with an owner keeps it, so nobody else can take up its id.
   db.prepare("delete from threads where thread = ? and owner is null").run(thread);
   db.prepare("update threads set label = null, archived = null, pinned = null, group_id = null, place = null where thread = ?").run(thread);
+  dropUnusedFiles(thread);
 }
 
 /**
@@ -117,7 +119,9 @@ export function branch(thread: string, through: number, to: string): number {
  * messages went.
  */
 export function cut(thread: string, from: number): number {
-  return Number(db.prepare("delete from messages where thread = ? and id >= ?").run(thread, from).changes);
+  const went = Number(db.prepare("delete from messages where thread = ? and id >= ?").run(thread, from).changes);
+  dropUnusedFiles(thread);
+  return went;
 }
 
 /** The conversation a channel's chat is in now: the id the channel gives it, until `/clear` moves it on. */

@@ -127,5 +127,18 @@ export const setLogShare = (share: number): void => save("logShare", share.toFix
 export const lastChat = (agent: string): string => load(`chat.${agent}`);
 export const setLastChat = (agent: string, thread: string): void => save(`chat.${agent}`, thread);
 
+/** What is written in a chat box and not sent yet, by conversation: an empty `thread` is a new one. */
+export const typed = (agent: string, thread: string): string => load(`typed.${agent}.${thread}`);
+export const setTyped = (agent: string, thread: string, words: string): void => save(`typed.${agent}.${thread}`, words);
+
+/** Every chat box's unsent words, so the next person on this browser does not find them. */
+export function forgetTyped(): void {
+  try {
+    for (const key of Object.keys(localStorage)) if (key.startsWith("chloe.typed.")) localStorage.removeItem(key);
+  } catch {
+    // A private window: nothing was kept.
+  }
+}
+
 export const chatWidth = (): number => Number(load("chatWidth")) || 0;
 export const setChatWidth = (width: number): void => save("chatWidth", width ? String(Math.round(width)) : "");

@@ -1,14 +1,16 @@
 // The web: reading one public page as plain text, and searching, through
 // Brave Search on a key or DuckDuckGo's results page without one.
 import type { Plugin } from "#chloe/load/plugin";
-import { readPage, search } from "./tools.ts";
+import { readPage, savePictures, search } from "./tools.ts";
 
 declare module "#chloe/load/abilities" {
   interface Abilities {
     /**
-     * Adds the tools `webReadPage` (read one public web page as plain text) and
-     * `webSearch` (search the web). Off by default. `webReadPage` reads only
-     * public addresses and does not run the page's JavaScript. `webSearch` goes
+     * Adds the tools `webReadPage` (read one public web page as plain text),
+     * `webSavePictures` (save pictures from the web, to send them) and
+     * `webSearch` (search the web). Off by default. `webReadPage` and
+     * `webSavePictures` reach only public addresses, and `webReadPage` does not
+     * run the page's JavaScript. `webSearch` goes
      * to Brave Search when `connections.brave.api_key` is set, and to
      * DuckDuckGo when it is not. Switch the search tool off on its own to read
      * pages only.
@@ -54,9 +56,9 @@ export const web: Plugin = {
       name: "web",
       label: "Web",
       on: false,
-      does: "Reads public web pages as plain text, and searches the web.",
-      tools: ["webReadPage", "webSearch"],
-      make: () => ({ webReadPage: readPage(), webSearch: search() }),
+      does: "Reads public web pages as plain text, saves the pictures on them, and searches the web.",
+      tools: ["webReadPage", "webSavePictures", "webSearch"],
+      make: () => ({ webReadPage: readPage(), webSavePictures: savePictures(), webSearch: search() }),
     },
   ],
 };

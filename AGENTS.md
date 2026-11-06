@@ -505,16 +505,17 @@ Nothing about a model's name decides which account pays for it.
 
 Each CLI route is one file in `plugins/subscriptions/` the shape of `claude.ts`
 there, with the CLI's own tools switched off, and `cli.ts` beside it is what
-they share, each a `ModelRoute` (`model/model.ts`). The claude and
+they share, each a `ModelRoute` (`model/model.ts`). The claude, codex and
 opencode routes hand a turn's tools over as real ones, through
 `plugins/subscriptions/toolServer.ts`, a server that runs nothing, and stop after the model's
-first answer, so every call is read as data: claude's from the CLI's record,
+first answer, so every call is read as data: claude's and codex's from the CLI's
+record, codex's by stopping it a moment after its last call, and
 opencode's from the events of a server of its own that the route starts for the
 call, where each tool asks first and chloe always says no. `opencode run` cannot
 be used for this: it asks the model before the tool server has connected, and
-carries on after a refusal. Codex still describes the tools in words and reads
-requests back out of the reply, which is a guess, and what it misses reaches
-the person as words: move it over when its CLI can be tried. A CLI that carries one
+carries on after a refusal. Antigravity still describes the tools in words and
+reads requests back out of the reply, which is a guess, and what it misses
+reaches the person as words. A CLI that carries one
 provider says so in its own `cliModel`; opencode carries whatever it is signed in
 to, so `opencodeModels()` asks it rather than the runtime deciding, once per
 process because `routeFor` cannot wait two seconds.
@@ -1107,9 +1108,23 @@ instruction mentions it, it does not belong there.
 **A file somebody sends reaches a script only through the state folder.** An
 agent with `scripts` gets each file a message carries saved in
 `received/<agent id>/` (`services/receivedService.ts`, kept 30 days, never for
-a guest) and the path in the message. `chatSendFile` sends one back only
-from that folder or the agent's memory, and only on a channel that passes
-`sendFile` in `While`.
+a guest) and the path in the message. A file it makes waits in `made/<agent id>/`
+(`MADE_FOLDER` to a script), under the same 30 days. `chatSendFile` sends one
+back only from those folders or the agent's memory, and only on a channel that
+passes `sendFile` in `While`. A script that prints `SEND <full path>` hands that
+file over under the same rules, with no model asked (`sendingScripts()`).
+
+**A file on the page is part of what was said.** The page's `sendFile` copies it
+to `chat-files/` (`services/chatFilesService.ts`) and answers with a line,
+`![what it shows](file:<agent>/<id>)` or `[its name](file:<agent>/<id>)`, which
+the reply carries, so the message is the only record of where it goes and a fork
+has it too. `GET /api/agents/<id>/chat/files/<file>` gives it only to whoever
+asked for that reply, and its type is read from its first bytes. One from a
+memory is written to the audit log first. It goes when the last message naming
+it does. **The page loads a picture only from that route.** `![...](https://...)`
+stays a link, and do not change that: a picture from anywhere else tells that
+site who is reading, and a page a model read could have it carry words away in
+its address.
 
 **Do not let the runtime learn an agent's id.** It is the floor everyone
 stands on. Agent specific code lives in that agent's folder.

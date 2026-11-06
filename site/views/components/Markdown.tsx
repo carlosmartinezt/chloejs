@@ -2,27 +2,33 @@ import type { ReactNode } from "react";
 
 import { Code, CopyButton } from "./Code.tsx";
 import * as Icons from "./Icons.tsx";
+import { chatFileAddress, fileIn } from "../../lib/api.ts";
 import { colourOf, markFor } from "../../lib/sites.ts";
 
 /**
- * The marks inside a line: **bold**, `code`, *italic* and [words](address).
- * Built as elements rather than as HTML, because some of what is rendered here
- * is words from a model, and words from a model are never handed to the browser
- * as markup.
+ * The marks inside a line: **bold**, `code`, *italic*, [words](address) and
+ * ![what it shows](address). Built as elements rather than as HTML, because some
+ * of what is rendered here is words from a model, and words from a model are
+ * never handed to the browser as markup.
  */
-const MARKS = /\*\*([^*\n]+)\*\*|`([^`\n]+)`|\[([^\]\n]+)\]\(([^)\s]+)\)|(?<![*\w])\*([^*\n]+)\*(?!\w)/g;
+const MARKS = /\*\*([^*\n]+)\*\*|`([^`\n]+)`|!\[([^\]\n]*)\]\(([^)\s]+)\)|\[([^\]\n]+)\]\(([^)\s]+)\)|(?<![*\w])\*([^*\n]+)\*(?!\w)/g;
+
+/** A line that is nothing but pictures, which shows as a row of them. */
+const ONLY_PICTURES = /^\s*(!\[[^\]\n]*\]\([^)\s]+\)\s*)+$/;
 
 export function rich(words: string): ReactNode[] {
   const out: ReactNode[] = [];
   let at = 0;
   let key = 0;
-  MARKS.lastIndex = 0;
-  for (let found = MARKS.exec(words); found; found = MARKS.exec(words)) {
+  // Its own copy, because bold calls this again and a shared one would lose its place.
+  const marks = new RegExp(MARKS);
+  for (let found = marks.exec(words); found; found = marks.exec(words)) {
     if (found.index > at) out.push(words.slice(at, found.index));
-    if (found[1]) out.push(<strong key={key++}>{found[1]}</strong>);
+    if (found[1]) out.push(<strong key={key++}>{rich(found[1])}</strong>);
     else if (found[2]) out.push(<code key={key++}>{found[2]}</code>);
-    else if (found[3]) out.push(link(found[3], found[4], key++));
-    else out.push(<em key={key++}>{found[5]}</em>);
+    else if (found[4]) out.push(picture(found[3], found[4], key++));
+    else if (found[5]) out.push(link(found[5], found[6], key++));
+    else out.push(<em key={key++}>{found[7]}</em>);
     at = found.index + found[0].length;
   }
   if (at < words.length) out.push(words.slice(at));
@@ -35,11 +41,39 @@ export function unmarked(text: string): string {
     .split("\n")
     .map((line) => line.replace(/^\s*#{1,6}\s+/, "").replace(/^\s*>\s?/, ""))
     .join("\n")
-    .replace(MARKS, (_, bold, code, text, _to, em) => bold ?? code ?? text ?? em);
+    .replace(MARKS, (_, bold, code, alt, _shown, text, _to, em) => bold ?? code ?? alt ?? text ?? em);
+}
+
+/**
+ * A picture a reply handed over. Only those load: one from anywhere else would
+ * tell that site who is reading, and a page a model read could use it to carry
+ * words away in its address, so it stays a link somebody has to press.
+ */
+function picture(alt: string, to: string, key: number): ReactNode {
+  const file = fileIn(to);
+  if (!file) return link(alt || to, to, key);
+  const address = chatFileAddress(file);
+  return (
+    <a key={key} className="pic" href={address} target="_blank" rel="noreferrer" title={alt}>
+      <img src={address} alt={alt} loading="lazy" />
+    </a>
+  );
+}
+
+/** A file a reply handed over, as a card to open or download. */
+function fileCard(name: string, to: string, key: number): ReactNode {
+  const pdf = /\.pdf$/i.test(name);
+  return (
+    <a key={key} className="file-card" href={chatFileAddress(fileIn(to)!)} target="_blank" rel="noreferrer">
+      <span className={pdf ? "kind pdf" : "kind"}>{pdf ? "PDF" : "File"}</span>
+      <span className="name">{name}</span>
+    </a>
+  );
 }
 
 /** Only an address a browser can follow safely. Anything else stays as text. */
 function link(text: string, to: string, key: number): ReactNode {
+  if (fileIn(to)) return fileCard(text, to, key);
   const safe = /^(https?:\/\/|\/|#|mailto:)/i.test(to);
   const away = safe && elsewhere(to);
   if (away) return <Away key={key} text={text} href={to} url={away} />;
@@ -222,7 +256,11 @@ function blocks(text: string): ReactNode[] {
       !bullet.test(lines[at]) &&
       !(row(lines[at]) && at + 1 < lines.length && rule(lines[at + 1]))
     );
-    out.push(<p key={key++}>{rich(words.join("\n"))}</p>);
+    const whole = words.join("\n");
+    if (ONLY_PICTURES.test(whole)) {
+      const row = rich(whole).filter((one) => typeof one !== "string");
+      out.push(<div key={key++} className={`pics n${Math.min(row.length, 3)}`}>{row}</div>);
+    } else out.push(<p key={key++}>{rich(whole)}</p>);
   }
 
   return out;

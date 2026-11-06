@@ -1,10 +1,12 @@
-// The tools over webService.ts and searchService.ts:
-// reading one public web page, and searching the web.
+// The tools over webService.ts and searchService.ts: reading one public web
+// page, saving the pictures on one, and searching the web.
 //
 //   import * as web from "@chloejs/core/tools/web";
-//   tools: { webReadPage: web.readPage(), webSearch: web.search() }
+//   tools: { webReadPage: web.readPage(), webSavePictures: web.savePictures(), webSearch: web.search() }
 import { tool } from "ai";
 import { z } from "zod";
+
+import { agentOf } from "#chloe/model/tool";
 
 import { brave } from "./brave.ts";
 import * as searchService from "./searchService.ts";
@@ -32,13 +34,37 @@ export function readPage() {
       "exactly as it came back, never one you rebuilt by hand, because one changed character can make a site " +
       "quietly show a different page. A long page comes back in slices: pass `from` as the `next` it gave you. " +
       "Only a page that came back nearly empty was built by JavaScript in the browser; if a page came back " +
-      "full but wrong, say what you asked for and what you got, and do not guess why.",
+      "full but wrong, say what you asked for and what you got, and do not guess why. `pictures` lists the pictures " +
+      "on the page, the one that stands for it first.",
     inputSchema: z.object({
       url: z.url(),
       from: z.number().int().min(0).optional().describe("Where to start, from the last slice's `next`."),
     }),
     execute: ({ url, from }) => webService.readPage(url, from ?? 0),
   }), { title: "Read page", onlyReads: true, kind: "fetch" as const });
+}
+
+/**
+ * Makes a tool that lets the model save pictures from public addresses, up to
+ * 8 at a time, so it can send them or use them in a file it makes. It gets back
+ * the path of each. The same rule as `readPage` on what it may reach.
+ *
+ * Takes no options and needs no connection.
+ *
+ * ```ts
+ * tools: { webSavePictures: web.savePictures() }
+ * ```
+ */
+export function savePictures() {
+  return Object.assign(tool({
+    description:
+      "Save pictures from the web, so you can show them in this chat. Pass addresses that came back from reading a " +
+      "page, never ones you made up. Answers with the path of each, to send as a file, or the problem with it.",
+    inputSchema: z.object({
+      urls: z.array(z.url()).min(1).max(8),
+    }),
+    execute: ({ urls }, { context }) => webService.savePictures(agentOf(context).id, urls),
+  }), { title: "Save pictures", onlyReads: true, kind: "fetch" as const });
 }
 
 /**
@@ -61,7 +87,7 @@ export function search() {
     description:
       "Search the web. Gives back results, each a title, a url and a line from the page: to read one, pass " +
       "its url exactly as it came back. A line from a page is not the page, so read it " +
-      "before saying what it says.",
+      "before saying what it says. Reading a page also lists its pictures.",
     inputSchema: z.object({
       query: z.string().min(1),
       count: z.number().int().min(1).max(20).optional().describe("How many results, 10 if not said."),

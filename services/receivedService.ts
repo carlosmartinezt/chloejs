@@ -1,8 +1,9 @@
-// The files people send an agent, kept on disk so its scripts can open them.
+// The files people send an agent, kept on disk so its scripts can open them,
+// and the files an agent makes on the way to sending one.
 //
 // A message's files go to the model as they are. An agent that can run
 // scripts also gets each one saved here, and the path in the message, so a
-// script can be handed it. Each agent has its own folder in the state folder,
+// script can be handed it. Each agent has its own folders in the state folder,
 // and a file is kept for KEEP_DAYS.
 import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
@@ -15,6 +16,24 @@ export const KEEP_DAYS = 30;
 /** The folder an agent's received files are kept in: `received/<agent id>` in the state folder. */
 export function receivedFolder(agent: string): string {
   return `${STATE}/received/${agent}`;
+}
+
+/**
+ * The folder an agent's made files wait in: `made/<agent id>` in the state
+ * folder, for what is not worth keeping in its memory, like a picture from a
+ * page or a worksheet. Made if it is not there, and files in it older than
+ * `KEEP_DAYS` are deleted. A script is handed it as `MADE_FOLDER`.
+ */
+export async function madeFolder(agent: string): Promise<string> {
+  const folder = madeFolderOf(agent);
+  await mkdir(folder, { recursive: true, mode: 0o700 });
+  await forget(folder);
+  return folder;
+}
+
+/** Where `madeFolder` is, without making it. */
+export function madeFolderOf(agent: string): string {
+  return `${STATE}/made/${agent}`;
 }
 
 /**

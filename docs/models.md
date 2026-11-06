@@ -95,7 +95,7 @@ off, so every tool call is chloe's and is written down.
 - **claude** hands the tools over as real tools. It is never given
   `ANTHROPIC_API_KEY`, so a key in `.env` cannot quietly pay for a subscription
   run.
-- **antigravity** describes the tools in the prompt too, like codex: the CLI
+- **antigravity** describes the tools in the prompt: the CLI
   refuses every tool of its own in headless mode, and real MCP tools are not
   used (the CLI reads its MCP servers from the account's own settings, which is
   the person's, not chloe's). The prompt goes in over stdin (`agy -p` hangs in a
@@ -113,9 +113,9 @@ off, so every tool call is chloe's and is written down.
   copy; only the newest turn is sent as the prompt. That endpoint is marked
   experimental, and an opencode without it gets the whole conversation as one
   block of text instead.
-- **codex** describes the tools in the prompt and reads the calls back from the
-  reply, which is a little less reliable and costs about 500 tokens a step. It
-  adds about 7,000 tokens of its own instructions to every call.
+- **codex** hands the tools over as real tools too, and is stopped a moment
+  after it asks for its last one. It adds about 7,000 tokens of its own
+  instructions to every call. Its own search, pictures and shell are off.
 
 A run on the claude route shows what it would have cost on the API, as a price,
 not a charge. opencode names the price its own list gives the model: a charge

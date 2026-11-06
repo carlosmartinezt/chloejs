@@ -503,7 +503,42 @@ import { agentFor, answers, codeJob, db } from "#chloe/ops/test/shared";
       '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Five."}}',
       '{"type":"turn.completed","usage":{"input_tokens":7572,"cached_input_tokens":1792,"output_tokens":25}}',
     ].join("\n");
-    is("codex's lines are read for the message and the tokens", readCodex(lines), { text: "Five.", tokensIn: 7572, tokensOut: 25 });
+    is("codex's lines are read for the message and the tokens", readCodex(lines), { text: "Five.", calls: [], tokensIn: 7572, tokensOut: 25 });
+
+    const { viaCodex } = await import("./codex.ts");
+    const asks = [
+      '{"type":"item.completed","item":{"type":"agent_message","text":"Let me look."}}',
+      '{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"chloe","tool":"webSearch","arguments":{"query":"one"}}}',
+      '{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"chloe","tool":"webSearch","arguments":{"query":"one"}}}',
+      '{"type":"item.started","item":{"id":"item_2","type":"mcp_tool_call","server":"chloe","tool":"webSearch","arguments":{"query":"two"}}}',
+      '{"type":"item.completed","item":{"type":"agent_message","text":"It says it will come next, so I cannot answer."}}',
+    ];
+    const readAsks = readCodex(asks.join("\n"));
+    is(
+      "what it asked for is read as calls, with its words from before and none from after",
+      [readAsks.text, readAsks.calls.map((one) => [one.function.name, one.function.arguments])],
+      ["Let me look.", [["webSearch", '{"query":"one"}'], ["webSearch", '{"query":"two"}']]],
+    );
+    const printed = `/tmp/chloe-codex-args-${process.pid}`;
+    // Waits on: a route that did not stop it would take the whole minute.
+    const asking = await fake("codex-asking", `echo "$@" > ${printed}; cat > /dev/null; cat <<'LINES'\n${asks.slice(0, 4).join("\n")}\nLINES\nexec sleep 60`);
+    const heldProgram = settings.model.program.codex;
+    settings.model.program.codex = asking;
+    const started = Date.now();
+    const answered = await viaCodex({
+      model: "openai/gpt-6-luna",
+      messages: [{ role: "user", content: "search twice" }],
+      tools: [{ name: "webSearch", description: "Search.", parameters: { type: "object" } }],
+    });
+    settings.model.program.codex = heldProgram;
+    is("handed real tools, it asks with them and is stopped once it has", [answered.toolCalls?.length, answered.text, Date.now() - started < 20_000], [2, "Let me look.", true]);
+    const handed = await readFile(printed, "utf8");
+    await rm(printed, { force: true });
+    is(
+      "with the tool server required and its own search, pictures and shell off",
+      ["mcp_servers.chloe.required=true", 'web_search="disabled"', "image_generation", "shell_tool"].map((one) => handed.includes(one)),
+      [true, true, true, true],
+    );
     let failed = "";
     try {
       readCodex('{"type":"turn.started"}\n{"type":"turn.failed","error":{"message":"The model is not supported"}}');
