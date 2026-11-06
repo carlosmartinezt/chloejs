@@ -29,8 +29,11 @@ export function Code({ text, language }: { text: string; language?: string }) {
   );
 }
 
-/** A button that puts `text` on the clipboard, and shows a tick when it did. */
-export function CopyButton({ text }: { text: string }) {
+/**
+ * A button that puts `text` on the clipboard, and shows a tick when it did.
+ * With a `label` it is one of what can be done with a message, and says so in the same tip as the others.
+ */
+export function CopyButton({ text, label }: { text: string; label?: string }) {
   // null until the button has been pressed, then whether the browser allowed it.
   const [copied, setCopied] = useState<boolean | null>(null);
 
@@ -40,11 +43,14 @@ export function CopyButton({ text }: { text: string }) {
     if (done) setTimeout(() => setCopied(null), 1500);
   }
 
+  const tip = copied === false ? "This browser would not let the page copy" : copied ? "Copied" : (label ?? "Copy");
+
   return (
     <button
-      className="plain copy"
-      aria-label={copied ? "Copied" : "Copy this"}
-      title={copied === false ? "This browser would not let the page copy" : copied ? "Copied" : "Copy"}
+      className={label ? "plain act" : "plain copy"}
+      aria-label={copied ? "Copied" : (label ?? "Copy this")}
+      title={label ? undefined : tip}
+      data-tip={label ? tip : undefined}
       onClick={() => void take()}
     >
       {copied ? <Icons.Tick /> : <Icons.Copy />}

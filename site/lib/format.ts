@@ -116,6 +116,18 @@ export const when = (iso: string | null) =>
       })
     : "";
 
+/** When somebody said something in a chat, as it reads above the message: "Today 1:18 PM", "Monday 1:18 PM", "Nov 3, 1:18 PM". */
+export function saidAt(iso: string, now = new Date()): string {
+  const said = new Date(iso);
+  const days = (Date.parse(dayOf(now.toISOString())) - Date.parse(dayOf(iso))) / 86_400_000;
+  const time = said.toLocaleTimeString("en-US", { timeZone: ZONE, hour: "numeric", minute: "2-digit" }).replace(/\s/g, " ");
+  if (days < 1) return `Today ${time}`;
+  if (days < 2) return `Yesterday ${time}`;
+  if (days < 7) return `${said.toLocaleDateString("en-US", { timeZone: ZONE, weekday: "long" })} ${time}`;
+  const thisYear = dayOf(iso).slice(0, 4) === dayOf(now.toISOString()).slice(0, 4);
+  return `${said.toLocaleDateString("en-US", { timeZone: ZONE, month: "short", day: "numeric", ...(!thisYear && { year: "numeric" }) })}, ${time}`;
+}
+
 /** The time of day alone, to the second, for moments inside one run. */
 export const clock = (iso: string | null | undefined) =>
   iso

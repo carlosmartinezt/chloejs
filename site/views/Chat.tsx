@@ -2,8 +2,9 @@ import { type CSSProperties, type DragEvent, Fragment, type PointerEvent, type R
 
 import type { AgentSummary, Group, Picture, Said, Step, Thread } from "../lib/types.ts";
 import { AnswerGone, api, CallFailed } from "../lib/api.ts";
-import { ago, nameOf, many, money, spent, threadName, when, words } from "../lib/format.ts";
+import { ago, nameOf, many, money, saidAt, spent, threadName, when, words } from "../lib/format.ts";
 import * as Icons from "./components/Icons.tsx";
+import { CopyButton } from "./components/Code.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { type Choice, ContextMenu } from "./components/ContextMenu.tsx";
 import { byPlace, moved } from "../lib/order.ts";
@@ -33,6 +34,9 @@ interface Held extends Picture {
 
 /** How long a line under "Thinking" stays after the next one shows, in ms. */
 const FOLD = 3000;
+/** What somebody wrote, without a channel's note on who wrote it, which is not theirs to change or copy. */
+const written = (content: string) => content.replace(/^\s*<([a-z_]+)>\n?[\s\S]*?\n?<\/\1>\s*/, "");
+
 /** The most pictures one turn takes, which is the runtime's own limit. */
 const MOST = 4;
 /** The longest side a picture is sent at. Past this a model shrinks it anyway. */
@@ -1104,6 +1108,7 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
             {lines.map((line, at) =>
               line.role === "user" ? (
                 <Fragment key={at}>
+                  {line.at && <p className="said-at num">{saidAt(line.at)}</p>}
                   {line.pictures && (
                     <div className="msg you pictures">
                       {line.pictures.map((url, n) => (
@@ -1140,27 +1145,24 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
                       <Prompt
                         whole
                         prompt={line.content}
-                        at={line.at}
-                        stamp={when}
                         visitor={thread.includes("/visitor-") ? { agent, id: thread.slice(thread.indexOf("/visitor-") + 9) } : undefined}
                         actions={
-                          line.id !== undefined &&
-                          !waiting &&
-                          !readOnly &&
-                          !thread.includes("/visitor-") && (
-                            <button
-                              className="plain act"
-                              title="Edit"
-                              aria-label="Edit"
-                              onClick={() => {
-                                // A channel's note on who wrote it is not theirs to change.
-                                setDraft(line.content.replace(/^\s*<([a-z_]+)>\n?[\s\S]*?\n?<\/\1>\s*/, ""));
-                                setEditing(at);
-                              }}
-                            >
-                              <Icons.Edit />
-                            </button>
-                          )
+                          <>
+                            <CopyButton text={written(line.content)} label="Copy message" />
+                            {line.id !== undefined && !waiting && !readOnly && !thread.includes("/visitor-") && (
+                              <button
+                                className="plain act"
+                                data-tip="Edit message"
+                                aria-label="Edit message"
+                                onClick={() => {
+                                  setDraft(written(line.content));
+                                  setEditing(at);
+                                }}
+                              >
+                                <Icons.Edit />
+                              </button>
+                            )}
+                          </>
                         }
                       />
                     )
@@ -1175,23 +1177,27 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
                   </div>
                 </details>
               ) : (
-                <div className={line.failed ? "msg them bad" : "msg them"} key={at} id={`said-${at}`}>
-                  {line.run && line.did && <Steps run={line.run} did={line.did} titled={titled} sourceOf={sourceOf} />}
-                  <div className="said">
-                    <Markdown text={line.content} />
-                  </div>
-                  {line.buttons && at === lines.length - 1 && (
-                    <Pick options={line.buttons} multiple={line.multiple} disabled={waiting || readOnly} pick={(text) => void send(text)} />
-                  )}
-                  <div className="meta num">
-                    {line.id !== undefined && !readOnly && (
-                      <button className="plain act" title="Fork into a new chat" aria-label="Fork into a new chat" onClick={() => void fork(line)}>
-                        <Icons.Branch />
-                      </button>
+                <Fragment key={at}>
+                  {line.at && lines[at - 1]?.role !== "user" && <p className="said-at num">{saidAt(line.at)}</p>}
+                  <div className={line.failed ? "msg them bad" : "msg them"} id={`said-${at}`}>
+                    {line.run && line.did && <Steps run={line.run} did={line.did} titled={titled} sourceOf={sourceOf} />}
+                    <div className="said">
+                      <Markdown text={line.content} />
+                    </div>
+                    {line.buttons && at === lines.length - 1 && (
+                      <Pick options={line.buttons} multiple={line.multiple} disabled={waiting || readOnly} pick={(text) => void send(text)} />
                     )}
-                    {[nameOf(agent), line.at && when(line.at), line.cost !== undefined && (line.unpriced ? spent(line.cost, line.unpriced) : money(line.cost))].filter(Boolean).join(", ")}
+                    <div className="meta num">
+                      <CopyButton text={line.content} label="Copy response" />
+                      {line.id !== undefined && !readOnly && (
+                        <button className="plain act" data-tip="Fork into a new chat" aria-label="Fork into a new chat" onClick={() => void fork(line)}>
+                          <Icons.Branch />
+                        </button>
+                      )}
+                      {[nameOf(agent), line.at && when(line.at), line.cost !== undefined && (line.unpriced ? spent(line.cost, line.unpriced) : money(line.cost))].filter(Boolean).join(", ")}
+                    </div>
                   </div>
-                </div>
+                </Fragment>
               ),
             )}
             {waiting && (

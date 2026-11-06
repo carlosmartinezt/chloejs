@@ -15,6 +15,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { build } from "esbuild";
 
 import { AnswerGone, api, collectAnswer, frameUnder, NeedsSignIn, serverAt, servesFrom } from "./lib/api.ts";
+import { saidAt } from "./lib/format.ts";
 import { href, read } from "./lib/route.ts";
 import { ideasFor, ideasFrom } from "./lib/ideas.ts";
 import { allowed, landing } from "./lib/given.ts";
@@ -92,6 +93,16 @@ describe("where the page is, as an address", () => {
     deepStrictEqual(read("/agents/cc", ""), { at: "chat", agent: "cc", thread: undefined });
     deepStrictEqual(read("/agents/cc/config", ""), { at: "agent", agent: "cc" });
     deepStrictEqual(read("/agents/cc/chat", ""), { at: "chat", agent: "cc", thread: undefined });
+  });
+
+  test("when somebody said something, by how long ago it was on the box's own clock", () => {
+    const now = new Date("2026-11-05T15:00:00Z");
+    strictEqual(saidAt("2026-11-05T14:18:00Z", now), "Today 9:18 AM");
+    // Past midnight in UTC, and still the evening before where the box is.
+    strictEqual(saidAt("2026-11-05T03:00:00Z", now), "Yesterday 10:00 PM");
+    strictEqual(saidAt("2026-11-02T18:18:00Z", now), "Monday 1:18 PM");
+    strictEqual(saidAt("2026-10-20T17:18:00Z", now), "Oct 20, 1:18 PM");
+    strictEqual(saidAt("2025-10-20T17:18:00Z", now), "Oct 20, 2025, 1:18 PM");
   });
 
   test("a conversation is in the address, and read back from it", () => {

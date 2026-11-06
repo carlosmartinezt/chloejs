@@ -791,9 +791,19 @@ pre.painted .keyword { color: var(--accent); }
   .run-thread .meta { opacity: 0; transition: opacity .15s; }
   .run-thread .msg:hover .meta { opacity: 1; }
 }
-/* What can be done with a message, beside when it was said: fork, edit. */
-.run-thread .meta .act { display: inline-flex; vertical-align: -2px; padding: 2px; margin-right: 8px; }
-@media (pointer: coarse) { .run-thread .meta .act { padding: 6px; margin: -6px 4px -6px -6px; } }
+/* What can be done with a message, beside when it was said: copy, fork, edit. */
+.run-thread .meta .act { position: relative; display: inline-flex; vertical-align: -6px; padding: 6px; margin-right: 4px; border-radius: 8px; }
+.run-thread .meta .act:first-child { margin-left: -6px; }
+.run-thread .meta .act:hover { background: color-mix(in srgb, var(--ink) 11%, transparent); }
+@media (pointer: coarse) { .run-thread .meta .act { margin-top: -6px; margin-bottom: -6px; } }
+@media (hover: hover) {
+  .run-thread .meta .act[data-tip]:hover::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    z-index: 5; padding: 5px 12px; border-radius: 999px; background: var(--surface); color: var(--ink); box-shadow: 0 2px 10px rgb(0 0 0 / .3);
+    font: 500 var(--size-small)/1.4 var(--sans); white-space: nowrap; pointer-events: none; }
+}
+/* When it was written, always shown, in the middle above what somebody wrote and what the agent said without being asked. */
+.said-at { margin: 26px 0 12px; text-align: center; font-size: var(--size-small); color: var(--dim); }
+.said-at:first-child { margin-top: 0; }
 /* A message of theirs being changed, where it was. */
 .msg.you.editing { flex-direction: column; align-items: stretch; width: min(100%, 640px); margin-left: auto; }
 .msg.you.editing textarea { font: inherit; min-height: 84px; resize: vertical; padding: 10px 14px;
