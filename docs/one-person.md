@@ -52,8 +52,14 @@ and every read recorded. They can see the day you last did, and the invitation
 says you can. Everything is still on your machine, so this keeps things apart
 rather than secret.
 
+**Sharing a conversation.** Share, at the top right of a chat, lets anybody
+signed in to your page read that conversation by its link, whoever's it is and
+whatever they were given, and nobody else write in it. Somebody you invited
+can share theirs with you the same way. Stop sharing takes it back at once.
+Somebody with no sign-in on your page cannot open it.
+
 What they never get, whatever they were given: another agent, your
-conversations or anybody else's, a memory, the agent's files or settings, a
+conversations or anybody else's unless one was shared with them, a memory, the agent's files or settings, a
 model you did not list in `model.models`, tokens, People, or a change to anything. Taking them off their
 last agent removes them and signs them out at once. An email conversation the
 agent had with that same address is theirs too, since it was with them.

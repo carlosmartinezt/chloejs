@@ -9,13 +9,13 @@ import { api, EVERYTHING, NeedsSignIn, servesFrom, type Serves } from "./lib/api
 import { nameOf, many, shareNames, words, ZONE } from "./lib/format.ts";
 import { allowed, landing, may, NOT_GIVEN } from "./lib/given.ts";
 import { announceMenu, watchMenu } from "./lib/menus.ts";
-import { copy } from "./lib/copy.ts";
 import { go, href, read, type View } from "./lib/route.ts";
 import { lastAgent, lastFile } from "./lib/tabs.ts";
 import { modelChoices, type Offered } from "./lib/models.ts";
 import type { AgentSummary, Entry, Given, Me, ParkedRun, RunRow } from "./lib/types.ts";
 import { Api } from "./views/Api.tsx";
 import { Chat } from "./views/Chat.tsx";
+import { Shared } from "./views/Shared.tsx";
 import { Doorway } from "./views/Doorway.tsx";
 import { Open } from "./views/Files.tsx";
 import { Channels } from "./views/Channels.tsx";
@@ -206,6 +206,15 @@ export function App() {
     />
   );
 
+  if (view.at === "shared") {
+    return (
+      <>
+        {viewing && <Viewing who={viewing.name || viewing.email} />}
+        <Shared thread={view.thread} />
+      </>
+    );
+  }
+
   // A chat has the whole window and no bar: what the bar holds is at the top of
   // its list of conversations and in the menu at the bottom of it.
   if (view.at === "chat" && mayHere) {
@@ -239,7 +248,6 @@ export function App() {
               ...(memories[0] ? [{ label: "Memory", icon: <Icons.Memory />, run: () => go(lastOf("memory", memories, view)) }] : []),
               ...(given && jobs[0] ? [{ label: "Jobs", icon: <Icons.Clock />, run: () => go(lastOf("jobs", jobs, view)) }] : []),
               ...(reads ? [{ label: "Log", icon: <Icons.Log />, run: () => go(logOf) }] : []),
-              { label: "Copy link to this chat", icon: <Icons.Share />, disabled: !view.thread, run: () => void copy(window.location.href) },
               { label: "Reload", icon: <Icons.Reload />, run: () => window.location.reload() },
               "line" as Choice,
             ]}

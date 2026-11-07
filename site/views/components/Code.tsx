@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { languageOf, tokens } from "../../lib/code.ts";
 import { copy } from "../../lib/copy.ts";
@@ -33,7 +33,7 @@ export function Code({ text, language }: { text: string; language?: string }) {
  * A button that puts `text` on the clipboard, and shows a tick when it did.
  * With a `label` it is one of what can be done with a message, and says so in the same tip as the others.
  */
-export function CopyButton({ text, label }: { text: string; label?: string }) {
+export function CopyButton({ text, label, icon = <Icons.Copy /> }: { text: string; label?: string; icon?: ReactNode }) {
   // null until the button has been pressed, then whether the browser allowed it.
   const [copied, setCopied] = useState<boolean | null>(null);
 
@@ -53,7 +53,7 @@ export function CopyButton({ text, label }: { text: string; label?: string }) {
       data-tip={label ? tip : undefined}
       onClick={() => void take()}
     >
-      {copied ? <Icons.Tick /> : <Icons.Copy />}
+      {copied ? <Icons.Tick /> : icon}
     </button>
   );
 }

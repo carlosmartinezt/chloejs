@@ -25,6 +25,8 @@ export function allowed(given: Given, view: View): boolean {
       return view.agent ? may(given, view.agent, "read") : Object.keys(given).some((agent) => may(given, agent, "read"));
     case "memory":
       return may(given, view.agent, "memory");
+    // Whoever shared it chose to let anybody signed in read it.
+    case "shared":
     case "signin":
     case "api":
     case "invitation":

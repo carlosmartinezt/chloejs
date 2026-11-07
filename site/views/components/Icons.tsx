@@ -276,6 +276,14 @@ export const Share = () => (
   </Icon>
 );
 
+/** An address: two links of a chain. */
+export const Link = () => (
+  <Icon>
+    <path d="M6.9 9.1a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9" />
+    <path d="M9.1 6.9a2.6 2.6 0 0 0-3.7 0L3.2 9.1a2.6 2.6 0 0 0 3.7 3.7l.9-.9" />
+  </Icon>
+);
+
 /** Taking a copy of something, onto the clipboard. */
 export const Copy = () => (
   <Icon>

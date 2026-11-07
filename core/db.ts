@@ -161,6 +161,9 @@ added("thread_groups", "owner", "text");
 // Where somebody dragged a conversation to, among those pinned or in its group.
 // Null until then, which is above the ones that have a place, newest first.
 added("threads", "place", "integer");
+// When the person whose conversation it is shared it, or null. Anybody signed
+// in here may read a shared one by its link, and nobody but them may write in it.
+added("threads", "shared", "text");
 
 // The conversation a channel's chat moved on to with /clear, keyed by the id
 // the channel gives the chat. A chat with no row is still in that one.

@@ -343,6 +343,19 @@ export interface Thread {
   group?: number | null;
   /** Where it was dragged to among those pinned or in its group, or null. */
   place?: number | null;
+  /** When it was shared, so anybody signed in here can read it by its link, or null. */
+  shared?: string | null;
+}
+
+/** A conversation somebody shared, as anybody signed in reads it. */
+export interface SharedChat {
+  thread: string;
+  agent: string;
+  /** What it was named, or null. */
+  label: string | null;
+  /** The name of whoever shared it. Empty when the owner has none. */
+  by: string;
+  said: Said[];
 }
 
 /** A name an agent's conversations can be filed under on the page. */

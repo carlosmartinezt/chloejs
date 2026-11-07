@@ -1015,6 +1015,21 @@ pre.painted .keyword { color: var(--accent); }
 .talking .head button.model { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 6px 10px; border-radius: 10px; cursor: pointer; }
 .talking .head button.model svg { width: 16px; height: 16px; color: var(--dim); }
 .talking .head button.model:hover:enabled, .talking .head button.model[aria-expanded="true"] { background: var(--accent-soft); color: var(--ink); }
+/* Copying its link and sharing it, at the top right. */
+.talking .head .ways { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.talking .head .ways .act { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 8px; border-radius: 10px; color: var(--ink); font: 500 var(--size-body)/1 var(--sans); }
+.talking .head .ways .act.share { padding: 8px 12px; }
+.talking .head .ways .act svg { width: 16px; height: 16px; }
+.talking .head .ways .act:hover, .talking .head .ways .act[aria-expanded="true"] { background: var(--accent-soft); }
+@media (hover: hover) {
+  /* Hung from the right, as the buttons are at the window's edge. */
+  .talking .head .ways .act[data-tip]:hover::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0;
+    z-index: 5; padding: 5px 12px; border-radius: 999px; background: var(--surface); color: var(--ink); box-shadow: 0 2px 10px rgb(0 0 0 / .3);
+    font: 500 var(--size-small)/1.4 var(--sans); white-space: nowrap; pointer-events: none; }
+}
+/* A shared conversation has no list beside it. */
+.chat.shared { grid-template-columns: minmax(0, 1fr); }
+.chat.shared .head .mark { margin-right: 4px; }
 .facts button.own-model { border: 0; background: none; padding: 1px 6px; margin-left: -6px; border-radius: 6px; color: inherit; font: inherit; cursor: pointer; }
 .facts button.own-model:hover, .facts button.own-model[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 .thinking { display: flex; align-items: center; gap: 10px; color: var(--dim); }
@@ -1136,6 +1151,12 @@ pre.painted .keyword { color: var(--accent); }
      and the words go on under it, fading out. */
   .talking { flex: 1 1 auto; overflow: auto; overscroll-behavior: contain; }
   .talking .head { position: sticky; top: 0; z-index: 2; justify-content: center; min-height: 56px; padding: 6px 56px; background: var(--bg); }
+  /* Beside the new chat button, with copying the link in Share's menu for room. */
+  .talking .head .ways { position: absolute; top: 6px; right: 52px; margin: 0; }
+  .talking .head .ways .act:not(.share) { display: none; }
+  .talking .head .ways .act.share { width: 44px; height: 44px; justify-content: center; padding: 0; border-radius: 50%; font-size: 0; gap: 0; }
+  .talking .head .ways .act.share svg { width: 22px; height: 22px; }
+  .talking .head:has(.ways) { padding-left: 100px; padding-right: 100px; }
   .chat .scroll { flex: 1 0 auto; overflow: visible; }
   .composer { position: sticky; bottom: 0; z-index: 1; padding: 22px 12px calc(14px + env(safe-area-inset-bottom));
     background: linear-gradient(to top, var(--bg) 60%, transparent); }

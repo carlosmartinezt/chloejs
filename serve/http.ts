@@ -29,7 +29,7 @@ import { commands } from "#chloe/channels/shared";
 import { branch, current, cut, forget } from "#chloe/model/memory";
 import { models, quickFor } from "#chloe/model/model";
 import { nameThread } from "#chloe/model/naming";
-import { chatFileFor, chatFileHeaders, keepChatFile } from "#chloe/services/chatFilesService";
+import { chatFileFor, chatFileHeaders, keepChatFile, sharedChatFile } from "#chloe/services/chatFilesService";
 import { agentChange, agentChanges, agentSeen, agentUndo, placeOf } from "./changes.ts";
 import { changeChannel, changeAbility, changeModel, changeSettings, changeTool, configFields, configText, InCode, keysUsed, saveConfig } from "./config.ts";
 import { editable, open, save, tree } from "./files.ts";
@@ -1072,7 +1072,7 @@ const routes: Route[] = [
       const rows = db
         .prepare(
           `select * from (
-             select m.thread, count(*) as messages, max(m.at) as last, t.label, t.archived, t.pinned, t.group_id as "group", t.place, t.owner
+             select m.thread, count(*) as messages, max(m.at) as last, t.label, t.archived, t.pinned, t.group_id as "group", t.place, t.shared, t.owner
              from messages m left join threads t on t.thread = m.thread
              where substr(m.thread, 1, ?) = ? and (case when ? is null then t.owner is null or t.owner not in (select email from people) else t.owner = ? end) group by m.thread
              order by (t.pinned is null and t.group_id is null), last desc limit 50
@@ -1171,6 +1171,29 @@ const routes: Route[] = [
   },
   {
     method: "GET",
+    path: "/api/shared/:thread",
+    does: "A conversation its owner shared, to read and not to write: its agent, its name, who shared it, and what was said, as GET /api/threads/:thread gives somebody invited. Anybody signed in here may have it, whatever they were given. A 404 means it is not shared, or no longer.",
+    member: "filtered",
+    handle: ({ response, params }) => {
+      const thread = decodeURIComponent(params.thread);
+      const row = db.prepare("select label, owner from threads where thread = ? and shared is not null").get(thread) as { label: string | null; owner: string | null } | undefined;
+      if (!row) throw new NotFound("No such conversation, or it is not shared.");
+      const rows = db
+        .prepare("select id, role, content, at, summary from messages where thread = ? order by id desc limit 100")
+        .all(thread) as { id: number; role: string; content: string; at: string; summary: number }[];
+      // An owner that is nobody invited is somebody an email conversation is with, and the conversation is the owner's.
+      const person = row.owner ? (db.prepare("select name from people where email = ?").get(row.owner) as { name: string } | undefined) : undefined;
+      json(response, {
+        thread,
+        agent: thread.split("/")[0],
+        label: row.label,
+        by: person ? person.name || row.owner : settings.ownerName,
+        said: rows.reverse().map(({ summary, ...one }) => ({ ...one, ...(summary && { summary: true }) })),
+      });
+    },
+  },
+  {
+    method: "GET",
     path: "/api/parked",
     does: "Every job waiting on an answer. A question nobody answers is a job that never finishes.",
     token: true,
@@ -1240,12 +1263,13 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents/:id/chat/files/:file",
-    does: "A file a reply handed over, only to whoever asked for that reply. A picture or a PDF opens in the browser, and anything else downloads. A 404 means it is not theirs, or its conversation was deleted.",
+    does: "A file a reply handed over, only to whoever asked for that reply, or to anybody signed in when a shared conversation names it. A picture or a PDF opens in the browser, and anything else downloads. A 404 means it is not theirs, or its conversation was deleted.",
     token: true,
     needsApiChannel: true,
-    member: "chat",
+    member: "filtered",
     handle: async ({ response, params, who }) => {
-      const file = chatFileFor(params.id, params.file, askerOf(who));
+      const asked = may(who, params.id, "chat") ? chatFileFor(params.id, params.file, askerOf(who)) : undefined;
+      const file = asked ?? (who?.kind === "token" ? undefined : sharedChatFile(params.id, params.file));
       if (!file) throw new NotFound("No such file.");
       response.writeHead(200, {
         ...chatFileHeaders(file),
@@ -1500,6 +1524,21 @@ const routes: Route[] = [
       // Its place was among the others of where it was.
       db.prepare("insert into threads (thread, pinned) values (?, ?) on conflict (thread) do update set pinned = excluded.pinned, place = null").run(thread, at);
       json(response, { thread, pinned: at });
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/threads/:thread/share",
+    does: "Share a conversation, or stop sharing it. Anybody signed in here may then read it at /shared/<thread>, and only whoever could write in it before still can.",
+    takes: '{"shared": true}',
+    member: "filtered",
+    handle: async ({ request, response, params, who }) => {
+      const thread = threadFor(who, decodeURIComponent(params.thread));
+      if (!may(who, thread.split("/")[0], "chat")) throw new NotFound("No such conversation.");
+      const { shared } = await body(request, z.object({ shared: z.boolean() }));
+      const at = shared ? new Date().toISOString() : null;
+      db.prepare("insert into threads (thread, shared) values (?, ?) on conflict (thread) do update set shared = excluded.shared").run(thread, at);
+      json(response, { thread, shared: at });
     },
   },
   {

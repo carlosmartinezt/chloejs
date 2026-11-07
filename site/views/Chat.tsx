@@ -11,6 +11,7 @@ import { byPlace, moved } from "../lib/order.ts";
 import { modelChoices, modelName, shortChoices, type Offered } from "../lib/models.ts";
 import { Card, Prompt } from "./Log.tsx";
 import { go, href } from "../lib/route.ts";
+import { copy } from "../lib/copy.ts";
 import { chatWidth, lastChat, setChatWidth, setLastChat, setTyped, typed } from "../lib/prefs.ts";
 import { ideasFor, ideasFrom } from "../lib/ideas.ts";
 import { Collapse } from "./components/Collapse.tsx";
@@ -35,10 +36,10 @@ interface Held extends Picture {
 /** How long a line under "Thinking" stays after the next one shows, in ms. */
 const FOLD = 3000;
 /** What somebody wrote, without a channel's note on who wrote it, which is not theirs to change or copy. */
-const written = (content: string) => content.replace(/^\s*<([a-z_]+)>\n?[\s\S]*?\n?<\/\1>\s*/, "");
+export const written = (content: string) => content.replace(/^\s*<([a-z_]+)>\n?[\s\S]*?\n?<\/\1>\s*/, "");
 
 /** A reply's words without the files it handed over, which mean nothing anywhere else. */
-const withoutFiles = (content: string) => content.replace(/!?\[[^\]\n]*\]\(file:[^)\s]+\)\s*/g, "").trim();
+export const withoutFiles = (content: string) => content.replace(/!?\[[^\]\n]*\]\(file:[^)\s]+\)\s*/g, "").trim();
 
 /** The most pictures one turn takes, which is the runtime's own limit. */
 const MOST = 4;
@@ -186,6 +187,7 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
   const [search, setSearch] = useState("");
   const [searching, setSearching] = useState(false);
   const [picking, setPicking] = useState<{ x: number; y: number } | null>(null);
+  const [sharing, setSharing] = useState<{ x: number; y: number } | null>(null);
   // Up to three things to ask under an empty box, chosen as the agent opens.
   const [ideas, setIdeas] = useState<string[]>([]);
   // The message of theirs being changed, by where it is in `lines`, and what it says now.
@@ -591,6 +593,22 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
     changed(one.thread, { pinned: done.pinned });
   }
 
+  /** Lets anybody signed in here read this conversation by its link, or stops it, and copies the link once it is shared. */
+  async function share(on: boolean) {
+    try {
+      const done = await api.shareThread(thread, on);
+      changed(thread, { shared: done.shared });
+      if (on) await copyLink(href({ at: "shared", thread }));
+    } catch (error) {
+      setTrouble((error as Error).message);
+    }
+  }
+
+  async function copyLink(path: string) {
+    const link = window.location.origin + path;
+    if (!(await copy(link))) setTrouble(`This browser would not let the page copy. The link is ${link}`);
+  }
+
   async function fileUnder(one: string, group: number | null) {
     const done = await api.groupThread(one, group);
     changed(one, { group: done.group });
@@ -668,6 +686,7 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
   const recent = shown.filter((one) => !one.pinned && !groups.some((group) => group.id === one.group));
   const hidden = threads.filter((one) => one.archived).length;
   const blank = lines.length === 0 && !waiting && !loading;
+  const shared = Boolean(threads.find((one) => one.thread === thread)?.shared);
   // Nothing said yet in a conversation that is not in the list.
   const isNew = blank && !threads.some((one) => one.thread === thread);
   // What has been talked about, and only for an agent with nothing named yet, what it can do.
@@ -1109,6 +1128,47 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
                     ]
                   : []),
                 ...modelChoices(offered, (one) => void pick(one), picked),
+              ]}
+            />
+          )}
+          {/* Only once the address names the conversation, which is when a link to it opens it. */}
+          {asked === thread && !blank && (
+            <div className="ways">
+              <CopyButton text={window.location.origin + href({ at: "chat", agent, thread })} label="Copy link" icon={<Icons.Link />} />
+              {!readOnly && (
+                <button
+                  className="plain act share"
+                  aria-haspopup="menu"
+                  aria-expanded={Boolean(sharing)}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    const box = event.currentTarget.getBoundingClientRect();
+                    setSharing(sharing ? null : { x: box.right, y: box.bottom + 4 });
+                  }}
+                >
+                  <Icons.Share />
+                  {shared ? "Shared" : "Share"}
+                </button>
+              )}
+            </div>
+          )}
+          {sharing && (
+            <ContextMenu
+              at={sharing}
+              from="right"
+              close={() => setSharing(null)}
+              choices={[
+                { head: "Anyone signed in can read it" },
+                // On a phone the copy button is not beside it, for room.
+                ...(window.matchMedia("(max-width: 860px)").matches
+                  ? [{ label: "Copy link to this chat", icon: <Icons.Link />, run: () => void copyLink(href({ at: "chat", agent, thread })) }]
+                  : []),
+                ...(shared
+                  ? [
+                      { label: "Copy share link", icon: <Icons.Copy />, run: () => void copyLink(href({ at: "shared", thread })) },
+                      { label: "Stop sharing", icon: <Icons.Close />, run: () => void share(false) },
+                    ]
+                  : [{ label: "Share and copy link", icon: <Icons.Share />, run: () => void share(true) }]),
               ]}
             />
           )}

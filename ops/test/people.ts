@@ -184,6 +184,35 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
       is("and once nothing names it, it goes", await there(fileAt(first)), false);
     }
 
+    // A shared conversation is read by anybody signed in here, and written in by nobody new.
+    {
+      const shared = (thread: string, who: Record<string, string>, on: boolean) => call("POST", `/api/threads/${encodeURIComponent(thread)}/share`, who, { shared: on });
+      const read = (thread: string, who?: Record<string, string>) => call("GET", `/api/shared/${encodeURIComponent(thread)}`, who);
+      is("one nobody shared cannot be read by its link", (await read("test/web-jenny", owner)).status, 404);
+      is("the owner cannot share somebody invited's", (await shared("test/web-jenny", owner, true)).status, 404);
+      is("they share their own", typeof (await shared("test/web-jenny", jenny, true)).body.shared, "string");
+      const listed = (await call("GET", "/api/agents/test/threads", jenny)).body as { thread: string; shared: string | null }[];
+      is("and their list says so", typeof listed.find((one) => one.thread === "test/web-jenny")?.shared, "string");
+      const got = await read("test/web-jenny", owner);
+      is("the owner reads it, with who shared it", [got.status, got.body.agent, got.body.by, got.body.said.length > 0], [200, "test", "Jenny", true]);
+      is("and not the runs behind it", got.body.said.some((one: { run?: string }) => "run" in one), false);
+      is("nobody signed out does", (await read("test/web-jenny")).status, 401);
+      is("it is still not in the owner's own conversations", (await call("GET", `/api/threads/${hersThread}`, owner)).status, 404);
+      is("nor can the owner write in it", (await call("POST", "/api/agents/test/chat", owner, { thread: "test/web-jenny", prompt: "hello" })).status, 404);
+      const named = db.prepare("select content from messages where thread = 'test/web-jenny' and content like '%](file:%'").get() as { content: string };
+      const picture = `/api/agents/test/chat/files/${/\(file:test\/([\w-]+)\)/.exec(named.content)?.[1]}`;
+      is("a picture in it opens for the owner", (await call("GET", picture, owner)).status, 200);
+      const unnamed = db.prepare("select id from chat_files where thread = 'test/web-jenny' and instr(?, id) = 0 limit 1").get(named.content) as { id: string };
+      is("one it does not name does not", (await call("GET", `/api/agents/test/chat/files/${unnamed.id}`, owner)).status, 404);
+      await shared("test/web-jenny", jenny, false);
+      is("once they stop sharing it, it is theirs again", [(await read("test/web-jenny", owner)).status, (await call("GET", picture, owner)).status], [404, 404]);
+
+      await shared("test/web-owner", owner, true);
+      is("somebody invited reads one the owner shared", (await read("test/web-owner", jenny)).status, 200);
+      is("and cannot stop it being shared", (await shared("test/web-owner", jenny, false)).status, 404);
+      await shared("test/web-owner", owner, false);
+    }
+
     is("somebody invited cannot view as anybody", (await call("POST", "/api/people/view", jenny, { email: "jenny@example.com" })).status, 403);
     is("nobody can be viewed who was not invited", (await call("POST", "/api/people/view", owner, { email: "nobody@example.com" })).status, 404);
     const started = await call("POST", "/api/people/view", owner, { email: "jenny@example.com" });

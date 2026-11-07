@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import * as Icons from "./components/Icons.tsx";
 import { api } from "../lib/api.ts";
 import { linkTrouble } from "../lib/link.ts";
+import { afterSignIn } from "../lib/route.ts";
 
 /**
  * The way in: an email and a password, for the owner and for somebody they
@@ -86,7 +87,7 @@ export function Doorway({ making }: { making: boolean }) {
       await api.signIn(email.trim(), password);
       // A whole load rather than a view change: the page is fetching everything
       // it shows anyway, and it has none of it yet.
-      window.location.assign("/");
+      window.location.assign(afterSignIn());
     } catch (error) {
       setTrouble((error as Error).message);
       setSending(false);

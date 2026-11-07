@@ -4,7 +4,8 @@
 // A reply names one in its words, as `![what it shows](file:<agent>/<id>)` or
 // `[its name](file:<agent>/<id>)`, so the message is the one record of where it
 // goes, and a fork of the conversation has it too. The page reads that and asks
-// the runtime for the file, and shows it only to whoever asked for the reply.
+// the runtime for the file, and shows it only to whoever asked for the reply,
+// or to anybody signed in reading a conversation that was shared.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { rmSync, statSync } from "node:fs";
@@ -73,6 +74,18 @@ export async function keepChatFile(agent: string, thread: string, asker: string,
 /** The file with this id, when it is this agent's and this person asked for it. Otherwise undefined. */
 export function chatFileFor(agent: string, id: string, asker: string): ChatFile | undefined {
   const row = db.prepare("select name, type from chat_files where id = ? and agent = ? and asker = ?").get(id, agent, asker) as { name: string; type: string } | undefined;
+  return row && { path: `${FOLDER()}/${id}`, ...row };
+}
+
+/** The file with this id when a shared conversation names it. Otherwise undefined. */
+export function sharedChatFile(agent: string, id: string): ChatFile | undefined {
+  const row = db
+    .prepare(
+      `select name, type from chat_files where id = ? and agent = ? and exists (
+         select 1 from messages m join threads t on t.thread = m.thread where t.shared is not null and instr(m.content, ?) > 0
+       )`,
+    )
+    .get(id, agent, `](file:${agent}/${id})`) as { name: string; type: string } | undefined;
   return row && { path: `${FOLDER()}/${id}`, ...row };
 }
 

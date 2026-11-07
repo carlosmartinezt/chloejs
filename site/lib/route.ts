@@ -11,6 +11,8 @@ export type View =
    * `about` is a path in its memory: a new conversation, with a link to that file held for the first message.
    */
   | { at: "chat"; agent: string; thread?: string; about?: string }
+  /** A conversation somebody shared, to read and not to write. Anybody signed in may open it. */
+  | { at: "shared"; thread: string }
   /** What it is told to do, and the words it reaches for when it needs them. */
   | { at: "purpose"; agent: string }
   | { at: "skills"; agent: string }
@@ -71,6 +73,10 @@ export function href(view: View): string {
     case "chat":
       if (view.about) return `/agents/${view.agent}?about=${encodeURIComponent(view.about)}`;
       return view.thread ? `/agents/${view.agent}/chat/${encodeURIComponent(conversation(view.agent, view.thread))}` : `/agents/${view.agent}`;
+    case "shared": {
+      const agent = view.thread.slice(0, view.thread.indexOf("/"));
+      return `/shared/${agent}/${encodeURIComponent(conversation(agent, view.thread))}`;
+    }
     case "purpose":
     case "skills":
     case "prompt":
@@ -149,6 +155,7 @@ export function read(path = window.location.pathname, search = window.location.s
   if (parts[0] === "log") return { at: "log", run };
   if (parts[0] === "tokens") return { at: "tokens" };
   if (parts[0] === "people") return { at: "people" };
+  if (parts[0] === "shared" && parts.length >= 3) return { at: "shared", thread: parts.slice(1).join("/") };
   if (parts[0] === "invitation" && parts[1]) return { at: "invitation", code: parts[1] };
   if (parts[0] === "password" && parts[1]) return { at: "password", code: parts[1] };
   // Old addresses: a chat, and a run.
@@ -157,9 +164,20 @@ export function read(path = window.location.pathname, search = window.location.s
   return { at: "home" };
 }
 
+/**
+ * Where to go once signed in: `back` in the address, when it is a page of this
+ * site's own, or the front page. A link somebody was sent lands where it pointed.
+ */
+export function afterSignIn(search = window.location.search): string {
+  const back = new URLSearchParams(search).get("back");
+  return back && /^\/(?![/\\])/.test(back) ? back : "/";
+}
+
 export function go(view: View): void {
-  // The way in keeps ?back=, which says where to go once signed in.
-  const back = view.at === "signin" ? new URLSearchParams(window.location.search).get("back") : null;
+  // The way in keeps ?back=, which says where to go once signed in, and is the page that sent there when it has none.
+  const here = window.location.pathname + window.location.search;
+  const sent = here === "/" || read().at === "signin" ? null : here;
+  const back = view.at === "signin" ? (new URLSearchParams(window.location.search).get("back") ?? sent) : null;
   window.history.pushState(view, "", href(view) + (back ? `?back=${encodeURIComponent(back)}` : ""));
   window.dispatchEvent(new PopStateEvent("popstate"));
 }

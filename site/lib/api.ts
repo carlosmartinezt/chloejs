@@ -21,6 +21,7 @@ import type {
   Run,
   RunRow,
   Said,
+  SharedChat,
   Skill,
   Switch,
   Thread,
@@ -272,6 +273,9 @@ export const api = {
     call<{ thread: string; label: string | null }>(`/threads/${encodeURIComponent(thread)}/rename`, { label }),
   archiveThread: (thread: string, archived: boolean) =>
     call<{ thread: string; archived: string | null }>(`/threads/${encodeURIComponent(thread)}/archive`, { archived }),
+  shareThread: (thread: string, shared: boolean) =>
+    call<{ thread: string; shared: string | null }>(`/threads/${encodeURIComponent(thread)}/share`, { shared }),
+  shared: (thread: string) => call<SharedChat>(`/shared/${encodeURIComponent(thread)}`),
   pinThread: (thread: string, pinned: boolean) =>
     call<{ thread: string; pinned: string | null }>(`/threads/${encodeURIComponent(thread)}/pin`, { pinned }),
   /** Files it under a group, or under none with null. */

@@ -16,7 +16,7 @@ import { build } from "esbuild";
 
 import { AnswerGone, api, collectAnswer, frameUnder, NeedsSignIn, serverAt, servesFrom } from "./lib/api.ts";
 import { saidAt } from "./lib/format.ts";
-import { href, read } from "./lib/route.ts";
+import { afterSignIn, href, read } from "./lib/route.ts";
 import { ideasFor, ideasFrom } from "./lib/ideas.ts";
 import { allowed, landing } from "./lib/given.ts";
 import { modelName, shortChoices } from "./lib/models.ts";
@@ -114,6 +114,22 @@ describe("where the page is, as an address", () => {
     deepStrictEqual(read(href({ at: "chat", agent: "chloe", thread: "cc/x" }), ""), { at: "chat", agent: "chloe", thread: "cc/x" });
     // The address it used to have still opens it.
     deepStrictEqual(read("/agents/chloe/chat", "?thread=chloe%2Fweb-1"), { at: "chat", agent: "chloe", thread: "chloe/web-1" });
+  });
+
+  test("a shared conversation has an address of its own, read back as itself", () => {
+    const at = href({ at: "shared", thread: "chloe/1f2e-3d" });
+    strictEqual(at, "/shared/chloe/1f2e-3d");
+    deepStrictEqual(read(at, ""), { at: "shared", thread: "chloe/1f2e-3d" });
+    deepStrictEqual(read(href({ at: "shared", thread: "chloe/a/b c" }), ""), { at: "shared", thread: "chloe/a/b c" });
+    deepStrictEqual(read("/shared/chloe", ""), { at: "home" });
+  });
+
+  test("signing in goes back to the page that sent there, and only to one of this site's", () => {
+    strictEqual(afterSignIn("?back=%2Fshared%2Fchloe%2F1"), "/shared/chloe/1");
+    strictEqual(afterSignIn(""), "/");
+    for (const away of ["https://evil.example/", "//evil.example/", "/\\evil.example/", "javascript:alert(1)"]) {
+      strictEqual(afterSignIn(`?back=${encodeURIComponent(away)}`), "/", away);
+    }
   });
 
   test("a new chat about a file in memory keeps the file in the address", () => {
