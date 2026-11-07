@@ -26,9 +26,9 @@ import { db } from "#chloe/core/db";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { oneLineSummary } from "#chloe/core/markdown";
 import type { Agent, Job } from "#chloe/load/load";
-import { modelFor } from "#chloe/model/choices";
+import { effortFor, modelFor } from "#chloe/model/choices";
 import { nameOf, type SdkModel } from "#chloe/model/key";
-import { ask as askModel, type Message, type ToolCall } from "#chloe/model/model";
+import { ask as askModel, type Effort, type Message, type ToolCall } from "#chloe/model/model";
 import { loop, money, type Decided, type LoopStep } from "#chloe/core/turn";
 import { cannotRun, overviewsOf, type Call, type ChloeTool, type Tools } from "#chloe/model/tool";
 
@@ -64,6 +64,8 @@ export interface Line {
    * For an ask: who was asked, and whether they answered in time, like "telegram:12345 answered".
    */
   note?: string;
+  /** For a model or agent step: the effort the route asked the model for, when it asked one. */
+  effort?: Effort;
   /** For a model or agent step: the prompt it was given. */
   prompt?: string;
   /** For an ask: the question that was sent. */
@@ -152,6 +154,8 @@ export interface ModelStep<O extends Shape> {
    * Default: the model the job runs on.
    */
   model?: string | SdkModel;
+  /** How hard the model thinks in this step: `"low"`, `"medium"`, `"high"` or `"xhigh"`. Default: the job's effort, else the agent's. */
+  effort?: Effort;
   /** Extra instructions for the model, sent before the question. Default: none. */
   instructions?: string;
   /**
@@ -235,6 +239,8 @@ export interface AgentStep<O extends Shape = Shape, T extends Tools = Tools> {
    * Default: the model the job runs on.
    */
   model?: string | SdkModel;
+  /** How hard the model thinks in this step: `"low"`, `"medium"`, `"high"` or `"xhigh"`. Default: the job's effort, else the agent's. */
+  effort?: Effort;
   /** Extra instructions for the model: what it should know before it starts. Default: none. */
   instructions?: string;
   /**
@@ -814,7 +820,7 @@ async function once<T>(
   name: string,
   kind: Line["kind"],
   minutes: number,
-  fn: (charge: (amount: number | undefined) => number, calls: Call[], signal: AbortSignal) => Promise<{ value: T; note?: string; prompt?: string }>,
+  fn: (charge: (amount: number | undefined) => number, calls: Call[], signal: AbortSignal) => Promise<{ value: T; note?: string; prompt?: string; effort?: Effort }>,
 ): Promise<T> {
   const seen = ctx.lines[ctx.seq];
   if (seen) {
@@ -863,7 +869,7 @@ async function once<T>(
       `Give it longer with timeLimit, or have it do less.`,
   );
   try {
-    const { value, note, prompt } = await until(limit.signal, fn(charge, calls, limit.signal));
+    const { value, note, prompt, effort } = await until(limit.signal, fn(charge, calls, limit.signal));
     const size = JSON.stringify(value ?? null)?.length ?? 0;
     if (size > MOST) {
       throw new Error(
@@ -881,6 +887,7 @@ async function once<T>(
       ...(unpriced > 0 && { unpriced }),
       result: value,
       note,
+      ...(effort && { effort }),
       prompt,
       calls: calls.length > 0 ? calls : undefined,
     });
@@ -916,6 +923,7 @@ async function once<T>(
 function modelStep<O extends Shape>(ctx: Ctx, name: string, options: ModelStep<O>): Promise<Answer<O>> {
   return once(ctx, name, "model", options.timeLimit ?? STEP_MINUTES, async (charge, _calls, signal) => {
     const using = options.model ? nameOf(options.model) : modelFor(ctx.agent, ctx.job);
+    const effort = options.effort ?? effortFor(ctx.agent, ctx.job);
     const output = outputOf(options.output);
     const shape = await shapeOf(output);
     if (!shape) {
@@ -942,13 +950,13 @@ function modelStep<O extends Shape>(ctx: Ctx, name: string, options: ModelStep<O
     // Twice: a model told exactly what did not fit usually fixes it, and a
     // third go has never been the difference.
     for (let attempt = 0; attempt < 2; attempt++) {
-      const answer = await askModel({ model: using, messages, signal });
+      const answer = await askModel({ model: using, effort, messages, signal });
       // Charged whether or not it came back usable, which is why this is not
       // left until the end.
       charge(answer.cost);
       ctx.model = using;
       const checked = await parsed(output, answer.text);
-      if (checked.ok) return { value: checked.value as Answer<O>, note: using, prompt: options.prompt };
+      if (checked.ok) return { value: checked.value as Answer<O>, note: using, effort: answer.effort, prompt: options.prompt };
       complaint = checked.why;
       messages.push({ role: "assistant", content: answer.text });
       messages.push({ role: "user", content: `That did not fit: ${complaint}. Answer again, JSON only.` });
@@ -973,6 +981,7 @@ const AGENT_STOP_WHEN = isStepCount(10);
 function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O>): Promise<unknown> {
   return once<unknown>(ctx, name, "agent", options.timeLimit ?? AGENT_STEP_MINUTES, async (charge, calls, signal) => {
     const using = options.model ? nameOf(options.model) : modelFor(ctx.agent, ctx.job);
+    const effort = options.effort ?? effortFor(ctx.agent, ctx.job);
     const tools = options.tools;
     for (const [id, one] of Object.entries(tools)) {
       const wrong = cannotRun(id, one);
@@ -1027,6 +1036,7 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
     const stopWhen = Array.isArray(said) ? said : [said];
     let spent = carried?.spent ?? 0;
     let unpriced = carried?.unpriced ?? 0;
+    let asked: Effort | undefined;
     let complaint = carried?.complaint ?? "";
     // A call that waited for a person, and what they said, when this is the run carrying on.
     let resume: { calls: ToolCall[]; decided: Decided } | undefined;
@@ -1053,11 +1063,13 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
       // step that fails half way through still says what it spent and ran.
       const onStep = (line: LoopStep) => {
         if (line.unpriced) unpriced++;
+        if (line.effort) asked = line.effort;
         if (line.cost || line.unpriced) spent = charge(line.cost);
         if (line.tool) calls.push({ toolName: line.tool, input: line.args, output: line.result, ...(line.refused && { refused: true }) });
       };
       let done = await loop({
         model: using,
+        effort,
         messages,
         tools,
         context: { agent: ctx.agent },
@@ -1101,6 +1113,7 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
         messages.push({ role: "user", content: "You are out of steps, so no more tools. Answer now, from what you have done so far." });
         done = await loop({
           model: using,
+          effort,
           messages,
           tools,
           context: { agent: ctx.agent },
@@ -1112,10 +1125,10 @@ function agentStep<O extends Shape>(ctx: Ctx, name: string, options: AgentStep<O
         if (done.stopped) throw outOfSteps;
       }
 
-      if (!shape) return { value: done.text, note: using, prompt: options.prompt };
+      if (!shape) return { value: done.text, note: using, effort: asked, prompt: options.prompt };
 
       const checked = await parsed(output!, done.text);
-      if (checked.ok) return { value: checked.value, note: using, prompt: options.prompt };
+      if (checked.ok) return { value: checked.value, note: using, effort: asked, prompt: options.prompt };
       complaint = checked.why;
       if (attempt === 1) throw wrongShape();
       messages.push({ role: "assistant", content: done.text });

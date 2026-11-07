@@ -348,6 +348,8 @@ export interface Answer {
   cost?: number;
   tokensIn: number;
   tokensOut: number;
+  /** The effort the route asked the model for. Left out when none was asked or the route cannot say one. */
+  effort?: Effort;
 }
 
 /**
@@ -367,9 +369,19 @@ export class UsageLimit extends Error {}
  */
 export class TryAgain extends Error {}
 
+/**
+ * How hard a model thinks before it answers, in the words every route shares.
+ * Less is faster and spends less; the route's own default is left alone when
+ * nothing says one.
+ */
+export const EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+export type Effort = (typeof EFFORTS)[number];
+
 export interface Ask {
   /** A model's name. An AI SDK model is named by nameOf() first. */
   model: string;
+  /** How hard it thinks. A route with no way to say so leaves it out of its `Answer`. */
+  effort?: Effort;
   messages: Message[];
   tools?: ToolSpec[];
   maxOutputTokens?: number;

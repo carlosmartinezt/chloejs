@@ -400,12 +400,17 @@ import type { Tools } from "#chloe/ops/test/shared";
 
 {
   about("downloading a Drive file");
-  const { downloadDriveFile, fileIdOf } = await import("./driveService.ts");
+  const { downloadDriveFile, driveQuery, fileIdOf, folderIdOf } = await import("./driveService.ts");
   const id = "1Ywl5lxcauZu-OALFLGsN9Y1Xn6SOptPY";
   is("a link to a file gives its id", fileIdOf(`https://drive.google.com/file/d/${id}/view?usp=drivesdk`), id);
   is("so does an open link", fileIdOf(`https://drive.google.com/open?id=${id}`), id);
   is("and an id is itself", fileIdOf(` ${id} `), id);
   is("anything else is no file", fileIdOf("the offer letter"), undefined);
+  is("a folder link gives the folder's id, and is no file", [folderIdOf(`https://drive.google.com/drive/u/0/folders/${id}`), fileIdOf(`https://drive.google.com/drive/u/0/folders/${id}`)], [id, undefined]);
+  is("a search in a folder keeps the binding", driveQuery({ search: "'shared' in parents", folder: id }), `('shared' in parents) and trashed = false and '${id}' in parents`);
+  is("and words that are not a folder are refused", (() => { try { return driveQuery({ folder: "the reports" }); } catch (error) { return (error as Error).message; } })(), "the reports is not a Drive folder link or id.");
+  const folderLink = await downloadDriveFile({ what: "Drive", agent: "test", file: `https://drive.google.com/drive/folders/${id}` }).then(() => "", (error: Error) => error.message);
+  is("a folder link to download says to search in it, before Google is asked", folderLink.endsWith("is a Drive folder. Search with it as the folder to list what is in it."), true);
   const refused = await downloadDriveFile({ search: "'folder' in parents", what: "the folder", agent: "test", file: id }).then(() => "", (error: Error) => error.message);
   is("bound to a search, a file it never listed is refused before Google is asked", refused.includes("not in the folder"), true);
   const agent = await import("@chloejs/core").then(({ defineAgent }) => defineAgent);

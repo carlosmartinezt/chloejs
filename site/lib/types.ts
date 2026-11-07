@@ -93,6 +93,8 @@ export interface Step {
   /** Set on a prompt run's model line: the tools it asked for by name. */
   wants?: string[];
   cost?: number;
+  /** On a model answer, or a job's model or agent step: how hard the model was asked to think, when it was asked. */
+  effort?: string;
   /** A prompt run's model line: true when the answer came with no price. A job's line: how many of its answers did. */
   unpriced?: boolean | number;
   tool?: string;

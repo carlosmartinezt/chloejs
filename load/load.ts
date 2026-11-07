@@ -21,6 +21,7 @@ import { includedIn, isPrompt, readPrompt, settingsAndBody, type Prompt } from "
 import { parse } from "#chloe/timer/cron";
 import type { JobConfig } from "./job.ts";
 import { nameOf, type SdkModel } from "#chloe/model/key";
+import { EFFORTS, type Effort } from "#chloe/model/model";
 import { cannotRun, type Tools } from "#chloe/model/tool";
 import type { Connection } from "#chloe/connections/connection";
 import type { ToolConnection } from "#chloe/connections/connection";
@@ -108,6 +109,15 @@ export interface AgentConfig {
    * their own model. Default: false.
    */
   auto?: boolean;
+  /**
+   * How hard the model thinks before each answer: `"low"`, `"medium"`,
+   * `"high"` or `"xhigh"`. Less is faster and spends less of a plan or a key.
+   * It goes with whatever model a run is on, a pick in a chat included. A job
+   * can say its own. The Claude, Codex, direct and gateway routes pass it on;
+   * the others have no way to, and the run record shows it only where it was
+   * passed. Default: the model's own.
+   */
+  effort?: Effort;
   /** One line on what the agent does. The dashboard shows it wherever agents are listed. Required. */
   identity: string;
   /**
@@ -402,8 +412,8 @@ export interface MarkdownJob {
  * agent's folder, and the file name without `.md` is the job's id.
  *
  * The file may start with a block of settings between two `---` lines. chloe
- * reads only `cron`, `description`, `timezone` (default `"UTC"`) and `model`
- * there, all optional, and ignores any other key. The prompt is the text
+ * reads only `cron`, `description`, `timezone` (default `"UTC"`), `model` and
+ * `effort` there, all optional, and ignores any other key. The prompt is the text
  * under the block. Without `cron`, the job runs only when somebody starts it.
  */
 export function markdownJob(file: string): MarkdownJob {
@@ -411,7 +421,7 @@ export function markdownJob(file: string): MarkdownJob {
 }
 
 /** The settings a markdown job may have at its top, and no others. */
-export const MARKDOWN_JOB_SETTINGS = ["cron", "description", "timezone", "model"];
+export const MARKDOWN_JOB_SETTINGS = ["cron", "description", "timezone", "model", "effort"];
 
 /**
  * What is wrong with a markdown job, in one sentence, or undefined when it
@@ -437,7 +447,19 @@ export function markdownJobProblem(text: string): string | undefined {
       return `${settings.timezone} is not a timezone, like America/New_York`;
     }
   }
+  if (settings.effort && !(EFFORTS as readonly string[]).includes(settings.effort)) return wrongEffort(settings.effort);
   return undefined;
+}
+
+function wrongEffort(effort: unknown): string {
+  return `its effort is ${JSON.stringify(effort)}, and an effort is one of ${EFFORTS.join(", ")}`;
+}
+
+/** An effort as given, checked, since a config handed over from `.env` or a markdown job's top is not type checked. */
+function effortOf(effort: unknown, where: string): Effort | undefined {
+  if (effort === undefined || effort === "") return undefined;
+  if (!(EFFORTS as readonly string[]).includes(effort as string)) throw new Error(`${where}: ${wrongEffort(effort)}.`);
+  return effort as Effort;
 }
 
 /**
@@ -477,6 +499,8 @@ export interface Job {
   timezone: string;
   /** The model the job uses in place of the agent's. Not set when it uses the agent's model. */
   model?: string;
+  /** How hard the model thinks in this job, in place of the agent's `effort`. Not set when it goes by the agent's. */
+  effort?: Effort;
   /** The job's prompt, for a job that is a prompt. An empty string (`""`) for a code job. */
   prompt: string;
   /** The job's code, for a job that is code. Not set for a prompt job. */
@@ -878,6 +902,7 @@ export async function resolveAgent(definition: DefinedAgent): Promise<Agent> {
   const agent: Agent = {
     ...rest,
     model,
+    effort: effortOf(definition.effort, where),
     memory,
     purpose: await readPrompt(definition.purpose, { dir: folder, where }),
     purposeFile: isPrompt(definition.purpose) ? definition.purpose.file : undefined,
@@ -1091,6 +1116,7 @@ async function fromMarkdown(agent: string, dir: string, file: string): Promise<J
     cron: checked(settings.cron, where),
     timezone: settings.timezone ?? "UTC",
     model: settings.model,
+    effort: effortOf(settings.effort, where),
     prompt: body,
     files: [path],
   };
@@ -1119,6 +1145,7 @@ async function fromCode(agent: string, dir: string, definition: JobConfig<any, a
     cron: checked(definition.cron, where),
     timezone: definition.timezone ?? "UTC",
     model: definition.model && nameOf(definition.model),
+    effort: effortOf(definition.effort, where),
     files: [
       ...new Set([
         ...(isPrompt(definition.markdown) ? [relative(dir, join(dir, definition.markdown.file))] : []),

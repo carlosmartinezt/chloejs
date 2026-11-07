@@ -394,6 +394,14 @@ import { agentFor, answers, codeJob, db } from "#chloe/ops/test/shared";
     is("the claude route is never handed an Anthropic key, so it stays on the subscription", keylessSaid.text, "[]");
     pin(anyCli, anyCli, opencodeCli);
 
+    // An effort is the CLI's own flag, and the answer says it was asked.
+    const thinking = await fake("claude-effort", `cat >/dev/null; for one in "$@"; do last="$was $one"; was="$one"; case "$last" in "--effort "*) said="$one";; esac; done; printf '{"type":"result","result":"[%s]","is_error":false}' "$said"`);
+    pin(thinking, anyCli, opencodeCli);
+    const effortSaid = await viaClaudeKeyless({ model: "anthropic/claude-sonnet-5", effort: "low", messages: [{ role: "user", content: "hi" }] });
+    const noEffort = await viaClaudeKeyless({ model: "anthropic/claude-sonnet-5", messages: [{ role: "user", content: "hi" }] });
+    is("an effort reaches the claude command as --effort, and none is said when none was asked", [effortSaid.text, effortSaid.effort, noEffort.text, noEffort.effort], ["[low]", "low", "[]", undefined]);
+    pin(anyCli, anyCli, opencodeCli);
+
     // A model now and then loops on its own tool syntax until the most an
     // answer may be, which by default takes ten minutes.
     const capped = await fake("claude-capped", 'cat >/dev/null; printf \'{"type":"result","result":"%s","is_error":false}\' "$CLAUDE_CODE_MAX_OUTPUT_TOKENS"');
@@ -529,6 +537,7 @@ import { agentFor, answers, codeJob, db } from "#chloe/ops/test/shared";
       model: "openai/gpt-6-luna",
       messages: [{ role: "user", content: "search twice" }],
       tools: [{ name: "webSearch", description: "Search.", parameters: { type: "object" } }],
+      effort: "medium",
     });
     settings.model.program.codex = heldProgram;
     is("handed real tools, it asks with them and is stopped once it has", [answered.toolCalls?.length, answered.text, Date.now() - started < 20_000], [2, "Let me look.", true]);
@@ -539,6 +548,7 @@ import { agentFor, answers, codeJob, db } from "#chloe/ops/test/shared";
       ["mcp_servers.chloe.required=true", 'web_search="disabled"', "image_generation", "shell_tool"].map((one) => handed.includes(one)),
       [true, true, true, true],
     );
+    is("and an effort as its reasoning setting", [handed.includes('model_reasoning_effort="medium"'), answered.effort], [true, "medium"]);
     let failed = "";
     try {
       readCodex('{"type":"turn.started"}\n{"type":"turn.failed","error":{"message":"The model is not supported"}}');

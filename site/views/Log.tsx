@@ -613,7 +613,7 @@ function RunThread({ run }: { run: Run }) {
         <div key={at} className="msg them model">
           <div className="who">{`${model} on ${step.name}`}</div>
           <Answer value={step.result} />
-          <Meta words={saidBy(`answered${step.ms ? ` in ${took(step.ms)}` : ""}`, step.at, spent(step.cost, step.unpriced))} />
+          <Meta words={saidBy(`answered${step.ms ? ` in ${took(step.ms)}` : ""}`, step.at, spent(step.cost, step.unpriced), thought(step))} />
         </div>,
       );
       return;
@@ -641,7 +641,7 @@ function RunThread({ run }: { run: Run }) {
       show(
         <div className="msg them" key={at}>
           <div className="said">{rich(step.say)}</div>
-          <Meta words={saidBy(agent, step.at, spent(step.cost, step.unpriced))} />
+          <Meta words={saidBy(agent, step.at, spent(step.cost, step.unpriced), thought(step))} />
         </div>,
       );
     }
@@ -840,6 +840,11 @@ function saidBy(who: string, at?: string | null, ...more: string[]): string {
   return [who, clock(at), ...more].filter(Boolean).join(", ");
 }
 
+/** "low effort", when the model was asked how hard to think. */
+function thought(step: Step): string {
+  return step.effort ? `${step.effort} effort` : "";
+}
+
 /** A job's line is stamped when it finished, so what it was asked went in that long before. */
 function startedAt(step: Step): string | undefined {
   return step.at && step.ms ? new Date(Date.parse(step.at) - step.ms).toISOString() : step.at;
@@ -926,7 +931,7 @@ function Context({ value }: { value: unknown }) {
  * input and the output. A failed one opens itself.
  */
 export function Card({ name, step, body, from }: { name: string; step: Step; body?: ReactNode; from?: string }) {
-  const facts = [step.ms ? took(step.ms) : clock(step.at), step.cost || step.unpriced ? spent(step.cost, step.unpriced) : "", step.note ?? ""].filter(Boolean);
+  const facts = [step.ms ? took(step.ms) : clock(step.at), step.cost || step.unpriced ? spent(step.cost, step.unpriced) : "", step.note ?? "", thought(step)].filter(Boolean);
   const asked = step.args !== undefined;
   const gist =
     typeof step.failed === "string" ? step.failed : body && Array.isArray(step.result) ? many(step.result.length, "message") : asked ? "" : brief(step.result);

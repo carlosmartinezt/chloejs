@@ -30,23 +30,25 @@ interface Options {
 
 /**
  * Makes a tool that lets the model find files in Google Drive, newest first,
- * or by words in their name or text. Files in the trash are left out.
+ * or by words in their name or text, or the files in one folder. Files in the
+ * trash are left out.
  *
  * `search` sets which files the model can see, and the model cannot change
- * it. The model chooses only the words to look for and how many files (up to
- * 50, default 20).
+ * it. The model chooses only the words to look for, a folder to look inside,
+ * and how many files (up to 50, default 20).
  *
  * Give it the same `search` as the agent's `drive.readFile`. Needs the Google
  * connection.
  */
 export function searchFiles({ search = "", what = "Drive" }: Options = {}) {
   const find = tool({
-    description: `Find files in ${what}, newest first, or by words in them. You cannot change which files this searches.`,
+    description: `Find files in ${what}, newest first, or by words in them, or list what is in one folder. You cannot change which files this searches.`,
     inputSchema: z.object({
       text: z.string().max(200).optional().describe("Words the file holds or is named. Leave it out for the newest."),
       limit: z.number().int().min(1).max(50).optional().describe("How many at most. Default 20."),
+      folder: z.string().optional().describe("A folder to look inside: its id from a search, or a Drive folder link as it was sent."),
     }),
-    execute: async ({ text, limit }) => await searchDriveFiles({ search, text, limit }),
+    execute: async ({ text, limit, folder }) => await searchDriveFiles({ search, text, limit, folder }),
   });
   return Object.assign(find, { title: "Search Drive", needs: google, onlyReads: true, kind: "search" as const });
 }

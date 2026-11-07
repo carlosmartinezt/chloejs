@@ -539,6 +539,12 @@ quick model (`quickFor()` in `model/model.ts`: `model.quickModel`, else the
 said, with the reason as the run's first line. Never decide after a reply has
 started: a tool may already have acted.
 
+How hard a model thinks is `effort` on the agent, the job or the step, and
+`effortFor()` beside `modelFor()` is the one place that says which wins. It
+travels on `Ask` to the route, and a route that can say it returns it on its
+`Answer`, which is what the run record writes: never write an effort the
+route did not pass.
+
 `npm run test` runs jobs for real against an in-memory database and a stand-in
 gateway on a loopback port, so it costs nothing and it either passes or it does
 not. Code is tested, not scored. Moving a job down the hierarchy should grow this

@@ -1,7 +1,7 @@
 ---
 title: Models
 order: 7
-summary: Which model answers, how each call reaches it and who pays, every model setting, Auto, and picking one from a chat.
+summary: Which model answers, how each call reaches it and who pays, every model setting, how hard it thinks, Auto, and picking one from a chat.
 ---
 
 A model is named as provider and name, `"anthropic/claude-sonnet-5"`. An agent,
@@ -158,6 +158,31 @@ model on the agent's page on the dashboard, or with
 `anthropic("claude-opus-5-5")`, for the file.
 
 On a subscription, a quick model saves the plan's limits and time, not money.
+
+## How hard it thinks
+
+`effort` says how hard the model thinks before each answer: `"low"`,
+`"medium"`, `"high"` or `"xhigh"`. Less answers sooner and spends less of a
+plan or a key, and most of a long reply's wait is the model thinking, not its
+tools. Unsaid, the model thinks as hard as its own default.
+
+```ts
+export default defineAgent({
+  model: "anthropic/claude-opus-5-5",
+  effort: "medium",
+  identity: "Answers the shop's customers.",
+});
+```
+
+The first of these that is set wins: `effort` on `work.model()` or
+`work.agent()`, then the job's (`defineJob`, or a markdown job's
+frontmatter), then the agent's. It goes with whatever model the run is on, a
+pick in a chat included.
+
+The claude and codex commands, the direct route and the gateway pass it on,
+each in its own words. The other routes have no way to, and the run record
+writes the effort on a model's line only where it was passed, so it never
+claims one that was not asked.
 
 ## Picking one from a chat
 

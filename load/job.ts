@@ -9,6 +9,7 @@ import type { z } from "zod";
 import type { Prompt } from "#chloe/core/markdown";
 import type { Data, Work } from "#chloe/core/steps";
 import type { SdkModel } from "#chloe/model/key";
+import type { Effort } from "#chloe/model/model";
 
 /**
  * The options you give `defineJob`. Every job needs an `id`, a
@@ -59,6 +60,12 @@ export interface JobConfig<
    * first.
    */
   model?: string | SdkModel;
+  /**
+   * How hard the model thinks in this job, when it should not go by the
+   * agent's `effort`: `"low"`, `"medium"`, `"high"` or `"xhigh"`. A model step
+   * or an agent step can say its own. Default: the agent's.
+   */
+  effort?: Effort;
   /**
    * The job's prompt, for a job that is a prompt: a string, or
    * `prompt("jobs/morning.md")` for a file inside the agent's folder. The

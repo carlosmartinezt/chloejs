@@ -67,11 +67,11 @@ function isLimit(answer: CliAnswer): boolean {
   return answer.is_error === true && /usage limit|hit your limit|limit reached|rate limit/i.test(answer.result ?? "");
 }
 
-export async function viaClaude({ model, messages, tools, signal }: Ask): Promise<Answer> {
+export async function viaClaude({ model, messages, tools, effort, signal }: Ask): Promise<Answer> {
   const { system, parts } = asText({ messages, tools, native: PREFIX });
   const folder = tools?.length ? await mkdtemp(join(tmpdir(), "chloe-claude-")) : "";
   try {
-    return await asked({ model, system, parts, messages, tools, signal, folder });
+    return await asked({ model, system, parts, messages, tools, effort, signal, folder });
   } finally {
     if (folder) await rm(folder, { recursive: true, force: true });
   }
@@ -155,7 +155,7 @@ export async function claudeModels(): Promise<string[]> {
   return [];
 }
 
-async function asked({ model, system, parts, messages, tools, signal, folder }: Ask & { system: string; parts: string[]; folder: string }): Promise<Answer> {
+async function asked({ model, system, parts, messages, tools, effort, signal, folder }: Ask & { system: string; parts: string[]; folder: string }): Promise<Answer> {
   const args = [
     "-p",
     "--output-format",
@@ -171,6 +171,9 @@ async function asked({ model, system, parts, messages, tools, signal, folder }: 
     "--exclude-dynamic-system-prompt-sections",
     "--system-prompt",
     system,
+    // Without it the CLI thinks as hard as the model's default, and does not
+    // read the effort in this machine's own settings, which --restricted skips.
+    ...(effort ? ["--effort", effort] : []),
   ];
 
   // The tools, as a server the CLI starts, allowed by name, and one answer:
@@ -246,5 +249,6 @@ async function asked({ model, system, parts, messages, tools, signal, folder }: 
     cost: answer.total_cost_usd,
     tokensIn: answer.usage?.input_tokens ?? 0,
     tokensOut: answer.usage?.output_tokens ?? 0,
+    ...(effort && { effort }),
   };
 }

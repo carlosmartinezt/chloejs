@@ -4,7 +4,7 @@ import { isStepCount, tool } from "ai";
 import { z } from "zod";
 import { about, is } from "#chloe/ops/check";
 import type { Job } from "./shared.ts";
-import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, reachBy, row } from "./shared.ts";
+import { agentFor, answers, asked, codeJob, db, lastAsked, lastEffort, lastTools, reachBy, row } from "./shared.ts";
 
 {
   about("runs a stop cut off");
@@ -892,5 +892,25 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastTools, reachBy, r
   const done = await turn({ agent, prompt: "Use it.", source: "schedule", job: "slow" });
   is("the tool is told to stop at its time limit", toolTold, true);
   is("and the model is told it ran out of time, and carries on", [lastAsked.at(-1)?.content.includes("stuck failed: it ran out of time after 0.01 minutes"), done.text], [true, "It never answered, so I stopped."]);
+  answers.length = 0;
+}
+
+{
+  about("how hard the model thinks");
+
+  const { turn } = await import("#chloe/core/turn");
+  const job: Job = { agent: "test", id: "careful", timezone: "UTC", prompt: "Think.", files: [], effort: "high" };
+  const agent = { ...agentFor(job), effort: "low" as const };
+  answers.length = 0;
+  answers.push("Quick.");
+  const quick = await turn({ agent, prompt: "Hi.", source: "chat" });
+  is("the agent's effort is what the model is asked", lastEffort, "low");
+  is("and the run's line says it", (JSON.parse(row(quick.runId).trace) as { effort?: string }[]).at(-1)?.effort, "low");
+  answers.push("Careful.");
+  await turn({ agent, prompt: "Think.", source: "schedule", job: "careful" });
+  is("a job's own effort comes first", lastEffort, "high");
+  answers.push("Plain.");
+  const plain = await turn({ agent: agentFor(job), prompt: "Hi.", source: "chat" });
+  is("with none said, none is asked and none is written down", [lastEffort, (JSON.parse(row(plain.runId).trace) as { effort?: string }[]).at(-1)?.effort], [undefined, undefined]);
   answers.length = 0;
 }

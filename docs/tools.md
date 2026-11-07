@@ -23,10 +23,10 @@ Import a set as a whole and bind each tool you want:
 | Set | Tools | Bound to | The model chooses |
 |---|---|---|---|
 | `fs` | `listFiles`, `readFile`, `searchFiles`, `editFile` | `root`, one folder, and `what`, its name in words. `editFile` takes `commit: true` to commit each call. | A path inside that folder. |
-| `web` | `readPage()`, `savePictures()`, `search()` | nothing. A search goes to Brave Search when `connections.brave.api_key` is set, and to DuckDuckGo when it is not. See [Connections](/docs/connections#brave-search). | Which public page to read; what to search for. |
+| `web` | `readPage()`, `savePictures()`, `search()` | nothing. A search goes to Brave Search when `connections.brave.api_key` is set, and to DuckDuckGo when it is not. See [Connections](/docs/connections#brave-search). | Which public page to read, and words to find in it; what to search for. |
 | `gmail` | `readEmail`, `replyEmail`, `sendEmail` | A Gmail search, or the From and To of what it sends. See [Connections](/docs/connections#the-google-tools). | How far back and how many; words the mail must hold; which listed message to answer. |
 | `calendar` | `listEvents`, `addEvent` | Which calendars. | The dates, and what an event says. |
-| `drive` | `searchFiles`, `readFile` | A Drive search, like one folder. | Words to look for; which listed file to read. |
+| `drive` | `searchFiles`, `readFile` | A Drive search, like one folder. | Words to look for, and a folder to look inside; which listed file to read. |
 | `resend` | `sendEmail` | The From and To. | The subject and the body. |
 | `email` | `startConversation` | Which email channel. | Who, from the channel's `allowFrom`, and what to say. |
 | `telegram` | `sendMessage` | Which Telegram channel and who it may send to. | Who and what to say. |

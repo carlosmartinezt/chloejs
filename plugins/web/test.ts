@@ -22,6 +22,20 @@ import { about, is } from "#chloe/ops/check";
 }
 
 {
+  about("finding words in a long page");
+
+  const { passages } = await import("./webService.ts");
+  const page = "x".repeat(3000) + "Winter Recess: Dec 24" + "y".repeat(300) + "winter recess ends Jan 1" + "z".repeat(3000) + "Spring";
+  const found = passages(page, "winter recess", 0);
+  is("only the passages around the words come back, in any case, merged where they touch",
+    [found.found, found.text.includes("Dec 24") && found.text.includes("Jan 1"), found.text.includes("…"), found.text.length < 1700, found.next], [2, true, false, true, undefined]);
+  is("from skips what was before it", passages(page, "winter recess", 3100).found, 1);
+  is("and words the page lacks come back as nothing found", passages(page, "summer", 0), { text: "", found: 0 });
+  const many = passages(("needle " + "h".repeat(2000)).repeat(30), "needle", 0);
+  is("passages past one part's worth say where to look on from", [many.found, many.text.length <= 20_000, typeof many.next], [30, true, "number"]);
+}
+
+{
   about("reading a web page");
 
   const { feedToText, htmlToText, isPrivate, readPage } = await import("@chloejs/core/services");

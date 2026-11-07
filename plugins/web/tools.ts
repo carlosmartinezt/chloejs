@@ -15,7 +15,8 @@ import * as webService from "./webService.ts";
 /**
  * Makes a tool that lets the model read one public web page as plain text,
  * with links written as `[text](url)`. A long page comes back in parts of
- * about 20,000 characters, and the model asks for the next part.
+ * about 20,000 characters, and the model asks for the next part, or gives
+ * words to find and gets only the passages around them.
  *
  * It reads only public addresses: it refuses this machine, your local network
  * and other private addresses, even through a redirect. It does not run the
@@ -33,14 +34,17 @@ export function readPage() {
       "Read a public web page as plain text. Links come back as `[text](url)`: to follow one, pass that url " +
       "exactly as it came back, never one you rebuilt by hand, because one changed character can make a site " +
       "quietly show a different page. A long page comes back in slices: pass `from` as the `next` it gave you. " +
+      "Looking for something in a long page, a date, a price, a name, pass `find` and get only the passages that " +
+      "have it, rather than reading every slice. " +
       "Only a page that came back nearly empty was built by JavaScript in the browser; if a page came back " +
       "full but wrong, say what you asked for and what you got, and do not guess why. `pictures` lists the pictures " +
       "on the page, the one that stands for it first.",
     inputSchema: z.object({
       url: z.url(),
       from: z.number().int().min(0).optional().describe("Where to start, from the last slice's `next`."),
+      find: z.string().optional().describe("A word or a few, as the page would write them: only the passages around them come back."),
     }),
-    execute: ({ url, from }) => webService.readPage(url, from ?? 0),
+    execute: ({ url, from, find }) => webService.readPage(url, from ?? 0, find),
   }), { title: "Read page", onlyReads: true, kind: "fetch" as const });
 }
 

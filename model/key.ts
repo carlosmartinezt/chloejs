@@ -216,7 +216,7 @@ function parsed(text: string): unknown {
  * Asks once on a key, by the gateway or on the provider's own API, and answers in chloe's shape. With `onText` the answer is streamed and its
  * words handed over as they come; what it costs is read at the end either way.
  */
-export async function viaKey({ model, messages, tools, maxOutputTokens, signal, onText }: Ask, route: "gateway" | "direct"): Promise<Answer> {
+export async function viaKey({ model, messages, tools, maxOutputTokens, effort, signal, onText }: Ask, route: "gateway" | "direct"): Promise<Answer> {
   let reach: LanguageModel;
   let where: string;
   /** Whose money a call spends, as the person waiting is told when it runs out. */
@@ -250,6 +250,8 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal, 
         tools: Object.fromEntries(tools.map((one) => [one.name, tool({ description: one.description, inputSchema: jsonSchema(one.parameters) })])),
       }),
       maxOutputTokens: maxOutputTokens ?? 8000,
+      // The AI SDK hands it to each provider in that provider's own words.
+      ...(effort && { reasoning: effort }),
       // Four tries in all, for a busy or failing provider. A bad key or a
       // missing model fails the same way forever and is not tried again.
       maxRetries: 3,
@@ -274,6 +276,7 @@ export async function viaKey({ model, messages, tools, maxOutputTokens, signal, 
       cost: said > 0 ? said : (priced(model, result.usage) ?? (said === 0 ? 0 : undefined)),
       tokensIn: result.usage.inputTokens ?? 0,
       tokensOut: result.usage.outputTokens ?? 0,
+      ...(effort && { effort }),
     };
   } catch (error) {
     const again = error instanceof TryAgain;

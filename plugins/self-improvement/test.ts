@@ -107,7 +107,7 @@ import { agentFor, answers, codeJob, lastAsked } from "#chloe/ops/test/shared";
   is(
     "so is a setting no job reads",
     await wrote("jobs/weekly.md", "---\nretries: 3\n---\nLook back."),
-    "jobs/weekly.md would not load as a job: it has retries at the top, and a job only reads cron, description, timezone, model.",
+    "jobs/weekly.md would not load as a job: it has retries at the top, and a job only reads cron, description, timezone, model, effort.",
   );
   is(
     "and a job made to run more than once an hour",

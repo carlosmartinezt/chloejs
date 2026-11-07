@@ -64,12 +64,35 @@ function remember(search: string, files: DriveFile[]): void {
 /** Words for a Drive query, with its quotes and backslashes escaped. */
 const quoted = (text: string) => `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 
+/** What Drive calls a folder. */
+const FOLDER = "application/vnd.google-apps.folder";
+
+/** The folder id in a Drive folder link (`.../folders/<id>`), or the id itself. */
+export function folderIdOf(folder: string): string | undefined {
+  const said = folder.trim();
+  return /\/folders\/([\w-]{20,})/.exec(said)?.[1] ?? (/^[\w-]{20,}$/.test(said) ? said : undefined);
+}
+
+/**
+ * The Drive query for a search: the binding, never the trash, the words, and
+ * the folder to look inside. The binding is always part of it, so a folder
+ * shows only what the binding would.
+ */
+export function driveQuery({ search = "", text, folder }: { search?: string; text?: string; folder?: string }): string {
+  const inside = folder && folderIdOf(folder);
+  if (folder && !inside) throw new Error(`${folder} is not a Drive folder link or id.`);
+  return [search.trim() && `(${search.trim()})`, "trashed = false", text?.trim() && `fullText contains ${quoted(text.trim())}`, inside && `${quoted(inside)} in parents`]
+    .filter(Boolean)
+    .join(" and ");
+}
+
 /**
  * Finds files in Google Drive. Files in the trash are left out.
  *
  * - `search`: a search in Drive's own search language that sets which files can be found, such as `"'<folder id>' in parents"` for the files in one folder. Default: `""`, every file the account can open.
  * - `text`: words to look for in the files' names and contents. If not set, every file `search` matches.
  * - `limit`: the most files to return. Default: 20.
+ * - `folder`: a folder to look inside, as its id or a Drive folder link. Only what is directly in it, and still only what `search` matches.
  *
  * Returns `{ count, files }`. Without `text`, the files changed most recently
  * come first.
@@ -85,14 +108,14 @@ export async function searchDriveFiles({
   search = "",
   text,
   limit = 20,
+  folder,
 }: {
   search?: string;
   text?: string;
   limit?: number;
+  folder?: string;
 }): Promise<{ count: number; files: DriveFile[] }> {
-  const query = [search.trim() && `(${search.trim()})`, "trashed = false", text?.trim() && `fullText contains ${quoted(text.trim())}`]
-    .filter(Boolean)
-    .join(" and ");
+  const query = driveQuery({ search, text, folder });
   const data = await googleApi<{ files?: GoogleFile[] }>(FILES, {
     query: {
       q: query,
@@ -169,6 +192,8 @@ export async function readDriveFile({
   let text: string;
   if (as) {
     text = await googleApi<string>(`${at}/export`, { query: { mimeType: as }, text: true });
+  } else if (kind === FOLDER) {
+    throw new Error(`${file.name} is a folder. Search with it as the folder to list what is in it.`);
   } else if (isText(kind)) {
     text = await googleApi<string>(at, { query: { alt: "media", supportsAllDrives: true }, text: true });
   } else {
@@ -220,6 +245,7 @@ export async function downloadDriveFile({
   file: string;
 }): Promise<{ path: string; name: string; kind: string; bytes: number }> {
   const fileId = fileIdOf(file);
+  if (!fileId && /\/folders\//.test(file)) throw new Error(`${file} is a Drive folder. Search with it as the folder to list what is in it.`);
   if (!fileId) throw new Error(`${file} is not a Drive link or file id.`);
   if (search && !listed.get(search)?.has(fileId)) {
     throw new Error(`That file is not in ${what}, or has not been listed yet. Search first and use an id from that list.`);
@@ -228,6 +254,7 @@ export async function downloadDriveFile({
   const found = await googleApi<GoogleFile & { size?: string }>(at, { query: { fields: "id,name,mimeType,size", supportsAllDrives: true } });
   const kind = found.mimeType ?? "";
   const name = found.name ?? "file";
+  if (kind === FOLDER) throw new Error(`${name} is a folder. Search with it as the folder to list what is in it.`);
   if (kind.startsWith("application/vnd.google-apps.")) {
     throw new Error(`${name} is a Google ${kind.split(".").pop()}, not a file to download. Read it as text instead.`);
   }

@@ -110,7 +110,7 @@ async function toolServer(folder: string, tools: Ask["tools"]): Promise<string[]
   ].flatMap((line) => ["--config", line]);
 }
 
-export async function viaCodex({ model, messages, tools, signal }: Ask): Promise<Answer> {
+export async function viaCodex({ model, messages, tools, effort, signal }: Ask): Promise<Answer> {
   const { system, transcript } = asText({ messages, tools, native: "" });
   const folder = await mkdtemp(join(tmpdir(), "chloe-codex-"));
   try {
@@ -148,6 +148,7 @@ export async function viaCodex({ model, messages, tools, signal }: Ask): Promise
       ),
       "--config",
       'web_search="disabled"',
+      ...(effort ? ["--config", `model_reasoning_effort=${JSON.stringify(effort)}`] : []),
       ...(await toolServer(folder, tools)),
       "--config",
       "project_doc_max_bytes=0",
@@ -178,7 +179,7 @@ export async function viaCodex({ model, messages, tools, signal }: Ask): Promise
     if (tools?.length && copiedTranscript(text)) throw new TryAgain("Model call refused: codex wrote tool calls as text instead of making them.");
     // A plan is not billed per call and the CLI names no price, so what a run
     // on this route cost is unknown.
-    return { text, toolCalls: calls, tokensIn, tokensOut };
+    return { text, toolCalls: calls, tokensIn, tokensOut, ...(effort && { effort }) };
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

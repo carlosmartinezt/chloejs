@@ -29,6 +29,8 @@ export interface Page {
   text: string;
   /** Where the next part starts, if there is more. Pass it as `from` to `readPage` to read on. Not set on the last part. */
   next?: number;
+  /** When `readPage` was given words to find: how many times the page has them. `text` is then only the passages around them. */
+  found?: number;
   /** The pictures on an HTML page, the one it says stands for it first, on the first part only. */
   pictures?: PictureOnPage[];
 }
@@ -44,6 +46,8 @@ const PICTURES = 8;
 
 /** Enough for a results table, short enough not to fill a turn. */
 const SLICE = 20_000;
+/** How much of the page is kept on each side of a word that was looked for. */
+const AROUND = 500;
 /** How much of a page that answered 400 or more is read. */
 const ERROR_PAGE = 1_000;
 const HOPS = 5;
@@ -342,12 +346,41 @@ export function feedToText(xml: string, base: string): { title?: string; text: s
   return { title: words("title", head) || undefined, text: text.join("\n\n") };
 }
 
+/** The passages of `text` around each place it has `find`, from `from` on, merged where they touch, up to one part's worth. */
+export function passages(text: string, find: string, from: number): { text: string; found: number; next?: number } {
+  const page = text.toLowerCase();
+  const word = find.toLowerCase();
+  const places: number[] = [];
+  for (let at = page.indexOf(word, from); at >= 0; at = page.indexOf(word, at + word.length)) places.push(at);
+  const kept: [number, number][] = [];
+  let size = 0;
+  let next: number | undefined;
+  for (const at of places) {
+    const start = Math.max(from, at - AROUND);
+    const end = Math.min(text.length, at + word.length + AROUND);
+    const last = kept.at(-1);
+    const adds = last && start <= last[1] ? end - last[1] : end - start;
+    if (size + adds > SLICE) {
+      next = last ? last[1] : at;
+      break;
+    }
+    size += adds;
+    if (last && start <= last[1]) last[1] = end;
+    else kept.push([start, end]);
+  }
+  return { text: kept.map(([start, end]) => text.slice(start, end)).join("\n\n…\n\n"), found: places.length, ...(next !== undefined && { next }) };
+}
+
 /**
  * Reads a web page and returns it as plain text, 20,000 characters at a time.
  * A page that answered 400 or more comes back as its first 1,000 only.
  *
  * - `address`: the full web address, starting with `http://` or `https://`.
  * - `from`: where to start in the page's text, in characters. Default: 0. To read on, pass the `next` of the last `Page`.
+ * - `find`: a word or a few, as the page would write them. Then `text` is only
+ *   the passages around each place the page has them, in any case, up to
+ *   20,000 characters from `from` on, and `found` is how many places there
+ *   are. `next` is where to look on from, when the passages filled the part.
  *
  * An HTML page becomes readable text, with links kept as `[text](url)`. An RSS
  * or Atom feed becomes a list of its entries. Plain text, JSON and other XML
@@ -368,7 +401,7 @@ export function feedToText(xml: string, base: string): { title?: string; text: s
  * - redirects more than 5 times,
  * - answers 429 twice.
  */
-export async function readPage(address: string, from = 0): Promise<Page> {
+export async function readPage(address: string, from = 0, find?: string): Promise<Page> {
   let url = new URL(address);
   let waited = false;
   for (let hop = 0; ; hop++) {
@@ -401,6 +434,7 @@ export async function readPage(address: string, from = 0): Promise<Page> {
     // A page that is not there is mostly the site's menus, and a model pays
     // for every word of it on each step after.
     const slice = reply.status >= 400 ? ERROR_PAGE : SLICE;
+    if (find?.trim() && reply.status < 400) return { url: url.href, status: reply.status, title, ...passages(text, find.trim(), from) };
     const end = from + slice;
     const pictures = /html/.test(reply.type) && from === 0 && reply.status < 400 ? picturesIn(reply.body, url.href) : [];
     return { url: url.href, status: reply.status, title, text: text.slice(from, end), next: end < text.length && reply.status < 400 ? end : undefined, ...(pictures.length && { pictures }) };

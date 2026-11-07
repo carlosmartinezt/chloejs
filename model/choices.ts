@@ -5,6 +5,7 @@
 // a chat or the API.
 import { db } from "#chloe/core/db";
 import type { Agent, Job } from "#chloe/load/load";
+import type { Effort } from "./model.ts";
 
 db.exec(`
   create table if not exists choices (
@@ -67,4 +68,9 @@ export function choices(agent: string): Choice[] {
 export function modelFor(agent: Agent, job?: Job): string {
   if (!job) return agent.model;
   return chosen(agent.id, `job:${job.id}`) ?? job.model ?? agent.model;
+}
+
+/** How hard the model thinks in a run: the job's own effort, else the agent's, else the model's default. */
+export function effortFor(agent: Agent, job?: Job): Effort | undefined {
+  return job?.effort ?? agent.effort;
 }

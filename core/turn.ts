@@ -14,9 +14,9 @@ import { oneLineSummary } from "#chloe/core/markdown";
 import { settings } from "#chloe/core/settings";
 import { peopleOn } from "#chloe/serve/people";
 import { abilityOn, type Agent, type ChatHistory } from "#chloe/load/load";
-import { ask, type Attachment, type Message, type ToolCall } from "#chloe/model/model";
+import { ask, type Attachment, type Effort, type Message, type ToolCall } from "#chloe/model/model";
 import { decide } from "#chloe/model/auto";
-import { AUTO, modelFor } from "#chloe/model/choices";
+import { AUTO, effortFor, modelFor } from "#chloe/model/choices";
 import { recall, remember } from "#chloe/model/memory";
 import { ownFolderTools, ownReadTools, ownTrialTools } from "#chloe/model/tools/self";
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
@@ -638,6 +638,7 @@ async function loopFor(options: GoOptions): Promise<Result> {
     const done = await duringRun(runId, () =>
       loop({
         model: options.model,
+        effort: effortFor(agent, agent.jobs.find((one) => one.id === job)),
         messages: options.messages,
         tools,
         context: { agent, ...(options.user && { user: options.user }) },
@@ -743,6 +744,8 @@ export interface LoopStep {
   /** Set on a call the job would not allow. It never ran. */
   refused?: boolean;
   cost?: number;
+  /** On a model answer: the effort the route asked it for, when it asked one. */
+  effort?: Effort;
   /** Set on a model answer that came with no price. */
   unpriced?: boolean;
   /** Set on the line where a run the service stopped picked up again: what happened, in words. */
@@ -776,6 +779,8 @@ export interface Inbox {
  */
 export async function loop(options: {
   model: string;
+  /** How hard the model thinks at each answer. Default: the model's own. */
+  effort?: Effort;
   messages: Message[];
   tools: Tools;
   /** What each tool is handed as its `context`: the agent it runs for. */
@@ -857,7 +862,7 @@ export async function loop(options: {
     if (resume) {
       toolCalls = resume.calls;
     } else {
-      const answer = await until(options.signal, ask({ model: options.model, messages: options.messages, tools: specs, signal: options.signal, onText: options.onText }));
+      const answer = await until(options.signal, ask({ model: options.model, effort: options.effort, messages: options.messages, tools: specs, signal: options.signal, onText: options.onText }));
       if (answer.cost === undefined) unpriced++;
       cost += answer.cost ?? 0;
       options.onStep?.({
@@ -866,6 +871,7 @@ export async function loop(options: {
         say: answer.text,
         ...(answer.dropped && { dropped: answer.dropped }),
         wants: answer.toolCalls.map((c) => c.function.name),
+        ...(answer.effort && { effort: answer.effort }),
         ...(answer.cost === undefined ? { unpriced: true } : { cost: answer.cost }),
       });
 

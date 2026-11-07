@@ -36,11 +36,13 @@ export function startCounting(): void {
 export let lastAsked: { role: string; content: string }[] = [];
 /** The names of the tools the last call offered. */
 export let lastTools: string[] = [];
+/** The effort the last call asked for, as the gateway is sent it, or nothing. */
+export let lastEffort: string | undefined;
 export const gateway = createServer((request, response) => {
   let raw = "";
   request.on("data", (chunk) => (raw += chunk));
   request.on("end", () => {
-    const sent = JSON.parse(raw || "{}") as { messages?: typeof lastAsked; tools?: { function?: { name?: string } }[] };
+    const sent = JSON.parse(raw || "{}") as { messages?: typeof lastAsked; tools?: { function?: { name?: string } }[]; reasoning_effort?: string };
     const messages = sent.messages ?? [];
     // Naming a new conversation runs beside the turn, so it is answered here
     // and never takes an answer a case queued for the agent.
@@ -49,6 +51,7 @@ export const gateway = createServer((request, response) => {
       asked++;
       lastAsked = messages;
       lastTools = (sent.tools ?? []).map((one) => one.function?.name ?? "");
+      lastEffort = sent.reasoning_effort;
     }
     const next = naming ? `"Late orders."` : (answers.shift() ?? "{}");
     const { unpriced, cut, refused, ...message } = typeof next === "string" ? { content: next } : next;

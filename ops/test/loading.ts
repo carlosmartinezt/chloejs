@@ -435,6 +435,9 @@ PLUGINS.push(standIn);
   is("an ability's tool may be named while its ability is off", Object.keys((await resolveAgent(tool("pagesRead"))).tools ?? {}).includes("pagesRead"), false);
   const typo = await resolveAgent(tool("notesEd")).then(() => "loaded", (error: Error) => error.message);
   is("a name that is no tool is refused, saying what there is", typo.includes('without names "notesEd"') && typo.includes("notesEdit"), true);
+  const effort = (said: unknown) =>
+    resolveAgent(defineAgent({ id: "switches", folder, model: "m", identity: "", purpose: "Hi.", effort: said as never })).then((one) => one.effort, (error: Error) => error.message);
+  is("an effort is kept, and a word that is not one is refused, saying what there is", [await effort("low"), String(await effort("hard")).endsWith('its effort is "hard", and an effort is one of low, medium, high, xhigh.')], ["low", true]);
   await rm(folder, { recursive: true, force: true });
   if (shell) await rm(workspace, { recursive: true, force: true });
   // The rest of the suite is not in a machine.
