@@ -170,7 +170,11 @@ export function read(path = window.location.pathname, search = window.location.s
  */
 export function afterSignIn(search = window.location.search): string {
   const back = new URLSearchParams(search).get("back");
-  return back && /^\/(?![/\\])/.test(back) ? back : "/";
+  // Read as the browser reads it, which drops tabs and newlines and takes a
+  // backslash for a slash, so "/\t/elsewhere" cannot leave the site.
+  const here = "http://page.invalid";
+  const to = back ? new URL(back, here) : null;
+  return to && to.origin === here ? to.pathname + to.search + to.hash : "/";
 }
 
 export function go(view: View): void {

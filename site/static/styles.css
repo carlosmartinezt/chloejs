@@ -955,7 +955,7 @@ pre.painted .keyword { color: var(--accent); }
    and this one only opens. */
 .chat .run-list button[id] { gap: 9px; padding: 7px 8px; font-weight: 400; font-size: var(--size-body);
   line-height: 1.5; color: var(--ink); border-radius: 10px; }
-.chat .run-list li.in-group button[id] { padding-left: 36px; }
+.chat .run-list li.in-group button[id] { padding-left: 18px; }
 .chat .run-list li.dragging { opacity: .4; }
 /* Where a dragged conversation would land. It lies between two rows and moves neither. */
 .chat .run-list li.line-before::before, .chat .run-list li.line-after::after { content: ""; position: absolute; z-index: 1; left: 8px; right: 8px; height: 2px;

@@ -127,7 +127,8 @@ describe("where the page is, as an address", () => {
   test("signing in goes back to the page that sent there, and only to one of this site's", () => {
     strictEqual(afterSignIn("?back=%2Fshared%2Fchloe%2F1"), "/shared/chloe/1");
     strictEqual(afterSignIn(""), "/");
-    for (const away of ["https://evil.example/", "//evil.example/", "/\\evil.example/", "javascript:alert(1)"]) {
+    strictEqual(afterSignIn("?back=%2Fagents%2Fchloe%3Fabout%3Dx"), "/agents/chloe?about=x");
+    for (const away of ["https://evil.example/", "//evil.example/", "/\\evil.example/", "/\t/evil.example/", "/\n/evil.example/", "javascript:alert(1)"]) {
       strictEqual(afterSignIn(`?back=${encodeURIComponent(away)}`), "/", away);
     }
   });
