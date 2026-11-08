@@ -1,11 +1,11 @@
 import { type CSSProperties, type DragEvent, Fragment, type PointerEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { AgentSummary, Group, Picture, Said, Step, Thread } from "../lib/types.ts";
+import type { AgentSummary, Group, Said, SentFile, Step, Thread } from "../lib/types.ts";
 import { AnswerGone, api, CallFailed } from "../lib/api.ts";
 import { ago, nameOf, many, money, saidAt, spent, threadName, when, words } from "../lib/format.ts";
 import * as Icons from "./components/Icons.tsx";
 import { CopyButton } from "./components/Code.tsx";
-import { Markdown } from "./components/Markdown.tsx";
+import { Markdown, rich } from "./components/Markdown.tsx";
 import { type Choice, ContextMenu } from "./components/ContextMenu.tsx";
 import { byPlace, moved } from "../lib/order.ts";
 import { modelChoices, modelName, shortChoices, type Offered } from "../lib/models.ts";
@@ -21,28 +21,41 @@ interface Line extends Said {
   cost?: number;
   unpriced?: number;
   failed?: boolean;
-  /** Pictures sent with it, as addresses for this page. Gone on a reload, as they are on the runtime. */
+  /** Pictures sent with it, as addresses for this page, until the runtime's own copy of the message is read. */
   pictures?: string[];
+  /** The names of the other files sent with it, until then too. */
+  named?: string[];
   /** The answers it asks to pick from, shown under it while it is the last line. Gone on a reload: the words still list them. */
   buttons?: Option[];
   multiple?: boolean;
 }
 
-/** A picture waiting to be sent, and the address it is shown by. */
-interface Held extends Picture {
-  url: string;
+/** A file waiting to be sent, and for a picture the address it is shown by. */
+interface Held extends SentFile {
+  url?: string;
 }
 
 /** How long a line under "Thinking" stays after the next one shows, in ms. */
 const FOLD = 3000;
-/** What somebody wrote, without a channel's note on who wrote it, which is not theirs to change or copy. */
-export const written = (content: string) => content.replace(/^\s*<([a-z_]+)>\n?[\s\S]*?\n?<\/\1>\s*/, "");
-
 /** A reply's words without the files it handed over, which mean nothing anywhere else. */
 export const withoutFiles = (content: string) => content.replace(/!?\[[^\]\n]*\]\(file:[^)\s]+\)\s*/g, "").trim();
 
-/** The most pictures one turn takes, which is the runtime's own limit. */
+/**
+ * What somebody's message shows: without the lines that show the files they
+ * sent, and without the block after it that tells the model about them.
+ */
+const shownOf = (content: string) => withoutFiles(content.replace(/\n*<files>\n[\s\S]*<\/files>\s*$/, ""));
+
+/** What somebody wrote, without a channel's note on who wrote it or the files, which are not theirs to change or copy. */
+export const written = (content: string) => shownOf(content.replace(/^\s*<([a-z_]+)>\n?[\s\S]*?\n?<\/\1>\s*/, ""));
+
+/** The lines in a message that show the files sent with it. */
+const filesIn = (content: string) => content.match(/!?\[[^\]\n]*\]\(file:[^)\s]+\)/g) ?? [];
+
+/** The most files one turn takes, which is the runtime's own limit. */
 const MOST = 4;
+/** The largest file one turn takes, which is the runtime's own limit. */
+const LARGEST = 10 << 20;
 /** The longest side a picture is sent at. Past this a model shrinks it anyway. */
 const SIDE = 1568;
 
@@ -72,6 +85,17 @@ async function picture(file: File): Promise<Held> {
   const url = canvas.toDataURL("image/jpeg", 0.85);
   const name = (file.name || "picture").replace(/\.[^.]*$/, "") + ".jpg";
   return { name, mediaType: "image/jpeg", data: url.slice(url.indexOf(",") + 1), url };
+}
+
+/** A file to send as it is, any kind. Its type is what the browser says, which the runtime checks against its bytes. */
+async function asItIs(file: File): Promise<Held> {
+  const url = await new Promise<string>((done, fail) => {
+    const reader = new FileReader();
+    reader.onload = () => done(reader.result as string);
+    reader.onerror = () => fail(reader.error);
+    reader.readAsDataURL(file);
+  });
+  return { name: file.name || "file", mediaType: file.type, data: url.slice(url.indexOf(",") + 1) };
 }
 
 /** Shown while something is being read, which can take a second or two. */
@@ -146,7 +170,7 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
   const [thread, setThread] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [prompt, showPrompt] = useState("");
-  const [pictures, setPictures] = useState<Held[]>([]);
+  const [held, setHeld] = useState<Held[]>([]);
   // A file in its memory, held to go with the next message as its full link.
   const [file, setFile] = useState("");
   const [trouble, setTrouble] = useState("");
@@ -289,7 +313,7 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
 
   /** Start again, leaving what was said, and anything written and not sent, where it is. */
   function newChat() {
-    setPictures([]);
+    setHeld([]);
     setFile("");
     setThread(freshThread(agent));
     if (!readOnly) setLastChat(agent, "");
@@ -443,23 +467,23 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
     return () => clearInterval(timer);
   }, [waiting]);
 
-  /** Pasted, dropped or picked: pictures are held to go with the next message, anything else is said no to. */
+  /** Pasted, dropped or picked: files are held to go with the next message, a picture made smaller first. */
   async function hold(files: FileList | File[]) {
     const all = [...files];
-    const images = all.filter((file) => file.type.startsWith("image/"));
-    const room = MOST - pictures.length;
+    const fits = all.filter((file) => file.size <= LARGEST);
+    const room = MOST - held.length;
     setTrouble(
-      images.length < all.length
-        ? "Only pictures can be sent here."
-        : images.length > room
-          ? `${MOST} pictures at most, with one message.`
+      fits.length < all.length
+        ? `A file can be ${LARGEST >> 20} MB at most.`
+        : fits.length > room
+          ? `${MOST} files at most, with one message.`
           : "",
     );
     try {
-      const made = await Promise.all(images.slice(0, Math.max(room, 0)).map(picture));
-      setPictures((held) => [...held, ...made].slice(0, MOST));
+      const made = await Promise.all(fits.slice(0, Math.max(room, 0)).map((file) => (file.type.startsWith("image/") ? picture(file).catch(() => asItIs(file)) : asItIs(file))));
+      setHeld((was) => [...was, ...made].slice(0, MOST));
     } catch {
-      setTrouble("That picture could not be read.");
+      setTrouble("That file could not be read.");
     }
   }
 
@@ -477,7 +501,7 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
     }
     const link = file ? `${window.location.origin}${href({ at: "memory", agent, path: file })}` : "";
     const words = picked ?? [prompt.trim(), link].filter(Boolean).join("\n\n");
-    const sending = picked ? [] : pictures;
+    const sending = picked ? [] : held;
     // Words typed while a reply is going join it: the agent reads them before
     // its next step and answers both. Pictures, a picked answer, an edit or a
     // /command wait for the reply to end.
@@ -486,12 +510,14 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
     toEnd.current = true;
     if (!picked) {
       setPrompt("");
-      setPictures([]);
+      setHeld([]);
       setFile("");
     }
     setTrouble("");
     const replaces = edit === undefined ? undefined : lines[edit]?.id;
-    const mine: Line = { role: "user", content: words, at: new Date().toISOString(), pictures: sending.length ? sending.map((one) => one.url) : undefined };
+    const shown = sending.flatMap((one) => (one.url ? [one.url] : []));
+    const named = sending.flatMap((one) => (one.url ? [] : [one.name]));
+    const mine: Line = { role: "user", content: words, at: new Date().toISOString(), pictures: shown.length ? shown : undefined, named: named.length ? named : undefined };
     setLines((said) => [...(edit === undefined ? said : said.slice(0, edit)), mine]);
     const to = thread;
     if (!steering) setWaitingOn((all) => new Map(all).set(to, Date.now()));
@@ -1186,12 +1212,22 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
               line.role === "user" ? (
                 <Fragment key={at}>
                   {line.at && <p className="said-at num">{saidAt(line.at)}</p>}
-                  {line.pictures && (
-                    <div className="msg you pictures">
-                      {line.pictures.map((url, n) => (
-                        <img key={n} src={url} alt="" />
-                      ))}
-                    </div>
+                  {filesIn(line.content).length > 0 ? (
+                    <div className="msg you pictures">{rich(filesIn(line.content).join(" "))}</div>
+                  ) : (
+                    (line.pictures || line.named) && (
+                      <div className="msg you pictures">
+                        {line.pictures?.map((url, n) => (
+                          <img key={n} src={url} alt="" />
+                        ))}
+                        {line.named?.map((name, n) => (
+                          <span key={`f${n}`} className="file-card">
+                            <span className="kind">File</span>
+                            <span className="name">{name}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )
                   )}
                   {editing === at ? (
                     <div className="msg you editing">
@@ -1218,10 +1254,10 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
                       </div>
                     </div>
                   ) : (
-                    (line.content || !line.pictures) && (
+                    (written(line.content) || !(line.pictures || line.named || filesIn(line.content).length)) && (
                       <Prompt
                         whole
-                        prompt={line.content}
+                        prompt={shownOf(line.content)}
                         visitor={thread.includes("/visitor-") ? { agent, id: thread.slice(thread.indexOf("/visitor-") + 9) } : undefined}
                         actions={
                           <>
@@ -1347,16 +1383,23 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
                 {file.split("/").pop()}
               </button>
             )}
-            {pictures.length > 0 && (
+            {held.length > 0 && (
               <div className="pictures">
-                {pictures.map((one, n) => (
+                {held.map((one, n) => (
                   <button
                     key={n}
-                    className="plain"
+                    className={one.url ? "plain" : "plain held-file"}
                     title={`Take ${one.name} off`}
-                    onClick={() => setPictures((held) => held.filter((_, at) => at !== n))}
+                    onClick={() => setHeld((was) => was.filter((_, at) => at !== n))}
                   >
-                    <img src={one.url} alt={one.name} />
+                    {one.url ? (
+                      <img src={one.url} alt={one.name} />
+                    ) : (
+                      <>
+                        <Icons.File />
+                        {one.name}
+                      </>
+                    )}
                   </button>
                 ))}
               </div>
@@ -1408,11 +1451,10 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
             />
             {/* Under the words, the way other chat boxes are: adding on the left, sending on the right. */}
             <div className="row">
-              <label className="attach" title="Add a picture" aria-label="Add a picture" hidden={readOnly}>
+              <label className="attach" title="Add files" aria-label="Add files" hidden={readOnly}>
                 <Icons.Plus />
                 <input
                   type="file"
-                  accept="image/*"
                   multiple
                   hidden
                   onChange={(event) => {
@@ -1425,7 +1467,7 @@ export function Chat({ agent, thread: asked, about, owner, readOnly, railTop, ra
                 className="go"
                 aria-label={`Send to ${nameOf(agent)}`}
                 onClick={() => void send()}
-                disabled={readOnly || (waiting && (pictures.length > 0 || prompt.trim().startsWith("/"))) || (!prompt.trim() && !pictures.length && !file)}
+                disabled={readOnly || (waiting && (held.length > 0 || prompt.trim().startsWith("/"))) || (!prompt.trim() && !held.length && !file)}
               >
                 <Icons.Send />
               </button>

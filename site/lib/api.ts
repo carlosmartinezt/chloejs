@@ -29,7 +29,7 @@ import type {
   Way,
   Token,
   Trial,
-  Picture,
+  SentFile,
   Visitor,
   WhereToRun,
   Field,
@@ -295,15 +295,15 @@ export const api = {
   fork: (thread: string, through: number) =>
     call<{ thread: string; messages: number }>(`/threads/${encodeURIComponent(thread)}/fork`, { through }),
   /**
-   * Pictures go with this turn only: the runtime keeps the line saying they were attached, never the picture. The browser's timezone goes too, so the model is told the writer's date.
+   * Files go into the agent's memory, and the message keeps a line showing each. The browser's timezone goes too, so the model is told the writer's date.
    * `replaces` is the id of a message of theirs this one is an edit of: it and everything after it are taken back first.
    */
-  say: async (agent: string, prompt: string, thread: string, images: Picture[] = [], replaces?: number) => {
+  say: async (agent: string, prompt: string, thread: string, files: SentFile[] = [], replaces?: number) => {
     const { answer } = await call<{ answer: string }>(`/agents/${agent}/chat/start`, {
       prompt,
       thread,
       ...(zone ? { timeZone: zone } : {}),
-      ...(images.length ? { images } : {}),
+      ...(files.length ? { files } : {}),
       ...(replaces !== undefined ? { replaces } : {}),
     });
     return collectAnswer(agent, answer);

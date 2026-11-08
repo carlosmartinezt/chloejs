@@ -35,6 +35,8 @@
 //
 // What a job said in a chat is kept in that chat's conversation, so the next
 // turn knows it happened.
+import { relative } from "node:path";
+
 import { z } from "zod";
 
 import type { Agent, Channel, ChatHistory, Job, Running } from "#chloe/load/load";
@@ -52,7 +54,8 @@ import { ReplyStopped, turn } from "#chloe/core/turn";
 import type { Connection } from "#chloe/connections/connection";
 import { neededBy, type ChloeTool, type Tools } from "#chloe/model/tool";
 import type { FileSent, FileToSend } from "#chloe/model/tools/chat";
-import { keepReceived } from "#chloe/services/receivedService";
+import { keepInMemory } from "#chloe/services/receivedService";
+import { typeOfFile } from "#chloe/services/chatFilesService";
 import { person } from "#chloe/serve/people";
 
 /** The files on one message, as a channel fetches them. See `Incoming.files`. */
@@ -118,8 +121,11 @@ export interface Incoming {
    * Fetches the files on the message. It is only called when the model is
    * going to read them.
    *
-   * - `attachments`: files the model receives, like pictures and PDFs.
-   * - `text`: the text of text files, added after the message.
+   * - `attachments`: every file the person sent, whatever its kind. Each is
+   *   kept in the agent's memory (never for a guest), a text file's words are
+   *   added after the message, a picture or a PDF goes to the model, and
+   *   anything else is only named, with where it is kept.
+   * - `text`: more text, added after the message.
    * - `notes`: short lines added after the message, like "(Attached: plan.pdf)".
    */
   files?: () => Promise<Files>;
@@ -404,6 +410,12 @@ export interface While {
    * reply says back the line that shows it. Leave it out on a channel that cannot.
    */
   sendFile?: (file: FileToSend) => Promise<void | FileSent>;
+  /**
+   * For a channel that shows the files somebody sent inside their own message
+   * when the conversation is read again: given one just kept in the agent's
+   * memory, the line that shows it, which is added to the message.
+   */
+  showSent?: (file: FileToSend) => Promise<string>;
   /** Called as each tool starts, with the tool's name, and its title if it has one. */
   calling?: (tool: { name: string; title?: string }) => void;
   /**
@@ -889,7 +901,7 @@ async function signedIn(agent: Agent, message: Incoming, connection: Connection,
 }
 
 async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorking: While = {}): Promise<Handled> {
-  const { send, sendFile, calling, writing } = whileWorking;
+  const { send, sendFile, showSent, calling, writing } = whileWorking;
   // One after another, in the order they happened, and all of them out before
   // the answer is.
   let sending: Promise<unknown> = Promise.resolve();
@@ -905,12 +917,12 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
         }
       : undefined;
   try {
-    const files = await saved(agent, (await message.files?.()) ?? {}, rules);
+    const files = await saved(agent, (await message.files?.()) ?? {}, rules, showSent);
     const facts = message.context && { from: message.from.name, ...message.context };
     const context = facts && [`<${message.channel}_context>`, ...Object.entries(facts).map(([k, v]) => `${k}: ${v}`), `</${message.channel}_context>`].join("\n");
     const result = await turn({
       agent,
-      prompt: [context, message.text, files.text, ...(files.notes ?? [])].filter(Boolean).join("\n\n"),
+      prompt: [context, message.text, ...files.shown, files.told].filter(Boolean).join("\n\n"),
       asked: message.text || undefined,
       attachments: files.attachments?.length ? files.attachments : undefined,
       thread: message.thread || undefined,
@@ -944,18 +956,41 @@ async function chatted(agent: Agent, message: Incoming, rules: Rules, whileWorki
 }
 
 /**
- * A message's files, each also saved to disk when the agent can run scripts,
- * with its path added to the message so a script can be handed it. Never for
- * a guest.
+ * A message's files as the model gets them. Each is kept in the agent's memory
+ * and named in the message with where it is, so the agent can find it again
+ * and a script can be handed it, except for a guest, whose files are only seen
+ * in this turn. A text file's words go in the message, a picture or a PDF (by
+ * its first bytes, not its name) goes to the model, and anything else, which
+ * no model reads, is only named.
+ *
+ * Returns `attachments` for the model, `shown`, the lines that show each file
+ * in the message (from `showSent`), and `told`, everything else about them,
+ * in one `<files>` block at the end, which is for the model and not for
+ * whoever reads the conversation.
  */
-async function saved(agent: Agent, files: Files, rules: Rules): Promise<Files> {
-  if (rules.guests || !agent.tools?.scriptRun || !files.attachments?.length) return files;
-  const notes = [...(files.notes ?? [])];
-  for (const one of files.attachments) {
-    const path = await keepReceived(agent.id, one.filename, Buffer.from(one.data, "base64"));
-    notes.push(`(${one.filename ?? "The file"} is saved at ${path})`);
+async function saved(agent: Agent, files: Files, rules: Rules, showSent?: While["showSent"]): Promise<{ attachments: Attachment[]; shown: string[]; told?: string }> {
+  const attachments: Attachment[] = [];
+  const shown: string[] = [];
+  const told = [...(files.text ? [files.text] : []), ...(files.notes ?? [])];
+  for (const one of files.attachments ?? []) {
+    const name = one.filename ?? "file";
+    const data = Buffer.from(one.data, "base64");
+    if (!rules.guests) {
+      const path = await keepInMemory(agent.memory.folder, name, data).catch((error: unknown) => {
+        console.error(`${agent.id}: could not keep ${name} in its memory`, error);
+        return undefined;
+      });
+      if (path) {
+        if (showSent) shown.push(await showSent({ path, name }));
+        told.push(`(${name} is kept in your memory as ${relative(agent.memory.folder, path)})`);
+      }
+    }
+    const type = typeOfFile(data);
+    if (type.startsWith("image/") || type === "application/pdf") attachments.push({ ...one, mediaType: type });
+    else if (one.mediaType.startsWith("text/")) told.push(`<file name="${name}">\n${data.toString("utf8")}\n</file>`);
+    else told.push(`(${name} is a ${one.mediaType}, which you cannot see here.)`);
   }
-  return { ...files, notes };
+  return { attachments, shown, told: told.length ? `<files>\n${told.join("\n")}\n</files>` : undefined };
 }
 
 /**

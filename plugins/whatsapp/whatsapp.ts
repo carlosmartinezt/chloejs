@@ -353,7 +353,7 @@ export function listen(
   }
 
   /** The file on a message, fetched in two calls, or a line saying why it was not. */
-  async function fileOn(message: WhatsAppMessage): Promise<{ attachment?: Attachment; text?: string; note?: string }> {
+  async function fileOn(message: WhatsAppMessage): Promise<{ attachment?: Attachment; note?: string }> {
     const media = message.image ?? message.document ?? message.video ?? message.audio ?? message.sticker;
     if (!media?.id) return {};
     const mediaType = (media.mime_type ?? "application/octet-stream").split(";")[0];
@@ -366,7 +366,6 @@ export function listen(
     // The address the API hands back needs the token too, and it is good for a few minutes.
     const file = await fetch(found.url, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(60_000) });
     const bytes = Buffer.from(await file.arrayBuffer());
-    if (mediaType.startsWith("text/")) return { text: `<file name="${fileName}">\n${bytes.toString("utf8")}\n</file>` };
     return { attachment: { mediaType, data: bytes.toString("base64"), filename: fileName }, note: `(Attached: ${fileName})` };
   }
 
@@ -394,7 +393,7 @@ export function listen(
       context: { chat_type: "private" },
       files: async () => {
         const file = await fileOn(message);
-        return { attachments: file.attachment ? [file.attachment] : [], text: file.text, notes: file.note ? [file.note] : [] };
+        return { attachments: file.attachment ? [file.attachment] : [], notes: file.note ? [file.note] : [] };
       },
     };
   }

@@ -361,7 +361,7 @@ export function listen(
   }
 
   /** The photo or document on a message, fetched, or a line saying why it was not. */
-  async function fileOn(message: TgMessage): Promise<{ attachment?: Attachment; text?: string; note?: string }> {
+  async function fileOn(message: TgMessage): Promise<{ attachment?: Attachment; note?: string }> {
     const photo = message.photo?.at(-1); // The largest size.
     const doc = message.document;
     if (!photo && !doc) return {};
@@ -373,7 +373,6 @@ export function listen(
     const file = await call<{ file_path: string }>("getFile", { file_id: (photo ?? doc)!.file_id });
     const response = await fetch(`${api}/file/bot${token}/${file.file_path}`, { signal: AbortSignal.timeout(60_000) });
     const bytes = Buffer.from(await response.arrayBuffer());
-    if (mediaType.startsWith("text/")) return { text: `<file name="${fileName}">\n${bytes.toString("utf8")}\n</file>` };
     return { attachment: { mediaType, data: bytes.toString("base64"), filename: fileName }, note: `(Attached: ${fileName})` };
   }
 
@@ -419,7 +418,7 @@ export function listen(
       },
       files: async () => {
         const file = await fileOn(message);
-        return { attachments: file.attachment ? [file.attachment] : [], text: file.text, notes: file.note ? [file.note] : [] };
+        return { attachments: file.attachment ? [file.attachment] : [], notes: file.note ? [file.note] : [] };
       },
     };
   }

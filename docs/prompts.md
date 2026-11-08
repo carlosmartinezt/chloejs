@@ -75,19 +75,22 @@ memory folder in `MEMORY_FOLDER`. A script nothing mentions does not belong
 there: give each one a skill that says when to run it, which a skill's own
 scripts have by being in it.
 
-**A file somebody sends is saved for the scripts.** On a channel that takes
-files, an agent with `scripts` on also gets each file saved in the state
-folder, `received/<agent id>/`, and its full path added to the message, so a
-script can be handed it. A file is kept for 30 days, and never for a guest.
-On a channel that can send files (Telegram and the page's chat), the agent gets
-`chatSendFile` in that conversation, to send back a file from its memory, one it
-made, or one it was sent. A script writes what it makes in `MADE_FOLDER`,
+**A file somebody sends is kept in the agent's memory.** On a channel that
+takes files, each one is saved in `attachments/` in the agent's memory, and where is
+added to the message, so the agent can find it again and a script can be
+handed it. That folder is left out of the memory's history, so a file deleted
+there is gone. A guest's files are seen in that turn and never kept. The model
+sees a picture or a PDF, reads a text file's words, and is told of anything
+else. On a channel that can send files (Telegram and the page's chat), the agent
+gets `chatSendFile` in that conversation, to send back a file from its memory
+or one it made. A script writes what it makes in `MADE_FOLDER`,
 `made/<agent id>/` in the state folder, kept for 30 days, and a line
 `SEND <full path>` in what it prints hands that file over with no model asked. On the
 page a file sits inside the reply: the tool answers with the line that shows it,
 the agent writes that line where the file belongs, and one it leaves out goes at
-the end. Only whoever asked for that reply can open the file, and it goes when
-their conversation does.
+the end. Only whoever asked for that reply can open the file. On the page somebody can
+send up to four files of any kind, 10 MB each, and their message shows them
+when the conversation is read again.
 
 Instructions and skills say what to do, not which of the runtime's tools does
 it: "note it in your memory", "run `deploy.sh`", never `memoryEditFile` or
@@ -142,4 +145,6 @@ do the work, so the same request gets the same answer every time: a habit, a
 skill whose script does it when asked or a job in code on a schedule, asking a
 model only where it needs judgement and costing a fraction of the turn. Before
 doing something by hand it looks for a habit that already does it, and it
-offers to make one when it does by hand work it will be asked for again.
+offers to make one, in a line at the end, when a task it finished is work it
+will be asked for again. It is told this in two sentences, so a conversation
+about something else stays about that.

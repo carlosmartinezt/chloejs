@@ -36,7 +36,7 @@ declare module "#chloe/load/abilities" {
     /**
      * Adds the tools `driveSearchFiles`, `driveReadFile` and `driveDownloadFile`,
      * which find files in Google Drive, read them as text, and download one as
-     * it is into the agent's received files for a script. Off by default. `true` reaches all of
+     * it is into the agent's made files for a script. Off by default. `true` reaches all of
      * Drive: give `search` to keep it to some files. Needs the Google sign-in.
      */
     googleDrive?: boolean | GoogleDriveAbility;

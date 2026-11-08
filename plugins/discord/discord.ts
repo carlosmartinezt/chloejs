@@ -336,9 +336,8 @@ export function listen(
   }
 
   /** The files on a message, fetched, and a line for each one that was not. */
-  async function filesOn(message: DiscordMessage): Promise<{ attachments: Attachment[]; text?: string; notes: string[] }> {
+  async function filesOn(message: DiscordMessage): Promise<{ attachments: Attachment[]; notes: string[] }> {
     const attachments: Attachment[] = [];
-    const texts: string[] = [];
     const notes: string[] = [];
     for (const file of message.attachments ?? []) {
       const fileName = file.filename ?? "file";
@@ -348,14 +347,11 @@ export function listen(
       else if (file.url) {
         const response = await fetch(file.url, { signal: AbortSignal.timeout(60_000) });
         const bytes = Buffer.from(await response.arrayBuffer());
-        if (mediaType.startsWith("text/")) texts.push(`<file name="${fileName}">\n${bytes.toString("utf8")}\n</file>`);
-        else {
-          attachments.push({ mediaType, data: bytes.toString("base64"), filename: fileName });
-          notes.push(`(Attached: ${fileName})`);
-        }
+        attachments.push({ mediaType, data: bytes.toString("base64"), filename: fileName });
+        notes.push(`(Attached: ${fileName})`);
       }
     }
-    return { attachments, text: texts.join("\n\n") || undefined, notes };
+    return { attachments, notes };
   }
 
   /** Shows "typing..." until the returned function is called. Discord clears it after ten seconds, so it is sent again every eight. */

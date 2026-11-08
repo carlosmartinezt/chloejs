@@ -22,7 +22,7 @@ import { ownFolderTools, ownReadTools, ownTrialTools } from "#chloe/model/tools/
 import { approval, check, connectionsUsed, describe, overviewsOf, run, type Call, type ChloeTool, type ToolContext, type ToolKind, type Tools } from "#chloe/model/tool";
 import { afterRun, beforeRun } from "#chloe/services/historyService";
 import { canReach, deliver } from "#chloe/services/messageService";
-import { madeFolderOf, receivedFolder } from "#chloe/services/receivedService";
+import { madeFolderOf } from "#chloe/services/receivedService";
 import { chatAsk, chatSendFile, sendingScripts, type FileSent, type FileToSend } from "#chloe/model/tools/chat";
 import { NeedsSignIn } from "#chloe/connections/connection";
 import type { Reply } from "#chloe/load/plugin";
@@ -1195,7 +1195,7 @@ function toolsFor(agent: Agent, without: string[] = [], who: { fromOwner?: boole
     ...ownFolderTools()(agent),
     ...(owner ? { ...ownReadTools()(agent), ...ownTrialTools(agent) } : {}),
     ...(agent.tools ?? {}),
-    ...(who.sendFile && !who.guest ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, receivedFolder(agent.id), madeFolderOf(agent.id)]) } : {}),
+    ...(who.sendFile && !who.guest ? { chatSendFile: chatSendFile(who.sendFile, [agent.memory.folder, madeFolderOf(agent.id)]) } : {}),
     ...(who.chat ? { chatAsk: chatAsk() } : {}),
   };
   if (tools.chatSendFile && tools.scriptRun) tools.scriptRun = sendingScripts(tools.scriptRun, tools.chatSendFile);

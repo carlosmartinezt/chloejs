@@ -77,12 +77,12 @@ export function readFile({ search = "", what = "Drive" }: Options = {}) {
 /**
  * Makes a tool that lets the model download one Drive file as it is (a PDF, a
  * picture) and get the full path it was saved at, to hand to a script. It goes
- * in the agent's received files, with what people sent it.
+ * in the agent's made files, for 30 days.
  *
  * The model passes a Drive link or a file id. With a `search`, only a file
  * `drive.searchFiles` listed with it; without one, any file the account can open.
  *
- * - `agent`: the agent's id, whose received files it goes in. Required.
+ * - `agent`: the agent's id, whose made files it goes in. Required.
  *
  * Needs the Google connection.
  */

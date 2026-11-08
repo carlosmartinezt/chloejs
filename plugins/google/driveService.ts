@@ -6,8 +6,8 @@
 //
 // A Google Doc, Sheet or Slides is read as text, through Drive, so a Doc needs
 // nothing of its own. Any other file (a PDF, a picture) is downloaded as it is,
-// into the agent's received files, for its scripts.
-import { keepReceived } from "#chloe/services/receivedService";
+// into the agent's made files, for its scripts.
+import { keepMade } from "#chloe/services/receivedService";
 
 import { googleApi, marked } from "./googleService.ts";
 
@@ -214,12 +214,12 @@ export function fileIdOf(file: string): string | undefined {
 
 /**
  * Downloads one file from Google Drive as it is, such as a PDF or a picture,
- * and saves it with the files people sent the agent (`keepReceived`), so a
- * script can open it and it is deleted with them.
+ * and saves it with the files the agent makes (`keepMade`), so a script can
+ * open it, or the agent send it, and it is deleted with them after 30 days.
  *
  * - `search`: the same Drive search you gave `searchDriveFiles`. Default: `""`, all of Drive.
  * - `what`: a short name for those files, used in the error message. Required.
- * - `agent`: the agent's id, whose received files it goes in. Required.
+ * - `agent`: the agent's id, whose made files it goes in. Required.
  * - `file`: a Drive link to the file, or its id. Required.
  *
  * With a `search`, the file must be one `searchDriveFiles` listed with it.
@@ -260,5 +260,5 @@ export async function downloadDriveFile({
   }
   if (Number(found.size ?? 0) > MOST_BYTES) throw new Error(`${name} is bigger than ${MOST_BYTES / 1024 / 1024} MB.`);
   const data = await googleApi<Buffer>(at, { query: { alt: "media", supportsAllDrives: true }, bytes: true });
-  return { path: await keepReceived(agent, name, data), name: marked(name), kind, bytes: data.length };
+  return { path: await keepMade(agent, name, data), name: marked(name), kind, bytes: data.length };
 }

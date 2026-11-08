@@ -129,7 +129,7 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
     is("and the agent's log", ((await call("GET", "/api/agents/test/log", owner)).body as { id: string }[]).some((one) => one.id === herRun), false);
 
     {
-      const { mkdir, writeFile, readFile: read, stat } = await import("node:fs/promises");
+      const { mkdir, writeFile, readFile: read, readdir, rm, stat } = await import("node:fs/promises");
       const { STATE } = await import("#chloe/core/paths");
       const { forget, cut, branch } = await import("#chloe/model/memory");
       const { keepChatFile, typeOfFile } = await import("#chloe/services/chatFilesService");
@@ -154,10 +154,10 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
       const audit = await read(`${STATE}/memory-audit/test.jsonl`, "utf8");
       is("one from a memory is in the audit log", audit.split("\n").some((line) => line.includes('"serve"') && line.includes("fox.png") && line.includes('"chat"')), true);
 
-      const page = await keepChatFile("test", "test/web-jenny", "member:jenny@example.com", { path: `${test.memory.folder}/fox.png`, name: "](evil)\n.html" });
+      const page = await keepChatFile(test, "test/web-jenny", "member:jenny@example.com", { path: `${test.memory.folder}/fox.png`, name: "](evil)\n.html" });
       is("a name cannot change the line that shows it", page.includes("\n") || page.includes("(evil"), false);
       await writeFile(`${test.memory.folder}/page.html`, "<script>alert(1)</script>");
-      const script = await keepChatFile("test", "test/web-jenny", "member:jenny@example.com", { path: `${test.memory.folder}/page.html`, name: "page.png" });
+      const script = await keepChatFile(test, "test/web-jenny", "member:jenny@example.com", { path: `${test.memory.folder}/page.html`, name: "page.png" });
       const opened = await fetch(`${at}/api/agents/test/chat/files/${fileAt(script)}`, { headers: jenny });
       is(
         "a page named as a picture only downloads, and in a sandbox",
@@ -165,23 +165,51 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
         [false, "application/octet-stream", true, true],
       );
 
-      const there = (one: string) => stat(`${STATE}/chat-files/${one}`).then(() => true, () => false);
+      await rm(`${test.memory.folder}/attachments`, { recursive: true, force: true });
+      // Somebody sends files with their message: each is kept in the agent's memory, out of its history, and shown in their message.
+      const sent = await call("POST", "/api/agents/test/chat", jenny, {
+        thread: "test/web-jenny",
+        prompt: "three files",
+        files: [
+          { name: "form.pdf", mediaType: "application/pdf", data: Buffer.from("%PDF-1.7 form").toString("base64") },
+          { name: "notes.txt", mediaType: "text/plain", data: Buffer.from("milk and eggs").toString("base64") },
+          { name: "photos.zip", mediaType: "application/zip", data: Buffer.from("PK\x03\x04").toString("base64") },
+        ],
+      });
+      const shown = JSON.stringify(lastAsked.at(-1));
+      is(
+        "the model sees the PDF, reads the text and is told of the rest",
+        [sent.status, shown.includes("application/pdf"), shown.includes("milk and eggs"), shown.includes("photos.zip is a application/zip"), shown.includes("application/zip\",\"data")],
+        [200, true, true, true, false],
+      );
+      const kept = (await readdir(`${test.memory.folder}/attachments`)).sort();
+      is("each is kept in the agent's memory, with a file that keeps them out of its history", [kept.length, kept[0], await read(`${test.memory.folder}/attachments/.gitignore`, "utf8")], [4, ".gitignore", "*\n"]);
+      is("and the model is told where", shown.includes("is kept in your memory as attachments/"), true);
+      const asSent = db.prepare("select content from messages where thread = 'test/web-jenny' and role = 'user' and content like '%three files%'").get() as { content: string };
+      const lines = [...asSent.content.matchAll(/\]\(file:test\/([\w-]+)\)/g)].map((one) => one[1]);
+      is("their message names each one", lines.length, 3);
+      is("which opens for them and nobody else", [(await call("GET", `/api/agents/test/chat/files/${lines[0]}`, jenny)).status, (await call("GET", `/api/agents/test/chat/files/${lines[0]}`, owner)).status], [200, 404]);
+      const many = await call("POST", "/api/agents/test/chat", jenny, { thread: "test/web-jenny", prompt: "too many", files: Array.from({ length: 5 }, (_, n) => ({ name: `${n}.txt`, data: "aGk=" })) });
+      is("five at once is too many", many.status, 400);
+
+      const there = (one: string) => Boolean(db.prepare("select 1 from chat_files where id = ?").get(one));
       remember("test/web-files", "user", "two files");
-      const first = await keepChatFile("test", "test/web-files", "owner", { path: `${test.memory.folder}/fox.png`, name: "one.png" });
+      const first = await keepChatFile(test, "test/web-files", "owner", { path: `${test.memory.folder}/fox.png`, name: "one.png" });
       remember("test/web-files", "assistant", first);
       const cutFrom = (db.prepare("select max(id) as id from messages where thread = 'test/web-files'").get() as { id: number }).id;
       remember("test/web-files", "user", "and more");
-      const second = await keepChatFile("test", "test/web-files", "owner", { path: `${test.memory.folder}/fox.png`, name: "two.png" });
+      const second = await keepChatFile(test, "test/web-files", "owner", { path: `${test.memory.folder}/fox.png`, name: "two.png" });
       remember("test/web-files", "assistant", second);
       cut("test/web-files", cutFrom + 1);
-      is("taking a message back takes its file, and leaves the one before", [await there(fileAt(first)), await there(fileAt(second))], [true, false]);
+      is("taking a message back takes who may open its file, and leaves the one before", [there(fileAt(first)), there(fileAt(second))], [true, false]);
+      is("and the file itself stays in the memory", (await stat(`${test.memory.folder}/fox.png`)).isFile(), true);
       branch("test/web-files", cutFrom, "test/web-fork");
       forget("test/web-files");
-      is("a fork keeps a file its first conversation has lost", await there(fileAt(first)), true);
+      is("a fork keeps a file its first conversation has lost", there(fileAt(first)), true);
       forget("test/web-fork");
       db.prepare("update chat_files set at = '2020-01-01T00:00:00Z' where id = ?").run(fileAt(first));
-      await keepChatFile("test", "test/web-other", "owner", { path: `${test.memory.folder}/fox.png`, name: "three.png" });
-      is("and once nothing names it, it goes", await there(fileAt(first)), false);
+      await keepChatFile(test, "test/web-other", "owner", { path: `${test.memory.folder}/fox.png`, name: "three.png" });
+      is("and once nothing names it, it goes", there(fileAt(first)), false);
     }
 
     // A shared conversation is read by anybody signed in here, and written in by nobody new.
@@ -204,6 +232,15 @@ import { agentFor, answers, codeJob, db, lastAsked } from "./shared.ts";
       is("a picture in it opens for the owner", (await call("GET", picture, owner)).status, 200);
       const unnamed = db.prepare("select id from chat_files where thread = 'test/web-jenny' and instr(?, id) = 0 limit 1").get(named.content) as { id: string };
       is("one it does not name does not", (await call("GET", `/api/agents/test/chat/files/${unnamed.id}`, owner)).status, 404);
+      // Somebody who learnt the id of a file that is not theirs, and names it in their own shared conversation.
+      const { keepChatFile } = await import("#chloe/services/chatFilesService");
+      const { writeFile } = await import("node:fs/promises");
+      await writeFile(`${test.memory.folder}/owners.png`, Buffer.from("89504e470d0a1a0a00", "hex"));
+      const owners = /\(file:test\/([\w-]+)\)/.exec(await keepChatFile(test, "test/web-owner", "owner", { path: `${test.memory.folder}/owners.png`, name: "owners.png" }))?.[1];
+      remember("test/web-owner", "assistant", `![owners](file:test/${owners})`);
+      remember("test/web-jenny", "user", `![mine now](file:test/${owners})`);
+      remember("test/web-jenny", "assistant", `![mine now](file:test/${owners})`);
+      is("a shared conversation does not open a file that was not the sharer's", (await call("GET", `/api/agents/test/chat/files/${owners}`, jenny)).status, 404);
       await shared("test/web-jenny", jenny, false);
       is("once they stop sharing it, it is theirs again", [(await read("test/web-jenny", owner)).status, (await call("GET", picture, owner)).status], [404, 404]);
 

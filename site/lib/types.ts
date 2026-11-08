@@ -381,8 +381,8 @@ export interface Said {
   did?: { read: number; changed: number; ran: number; other: number; failed: number };
 }
 
-/** A picture sent with a chat turn, as base64 without the "data:" in front. */
-export interface Picture {
+/** A file sent with a chat turn, as base64 without the "data:" in front. */
+export interface SentFile {
   name: string;
   mediaType: string;
   data: string;

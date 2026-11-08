@@ -1111,23 +1111,33 @@ power.** Every script in an agent's `scripts/` folder, and every executable
 file in its skill folders, is reachable by that agent. If no skill or
 instruction mentions it, it does not belong there.
 
-**A file somebody sends reaches a script only through the state folder.** An
-agent with `scripts` gets each file a message carries saved in
-`received/<agent id>/` (`services/receivedService.ts`, kept 30 days, never for
-a guest) and the path in the message. A file it makes waits in `made/<agent id>/`
-(`MADE_FOLDER` to a script), under the same 30 days. `chatSendFile` sends one
-back only from those folders or the agent's memory, and only on a channel that
+**A file in a conversation is kept in the agent's memory, out of its history.**
+Each file a message carries, on any channel, is saved in `attachments/` in the
+agent's memory (`keepInMemory` in `services/receivedService.ts`, never for a
+guest), and the message says where. That folder holds a `.gitignore` of `*`,
+so no repository takes them: deleting one really deletes it, and the memory's
+history stays small. `saved()` in `channels/shared.ts` decides what the model
+gets, by the file's first bytes and not its name: a picture or a PDF goes to
+it, a text file's words go in the message, and anything else is only named.
+What the model is told about the files is one `<files>` block at the end of
+the message, which the page does not show. A channel hands over every file it
+takes as an attachment and decides nothing else about it. A file the agent
+makes waits in `made/<agent id>/` in the state folder (`MADE_FOLDER` to a
+script), kept 30 days, and so does one it downloads from Drive. `chatSendFile`
+sends one back only from the memory or that folder, and only on a channel that
 passes `sendFile` in `While`. A script that prints `SEND <full path>` hands that
 file over under the same rules, with no model asked (`sendingScripts()`).
 
-**A file on the page is part of what was said.** The page's `sendFile` copies it
-to `chat-files/` (`services/chatFilesService.ts`) and answers with a line,
-`![what it shows](file:<agent>/<id>)` or `[its name](file:<agent>/<id>)`, which
-the reply carries, so the message is the only record of where it goes and a fork
-has it too. `GET /api/agents/<id>/chat/files/<file>` gives it only to whoever
-asked for that reply, and its type is read from its first bytes. One from a
-memory is written to the audit log first. It goes when the last message naming
-it does. **The page loads a picture only from that route.** `![...](https://...)`
+**A file on the page is part of what was said.** The page's `sendFile` and
+`showSent` hand the file to `keepChatFile` (`services/chatFilesService.ts`):
+one already in the memory is shown where it is, any other is copied into
+`attachments/` there. It answers with a line, `![what it shows](file:<agent>/<id>)`
+or `[its name](file:<agent>/<id>)`, which the reply, or the message that sent
+it, carries, so the message is the only record of where it goes and a fork has
+it too. `GET /api/agents/<id>/chat/files/<file>` gives it only to whoever it was
+for, its type is read from its first bytes, and every one served is written to
+the audit log first. Who may open it goes when the last message naming it does;
+the file stays in the memory. **The page loads a picture only from that route.** `![...](https://...)`
 stays a link, and do not change that: a picture from anywhere else tells that
 site who is reading, and a page a model read could have it carry words away in
 its address.

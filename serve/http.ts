@@ -14,7 +14,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { createServer as createSecureServer } from "node:https";
 import { createServer as createPortHolder, type Server as PortHolder, type Socket } from "node:net";
 import { networkInterfaces } from "node:os";
-import { isAbsolute, relative } from "node:path";
+import { relative } from "node:path";
 
 import { z } from "zod";
 
@@ -320,14 +320,27 @@ function newestFirst<Row extends { id: string; started: string }>(rows: Row[]): 
   return [...once.values()].sort((a, b) => (a.started < b.started ? 1 : a.started > b.started ? -1 : 0));
 }
 
-/** The most pictures one chat turn takes. */
-const PICTURES = 4;
-
-/** A picture sent with a chat turn, as base64. Only the kinds every model route reads. */
+/** A picture a guest sends on a web chat, as base64. Only the kinds every model route reads. */
 export const Picture = z.object({
   name: z.string().trim().min(1).max(200),
   mediaType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
   data: z.string().min(1),
+});
+
+/** The most files one chat turn takes. */
+const FILES_AT_ONCE = 4;
+
+/** The largest file a chat turn takes, in bytes, as the channels take by default. */
+const LARGEST_SENT = 10 << 20;
+
+/** A file sent with a chat turn, as base64: any kind, which the runtime sorts out (`saved()` in `channels/shared.ts`). */
+const SentFile = z.object({
+  name: z.string().trim().min(1).max(200),
+  mediaType: z.string().trim().max(200).default(""),
+  data: z
+    .string()
+    .min(1)
+    .max(Math.ceil(LARGEST_SENT / 3) * 4, `A file can be ${LARGEST_SENT >> 20} MB at most.`),
 });
 
 /** Whether an agent has opted in to being reached by another system. */
@@ -418,19 +431,19 @@ function channelOf(request: IncomingMessage): string {
  */
 async function messageFor({ request, response, context, params, who }: At): Promise<(() => Promise<object | undefined>) | void> {
   const agent = context.agent(params.id);
-  const { prompt, thread, model, images, timeZone, replaces } = await body(
+  const { prompt, thread, model, files, timeZone, replaces } = await body(
     request,
     z.object({
       prompt: z.string().trim(),
       thread: z.string().optional(),
       model: z.string().optional(),
       timeZone: z.string().optional(),
-      images: z.array(Picture).max(PICTURES).default([]),
+      files: z.array(SentFile).max(FILES_AT_ONCE, `${FILES_AT_ONCE} files at most, with one message.`).default([]),
       replaces: z.number().int().optional(),
     }),
-    8 << 20,
+    Math.ceil(((FILES_AT_ONCE * LARGEST_SENT) / 3) * 4) + (1 << 20),
   );
-  if (!prompt && !images.length) throw new BadRequest("Say something, or send a picture.");
+  if (!prompt && !files.length) throw new BadRequest("Say something, or send a file.");
   // A token's threads are kept apart from the ones a person started, and
   // each member's from everybody else's, so two callers cannot land in each
   // other's conversation.
@@ -481,23 +494,12 @@ async function messageFor({ request, response, context, params, who }: At): Prom
       // The account is the owner. A member or a token never is.
       fromOwner: !token && !member,
       mayChangeAgent: !token && !member,
-      // Handed to the model for this turn and dropped: what is kept is the
-      // line saying they were attached.
-      files: images.length
-        ? async () => ({
-            attachments: images.map(({ name, mediaType, data }) => ({ mediaType, data, filename: name })),
-            notes: images.map((one) => `(Attached: ${one.name})`),
-          })
-        : undefined,
+      // Kept in the agent's memory, and shown in the message that sent them.
+      files: files.length ? async () => ({ attachments: files.map(({ name, mediaType, data }) => ({ mediaType: mediaType || "application/octet-stream", data, filename: name })) }) : undefined,
     }, { chatHistory: channel === "chat" ? undefined : agent.channels.find((one) => one.name === "api")?.chatHistory }, {
-      // A reply here shows a file inside itself, and the file is kept for whoever asked.
-      sendFile: under
-        ? async (file) => {
-            const inMemory = relative(agent.memory.folder, file.path);
-            if (!inMemory.startsWith("..") && !isAbsolute(inMemory)) await record(agent, "serve", inMemory, from(request), { to: "chat" });
-            return { shows: await keepChatFile(agent.id, under, askerOf(who), file) };
-          }
-        : undefined,
+      // A file here shows inside the message, sent or replied, for whoever wrote it or asked.
+      sendFile: under ? async (file) => ({ shows: await keepChatFile(agent, under, askerOf(who), file) }) : undefined,
+      showSent: under ? (file) => keepChatFile(agent, under, askerOf(who), file) : undefined,
     });
     if (naming) await Promise.race([naming, new Promise((done) => setTimeout(done, 5000))]);
     const kept = db.prepare("select id, role from messages where thread = ? and id > ? order by id").all(under, before);
@@ -1224,8 +1226,8 @@ const routes: Route[] = [
   {
     method: "POST",
     path: "/api/agents/:id/chat",
-    does: "One turn with the agent. Send the same thread again and it remembers what was said. Pictures are seen in this turn only and never kept.",
-    takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "timeZone": "optional, like Europe/Madrid, so it says the writer\'s date", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}], "replaces": "optional, the id of a message you wrote in this thread: it and everything after it are taken back first, as an edit"}',
+    does: "One turn with the agent. Send the same thread again and it remembers what was said. Up to 4 files of 10 MB, of any kind, kept in the agent's memory: a picture or a PDF the model sees, a text file it reads, anything else it is told is there.",
+    takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "timeZone": "optional, like Europe/Madrid, so it says the writer\'s date", "files": [{"name": "...", "mediaType": "application/pdf", "data": "base64"}], "replaces": "optional, the id of a message you wrote in this thread: it and everything after it are taken back first, as an edit"}',
     token: true,
     needsApiChannel: true,
     member: "chat",
@@ -1238,7 +1240,7 @@ const routes: Route[] = [
     method: "POST",
     path: "/api/agents/:id/chat/start",
     does: "The same turn, without keeping the request open while it runs, so no proxy can cut it off: answers at once with the id to collect the answer by. It carries on if the caller goes away.",
-    takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "timeZone": "optional, like Europe/Madrid, so it says the writer\'s date", "images": [{"name": "...", "mediaType": "image/png", "data": "base64"}], "replaces": "optional, the id of a message you wrote in this thread: it and everything after it are taken back first, as an edit"}',
+    takes: '{"prompt": "...", "thread": "a name of your own, optional", "model": "optional", "timeZone": "optional, like Europe/Madrid, so it says the writer\'s date", "files": [{"name": "...", "mediaType": "application/pdf", "data": "base64"}], "replaces": "optional, the id of a message you wrote in this thread: it and everything after it are taken back first, as an edit"}',
     token: true,
     needsApiChannel: true,
     member: "chat",
@@ -1263,14 +1265,18 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/agents/:id/chat/files/:file",
-    does: "A file a reply handed over, only to whoever asked for that reply, or to anybody signed in when a shared conversation names it. A picture or a PDF opens in the browser, and anything else downloads. A 404 means it is not theirs, or its conversation was deleted.",
+    does: "A file in a conversation, sent or handed over in a reply, from the agent's memory: only to whoever sent it or asked for that reply, or to anybody signed in when a shared conversation names it. A picture or a PDF opens in the browser, and anything else downloads. Each one served is in the memory's audit log. A 404 means it is not theirs, its conversation was deleted, or it is no longer in the memory.",
     token: true,
     needsApiChannel: true,
     member: "filtered",
-    handle: async ({ response, params, who }) => {
-      const asked = may(who, params.id, "chat") ? chatFileFor(params.id, params.file, askerOf(who)) : undefined;
-      const file = asked ?? (who?.kind === "token" ? undefined : sharedChatFile(params.id, params.file));
-      if (!file) throw new NotFound("No such file.");
+    handle: async ({ request, response, context, params, who }) => {
+      const agent = context.agent(params.id);
+      const asked = may(who, params.id, "chat") ? chatFileFor(agent, params.file, askerOf(who)) : undefined;
+      const file = asked ?? (who?.kind === "token" ? undefined : sharedChatFile(agent, params.file));
+      const data = file && (await readFile(file.path).catch(() => undefined));
+      if (!file || !data) throw new NotFound("No such file.");
+      // Written down before it is served, and refused when it cannot be.
+      await record(agent, "serve", relative(agent.memory.folder, file.path), from(request), { to: "chat" });
       response.writeHead(200, {
         ...chatFileHeaders(file),
         "cache-control": "private, max-age=3600",
@@ -1278,7 +1284,7 @@ const routes: Route[] = [
         "x-robots-tag": "noindex, nofollow, noarchive",
         "referrer-policy": "no-referrer",
       });
-      response.end(await readFile(file.path));
+      response.end(data);
     },
   },
   {

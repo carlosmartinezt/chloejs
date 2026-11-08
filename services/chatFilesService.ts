@@ -1,30 +1,39 @@
-// The files a reply hands over on the page: a picture or a PDF the person asked
-// for, kept for as long as the conversation it is in.
+// The files in a conversation on the page: a picture or a PDF the person asked
+// for, or one they sent.
 //
-// A reply names one in its words, as `![what it shows](file:<agent>/<id>)` or
-// `[its name](file:<agent>/<id>)`, so the message is the one record of where it
-// goes, and a fork of the conversation has it too. The page reads that and asks
-// the runtime for the file, and shows it only to whoever asked for the reply,
-// or to anybody signed in reading a conversation that was shared.
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+// Each is a file in the agent's memory (one sent, or one a reply made, is
+// kept in `attachments/` there), so its owner can browse it and the agent can find
+// it again, and it stays when the conversation goes. A message names one in
+// its words, as `![what it shows](file:<agent>/<id>)` or
+// `[its name](file:<agent>/<id>)`, so the message is the one record of where
+// it goes, and a fork of the conversation has it too. The page reads that and
+// asks the runtime for the file, and shows it only to whoever it was for, or
+// to anybody signed in reading a conversation that was shared. What says who
+// may open it is a row here, which goes with the last message naming it.
+import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { rmSync, statSync } from "node:fs";
-import { basename, extname } from "node:path";
+import { statSync } from "node:fs";
+import { basename, extname, isAbsolute, relative } from "node:path";
 
+import { confine } from "#chloe/core/confine";
 import { db } from "#chloe/core/db";
-import { STATE } from "#chloe/core/paths";
+import { keepInMemory } from "./receivedService.ts";
+
+/** The agent a file is kept for: its id and its memory folder. */
+interface Whose {
+  id: string;
+  memory: { folder: string };
+}
 
 /** The largest file a reply can hand over, in bytes. */
 const LARGEST = 25_000_000;
 
-/** A file no message names after this long, in milliseconds, is one whose reply failed. */
+/** A file's row no message names after this long, in milliseconds, is one whose reply failed. */
 const UNUSED_AFTER = 86_400_000;
 
-const FOLDER = () => `${STATE}/chat-files`;
-
-/** A file a reply handed over. */
+/** A file in a conversation. */
 export interface ChatFile {
-  /** Where it is on disk. */
+  /** Where it is on disk, inside the agent's memory. */
   path: string;
   /** The name the person sees. */
   name: string;
@@ -49,44 +58,62 @@ export function typeOfFile(data: Buffer): string {
 }
 
 /**
- * Keeps a copy of a file for one conversation, and returns the line that shows
- * it in a reply. Throws when the file is over the size a reply can hand over.
+ * Lets one person open a file in one conversation, and returns the line that
+ * shows it in a message. A file in the agent's memory is shown where it is;
+ * any other is copied into `attachments/` there first. Throws when the file is over
+ * the size a conversation takes.
  *
- * - `agent`: the agent's id.
+ * - `agent`: the agent, whose memory it is in.
  * - `thread`: the conversation.
- * - `asker`: who asked for the reply, the only one who gets it back.
+ * - `asker`: who it is for, the only one who may open it.
  * - `file`: where it is, and the name the person sees.
  */
-export async function keepChatFile(agent: string, thread: string, asker: string, file: { path: string; name: string }): Promise<string> {
+export async function keepChatFile(agent: Whose, thread: string, asker: string, file: { path: string; name: string }): Promise<string> {
   if (statSync(file.path).size > LARGEST) throw new Error(`${file.name} is over ${LARGEST / 1_000_000} MB, too large to send here.`);
   dropUnusedFiles();
-  const id = randomUUID();
   const data = await readFile(file.path);
   const type = typeOfFile(data);
-  await mkdir(FOLDER(), { recursive: true, mode: 0o700 });
-  await writeFile(`${FOLDER()}/${id}`, data, { mode: 0o600 });
+  const inMemory = relative(agent.memory.folder, file.path);
+  const path = !inMemory.startsWith("..") && !isAbsolute(inMemory) ? inMemory : relative(agent.memory.folder, await keepInMemory(agent.memory.folder, file.name, data));
+  const id = randomUUID();
   const name = basename(file.name).replace(/[\]\[()\n\r]+/g, " ").trim() || "file";
-  db.prepare("insert into chat_files (id, agent, thread, asker, name, type, at) values (?, ?, ?, ?, ?, ?, ?)").run(id, agent, thread, asker, name, type, new Date().toISOString());
+  db.prepare("insert into chat_files (id, agent, thread, asker, name, type, at, path) values (?, ?, ?, ?, ?, ?, ?, ?)").run(id, agent.id, thread, asker, name, type, new Date().toISOString(), path);
   const words = type.startsWith("image/") ? name.slice(0, name.length - extname(name).length) : name;
-  return `${type.startsWith("image/") ? "!" : ""}[${words}](file:${agent}/${id})`;
+  return `${type.startsWith("image/") ? "!" : ""}[${words}](file:${agent.id}/${id})`;
 }
 
-/** The file with this id, when it is this agent's and this person asked for it. Otherwise undefined. */
-export function chatFileFor(agent: string, id: string, asker: string): ChatFile | undefined {
-  const row = db.prepare("select name, type from chat_files where id = ? and agent = ? and asker = ?").get(id, agent, asker) as { name: string; type: string } | undefined;
-  return row && { path: `${FOLDER()}/${id}`, ...row };
+/** The file of a row, inside the agent's memory, or undefined when it is no longer there. */
+function fileOf(agent: Whose, row: { name: string; type: string; path: string } | undefined): ChatFile | undefined {
+  if (!row?.path) return undefined;
+  try {
+    return { ...row, path: confine(agent.memory.folder, row.path) };
+  } catch {
+    return undefined;
+  }
 }
 
-/** The file with this id when a shared conversation names it. Otherwise undefined. */
-export function sharedChatFile(agent: string, id: string): ChatFile | undefined {
+/** The file with this id, when it is this agent's and is for this person. Otherwise undefined. */
+export function chatFileFor(agent: Whose, id: string, asker: string): ChatFile | undefined {
+  return fileOf(agent, db.prepare("select name, type, path from chat_files where id = ? and agent = ? and asker = ?").get(id, agent.id, asker) as { name: string; type: string; path: string } | undefined);
+}
+
+/**
+ * The file with this id when a reply in a shared conversation names it, and
+ * the file is of whoever shared that conversation. Otherwise undefined. Anybody
+ * can write a file's line into their own conversation, so sharing hands over
+ * only what was the sharer's already: the owner's, or that one person's.
+ */
+export function sharedChatFile(agent: Whose, id: string): ChatFile | undefined {
   const row = db
     .prepare(
-      `select name, type from chat_files where id = ? and agent = ? and exists (
-         select 1 from messages m join threads t on t.thread = m.thread where t.shared is not null and instr(m.content, ?) > 0
+      `select name, type, path from chat_files f where f.id = ? and f.agent = ? and exists (
+         select 1 from messages m join threads t on t.thread = m.thread
+         where t.shared is not null and m.role = 'assistant' and instr(m.content, ?) > 0
+           and case when f.asker = 'owner' then t.owner is null or t.owner not in (select email from people) else f.asker = 'member:' || t.owner end
        )`,
     )
-    .get(id, agent, `](file:${agent}/${id})`) as { name: string; type: string } | undefined;
-  return row && { path: `${FOLDER()}/${id}`, ...row };
+    .get(id, agent.id, `](file:${agent.id}/${id})`) as { name: string; type: string; path: string } | undefined;
+  return fileOf(agent, row);
 }
 
 /**
@@ -106,8 +133,9 @@ export function chatFileHeaders(file: ChatFile): Record<string, string> {
 }
 
 /**
- * Deletes the files no message names any more: any of this conversation's, and
- * any of a day old from a reply that failed or a fork since deleted.
+ * Forgets who may open the files no message names any more: any of this
+ * conversation's, and any of a day old from a reply that failed or a fork
+ * since deleted. The files stay in the agent's memory.
  *
  * - `thread`: the conversation that just lost messages. Leave it out while a
  *   reply is being written, because what that reply sent is not in a message yet.
@@ -120,6 +148,5 @@ export function dropUnusedFiles(thread?: string): void {
   for (const { id, agent } of rows) {
     if (said.includes(`](file:${agent}/${id})`)) continue;
     db.prepare("delete from chat_files where id = ?").run(id);
-    rmSync(`${FOLDER()}/${id}`, { force: true });
   }
 }

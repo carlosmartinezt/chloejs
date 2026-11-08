@@ -1,22 +1,20 @@
-// The files people send an agent, kept on disk so its scripts can open them,
-// and the files an agent makes on the way to sending one.
+// The files that are part of a conversation, kept in the agent's memory, and
+// the files an agent makes on the way to sending one.
 //
-// A message's files go to the model as they are. An agent that can run
-// scripts also gets each one saved here, and the path in the message, so a
-// script can be handed it. Each agent has its own folders in the state folder,
-// and a file is kept for KEEP_DAYS.
+// A file somebody sent, or one the agent handed over, goes in `attachments/` in the
+// agent's memory, where its owner can browse it and the agent can find it
+// again later. That folder is kept out of the memory's history: a file deleted
+// there is gone, and the history stays small.
 import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 
 import { STATE } from "#chloe/core/paths";
 
-/** How long a file someone sent is kept, in days. */
-export const KEEP_DAYS = 30;
+/** The folder in an agent's memory that conversations' files are kept in. */
+export const FILES = "attachments";
 
-/** The folder an agent's received files are kept in: `received/<agent id>` in the state folder. */
-export function receivedFolder(agent: string): string {
-  return `${STATE}/received/${agent}`;
-}
+/** How long a made file is kept, in days. */
+export const KEEP_DAYS = 30;
 
 /**
  * The folder an agent's made files wait in: `made/<agent id>` in the state
@@ -37,23 +35,54 @@ export function madeFolderOf(agent: string): string {
 }
 
 /**
- * Saves one file a person sent the agent, and returns its full path. The name
- * is the time it came and its own name made safe, like
- * `2026-10-12T14-03-22-form.pdf`, so two files with one name both stay. Files
- * in that folder older than `KEEP_DAYS` are deleted first.
+ * Keeps one file of a conversation in `attachments/` in the agent's memory, and
+ * returns its full path. The name is the time it came and its own name made
+ * safe, like `2026-10-12T14-03-22-form.pdf`, so two files with one name both
+ * stay. The folder holds a `.gitignore` of `*`, so whatever repository the
+ * memory is in never takes these files into its history.
  *
- * - `agent`: the agent's id.
+ * - `memory`: the agent's memory folder.
  * - `name`: the file's name as it was sent. Default: "file".
  * - `data`: its contents.
  */
-export async function keepReceived(agent: string, name: string | undefined, data: Buffer): Promise<string> {
-  const folder = receivedFolder(agent);
+export async function keepInMemory(memory: string, name: string | undefined, data: Buffer): Promise<string> {
+  const folder = `${memory}/${FILES}`;
   await mkdir(folder, { recursive: true, mode: 0o700 });
-  await forget(folder);
-  const safe = basename(name || "file").replace(/[^\w.-]+/g, "-").replace(/^[.-]+/, "").slice(-100) || "file";
-  const path = `${folder}/${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}-${safe}`;
+  await writeFile(`${folder}/.gitignore`, "*\n", { flag: "wx" }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "EEXIST") throw error;
+  });
+  for (let n = 1; ; n++) {
+    const path = `${folder}/${stamped(name, n)}`;
+    const written = await writeFile(path, data, { mode: 0o600, flag: "wx" }).then(
+      () => true,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "EEXIST") return false;
+        throw error;
+      },
+    );
+    if (written) return path;
+  }
+}
+
+/**
+ * Saves one file in the agent's made files (`madeFolder`), and returns its
+ * full path, named as `keepInMemory` names one.
+ *
+ * - `agent`: the agent's id.
+ * - `name`: the file's name. Default: "file".
+ * - `data`: its contents.
+ */
+export async function keepMade(agent: string, name: string | undefined, data: Buffer): Promise<string> {
+  const folder = await madeFolder(agent);
+  const path = `${folder}/${stamped(name)}`;
   await writeFile(path, data, { mode: 0o600 });
   return path;
+}
+
+/** A file's name made safe, after the time now, like `2026-10-12T14-03-22-form.pdf`. */
+function stamped(name: string | undefined, n = 1): string {
+  const safe = basename(name || "file").replace(/[^\w.-]+/g, "-").replace(/^[.-]+/, "").slice(-100) || "file";
+  return `${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}-${n > 1 ? `${n}-` : ""}${safe}`;
 }
 
 /** Deletes the files in `folder` older than `KEEP_DAYS`. */

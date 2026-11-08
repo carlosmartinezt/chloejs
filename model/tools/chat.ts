@@ -36,12 +36,12 @@ export function chatSendFile(send: (file: FileToSend) => Promise<void | FileSent
   return Object.assign(tool({
     description:
       "Send a file to the person you are talking with, as an attachment in this chat. The file must be in " +
-      "your memory, among the files you made, or be one they sent you (its path was in their message). When the " +
+      "your memory, which keeps the files people sent you, or among the files you made. When the " +
       "answer has `shows`, write that line in your reply exactly as it came, where the file belongs. Next to the " +
       "words about it is best, and a picture at the start of a list item sits beside that item. Several lines in a row " +
       "show as a row. A file you do not place goes at the end of your reply.",
     inputSchema: z.object({
-      path: z.string().describe("The file: a path inside your memory, or the full path of a file you made or they sent."),
+      path: z.string().describe("The file: a path inside your memory, or the full path of a file you made."),
       name: z.string().optional().describe("The name they see, like form-filled.pdf. Default: the file's own name."),
     }),
     execute: async ({ path, name }) => {
@@ -86,7 +86,8 @@ export function chatAsk(): ChloeTool {
     description:
       "Ask the person you are talking with to pick from a few answers. Their chat shows each as a button where it can, " +
       "and a box to tick each when they may pick several. Your reply ends with this question, so say anything else first, " +
-      "in the question itself. What they pick comes back as their next message. Use it only when the answer is one of a short list.",
+      "in the question itself. What they pick comes back as their next message. Use it only when the answer is one of a short list. " +
+      "Never use it in place of starting: when they ask for help, give it first, and ask only what would change what you do next.",
     inputSchema: z.object({
       question: z.string().trim().min(1).describe("The question, as you would write it to them."),
       options: z.array(z.string().trim().min(1).max(60)).min(2).max(8).describe("The answers to pick from, 2 to 8, each a few words."),
@@ -109,5 +110,5 @@ function inside(folders: string[], path: string): string {
       // Try the next one.
     }
   }
-  throw new Error(`${path} is not in your memory, the files you made or the files sent to you, so it cannot be sent.`);
+  throw new Error(`${path} is not in your memory or the files you made, so it cannot be sent.`);
 }

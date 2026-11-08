@@ -409,7 +409,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastEffort, lastTools
 }
 
 {
-  about("a file somebody sends is kept for the agent's scripts, and one can be sent back");
+  about("a file somebody sends is kept in the agent's memory, and one can be sent back");
 
   const { receive } = await import("#chloe/channels/shared");
   const { mkdir, readFile, writeFile } = await import("node:fs/promises");
@@ -421,15 +421,15 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastEffort, lastTools
   const message = { channel: "test", chat: "1", thread: "test/files-1", from: { id: "1", name: "Ada" }, text: "fill this in", private: true, files: async () => ({ attachments: [pdf], notes: ["(Attached: form one.pdf)"] }) };
 
   answers.push("Read it.");
-  await receive({ ...base, tools: { webReadPage: fake("A page.") } }, message, { allowFrom: ["1"] });
+  await receive({ ...base, tools: { webReadPage: fake("A page.") } }, message, { allowFrom: ["1"], guests: true });
   const told = () => JSON.stringify(lastAsked.at(-1) ?? "");
-  is("an agent that runs no scripts is not told of a saved copy", told().includes("is saved at"), false);
+  is("a guest's file is seen and not kept", [told().includes("application/pdf"), told().includes("is kept in your memory")], [true, false]);
 
   answers.push("Read it.");
   await receive({ ...base, tools: { scriptRun: fake("Run a script.") } }, message, { allowFrom: ["1"] });
-  const path = /saved at (\S+)\)/.exec(told())?.[1] ?? "";
-  is("one that does is told where a copy is, in the state folder, under a safe name", /\/received\/test\/[\dT-]+-form-one\.pdf$/.test(path), true);
-  is("and the copy is the file", await readFile(path, "utf8"), "%PDF blank");
+  const path = /kept in your memory as (\S+)\)/.exec(told())?.[1] ?? "";
+  is("anybody else's is kept in the agent's memory under a safe name, and it is told where", /^attachments\/[\dT-]+-form-one\.pdf$/.test(path), true);
+  is("and the copy is the file", await readFile(`${base.memory.folder}/${path}`, "utf8"), "%PDF blank");
   is("with no way to send it back on a channel that cannot", lastTools.includes("chatSendFile"), false);
 
   const sent: string[] = [];
@@ -441,7 +441,7 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastEffort, lastTools
   );
   await receive({ ...base, tools: { scriptRun: fake("Run a script.") } }, { ...message, files: undefined }, { allowFrom: ["1"] }, { sendFile });
   is("a channel that can send files gives the turn a way to, and a file in the memory goes", sent, ["form-filled.pdf: %PDF filled"]);
-  is("and nothing outside the memory and the files sent to it does", told().includes("is not in your memory, the files you made or the files sent to you"), true);
+  is("and nothing outside the memory and the files it made does", told().includes("is not in your memory or the files you made"), true);
 
   const { madeFolder } = await import("#chloe/services/receivedService");
   await writeFile(`${await madeFolder("test")}/made.pdf`, "%PDF made");
