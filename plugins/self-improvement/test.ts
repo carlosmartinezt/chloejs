@@ -38,7 +38,7 @@ import { agentFor, answers, codeJob, lastAsked } from "#chloe/ops/test/shared";
     told().includes("## Changing yourself (from the self-improvement plugin)") && told().includes("Keep what you learned in your memory"),
     true,
   );
-  is("and that what it cannot do is not yet, and repeated work can be a habit", told().includes("cannot do it yet") && told().includes("make it a habit"), true);
+  is("and that what it cannot do is not yet, and repeated work can be a habit", told().includes("you cannot do yet") && told().includes("make it a habit"), true);
   is("and every section it is told says who put it there", told().includes("## How you grow (from the self-improvement plugin)"), true);
   answers.push("Done.");
   await turn({ agent, prompt: "change it", source: "test", mayChangeAgent: true });

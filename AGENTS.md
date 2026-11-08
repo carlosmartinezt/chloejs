@@ -201,8 +201,8 @@ its skills, its jobs, and its code (its tools, services, channels and scripts,
 setting: an ability is on or off, because code an agent writes is code it then
 runs as itself and could get round any file kept back. `selfWriteFile` takes every file one
 change needs and commits them as one, after committing what a person changed
-by hand in those files under the box's own git name. An owner's turn lists the
-agent's files and the guides in its purpose, and `ownReadFile` and
+by hand in those files under the box's own git name. `ownListFiles` lists the
+agent's files, `ownReadGuide` carries the list of guides in its description, and `ownReadFile` and
 `ownReadGuide` take several at once, so a change is one call to read and one
 to write. With code among them,
 `loadsOrPutBack()` beside it writes them all, loads the

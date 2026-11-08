@@ -502,6 +502,10 @@ import { agentFor, answers, asked, codeJob, db, lastAsked, lastEffort, lastTools
   const several = await receive(base, { ...message, text: "and extras?" }, { allowFrom: ["1"] });
   is("several may be picked", [several?.text, several?.multiple], ["Anything with it?\n(any of wine, cake, flowers, with commas between)", true]);
 
+  answers.push({ content: "Saturday is full, so I held Friday at 8.", ...asks({ question: "Keep it?", options: ["Yes", "No"] }) });
+  const said = await receive(base, { ...message, text: "Saturday please" }, { allowFrom: ["1"] });
+  is("what it wrote before asking comes first, then the question", said?.text, "Saturday is full, so I held Friday at 8.\n\nKeep it?\n(Yes, No)");
+
   answers.push("Done.");
   await turn({ agent: base, prompt: "check the bookings", source: "test" });
   is("a run with nobody to answer cannot ask", lastTools.includes("chatAsk"), false);

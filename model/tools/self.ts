@@ -10,7 +10,7 @@ import { z } from "zod";
 
 import { tryJob } from "#chloe/core/clock";
 import type { Home } from "#chloe/load/load";
-import { guide, ownFile, ownFiles, ownRun, ownRuns } from "#chloe/services/selfService";
+import { guide, guides, ownFile, ownFiles, ownRun, ownRuns } from "#chloe/services/selfService";
 import type { ChloeTool, Tools, ToolKind } from "../tool.ts";
 
 /**
@@ -81,8 +81,8 @@ export function ownReadTools(): (agent: Home) => Tools {
         description:
           "Read the guides for the version of Chloe you run on: what you can be given and how. Connections (Gmail, " +
           "Calendar, Drive, sending mail), channels (Telegram, Slack, Discord, WhatsApp, email, a chat box on a website), " +
-          "tools like reading web pages, jobs and their schedules, settings. Give every guide you need in one call: " +
-          "the list of them is in your purpose.",
+          "tools like reading web pages, jobs and their schedules, settings. Give every guide you need in one call. " +
+          `The guides:\n${guides().map((one) => `- ${one.page}: ${one.about}`).join("\n")}`,
         inputSchema: z.object({
           pages: z.array(z.string()).min(1).max(10).describe('Guides\' names from the list, like "connections".'),
         }),

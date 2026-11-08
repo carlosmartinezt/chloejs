@@ -927,8 +927,10 @@ export async function loop(options: {
       }
       if (one?.endsReply && !failed && !refused) {
         const reply = output as { text?: unknown; options?: unknown; multiple?: unknown };
+        // What it wrote in the same answer comes first: dropping it left a
+        // reply that was a bare question, with the reasons for asking gone.
         const ended = {
-          text: String(reply?.text ?? ""),
+          text: [step.text.trim(), String(reply?.text ?? "")].filter(Boolean).join("\n\n"),
           ...(Array.isArray(reply?.options) && { options: reply.options.map(String) }),
           ...(reply?.multiple === true && { multiple: true }),
         };

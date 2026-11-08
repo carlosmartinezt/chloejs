@@ -65,9 +65,9 @@ in turns its owner wrote, so you can ask "what did you send me yesterday?"
 without a visitor or a token seeing what other people said. `ownTryJob` runs
 one of its jobs as a [trial](/docs/jobs#a-trial-run), which sends nothing and
 answers with what it would have sent, and `ownReadGuide` reads these guides,
-so it can tell you what it could be given. The owner's turns also list its
-files and these guides in its purpose, so it reads what a change needs in
-one call and writes it in the next.
+so it can tell you what it could be given. It lists its files with
+`ownListFiles`, and `ownReadGuide` names every guide, so it reads what a
+change needs in one call and writes it in the next.
 A job, a token and a visitor never get them, because a run holds what
 other people said. Who the owner is: `owner` in settings, the first entry in a
 channel's `allowFrom`, or the account on the dashboard.

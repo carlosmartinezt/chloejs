@@ -85,8 +85,8 @@ export function chatAsk(): ChloeTool {
   return Object.assign(tool({
     description:
       "Ask the person you are talking with to pick from a few answers. Their chat shows each as a button where it can, " +
-      "and a box to tick each when they may pick several. Your reply ends with this question, so say anything else first, " +
-      "in the question itself. What they pick comes back as their next message. Use it only when the answer is one of a short list. " +
+      "and a box to tick each when they may pick several. Your reply is what you wrote alongside this call, then the " +
+      "question, which ends it. What they pick comes back as their next message. Use it only when the answer is one of a short list. " +
       "Never use it in place of starting: when they ask for help, give it first, and ask only what would change what you do next.",
     inputSchema: z.object({
       question: z.string().trim().min(1).describe("The question, as you would write it to them."),
